@@ -101,9 +101,11 @@ a mirror. Click an arc, an agenda row or a day in the year grid to open it.
 Every drag moves in fifteen-minute steps and each step **clicks**: a
 three-millisecond synthesised detent, plus a tap on hardware with a vibrator.
 Moving a whole event sounds lower and rounder than moving one of its ends, so
-you can hear which one you grabbed. Both channels switch off under **Detents**
-in Settings, and the vibration switch only appears on a device that has a motor
-to offer.
+you can hear which one you grabbed. Letting go of a new range pops — the editor
+arriving — and saving a new event answers with two notes going up, the one
+unambiguously finished sound in the app. Both channels switch off under
+**Feedback** in Settings, and the vibration switch only appears on a device that
+has a motor to offer.
 
 The selected day is in the URL (`?d=2026-08-05`), so a day is linkable and the
 back button works.

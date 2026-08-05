@@ -19,7 +19,7 @@ import {
   polar,
 } from "@/lib/dial";
 import { colorOf, statusOf, type Calendar, type Occurrence } from "@/lib/events";
-import { detent, type Detent } from "@/lib/feedback";
+import { chime, detent, type Detent } from "@/lib/feedback";
 import { sunTimes, type Place } from "@/lib/sun";
 import {
   MINUTES_PER_DAY,
@@ -288,6 +288,9 @@ export default function Dial({
     if (!drag) return;
     const { start, end } = resolveDrag(drag.from, drag.to);
     setDrag(null);
+    // The release: the range stops being something you are drawing and starts
+    // being a draft in a modal, and the two-note pop is that handover.
+    chime("opened", { sound: tickSound, haptics: tickHaptics });
     if (end - start < STEP) {
       const from = Math.min(drag.from, MINUTES_PER_DAY - CLICK_DURATION);
       onCreate(from, from + CLICK_DURATION);

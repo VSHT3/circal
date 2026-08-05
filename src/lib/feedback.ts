@@ -94,6 +94,50 @@ const VOICES: Record<Detent, Voice> = {
   },
 };
 
+/** The two moments worth a note rather than a click. */
+export type Chime = "opened" | "created";
+
+interface Note {
+  hz: number;
+  /** Where it lands after the pitch it starts on, if anywhere. */
+  to?: number;
+  /** Seconds after the chime begins. */
+  at: number;
+  decay: number;
+  /** Peak amplitude, straight to the speaker — no filters in this path. */
+  level: number;
+  type: OscillatorType;
+}
+
+/**
+ * Two little figures, both under a fifth of a second.
+ *
+ * `opened` is the pop of the pointer letting go and the editor arriving on
+ * top of it: a falling sine, then a bright triangle a fifth and a half above
+ * it — po-pink. `created` is the same shape resolved upwards instead, which
+ * is the one unambiguously *finished* sound in the app and the only place a
+ * rising interval belongs.
+ *
+ * Pitched, where every detent is noise: a note is a statement about a whole
+ * gesture, and the clicks have the percussive register to themselves.
+ */
+const CHIMES: Record<Chime, { notes: Note[]; buzz: number }> = {
+  opened: {
+    notes: [
+      { hz: 470, to: 380, at: 0, decay: 0.07, level: 0.16, type: "sine" },
+      { hz: 1180, at: 0.05, decay: 0.1, level: 0.09, type: "triangle" },
+    ],
+    buzz: 9,
+  },
+  created: {
+    notes: [
+      { hz: 660, at: 0, decay: 0.09, level: 0.13, type: "triangle" },
+      { hz: 990, at: 0.075, decay: 0.17, level: 0.11, type: "triangle" },
+    ],
+    buzz: 14,
+  },
+};
+
 let ctx: AudioContext | null = null;
 let burstBuffer: AudioBuffer | null = null;
 /** Set once audio has proven unavailable, so we stop paying to find out. */
@@ -184,6 +228,28 @@ function click(voice: Voice) {
   // it ends. Nothing to disconnect by hand.
 }
 
+/** One note of a chime: an oscillator with a short envelope, straight out. */
+function tone(ac: AudioContext, note: Note, from: number) {
+  const t = from + note.at;
+  const osc = ac.createOscillator();
+  osc.type = note.type;
+  osc.frequency.setValueAtTime(note.hz, t);
+  // A falling note is a pop; a steady one is a latch. Both are the shape of
+  // the gesture they report, not decoration.
+  if (note.to !== undefined) osc.frequency.exponentialRampToValueAtTime(note.to, t + note.decay);
+
+  const env = ac.createGain();
+  // A 1.5 ms attack, unlike the detents': an oscillator started at full gain
+  // begins with a step edge, and that edge is a click in front of the note.
+  env.gain.setValueAtTime(0.0001, t);
+  env.gain.linearRampToValueAtTime(note.level, t + 0.0015);
+  env.gain.exponentialRampToValueAtTime(0.0001, t + note.decay);
+
+  osc.connect(env).connect(ac.destination);
+  osc.start(t);
+  osc.stop(t + note.decay + 0.02);
+}
+
 /**
  * Whether this device has a vibrator to offer. False on every desktop
  * browser and on iOS, which has no Vibration API at all — the settings panel
@@ -215,4 +281,19 @@ export function detent(kind: Detent, { sound, haptics }: { sound: boolean; hapti
   const voice = VOICES[kind];
   if (sound) click(voice);
   if (haptics) buzz(voice.buzz);
+}
+
+/**
+ * The editor arriving, and an event actually existing. Outside the detents'
+ * rate limit on purpose: these are one-shot and land straight after the last
+ * click of a drag, which is exactly the gap that limit exists to swallow.
+ */
+export function chime(kind: Chime, { sound, haptics }: { sound: boolean; haptics: boolean }) {
+  if (!sound && !haptics) return;
+  const { notes, buzz: ms } = CHIMES[kind];
+  if (sound) {
+    const built = audio();
+    if (built) for (const note of notes) tone(built.ctx, note, built.ctx.currentTime);
+  }
+  if (haptics) buzz(ms);
 }

@@ -216,7 +216,7 @@ export default function Settings({
                 </span>
               </FieldRow>
 
-              <FieldRow label="Detents" align="top">
+              <FieldRow label="Feedback" align="top">
                 <div className="flex items-center gap-4">
                   <Toggle
                     label="Sound"
@@ -232,8 +232,9 @@ export default function Settings({
                   )}
                 </div>
                 <span className="label text-ink-3">
-                  Clicks every fifteen-minute step you drag on the dial — a lower one for an event
-                  moving whole, a sharper one for either of its ends
+                  Clicks every fifteen-minute step you drag on the dial — lower for an event moving
+                  whole, sharper for either of its ends — and marks the editor opening and a new
+                  event landing
                 </span>
               </FieldRow>
 

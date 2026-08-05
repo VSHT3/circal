@@ -13,6 +13,7 @@ import type { Clock } from "@/lib/time";
 import { dayAgenda, type CalEvent, type Occurrence } from "@/lib/events";
 import { draftEvent, store, useStore } from "@/lib/store";
 import { exportBackup, exportIcs, importFile } from "@/lib/backup";
+import { chime } from "@/lib/feedback";
 import { placeForZone } from "@/lib/places";
 import { refreshFeed, refreshStaleFeeds } from "@/lib/feeds";
 import { notify } from "@/lib/notify";
@@ -244,11 +245,17 @@ export default function App() {
 
   const commit = useCallback(
     (draft: Omit<CalEvent, "id">) => {
-      if (editor?.id) store.update(editor.id, draft);
-      else store.create(draft);
+      if (editor?.id) {
+        store.update(editor.id, draft);
+      } else {
+        store.create(draft);
+        // Only for a new event. Saving an edit changes something that already
+        // existed; this note is for the one moment something starts to.
+        chime("created", { sound: settings.tickSound, haptics: settings.tickHaptics });
+      }
       setEditor(null);
     },
-    [editor],
+    [editor, settings.tickSound, settings.tickHaptics],
   );
 
   const openOccurrence = useCallback((occ: Occurrence) => actions.openEvent(occ.event), [actions]);
