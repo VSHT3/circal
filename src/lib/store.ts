@@ -6,11 +6,22 @@
  * (dial, agenda, sidebar, palette) reads the same snapshot without threading
  * a dozen props through the shell, and a second tab picks up writes via the
  * `storage` event.
+ *
+ * Two properties this file is responsible for, both learned the hard way:
+ *
+ * 1. A write that fails must *say so*. `localStorage` throws on quota and in
+ *    private mode, and the app looked identical either way — the UI showed the
+ *    event saved while the disk did not have it.
+ * 2. A second tab must not overwrite this one. Every action re-reads the blob
+ *    before deriving from it (`fresh()`), so two tabs racing lose an *edit* at
+ *    worst, never the other tab's events.
  * ------------------------------------------------------------------ */
 
 import { useSyncExternalStore } from "react";
 import { startOfDay, type Clock } from "./time";
+import { notify } from "./notify";
 import { PALETTE, type CalEvent, type Calendar, type Repeat } from "./events";
+import type { Place } from "./sun";
 
 const KEY = "circal.v1";
 
@@ -19,22 +30,37 @@ const KEY = "circal.v1";
  * used to name the noon-at-top AM/PM face; it now names the 0–23 face, so a
  * blob written before this bump would silently show the wrong dial. Events
  * survive the bump — only settings reset.
+ *
+ * Still 2: `secondZone`, `place` and `feeds` are new *fields*, and a blob
+ * without them merges the defaults in. Nothing already stored changed meaning,
+ * so there is no reason to throw away anyone's dial preference.
  */
 const SCHEMA = 2;
 
 export interface Settings {
   /** Which face the dial wears — see `lib/dial.ts`. */
   clock: Clock;
+  /** IANA zone for the dial's second ring. `""` = the ring is off. */
+  secondZone: string;
+  /** Where the sun is computed for. `null` = no daylight band. */
+  place: Place | null;
 }
 
 export interface Snapshot {
   schema: number;
+  /** The user's own events. These are what export writes and import merges. */
   events: CalEvent[];
   calendars: Calendar[];
+  /**
+   * Events pulled from subscribed feeds, keyed by their calendar's id. Kept
+   * apart from `events` so a refresh can replace a feed wholesale, and so
+   * nobody's Google calendar ends up inside a circal backup.
+   */
+  feeds: Record<string, CalEvent[]>;
   settings: Settings;
 }
 
-const DEFAULT_SETTINGS: Settings = { clock: "12h" };
+const DEFAULT_SETTINGS: Settings = { clock: "12h", secondZone: "", place: null };
 
 const DEFAULT_CALENDARS: Calendar[] = [
   { id: "personal", name: "Personal", color: PALETTE[0], visible: true },
@@ -93,23 +119,30 @@ const EMPTY: Snapshot = {
   schema: SCHEMA,
   events: [],
   calendars: DEFAULT_CALENDARS,
+  feeds: {},
   settings: DEFAULT_SETTINGS,
 };
+
+function parse(raw: string): Snapshot {
+  const parsed: Partial<Snapshot> = JSON.parse(raw);
+  return {
+    schema: SCHEMA,
+    events: Array.isArray(parsed.events) ? parsed.events : [],
+    calendars: parsed.calendars?.length ? parsed.calendars : DEFAULT_CALENDARS,
+    feeds: parsed.feeds ?? {},
+    // A stale schema means the stored values no longer mean what they say.
+    settings:
+      parsed.schema === SCHEMA ? { ...DEFAULT_SETTINGS, ...parsed.settings } : DEFAULT_SETTINGS,
+  };
+}
 
 function load(): Snapshot {
   if (typeof localStorage === "undefined") return EMPTY;
   try {
     const raw = localStorage.getItem(KEY);
+    lastRaw = raw;
     if (!raw) return { ...EMPTY, events: seed() };
-    const parsed = JSON.parse(raw) as Partial<Snapshot>;
-    return {
-      schema: SCHEMA,
-      events: Array.isArray(parsed.events) ? parsed.events : [],
-      calendars: parsed.calendars?.length ? parsed.calendars : DEFAULT_CALENDARS,
-      // A stale schema means the stored values no longer mean what they say.
-      settings:
-        parsed.schema === SCHEMA ? { ...DEFAULT_SETTINGS, ...parsed.settings } : DEFAULT_SETTINGS,
-    };
+    return parse(raw);
   } catch {
     // A corrupted blob must not brick the app; start clean rather than throw.
     return EMPTY;
@@ -117,21 +150,67 @@ function load(): Snapshot {
 }
 
 let snapshot: Snapshot = EMPTY;
+/** The blob as this tab last saw it. A different string means someone else wrote. */
+let lastRaw: string | null = null;
 let hydrated = false;
 const listeners = new Set<() => void>();
+
+/** Undo is in-memory and session-scoped: a reload starts fresh. */
+const UNDO_DEPTH = 60;
+let past: Snapshot[] = [];
+let future: Snapshot[] = [];
 
 function emit() {
   for (const listener of listeners) listener();
 }
 
-function commit(next: Snapshot) {
+/**
+ * The snapshot, re-read if another tab has written since we last looked.
+ *
+ * Every action derives its next state from this rather than from the module's
+ * `snapshot`, which closes the window between another tab's write and the
+ * `storage` event that tells us about it. Without it, two tabs editing in the
+ * same second silently drop one tab's event.
+ */
+function fresh(): Snapshot {
+  if (typeof localStorage === "undefined") return snapshot;
+  try {
+    const raw = localStorage.getItem(KEY);
+    if (raw !== lastRaw) {
+      snapshot = raw ? parse(raw) : EMPTY;
+      lastRaw = raw;
+    }
+  } catch {
+    // Unreadable storage is the same situation as no storage: keep going on
+    // what is in memory.
+  }
+  return snapshot;
+}
+
+function write(next: Snapshot) {
   snapshot = next;
   try {
-    localStorage.setItem(KEY, JSON.stringify(next));
+    const raw = JSON.stringify(next);
+    localStorage.setItem(KEY, raw);
+    lastRaw = raw;
   } catch {
-    // Private-mode / quota. The session still works, it just will not persist.
+    // Private mode, or the quota is full. The session keeps working on the
+    // in-memory snapshot, but nothing here will survive the reload — and that
+    // is exactly the failure the user has to hear about, because the UI is
+    // otherwise indistinguishable from a successful save.
+    notify("Not saved — this browser is refusing to store data", "error");
   }
   emit();
+}
+
+/** `record: false` for changes not worth an undo step (settings, feed pulls). */
+function commit(next: Snapshot, record = true) {
+  if (record) {
+    past.push(snapshot);
+    if (past.length > UNDO_DEPTH) past.shift();
+    future = [];
+  }
+  write(next);
 }
 
 function subscribe(listener: () => void): () => void {
@@ -147,6 +226,10 @@ function subscribe(listener: () => void): () => void {
   const onStorage = (e: StorageEvent) => {
     if (e.key !== KEY) return;
     snapshot = load();
+    // Undoing onto a base another tab has moved on from would resurrect the
+    // events it just deleted. Ours is the stale history; drop it.
+    past = [];
+    future = [];
     emit();
   };
   window.addEventListener("storage", onStorage);
@@ -165,42 +248,202 @@ export function useStore(): Snapshot {
   );
 }
 
+/**
+ * A holding name for a subscription until its ICS says what it is called.
+ * Exported because the settings panel names a feed the same way when adding
+ * it, and `setFeedEvents` recognises that name as "still a placeholder".
+ */
+export function hostLabel(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return "Subscription";
+  }
+}
+
 /* --------------------------------- actions -------------------------------- */
 
 export const store = {
+  /**
+   * The current state, outside React. For the two callers that act on the
+   * whole store rather than render it — export, and the launch-time feed pull
+   * — where a value captured in a mount effect's closure would be the
+   * pre-hydration snapshot.
+   */
+  snapshot(): Snapshot {
+    return fresh();
+  },
+
   create(event: Omit<CalEvent, "id">): CalEvent {
+    const base = fresh();
     const created: CalEvent = { ...event, id: newId() };
-    commit({ ...snapshot, events: [...snapshot.events, created] });
+    commit({ ...base, events: [...base.events, created] });
     return created;
   },
 
   update(id: string, patch: Partial<CalEvent>) {
+    const base = fresh();
     commit({
-      ...snapshot,
-      events: snapshot.events.map((e) => (e.id === id ? { ...e, ...patch } : e)),
+      ...base,
+      events: base.events.map((e) => (e.id === id ? { ...e, ...patch } : e)),
     });
   },
 
   remove(id: string) {
-    commit({ ...snapshot, events: snapshot.events.filter((e) => e.id !== id) });
+    const base = fresh();
+    commit({ ...base, events: base.events.filter((e) => e.id !== id) });
   },
 
   toggleCalendar(id: string) {
-    commit({
-      ...snapshot,
-      calendars: snapshot.calendars.map((c) => (c.id === id ? { ...c, visible: !c.visible } : c)),
-    });
+    const base = fresh();
+    commit(
+      {
+        ...base,
+        calendars: base.calendars.map((c) => (c.id === id ? { ...c, visible: !c.visible } : c)),
+      },
+      false,
+    );
   },
 
-  recolorCalendar(id: string, color: string) {
-    commit({
-      ...snapshot,
-      calendars: snapshot.calendars.map((c) => (c.id === id ? { ...c, color } : c)),
-    });
-  },
+  /* ------------------------------- settings ------------------------------- */
 
   setClock(clock: Clock) {
-    commit({ ...snapshot, settings: { ...snapshot.settings, clock } });
+    const base = fresh();
+    commit({ ...base, settings: { ...base.settings, clock } }, false);
+  },
+
+  /** `""` turns the second ring off. */
+  setSecondZone(secondZone: string) {
+    const base = fresh();
+    commit({ ...base, settings: { ...base.settings, secondZone } }, false);
+  },
+
+  setPlace(place: Place | null) {
+    const base = fresh();
+    commit({ ...base, settings: { ...base.settings, place } }, false);
+  },
+
+  /* ----------------------------- subscriptions ---------------------------- */
+
+  /** Starts empty; `lib/feeds.ts` pulls it and fills `Snapshot.feeds`. */
+  addFeed(url: string, name: string): Calendar {
+    const base = fresh();
+    const calendar: Calendar = {
+      id: newId(),
+      name,
+      color: PALETTE[(base.calendars.length * 3) % PALETTE.length],
+      visible: true,
+      feed: { url, fetchedAt: 0, error: "" },
+    };
+    commit({ ...base, calendars: [...base.calendars, calendar] }, false);
+    return calendar;
+  },
+
+  removeCalendar(id: string) {
+    const base = fresh();
+    const { [id]: _dropped, ...feeds } = base.feeds;
+    commit({
+      ...base,
+      calendars: base.calendars.filter((c) => c.id !== id),
+      // The user's own events are never orphaned by removing a feed, and a
+      // feed's events live only in `feeds`, so this is the whole cleanup.
+      events: base.events.filter((e) => e.calendarId !== id),
+      feeds,
+    });
+  },
+
+  /**
+   * Replaces the feed's cached events wholesale — a pull is not a merge.
+   * `name` renames the calendar only when it is still the host placeholder the
+   * user was given before the feed said what it was actually called.
+   */
+  setFeedEvents(id: string, events: CalEvent[], name?: string) {
+    const base = fresh();
+    const target = base.calendars.find((c) => c.id === id);
+    if (!target) return;
+    const rename = name && target.feed && target.name === hostLabel(target.feed.url);
+    commit(
+      {
+        ...base,
+        calendars: base.calendars.map((c) =>
+          c.id === id && c.feed
+            ? {
+                ...c,
+                name: rename ? name : c.name,
+                feed: { ...c.feed, fetchedAt: Date.now(), error: "" },
+              }
+            : c,
+        ),
+        feeds: { ...base.feeds, [id]: events },
+      },
+      false,
+    );
+  },
+
+  setFeedError(id: string, error: string) {
+    const base = fresh();
+    commit(
+      {
+        ...base,
+        calendars: base.calendars.map((c) =>
+          c.id === id && c.feed ? { ...c, feed: { ...c.feed, error } } : c,
+        ),
+      },
+      false,
+    );
+  },
+
+  /* -------------------------------- import -------------------------------- */
+
+  /** Adds a calendar and its events in one undoable step. */
+  addCalendarWithEvents(name: string, events: Omit<CalEvent, "id" | "calendarId">[]): Calendar {
+    const base = fresh();
+    const calendar: Calendar = {
+      id: newId(),
+      name,
+      color: PALETTE[(base.calendars.length * 3) % PALETTE.length],
+      visible: true,
+    };
+    commit({
+      ...base,
+      calendars: [...base.calendars, calendar],
+      events: [
+        ...base.events,
+        ...events.map((e) => ({ ...e, id: newId(), calendarId: calendar.id })),
+      ],
+    });
+    return calendar;
+  },
+
+  /** Whole-store restore from a backup. One undo step, so a misfire is not fatal. */
+  restore(next: Pick<Snapshot, "events" | "calendars" | "settings">) {
+    const base = fresh();
+    commit({
+      schema: SCHEMA,
+      events: next.events,
+      calendars: next.calendars,
+      // Feeds are a live mirror, not part of a backup; keep whatever is cached.
+      feeds: base.feeds,
+      settings: { ...DEFAULT_SETTINGS, ...next.settings },
+    });
+  },
+
+  /* --------------------------------- undo --------------------------------- */
+
+  undo(): boolean {
+    const previous = past.pop();
+    if (!previous) return false;
+    future.push(snapshot);
+    write(previous);
+    return true;
+  },
+
+  redo(): boolean {
+    const next = future.pop();
+    if (!next) return false;
+    past.push(snapshot);
+    write(next);
+    return true;
   },
 };
 

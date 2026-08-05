@@ -24,6 +24,21 @@ export interface Calendar {
   name: string;
   color: string;
   visible: boolean;
+  /**
+   * Set when this calendar mirrors a remote ICS feed. Its events are pulled
+   * whole on refresh and live in `Snapshot.feeds`, not `Snapshot.events` —
+   * they are somebody else's data, so they are never edited and never
+   * exported as yours.
+   */
+  feed?: Feed;
+}
+
+export interface Feed {
+  url: string;
+  /** Epoch ms of the last successful pull. `0` = never pulled. */
+  fetchedAt: number;
+  /** Why the last pull failed. `""` when it did not. */
+  error: string;
 }
 
 export interface CalEvent {
@@ -167,6 +182,46 @@ export function dayAgenda(events: CalEvent[], calendars: Calendar[], day: Date) 
   const allDay = all.filter((o) => o.event.allDay);
   const timed = packLanes(all.filter((o) => !o.event.allDay));
   return { timed, allDay, all: [...allDay, ...timed] };
+}
+
+/* ------------------------------- free time -------------------------------- */
+
+export interface Gap {
+  /** Minutes since local midnight. */
+  start: number;
+  end: number;
+}
+
+/**
+ * The holes in a day, at least `minMinutes` wide, inside `[from, to]`.
+ *
+ * The dial already makes gaps the most legible thing on the face; this only
+ * makes them addressable. All-day events do not occupy a gap — an all-day
+ * "Berlin" does not stop you booking lunch.
+ */
+export function freeGaps(
+  occurrences: Occurrence[],
+  minMinutes: number,
+  from: number,
+  to: number,
+): Gap[] {
+  const busy = occurrences
+    .filter((o) => !o.event.allDay)
+    .map((o) => ({ start: Math.max(o.startMin, from), end: Math.min(o.endMin, to) }))
+    .filter((b) => b.end > b.start)
+    .sort((a, b) => a.start - b.start);
+
+  const gaps: Gap[] = [];
+  let cursor = from;
+  for (const block of busy) {
+    if (block.start - cursor >= minMinutes) gaps.push({ start: cursor, end: block.start });
+    // Overlapping events are already sorted by start, so the frontier only
+    // ever moves forwards — a short event nested inside a long one must not
+    // drag it back and invent a gap that is actually booked.
+    cursor = Math.max(cursor, block.end);
+  }
+  if (to - cursor >= minMinutes) gaps.push({ start: cursor, end: to });
+  return gaps;
 }
 
 /* --------------------------------- colour --------------------------------- */
