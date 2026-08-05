@@ -106,6 +106,8 @@ export interface SettingsPanelProps {
   place: PickedPlace | null;
   daylight: boolean;
   moonlight: boolean;
+  tickSound: boolean;
+  tickHaptics: boolean;
   calendars: Calendar[];
   actions: ShellActions;
 }

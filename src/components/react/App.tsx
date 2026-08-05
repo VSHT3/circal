@@ -222,7 +222,7 @@ export default function App() {
   );
 
   useHotkeys({
-    "mod+k": () => setPaletteOpen((open) => !open),
+    "mod+p": () => setPaletteOpen((open) => !open),
     "mod+n": actions.newEvent,
     "mod+y": () => actions.setView("year"),
     "mod+d": () => actions.setView("day"),
@@ -284,6 +284,8 @@ export default function App() {
                 zonePlace={zonePlace}
                 zoneDaylight={settings.zoneDaylight}
                 zoneMoonlight={settings.zoneMoonlight}
+                tickSound={settings.tickSound}
+                tickHaptics={settings.tickHaptics}
                 clock={settings.clock}
                 onOpen={openOccurrence}
                 onCreate={(startMin, endMin) => openDraft(startMin, endMin, day)}
@@ -328,6 +330,8 @@ export default function App() {
         place={settings.place}
         daylight={settings.daylight}
         moonlight={settings.moonlight}
+        tickSound={settings.tickSound}
+        tickHaptics={settings.tickHaptics}
         calendars={calendars}
         actions={actions}
       />

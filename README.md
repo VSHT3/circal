@@ -57,7 +57,7 @@ sent anywhere, which also means nothing is backed up anywhere:
 
 - **Export `.ics`** hands your events to any other calendar.
 - **Backup `.json`** is the whole store — events, calendars, settings — and
-  restores exactly. Both live in Settings and in `⌘K`.
+  restores exactly. Both live in Settings and in `⌘P`.
 - **Import** takes either. A `.ics` lands in a calendar of its own so an
   import can always be told apart from what you wrote; a `.json` restores the
   store. Both are one `⌘Z` away from being undone.
@@ -75,7 +75,7 @@ taking your calendar with it.
 
 |                     |                                                               |
 | ------------------- | ------------------------------------------------------------- |
-| `⌘K`                | Command palette — search, jump to a date, find free time, run |
+| `⌘P`                | Command palette — search, jump to a date, find free time, run |
 | `⌘N`                | New event                                                     |
 | `⌘,`                | Settings                                                      |
 | `⌘Z` / `⇧⌘Z`        | Undo / redo                                                   |
@@ -85,13 +85,17 @@ taking your calendar with it.
 | `T`                 | Today                                                         |
 | `⌘↵` / `⌘⌫` / `esc` | Save / delete / cancel in the editor                          |
 
-Type a duration into `⌘K` — `45m`, `1h30`, `free 20` — and the palette lists
+Type a duration into `⌘P` — `45m`, `1h30`, `free 20` — and the palette lists
 the gaps in the day that fit it. Picking one opens a draft already filling the
 slot.
 
 Drag anywhere on the ring to block out time — the readout in the middle turns
-into the range you are drawing. A click on the ring creates an hour. Click an
-arc, an agenda row or a day in the year grid to open it.
+into the range you are drawing. It moves in fifteen-minute steps, and each step
+**clicks**: a three-millisecond synthesised detent, plus a tap on hardware with
+a vibrator. Both channels switch off under **Detents** in Settings, and the
+vibration switch only appears on a device that has a motor to offer. A click on
+the ring creates an hour. Click an arc, an agenda row or a day in the year grid
+to open it.
 
 The selected day is in the URL (`?d=2026-08-05`), so a day is linkable and the
 back button works.

@@ -1,5 +1,5 @@
 /* ------------------------------------------------------------------ *
- * ⌘K palette — jump to a date, find an event, run a command. Every
+ * ⌘P palette — jump to a date, find an event, run a command. Every
  * result is flattened into one keyboard-navigable list regardless of
  * which group it renders under.
  * ------------------------------------------------------------------ */

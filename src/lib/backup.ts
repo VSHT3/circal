@@ -96,6 +96,11 @@ function readSettings(value: unknown): Settings {
     daylight: value.daylight !== false,
     // `night` is what the dark half was called before it was split off.
     moonlight: value.moonlight !== undefined ? value.moonlight !== false : value.night !== false,
+    // Same reading as the dial switches: a backup from before the detents
+    // existed came from a build where every step was silent by omission, not
+    // by choice, and the default is on.
+    tickSound: value.tickSound !== false,
+    tickHaptics: value.tickHaptics !== false,
   };
 }
 

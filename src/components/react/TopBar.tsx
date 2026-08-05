@@ -84,7 +84,7 @@ export default function TopBar({ day, view, sidebarOpen, onStep, actions }: TopB
         <ActionPill
           label="Command palette"
           icon={<Command size={14} strokeWidth={1.75} />}
-          keys={["⌘", "K"]}
+          keys={["⌘", "P"]}
           onClick={actions.openPalette}
         />
         <ActionPill

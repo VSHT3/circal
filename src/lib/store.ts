@@ -54,7 +54,17 @@ export interface Settings {
   daylight: boolean;
   /** The hours the sun is down, in violet. */
   moonlight: boolean;
+  /** Whether a fifteen-minute step of a drag on the dial clicks, and whether
+   *  it taps. Two channels, because a device that can do both is not
+   *  necessarily somewhere you want either. */
+  tickSound: boolean;
+  tickHaptics: boolean;
 }
+
+/** The switches: every field of `Settings` that is a plain boolean. */
+export type BooleanSetting = {
+  [K in keyof Settings]: Settings[K] extends boolean ? K : never;
+}[keyof Settings];
 
 export interface Snapshot {
   schema: number;
@@ -85,6 +95,11 @@ export const DEFAULT_SETTINGS: Settings = {
   // rendering fault rather than as a choice.
   daylight: true,
   moonlight: true,
+  // On: the drag is the one gesture in the app with a granularity you cannot
+  // see mid-move, and a detent you have to look at is not a detent. Both are
+  // heard only as the result of a deliberate drag, and never on load.
+  tickSound: true,
+  tickHaptics: true,
 };
 
 const DEFAULT_CALENDARS: Calendar[] = [
@@ -363,17 +378,12 @@ export const store = {
     commit({ ...base, settings: { ...base.settings, place } }, false);
   },
 
-  /** The six independent dial annotations, each its own switch. */
-  setDialToggle(
-    key:
-      | "showZoneName"
-      | "showZoneOffset"
-      | "zoneDaylight"
-      | "zoneMoonlight"
-      | "daylight"
-      | "moonlight",
-    on: boolean,
-  ) {
+  /**
+   * Every boolean setting, each its own switch. Derived from `Settings`
+   * rather than listed: the list was already six names long, and a seventh
+   * switch should not be able to exist without a way to set it.
+   */
+  setToggle(key: BooleanSetting, on: boolean) {
     const base = fresh();
     commit({ ...base, settings: { ...base.settings, [key]: on } }, false);
   },

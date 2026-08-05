@@ -19,6 +19,7 @@ import {
   polar,
 } from "@/lib/dial";
 import { colorOf, statusOf, type Calendar, type Occurrence } from "@/lib/events";
+import { detent } from "@/lib/feedback";
 import { sunTimes, type Place } from "@/lib/sun";
 import {
   MINUTES_PER_DAY,
@@ -55,6 +56,9 @@ export interface DialProps {
   zonePlace: Place | null;
   zoneDaylight: boolean;
   zoneMoonlight: boolean;
+  /** Whether each fifteen-minute step of a drag clicks, and whether it taps. */
+  tickSound: boolean;
+  tickHaptics: boolean;
   onOpen: (occ: Occurrence) => void;
   onCreate: (startMin: number, endMin: number) => void;
 }
@@ -101,6 +105,8 @@ export default function Dial({
   zonePlace,
   zoneDaylight,
   zoneMoonlight,
+  tickSound,
+  tickHaptics,
   onOpen,
   onCreate,
 }: DialProps) {
@@ -166,6 +172,13 @@ export default function Dial({
     return new DOMPoint(e.clientX, e.clientY).matrixTransform(ctm.inverse());
   }
 
+  /** Every fifteen-minute step the drag lands on, including the one it starts
+   *  on — the grab is a detent too, and it is the user gesture that lets the
+   *  audio context start at all. */
+  function step() {
+    detent({ sound: tickSound, haptics: tickHaptics });
+  }
+
   function onRingDown(e: ReactPointerEvent<SVGCircleElement>) {
     if (e.button !== 0) return;
     const point = pointIn(e);
@@ -173,13 +186,20 @@ export default function Dial({
     e.currentTarget.setPointerCapture(e.pointerId);
     const m = snap(minutesAtPoint(point.x, point.y, clock), STEP);
     setDrag({ from: m, to: m });
+    step();
   }
 
   function onRingMove(e: ReactPointerEvent<SVGCircleElement>) {
     if (!drag) return;
     const point = pointIn(e);
     if (!point) return;
-    setDrag({ ...drag, to: snap(minutesAtPoint(point.x, point.y, clock), STEP) });
+    const to = snap(minutesAtPoint(point.x, point.y, clock), STEP);
+    // Pointermove fires far more often than the ghost changes shape. Bailing
+    // on an unchanged step is what makes the clicks countable, and it saves
+    // the re-render the drag would otherwise do per event.
+    if (to === drag.to) return;
+    setDrag({ ...drag, to });
+    step();
   }
 
   function onRingUp() {

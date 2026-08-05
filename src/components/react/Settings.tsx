@@ -15,6 +15,7 @@ import { useState, type ReactNode } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Download, RefreshCw, Trash2, Upload } from "lucide-react";
 import { refreshFeed } from "@/lib/feeds";
+import { canVibrate } from "@/lib/feedback";
 import { hostLabel, store } from "@/lib/store";
 import { PLACE_OPTIONS, placeForZone } from "@/lib/places";
 import { sunTimes } from "@/lib/sun";
@@ -60,6 +61,8 @@ export default function Settings({
   place,
   daylight,
   moonlight,
+  tickSound,
+  tickHaptics,
   calendars,
   actions,
 }: SettingsPanelProps) {
@@ -76,6 +79,9 @@ export default function Settings({
    * switch — an offer we cannot keep is worse than one we never made.
    */
   const zonePlace = secondZone ? placeForZone(secondZone) : null;
+  /** Same rule for the vibration switch: no motor, no offer. Desktop and iOS
+   *  are both in that camp, and only the sound half is shown there. */
+  const vibrates = canVibrate();
 
   function pickPlace(zone: string) {
     store.setPlace(zone ? placeForZone(zone) : null);
@@ -148,12 +154,12 @@ export default function Settings({
                     <Toggle
                       label="City name"
                       checked={showZoneName}
-                      onChange={(on) => store.setDialToggle("showZoneName", on)}
+                      onChange={(on) => store.setToggle("showZoneName", on)}
                     />
                     <Toggle
                       label="Offset"
                       checked={showZoneOffset}
-                      onChange={(on) => store.setDialToggle("showZoneOffset", on)}
+                      onChange={(on) => store.setToggle("showZoneOffset", on)}
                     />
                     {zonePlace && (
                       <>
@@ -161,13 +167,13 @@ export default function Settings({
                           label="Daylight"
                           name="Second ring daylight"
                           checked={zoneDaylight}
-                          onChange={(on) => store.setDialToggle("zoneDaylight", on)}
+                          onChange={(on) => store.setToggle("zoneDaylight", on)}
                         />
                         <Toggle
                           label="Moonlight"
                           name="Second ring moonlight"
                           checked={zoneMoonlight}
-                          onChange={(on) => store.setDialToggle("zoneMoonlight", on)}
+                          onChange={(on) => store.setToggle("zoneMoonlight", on)}
                         />
                       </>
                     )}
@@ -188,12 +194,12 @@ export default function Settings({
                     <Toggle
                       label="Daylight"
                       checked={daylight}
-                      onChange={(on) => store.setDialToggle("daylight", on)}
+                      onChange={(on) => store.setToggle("daylight", on)}
                     />
                     <Toggle
                       label="Moonlight"
                       checked={moonlight}
-                      onChange={(on) => store.setDialToggle("moonlight", on)}
+                      onChange={(on) => store.setToggle("moonlight", on)}
                     />
                   </div>
                 )}
@@ -207,6 +213,26 @@ export default function Settings({
                         : sun?.sunrise != null && sun.sunset != null
                           ? `${formatTimeShort(atMinutes(new Date(), sun.sunrise), clock)} – ${formatTimeShort(atMinutes(new Date(), sun.sunset), clock)}`
                           : "No sunrise today"}
+                </span>
+              </FieldRow>
+
+              <FieldRow label="Detents" align="top">
+                <div className="flex items-center gap-4">
+                  <Toggle
+                    label="Sound"
+                    checked={tickSound}
+                    onChange={(on) => store.setToggle("tickSound", on)}
+                  />
+                  {vibrates && (
+                    <Toggle
+                      label="Vibration"
+                      checked={tickHaptics}
+                      onChange={(on) => store.setToggle("tickHaptics", on)}
+                    />
+                  )}
+                </div>
+                <span className="label text-ink-3">
+                  Clicks each fifteen-minute step while dragging a new event onto the dial
                 </span>
               </FieldRow>
 
