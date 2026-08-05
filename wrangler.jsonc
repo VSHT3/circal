@@ -2,12 +2,14 @@
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "circal",
   "compatibility_date": "2026-08-05",
+  "main": "./worker/index.ts",
 
-  // Assets-only Worker: no `main`. Circal is a client-side app — events live in
-  // the browser's localStorage — so the build is pure static output and there
-  // is no server work to put a Worker runtime in front of.
+  // Not assets-only: third-party ICS feeds (Google, Apple, Fastmail…) send no
+  // CORS headers, so subscribing to one needs a same-origin proxy. That's the
+  // Worker's one job — everything else is still the static build.
   "assets": {
     "directory": "./dist",
+    "binding": "ASSETS",
     "html_handling": "force-trailing-slash",
     "not_found_handling": "single-page-application",
   },

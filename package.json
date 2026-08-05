@@ -12,6 +12,7 @@
     "build": "astro build",
     "preview": "astro preview",
     "deploy": "astro build && wrangler deploy",
+    "dev:worker": "astro build && wrangler dev",
     "astro": "astro",
     "check": "astro check",
     "format": "prettier --write .",

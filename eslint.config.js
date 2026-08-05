@@ -10,7 +10,8 @@ import reactHooks from "eslint-plugin-react-hooks";
 import globals from "globals";
 
 export default defineConfig([
-  globalIgnores(["dist/", ".astro/", "node_modules/", "public/"]),
+  // `.wrangler/` holds the dev server's generated bundles — not source.
+  globalIgnores(["dist/", ".astro/", ".wrangler/", "node_modules/", "public/"]),
 
   js.configs.recommended,
   tseslint.configs.recommended,
