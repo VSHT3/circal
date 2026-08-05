@@ -31,9 +31,10 @@ const KEY = "circal.v1";
  * blob written before this bump would silently show the wrong dial. Events
  * survive the bump — only settings reset.
  *
- * Still 2: `secondZone`, `place` and `feeds` are new *fields*, and a blob
- * without them merges the defaults in. Nothing already stored changed meaning,
- * so there is no reason to throw away anyone's dial preference.
+ * Still 2: `secondZone`, `place`, `feeds`, `birth` and `lifeExpectancy` are
+ * new *fields*, and a blob without them merges the defaults in. Nothing
+ * already stored changed meaning, so there is no reason to throw away
+ * anyone's dial preference.
  */
 const SCHEMA = 2;
 
@@ -59,6 +60,15 @@ export interface Settings {
    *  necessarily somewhere you want either. */
   tickSound: boolean;
   tickHaptics: boolean;
+  /**
+   * The one date the life view needs: `YYYY-MM-DD`, local. `""` means it has
+   * never been asked for, which is what puts the prompt on screen the first
+   * time that view is opened.
+   */
+  birth: string;
+  /** Years the life grid runs for, from the birthday. An estimate the user
+   *  owns — no actuarial table is going to know better. */
+  lifeExpectancy: number;
 }
 
 /** The switches: every field of `Settings` that is a plain boolean. */
@@ -100,6 +110,12 @@ export const DEFAULT_SETTINGS: Settings = {
   // heard only as the result of a deliberate drag, and never on load.
   tickSound: true,
   tickHaptics: true,
+  // Unknown, and it stays unknown until asked for: a birth date is the one
+  // piece of the user in this app, so nothing invents one.
+  birth: "",
+  // Eighty. High enough to be a life rather than a countdown, round enough to
+  // read as the estimate it is.
+  lifeExpectancy: 80,
 };
 
 const DEFAULT_CALENDARS: Calendar[] = [
@@ -172,6 +188,27 @@ function migrateSettings(stored: Partial<Settings> & { night?: boolean }): Parti
   return night === undefined ? rest : { moonlight: night, ...rest };
 }
 
+/** Bounds on the life grid: 1 to 150 years, and a birth date that parses.
+ *  A stored `NaN` here would draw a grid of `Invalid Date`. */
+export const LIFE_EXPECTANCY_RANGE = { min: 1, max: 150 } as const;
+
+/**
+ * The two stored values that can be wrong rather than merely absent: a place
+ * with no zone cannot be shown in its own picker, and a life span has to be a
+ * date and a number of years the grid can actually draw.
+ */
+function sane(settings: Settings): Settings {
+  const years = Math.round(settings.lifeExpectancy);
+  return {
+    ...settings,
+    place: settings.place?.zone ? settings.place : null,
+    birth: /^\d{4}-\d{2}-\d{2}$/.test(settings.birth) ? settings.birth : "",
+    lifeExpectancy: Number.isFinite(years)
+      ? Math.min(LIFE_EXPECTANCY_RANGE.max, Math.max(LIFE_EXPECTANCY_RANGE.min, years))
+      : DEFAULT_SETTINGS.lifeExpectancy,
+  };
+}
+
 function parse(raw: string): Snapshot {
   const parsed: Partial<Snapshot> = JSON.parse(raw);
   // A stale schema means the stored values no longer mean what they say.
@@ -184,10 +221,9 @@ function parse(raw: string): Snapshot {
     events: Array.isArray(parsed.events) ? parsed.events : [],
     calendars: parsed.calendars?.length ? parsed.calendars : DEFAULT_CALENDARS,
     feeds: parsed.feeds ?? {},
-    // A place is chosen by city now. One written as bare coordinates cannot be
-    // shown in the picker, and a band the settings panel says is off is worse
-    // than no band — drop it and let it be re-picked.
-    settings: settings.place?.zone ? settings : { ...settings, place: null },
+    // Both of these can be stored *wrong* rather than merely missing, and both
+    // draw something broken if they are.
+    settings: sane(settings),
   };
 }
 
@@ -379,6 +415,16 @@ export const store = {
   },
 
   /**
+   * The life span. `birth` is a `YYYY-MM-DD` day key or `""`; both go through
+   * the same clamp the stored blob does, because the prompt's number field can
+   * hand over an empty string and a life of `NaN` years draws nothing.
+   */
+  setLife(birth: string, lifeExpectancy: number) {
+    const base = fresh();
+    commit({ ...base, settings: sane({ ...base.settings, birth, lifeExpectancy }) }, false);
+  },
+
+  /**
    * Every boolean setting, each its own switch. Derived from `Settings`
    * rather than listed: the list was already six names long, and a seventh
    * switch should not be able to exist without a way to set it.
@@ -489,7 +535,9 @@ export const store = {
       calendars: next.calendars,
       // Feeds are a live mirror, not part of a backup; keep whatever is cached.
       feeds: base.feeds,
-      settings: { ...DEFAULT_SETTINGS, ...next.settings },
+      // Through the same clamp a stored blob goes through: a backup is external
+      // input, and `readSettings` only guarantees the *types*.
+      settings: sane({ ...DEFAULT_SETTINGS, ...next.settings }),
     });
   },
 

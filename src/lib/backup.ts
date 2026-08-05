@@ -101,6 +101,13 @@ function readSettings(value: unknown): Settings {
     // by choice, and the default is on.
     tickSound: value.tickSound !== false,
     tickHaptics: value.tickHaptics !== false,
+    // The life span. Anything unreadable resets to "never asked", which shows
+    // the prompt again rather than drawing a grid around a date we guessed.
+    birth: typeof value.birth === "string" ? value.birth : "",
+    lifeExpectancy:
+      typeof value.lifeExpectancy === "number" && Number.isFinite(value.lifeExpectancy)
+        ? value.lifeExpectancy
+        : DEFAULT_SETTINGS.lifeExpectancy,
   };
 }
 
