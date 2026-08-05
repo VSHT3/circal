@@ -19,13 +19,17 @@ import {
   polar,
 } from "@/lib/dial";
 import { colorOf, statusOf, type Calendar, type Occurrence } from "@/lib/events";
+import { sunTimes, type Place } from "@/lib/sun";
 import {
   MINUTES_PER_DAY,
   clamp,
+  formatOffset,
   isSameDay,
   minutesOfDay,
   snap,
   startOfDay,
+  zoneCity,
+  zoneOffset,
   type Clock,
 } from "@/lib/time";
 import { useElementSize } from "./hooks";
@@ -37,6 +41,10 @@ export interface DialProps {
   clock: Clock;
   occurrences: Occurrence[];
   calendars: Calendar[];
+  /** Daylight band; `null` leaves the rim unshaded. */
+  place: Place | null;
+  /** IANA zone for the outer ring; `""` leaves it off. */
+  secondZone: string;
   onOpen: (occ: Occurrence) => void;
   onCreate: (startMin: number, endMin: number) => void;
 }
@@ -74,6 +82,8 @@ export default function Dial({
   clock,
   occurrences,
   calendars,
+  place,
+  secondZone,
   onOpen,
   onCreate,
 }: DialProps) {
@@ -180,6 +190,9 @@ export default function Dial({
 
         <circle cx={DIAL.C} cy={DIAL.C} r={DIAL.TRACK} fill="url(#dial-glow)" />
 
+        {place && <SunBand day={day} clock={clock} place={place} />}
+        {secondZone && <ZoneRing now={now} clock={clock} zone={secondZone} />}
+
         <g shapeRendering="geometricPrecision">
           {elapsedSegments.map((segment, i) => (
             <path
@@ -249,6 +262,145 @@ export default function Dial({
 }
 
 /* -------------------------------- pieces --------------------------------- */
+
+/**
+ * The daylight band: where the sun actually is on this day, at this place.
+ *
+ * The single feature the circle earns that a grid cannot — a rectangular
+ * calendar can draw a sunrise line, but only a dial shows the *shape* of the
+ * day's light, and that shape visibly turns through the year.
+ *
+ * Same construction as the elapsed ring, for the same reason: a chain of
+ * opaque butt-capped arcs. Translucent segments compound their alpha at every
+ * join and the band reads as a row of beads.
+ */
+function SunBand({ day, clock, place }: { day: Date; clock: Clock; place: Place }) {
+  const segments = useMemo(() => {
+    const sun = sunTimes(day, place);
+
+    /** 0 = night, 1 = the sun overhead. Civil twilight is the low shoulder. */
+    const level = (m: number): number => {
+      if (sun.polar === "day") return 0.62;
+      if (sun.polar === "night") return 0;
+      const { dawn, sunrise, sunset, dusk } = sun;
+      if (sunrise !== null && sunset !== null && m >= sunrise && m <= sunset) {
+        // A sine between the two horizons stands in for solar altitude: wrong
+        // by a few percent, right about where the day is brightest.
+        const altitude = Math.sin((Math.PI * (m - sunrise)) / (sunset - sunrise));
+        return 0.2 + 0.62 * Math.max(altitude, 0) ** 0.7;
+      }
+      if (dawn !== null && sunrise !== null && m >= dawn && m < sunrise) {
+        return 0.04 + 0.16 * ((m - dawn) / (sunrise - dawn));
+      }
+      if (dusk !== null && sunset !== null && m > sunset && m <= dusk) {
+        return 0.04 + 0.16 * ((dusk - m) / (dusk - sunset));
+      }
+      return 0;
+    };
+
+    const COUNT = 144; // Ten minutes per segment.
+    const levels = Array.from({ length: COUNT }, (_, i) =>
+      level(((i + 0.5) * MINUTES_PER_DAY) / COUNT),
+    );
+
+    return levels.flatMap((value, i) => {
+      if (value <= 0.005) return [];
+      const from = angleAt((i * MINUTES_PER_DAY) / COUNT, clock);
+      // Overlap the neighbour: an exact butt-to-butt join leaves an
+      // antialiasing seam, which is the same artefact one shade darker.
+      const to = angleAt(((i + 1) * MINUTES_PER_DAY) / COUNT, clock) + 0.35;
+      const dark = (levels[i - 1] ?? 0) <= 0.005;
+      const nextDark = (levels[i + 1] ?? 0) <= 0.005;
+      return [
+        {
+          d: arcPath(DIAL.SUN, from, to),
+          // Daylight, pre-composited against black. Warm but desaturated —
+          // saturated colour on this canvas belongs to events alone.
+          stroke: `rgb(${Math.round(255 * value)},${Math.round(198 * value)},${Math.round(124 * value)})`,
+          cap: dark || nextDark ? ("round" as const) : ("butt" as const),
+        },
+      ];
+    });
+  }, [day, clock, place]);
+
+  return (
+    <g pointerEvents="none" shapeRendering="geometricPrecision">
+      {segments.map((segment, i) => (
+        <path
+          key={i}
+          d={segment.d}
+          fill="none"
+          stroke={segment.stroke}
+          strokeWidth={DIAL.SUN_WIDTH}
+          strokeLinecap={segment.cap}
+        />
+      ))}
+    </g>
+  );
+}
+
+/**
+ * A second timezone, as a rotation rather than a second clock.
+ *
+ * The instant is the same everywhere, so the other zone does not need its own
+ * hand — it needs its own *labels*, offset around the same face. Four of them:
+ * twenty-four numerals out here would out-shout the dial they annotate.
+ *
+ * The caption is the city and its offset **from you**, not from UTC. You are
+ * the origin of this dial; "GMT+9" makes you do the subtraction yourself, and
+ * gets it wrong twice a year when one of the two zones changes and the other
+ * does not.
+ */
+function ZoneRing({ now, clock, zone }: { now: Date; clock: Clock; zone: string }) {
+  const ring = useMemo(() => {
+    // Minutes the zone runs ahead of the viewer. `getTimezoneOffset` is
+    // minutes *behind* UTC, hence the addition.
+    const delta = zoneOffset(now, zone) + now.getTimezoneOffset();
+    return { delta, label: `${zoneCity(zone)} ${formatOffset(delta)}` };
+  }, [now, zone]);
+
+  return (
+    <g pointerEvents="none" textAnchor="middle">
+      {[0, 6, 12, 18].map((hour) => {
+        // The local minute at which the other zone reads `hour`.
+        const localMin =
+          (((hour * 60 - ring.delta) % MINUTES_PER_DAY) + MINUTES_PER_DAY) % MINUTES_PER_DAY;
+        const deg = angleAt(localMin, clock);
+        const { x, y } = polar(DIAL.ZONE, deg);
+        return (
+          <g key={hour}>
+            <text
+              x={x}
+              y={y}
+              dominantBaseline="central"
+              className="fill-[#55555a] font-mono"
+              fontSize={15}
+              fontWeight={500}
+              letterSpacing="0.04em"
+            >
+              {`${hour}`.padStart(2, "0")}
+            </text>
+            {hour === 12 && (
+              // Under the other zone's noon, so the caption names the ring at
+              // the point where the ring is most obviously not ours.
+              <text
+                x={x}
+                y={y + 15}
+                dominantBaseline="central"
+                className="fill-ink-4 font-mono"
+                fontSize={11}
+                fontWeight={500}
+                letterSpacing="0.1em"
+              >
+                {ring.label}
+              </text>
+            )}
+          </g>
+        );
+      })}
+    </g>
+  );
+}
 
 function Ticks({ clock }: { clock: Clock }) {
   // Half-hour resolution: enough texture to read the ring as a scale, sparse

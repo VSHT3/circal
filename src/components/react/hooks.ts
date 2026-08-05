@@ -49,6 +49,10 @@ export function useElementSize<T extends HTMLElement>(): [RefObject<T | null>, n
  * Global shortcuts. `combo` is `"mod+k"`, `"escape"`, `"arrowleft"` …; `mod` is
  * ⌘ on Apple and Ctrl elsewhere. Handlers are skipped while the user is typing,
  * unless the combo carries a modifier — ⌘↵ must still save from inside a field.
+ *
+ * `shift+` is part of the combo whenever Shift is held, including for a
+ * printable key: `e.key` is already `"Z"` rather than `"z"` there, so without
+ * it ⇧⌘Z and ⌘Z are the same string and redo silently becomes undo.
  */
 export function useHotkeys(bindings: Record<string, (e: KeyboardEvent) => void>) {
   const latest = useRef(bindings);
@@ -57,7 +61,7 @@ export function useHotkeys(bindings: Record<string, (e: KeyboardEvent) => void>)
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey;
-      const combo = `${mod ? "mod+" : ""}${e.shiftKey && e.key.length > 1 ? "shift+" : ""}${e.key.toLowerCase()}`;
+      const combo = `${mod ? "mod+" : ""}${e.shiftKey ? "shift+" : ""}${e.key.toLowerCase()}`;
       const handler = latest.current[combo];
       if (!handler) return;
 

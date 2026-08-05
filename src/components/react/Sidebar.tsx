@@ -16,7 +16,7 @@ import {
 } from "@/lib/time";
 import type { SidebarProps } from "@/components/react/types";
 import { cn } from "@/lib/utils";
-import { IconButton, Segmented } from "@/components/react/ui/primitives";
+import { IconButton } from "@/components/react/ui/primitives";
 
 // Monday-first week order — the reference app never starts a row on Sunday.
 const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0];
@@ -126,18 +126,6 @@ export default function Sidebar({
                 );
               })}
             </div>
-          </section>
-
-          <section className="flex w-full shrink-0 flex-col gap-2">
-            <span className="label text-ink-3">Dial</span>
-            <Segmented
-              value={clock}
-              onChange={actions.setClock}
-              options={[
-                { id: "12h" as const, label: "12 h" },
-                { id: "24h" as const, label: "24 h" },
-              ]}
-            />
           </section>
 
           <section className="flex w-full shrink-0 flex-col gap-1">

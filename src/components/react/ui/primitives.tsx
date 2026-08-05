@@ -1,9 +1,9 @@
 /* ------------------------------------------------------------------ *
- * The five controls the whole app is built from.
+ * The controls the whole app is built from.
  *
- * Chrome in circal is deliberately monotonous: a 28px square for icons, a
- * pill for anything with a shortcut, one switch, one select. Nothing here
- * carries colour — colour belongs to events.
+ * Every piece of chrome in circal is one of these. Adding a seventh variant
+ * of a button is how a product stops looking like one thing, so a new surface
+ * composes what is here or the control moves in here first.
  * ------------------------------------------------------------------ */
 
 import { ChevronsUpDown } from "lucide-react";
@@ -13,6 +13,47 @@ import { cn } from "@/lib/utils";
 /** A keyboard chip. Renders the glyph, never the word ("⌘", not "Cmd"). */
 export function Kbd({ children }: { children: ReactNode }) {
   return <kbd className="kbd">{children}</kbd>;
+}
+
+/**
+ * One `label / value` line inside a modal card. Shared by the event editor
+ * and the settings panel, which is the whole reason it lives here: two modals
+ * with two row grids is two products.
+ */
+export function FieldRow({
+  label,
+  children,
+  last,
+  disabled,
+  align,
+}: {
+  label: string;
+  children: ReactNode;
+  last?: boolean;
+  disabled?: boolean;
+  /** `top` for a row whose value is a stack rather than a single control. */
+  align?: "center" | "top";
+}) {
+  return (
+    <div
+      className={cn(
+        "grid min-h-[38px] grid-cols-[76px_1fr] gap-2.5 px-3.5",
+        align === "top" ? "items-start py-2.5" : "items-center",
+        !last && "border-b border-hairline",
+        disabled && "pointer-events-none opacity-40",
+      )}
+    >
+      <span className={cn("label text-ink-3", align === "top" && "pt-1.5")}>{label}</span>
+      <div
+        className={cn(
+          "relative flex min-w-0 text-[14px] text-ink",
+          align === "top" ? "flex-col items-stretch gap-2" : "items-center gap-2",
+        )}
+      >
+        {children}
+      </div>
+    </div>
+  );
 }
 
 interface IconButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {

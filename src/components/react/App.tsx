@@ -1,35 +1,142 @@
 /* ------------------------------------------------------------------ *
- * The shell. Owns the four pieces of view state (which day, which view,
- * sidebar, which overlay is up) and nothing else — events live in the store,
- * the clock lives in `useNow`, geometry lives in `lib/dial`.
+ * The shell. Owns the view state (which day, which view, sidebar, which
+ * overlay is up) and nothing else — events live in the store, the clock lives
+ * in `useNow`, geometry lives in `lib/dial`.
+ *
+ * The day and the view are also mirrored into the URL, which makes a day
+ * linkable and a reload land where you left it. That is the only place view
+ * state is persisted, and deliberately so: it belongs to the tab, not to you.
  * ------------------------------------------------------------------ */
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Clock } from "@/lib/time";
 import { dayAgenda, type CalEvent, type Occurrence } from "@/lib/events";
 import { draftEvent, store, useStore } from "@/lib/store";
-import { MINUTES_PER_DAY, addDays, minutesOfDay, snap, startOfDay } from "@/lib/time";
+import { exportBackup, exportIcs, importFile } from "@/lib/backup";
+import { refreshFeed, refreshStaleFeeds } from "@/lib/feeds";
+import { notify } from "@/lib/notify";
+import {
+  MINUTES_PER_DAY,
+  addDays,
+  dayKey,
+  fromDayKey,
+  minutesOfDay,
+  snap,
+  startOfDay,
+} from "@/lib/time";
 import { useHotkeys, useNow } from "./hooks";
 import type { EditorTarget, ShellActions, ViewMode } from "./types";
 import CommandPalette from "./CommandPalette";
 import Dial from "./Dial";
 import EventEditor from "./EventEditor";
+import Settings from "./Settings";
 import Sidebar from "./Sidebar";
+import Toast from "./Toast";
 import TopBar from "./TopBar";
 import YearView from "./YearView";
 
+/* ---------------------------------- url ----------------------------------- */
+
+interface ViewLocation {
+  day: Date;
+  view: ViewMode;
+}
+
+function readLocation(): ViewLocation {
+  const params = new URLSearchParams(window.location.search);
+  const key = params.get("d");
+  // A malformed `?d=` is a typo in a shared link, not a reason to show a dial
+  // labelled "Invalid Date".
+  const parsed = key && /^\d{4}-\d{2}-\d{2}$/.test(key) ? fromDayKey(key) : null;
+  return {
+    day: parsed && !Number.isNaN(parsed.getTime()) ? parsed : startOfDay(new Date()),
+    view: params.get("v") === "year" ? "year" : "day",
+  };
+}
+
+/**
+ * `push` for a deliberate jump, `replace` for stepping. Holding ← would
+ * otherwise bury the previous page under a hundred history entries, and the
+ * back button would stop being a way out of the app.
+ */
+function writeLocation({ day, view }: ViewLocation, mode: "push" | "replace") {
+  const params = new URLSearchParams();
+  params.set("d", dayKey(day));
+  if (view === "year") params.set("v", "year");
+  const url = `${window.location.pathname}?${params}`;
+  if (mode === "push") window.history.pushState(null, "", url);
+  else window.history.replaceState(null, "", url);
+}
+
 export default function App() {
-  const { events, calendars, settings } = useStore();
+  const { events, calendars, feeds, settings } = useStore();
   const now = useNow();
 
-  const [day, setDay] = useState(() => startOfDay(new Date()));
-  const [view, setView] = useState<ViewMode>("day");
+  const [location, setLocation] = useState<ViewLocation>(() => readLocation());
+  const { day, view } = location;
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [editor, setEditor] = useState<EditorTarget | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
-  const agenda = useMemo(() => dayAgenda(events, calendars, day), [events, calendars, day]);
-  const defaultCalendar = calendars[0]?.id ?? "personal";
+  /**
+   * Everything the dial draws: what you wrote plus what you subscribed to.
+   * A feed's events are merged only for reading — every mutation still goes
+   * through `store.events`, which is why they are two lists in the snapshot.
+   */
+  const visible = useMemo(
+    () => (Object.keys(feeds).length === 0 ? events : [...events, ...Object.values(feeds).flat()]),
+    [events, feeds],
+  );
+
+  const agenda = useMemo(() => dayAgenda(visible, calendars, day), [visible, calendars, day]);
+  const defaultCalendar = calendars.find((c) => !c.feed)?.id ?? "personal";
+  const feedIds = useMemo(
+    () => new Set(calendars.filter((c) => c.feed).map((c) => c.id)),
+    [calendars],
+  );
+
+  /**
+   * The location as of *now*, not as of the render this callback was made in.
+   *
+   * `goDay` and `openEvent` fire back to back from the palette, and with the
+   * values closed over at render time the second call would merge against the
+   * pre-jump day and push it straight back on top of the first.
+   *
+   * Kept in step by its only two writers — `go` and the popstate handler —
+   * rather than assigned during render, which the hooks lint rejects.
+   */
+  const current = useRef(location);
+
+  const go = useCallback((next: Partial<ViewLocation>, mode: "push" | "replace" = "push") => {
+    // Derived and written outside the state updater: an updater has to be
+    // pure, and StrictMode runs it twice.
+    const merged = { ...current.current, ...next };
+    current.current = merged;
+    writeLocation(merged, mode);
+    setLocation(merged);
+  }, []);
+
+  // Back/forward. The listener is the external system; the state follows it.
+  useEffect(() => {
+    const onPopState = () => {
+      const restored = readLocation();
+      current.current = restored;
+      setLocation(restored);
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+
+  useEffect(() => {
+    // The URL starts bare, so stamp the day we resolved to — otherwise the
+    // first ← would push a second entry for a page that never had one.
+    writeLocation(readLocation(), "replace");
+    // Subscriptions are a mirror: pulled once on launch, then left alone.
+    // Read through `store.snapshot()`, because this closure was made on the
+    // first render, before `useSyncExternalStore` hydrated the real one.
+    void refreshStaleFeeds(store.snapshot().calendars);
+  }, []);
 
   const openDraft = useCallback(
     (startMin: number, endMin: number, on: Date) => {
@@ -41,20 +148,23 @@ export default function App() {
 
   const actions: ShellActions = useMemo(
     () => ({
-      goToday: () => {
-        setDay(startOfDay(new Date()));
-        setView("day");
-      },
-      goDay: (next: Date) => setDay(startOfDay(next)),
-      setView: (next: ViewMode) => setView(next),
+      goToday: () => go({ day: startOfDay(new Date()), view: "day" }),
+      // Naming a day means you want to look at it: the year grid is never the
+      // answer to "go to Dec 25", and one call is one history entry.
+      goDay: (next: Date) => go({ day: startOfDay(next), view: "day" }),
+      setView: (next: ViewMode) => go({ view: next }),
       toggleSidebar: () => setSidebarOpen((open) => !open),
       openPalette: () => setPaletteOpen(true),
+      openSettings: () => {
+        setPaletteOpen(false);
+        setSettingsOpen(true);
+      },
       setClock: (clock: Clock) => store.setClock(clock),
       toggleCalendar: (id: string) => store.toggleCalendar(id),
       openEvent: (event: CalEvent) => {
         const { id, ...draft } = event;
         setPaletteOpen(false);
-        setEditor({ id, draft });
+        setEditor({ id, draft, readOnly: feedIds.has(event.calendarId) });
       },
       newEvent: () => {
         // Start at the next quarter hour when looking at today, otherwise at a
@@ -65,32 +175,55 @@ export default function App() {
           : 9 * 60;
         openDraft(start, start + 60, day);
       },
+      newEventAt: (startMin: number, endMin: number) => openDraft(startMin, endMin, day),
+      undo: () => notify(store.undo() ? "Undone" : "Nothing to undo"),
+      redo: () => notify(store.redo() ? "Redone" : "Nothing to redo"),
+      exportIcs: () => exportIcs(store.snapshot()),
+      exportBackup: () => exportBackup(store.snapshot()),
+      importFile,
+      refreshFeeds: () => {
+        const subscriptions = calendars.filter((c) => c.feed);
+        if (subscriptions.length === 0) return;
+        notify(`Refreshing ${subscriptions.length} subscriptions…`);
+        void Promise.all(subscriptions.map(refreshFeed));
+      },
     }),
-    [day, openDraft],
+    [day, go, openDraft, feedIds, calendars],
   );
 
   const step = useCallback(
     (delta: number) => {
-      setDay((current) =>
-        view === "year"
-          ? new Date(current.getFullYear() + delta, current.getMonth(), current.getDate())
-          : addDays(current, delta),
+      const from = current.current;
+      // Stepping replaces rather than pushes: a held arrow key must not fill
+      // the history stack with days you scrolled past.
+      go(
+        {
+          day:
+            from.view === "year"
+              ? new Date(from.day.getFullYear() + delta, from.day.getMonth(), from.day.getDate())
+              : addDays(from.day, delta),
+        },
+        "replace",
       );
     },
-    [view],
+    [go],
   );
 
   useHotkeys({
     "mod+k": () => setPaletteOpen((open) => !open),
     "mod+n": actions.newEvent,
-    "mod+y": () => setView("year"),
-    "mod+d": () => setView("day"),
+    "mod+y": () => actions.setView("year"),
+    "mod+d": () => actions.setView("day"),
     "mod+b": actions.toggleSidebar,
+    "mod+,": actions.openSettings,
+    "mod+z": actions.undo,
+    "mod+shift+z": actions.redo,
     arrowleft: () => step(-1),
     arrowright: () => step(1),
     t: actions.goToday,
     escape: () => {
       setPaletteOpen(false);
+      setSettingsOpen(false);
       setEditor(null);
     },
   });
@@ -116,7 +249,7 @@ export default function App() {
           day={day}
           now={now}
           occurrences={agenda.all}
-          events={events}
+          events={visible}
           calendars={calendars}
           clock={settings.clock}
           actions={actions}
@@ -130,6 +263,8 @@ export default function App() {
                 now={now}
                 occurrences={agenda.all}
                 calendars={calendars}
+                place={settings.place}
+                secondZone={settings.secondZone}
                 clock={settings.clock}
                 onOpen={openOccurrence}
                 onCreate={(startMin, endMin) => openDraft(startMin, endMin, day)}
@@ -140,12 +275,9 @@ export default function App() {
               year={day.getFullYear()}
               today={now}
               selected={day}
-              events={events}
+              events={visible}
               calendars={calendars}
-              onSelectDay={(next) => {
-                setDay(startOfDay(next));
-                setView("day");
-              }}
+              onSelectDay={(next) => actions.goDay(next)}
             />
           )}
         </main>
@@ -165,17 +297,31 @@ export default function App() {
         />
       )}
 
+      <Settings
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        clock={settings.clock}
+        secondZone={settings.secondZone}
+        place={settings.place}
+        calendars={calendars}
+        actions={actions}
+      />
+
       <CommandPalette
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}
         day={day}
+        now={now}
         view={view}
         sidebarOpen={sidebarOpen}
-        events={events}
+        events={visible}
         calendars={calendars}
+        occurrences={agenda.all}
         clock={settings.clock}
         actions={actions}
       />
+
+      <Toast />
     </div>
   );
 }

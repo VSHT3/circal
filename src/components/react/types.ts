@@ -2,6 +2,7 @@
 
 import type { Clock } from "@/lib/time";
 import type { CalEvent, Calendar, Occurrence } from "@/lib/events";
+import type { Place } from "@/lib/sun";
 
 export type ViewMode = "day" | "year";
 
@@ -10,6 +11,8 @@ export interface EditorTarget {
   /** `null` while creating — the event does not exist in the store yet. */
   id: string | null;
   draft: Omit<CalEvent, "id">;
+  /** Set for an event pulled from a subscription: somebody else's data. */
+  readOnly?: boolean;
 }
 
 export interface ShellActions {
@@ -17,11 +20,21 @@ export interface ShellActions {
   goDay: (day: Date) => void;
   setView: (view: ViewMode) => void;
   newEvent: () => void;
+  /** A draft over an explicit range on the selected day — the free-time rows. */
+  newEventAt: (startMin: number, endMin: number) => void;
   toggleSidebar: () => void;
   openEvent: (event: CalEvent) => void;
   toggleCalendar: (id: string) => void;
   openPalette: () => void;
+  openSettings: () => void;
   setClock: (clock: Clock) => void;
+  undo: () => void;
+  redo: () => void;
+  exportIcs: () => void;
+  exportBackup: () => void;
+  importFile: () => void;
+  /** Pull every subscription now, regardless of age. */
+  refreshFeeds: () => void;
 }
 
 export interface TopBarProps {
@@ -68,10 +81,24 @@ export interface CommandPaletteProps {
   open: boolean;
   onClose: () => void;
   day: Date;
+  now: Date;
   view: ViewMode;
   sidebarOpen: boolean;
   events: CalEvent[];
   calendars: Calendar[];
+  /** The selected day's agenda — what the free-time search works against. */
+  occurrences: Occurrence[];
   clock: Clock;
+  actions: ShellActions;
+}
+
+export interface SettingsPanelProps {
+  open: boolean;
+  onClose: () => void;
+  clock: Clock;
+  /** `""` = the dial's second ring is off. */
+  secondZone: string;
+  place: Place | null;
+  calendars: Calendar[];
   actions: ShellActions;
 }

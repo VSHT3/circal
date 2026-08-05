@@ -3,7 +3,7 @@
  * command palette and new-event entry points.
  * ------------------------------------------------------------------ */
 
-import { ChevronLeft, ChevronRight, Command, PanelLeft, Plus } from "lucide-react";
+import { ChevronLeft, ChevronRight, Command, PanelLeft, Plus, Settings } from "lucide-react";
 import { formatDayHeader } from "@/lib/time";
 import type { TopBarProps } from "@/components/react/types";
 import { ActionPill, IconButton, Segmented } from "@/components/react/ui/primitives";
@@ -69,6 +69,9 @@ export default function TopBar({ day, view, sidebarOpen, onStep, actions }: TopB
           keys={["⌘", "N"]}
           onClick={actions.newEvent}
         />
+        <IconButton label="Settings" onClick={actions.openSettings}>
+          <Settings size={15} strokeWidth={1.75} />
+        </IconButton>
       </div>
     </div>
   );

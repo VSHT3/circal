@@ -19,39 +19,11 @@ import {
   type Clock,
 } from "@/lib/time";
 import { cn } from "@/lib/utils";
-import { Kbd, Select, Switch } from "@/components/react/ui/primitives";
+import { FieldRow as Row, Kbd, Select, Switch } from "@/components/react/ui/primitives";
 import type { EventEditorProps } from "@/components/react/types";
 
 const MIN_DURATION_MIN = 5;
 const DAY_MS = 86_400_000;
-
-/** One `label / value` line. Every row shares the same grid and hairline. */
-function Row({
-  label,
-  children,
-  last,
-  disabled,
-}: {
-  label: string;
-  children: ReactNode;
-  last?: boolean;
-  disabled?: boolean;
-}) {
-  return (
-    <div
-      className={cn(
-        "grid min-h-[38px] grid-cols-[76px_1fr] items-center gap-2.5 px-3.5",
-        !last && "border-b border-hairline",
-        disabled && "pointer-events-none opacity-40",
-      )}
-    >
-      <span className="label text-ink-3">{label}</span>
-      <div className="relative flex min-w-0 items-center gap-2 text-[14px] text-ink">
-        {children}
-      </div>
-    </div>
-  );
-}
 
 /**
  * A twelve-hour clock field. Free text while focused, normalised on blur or
@@ -217,6 +189,8 @@ export default function EventEditor({
 }: EventEditorProps) {
   const [draft, setDraft] = useState<Omit<CalEvent, "id">>(target.draft);
   const reducedMotion = useReducedMotion();
+  /** A subscribed feed's event: shown in full, editable in no part. */
+  const readOnly = target.readOnly === true;
 
   // Re-seed during render when a genuinely different event is handed in —
   // React's documented "adjust state when props change" pattern. An effect
@@ -243,6 +217,8 @@ export default function EventEditor({
       if (e.key === "Escape") {
         e.preventDefault();
         onClose();
+      } else if (readOnly) {
+        return;
       } else if (mod && e.key === "Enter") {
         e.preventDefault();
         commit();
@@ -254,7 +230,7 @@ export default function EventEditor({
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft, target.id, onClose, onDelete]);
+  }, [draft, target.id, readOnly, onClose, onDelete]);
 
   const calendar = calendars.find((c) => c.id === draft.calendarId);
 
@@ -313,7 +289,7 @@ export default function EventEditor({
         <motion.div
           role="dialog"
           aria-modal="true"
-          aria-label={target.id ? "Edit event" : "New event"}
+          aria-label={readOnly ? "Event" : target.id ? "Edit event" : "New event"}
           className="relative flex max-h-[86vh] w-[330px] flex-col overflow-hidden rounded-[14px] border border-hairline bg-surface shadow-[0_32px_80px_-20px_rgba(0,0,0,0.9)]"
           initial={reducedMotion ? false : { opacity: 0, scale: 0.97 }}
           animate={{ opacity: 1, scale: 1 }}
@@ -326,153 +302,185 @@ export default function EventEditor({
               className="size-[9px] shrink-0 rounded-full"
               style={{ backgroundColor: draft.color || (calendar?.color ?? PALETTE[0]) }}
             />
-            {/* Focus must move into a modal on open (WAI-ARIA dialog pattern). */}
+            {/* Focus must move into a modal on open (WAI-ARIA dialog pattern).
+                Read-only, the disabled title cannot take it and the Close
+                button below claims it instead. */}
             <input
               autoFocus
+              disabled={readOnly}
               value={draft.title}
               onChange={(e) => patch({ title: e.target.value })}
               placeholder="New event"
               aria-label="Event title"
-              className="w-full min-w-0 border-none bg-transparent text-[19px] font-medium text-ink outline-none placeholder:text-ink-3"
+              className="w-full min-w-0 border-none bg-transparent text-[19px] font-medium text-ink outline-none placeholder:text-ink-3 disabled:opacity-100"
             />
           </div>
 
-          {/* rows */}
-          <div className="no-scrollbar flex-1 overflow-y-auto">
-            <Row label="Date">
-              <CalendarIcon size={14} className="shrink-0 text-ink-2" />
-              <span>{formatRelativeDay(new Date(draft.start))}</span>
-              <input
-                type="date"
-                aria-label="Date"
-                value={dayKey(new Date(draft.start))}
-                onChange={(e) => handleDateChange(e.target.value)}
-                className="absolute inset-0 cursor-pointer opacity-0"
-              />
-            </Row>
+          {/* A `disabled` fieldset is the whole read-only implementation: it
+              cascades to every control under it, including the ones nested two
+              components deep, which no prop-threading would reach. */}
+          <fieldset
+            disabled={readOnly}
+            className={cn(
+              "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden",
+              readOnly && "opacity-75",
+            )}
+          >
+            <div className="no-scrollbar flex-1 overflow-y-auto">
+              <Row label="Date">
+                <CalendarIcon size={14} className="shrink-0 text-ink-2" />
+                <span>{formatRelativeDay(new Date(draft.start))}</span>
+                <input
+                  type="date"
+                  aria-label="Date"
+                  value={dayKey(new Date(draft.start))}
+                  onChange={(e) => handleDateChange(e.target.value)}
+                  className="absolute inset-0 cursor-pointer opacity-0"
+                />
+              </Row>
 
-            <Row label="Time" disabled={draft.allDay}>
-              <ClockIcon size={14} className="shrink-0 text-ink-2" />
-              <TimeField
-                label="Start time"
-                clock={clock}
-                value={new Date(draft.start)}
-                disabled={draft.allDay}
-                onCommit={handleStartTime}
-              />
-              <span className="text-ink-3">–</span>
-              <TimeField
-                label="End time"
-                clock={clock}
-                value={new Date(draft.end)}
-                disabled={draft.allDay}
-                onCommit={handleEndTime}
-              />
-            </Row>
+              <Row label="Time" disabled={draft.allDay}>
+                <ClockIcon size={14} className="shrink-0 text-ink-2" />
+                <TimeField
+                  label="Start time"
+                  clock={clock}
+                  value={new Date(draft.start)}
+                  disabled={draft.allDay}
+                  onCommit={handleStartTime}
+                />
+                <span className="text-ink-3">–</span>
+                <TimeField
+                  label="End time"
+                  clock={clock}
+                  value={new Date(draft.end)}
+                  disabled={draft.allDay}
+                  onCommit={handleEndTime}
+                />
+              </Row>
 
-            <Row label="Where">
-              <input
-                value={draft.location}
-                onChange={(e) => patch({ location: e.target.value })}
-                placeholder="Add location"
-                aria-label="Location"
-                className="w-full min-w-0 border-none bg-transparent text-ink outline-none placeholder:text-ink-3"
-              />
-            </Row>
+              <Row label="Where">
+                <input
+                  value={draft.location}
+                  onChange={(e) => patch({ location: e.target.value })}
+                  placeholder="Add location"
+                  aria-label="Location"
+                  className="w-full min-w-0 border-none bg-transparent text-ink outline-none placeholder:text-ink-3"
+                />
+              </Row>
 
-            <Row label="Calendar">
-              <span
-                aria-hidden
-                className="size-[9px] shrink-0 rounded-full"
-                style={{ backgroundColor: calendar?.color ?? PALETTE[0] }}
-              />
-              <Select
-                value={draft.calendarId}
-                onChange={(next) => patch({ calendarId: next })}
-                options={calendars.map((c) => ({ value: c.id, label: c.name }))}
-                label="Calendar"
-                className="flex-1"
-              />
-            </Row>
+              <Row label="Calendar">
+                <span
+                  aria-hidden
+                  className="size-[9px] shrink-0 rounded-full"
+                  style={{ backgroundColor: calendar?.color ?? PALETTE[0] }}
+                />
+                <Select
+                  value={draft.calendarId}
+                  onChange={(next) => patch({ calendarId: next })}
+                  options={calendars.map((c) => ({ value: c.id, label: c.name }))}
+                  label="Calendar"
+                  className="flex-1"
+                />
+              </Row>
 
-            <Row label="Color">
-              <ColorPicker
-                value={draft.color}
-                fallback={calendar?.color ?? PALETTE[0]}
-                onChange={(color) => patch({ color })}
+              <Row label="Color">
+                <ColorPicker
+                  value={draft.color}
+                  fallback={calendar?.color ?? PALETTE[0]}
+                  onChange={(color) => patch({ color })}
+                />
+              </Row>
+
+              <Row label="All-day">
+                <Switch checked={draft.allDay} onChange={handleAllDayToggle} label="All-day" />
+              </Row>
+
+              <Row label="Repeat">
+                <Select
+                  value={draft.repeat}
+                  onChange={(next) => patch({ repeat: next })}
+                  options={REPEATS.map((r) => ({ value: r, label: REPEAT_LABELS[r] }))}
+                  label="Repeat"
+                  className="flex-1"
+                />
+              </Row>
+
+              <Row label="URL" last>
+                <input
+                  type="url"
+                  value={draft.url}
+                  onChange={(e) => patch({ url: e.target.value })}
+                  placeholder="Add URL"
+                  aria-label="URL"
+                  className="w-full min-w-0 border-none bg-transparent text-ink outline-none placeholder:text-ink-3"
+                />
+              </Row>
+            </div>
+
+            {/* notes */}
+            <div className="border-t border-hairline px-3.5 py-3">
+              <span className="label text-ink-3">Notes</span>
+              <textarea
+                rows={4}
+                value={draft.notes}
+                onChange={(e) => patch({ notes: e.target.value })}
+                placeholder="Add notes"
+                aria-label="Notes"
+                className="mt-1.5 [field-sizing:content] min-h-[68px] w-full resize-none border-none bg-transparent text-[13.5px] text-ink outline-none placeholder:text-ink-3"
               />
-            </Row>
-
-            <Row label="All-day">
-              <Switch checked={draft.allDay} onChange={handleAllDayToggle} label="All-day" />
-            </Row>
-
-            <Row label="Repeat">
-              <Select
-                value={draft.repeat}
-                onChange={(next) => patch({ repeat: next })}
-                options={REPEATS.map((r) => ({ value: r, label: REPEAT_LABELS[r] }))}
-                label="Repeat"
-                className="flex-1"
-              />
-            </Row>
-
-            <Row label="URL" last>
-              <input
-                type="url"
-                value={draft.url}
-                onChange={(e) => patch({ url: e.target.value })}
-                placeholder="Add URL"
-                aria-label="URL"
-                className="w-full min-w-0 border-none bg-transparent text-ink outline-none placeholder:text-ink-3"
-              />
-            </Row>
-          </div>
-
-          {/* notes */}
-          <div className="border-t border-hairline px-3.5 py-3">
-            <span className="label text-ink-3">Notes</span>
-            <textarea
-              rows={4}
-              value={draft.notes}
-              onChange={(e) => patch({ notes: e.target.value })}
-              placeholder="Add notes"
-              aria-label="Notes"
-              className="mt-1.5 [field-sizing:content] min-h-[68px] w-full resize-none border-none bg-transparent text-[13.5px] text-ink outline-none placeholder:text-ink-3"
-            />
-          </div>
+            </div>
+          </fieldset>
 
           {/* footer */}
           <div className="flex items-center gap-2 border-t border-hairline px-3 py-2.5">
-            {target.id && (
-              <button
-                type="button"
-                onClick={onDelete}
-                className="flex items-center gap-1.5 rounded-[8px] px-2 py-1 text-[14px] text-danger transition-colors hover:bg-white/6"
-              >
-                Delete
-                <Kbd>⌘</Kbd>
-                <Kbd>⌫</Kbd>
-              </button>
+            {readOnly ? (
+              <>
+                <span className="label text-ink-4">
+                  {calendar?.name ?? "Subscription"} · read only
+                </span>
+                <button
+                  autoFocus
+                  type="button"
+                  onClick={onClose}
+                  className="ml-auto flex h-8 items-center gap-1.5 rounded-[9px] border border-hairline bg-surface-2 px-3 text-[14px] text-ink transition-colors hover:bg-white/10"
+                >
+                  Close
+                  <Kbd>esc</Kbd>
+                </button>
+              </>
+            ) : (
+              <>
+                {target.id && (
+                  <button
+                    type="button"
+                    onClick={onDelete}
+                    className="flex items-center gap-1.5 rounded-[8px] px-2 py-1 text-[14px] text-danger transition-colors hover:bg-white/6"
+                  >
+                    Delete
+                    <Kbd>⌘</Kbd>
+                    <Kbd>⌫</Kbd>
+                  </button>
+                )}
+                <div className="ml-auto flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className="px-1 text-[14px] text-ink-2 transition-colors hover:text-ink"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={commit}
+                    className="flex h-8 items-center gap-1.5 rounded-[9px] border border-hairline bg-surface-2 px-3 text-[14px] text-ink transition-colors hover:bg-white/10"
+                  >
+                    Save
+                    <Kbd>⌘</Kbd>
+                    <Kbd>↵</Kbd>
+                  </button>
+                </div>
+              </>
             )}
-            <div className="ml-auto flex items-center gap-3">
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-1 text-[14px] text-ink-2 transition-colors hover:text-ink"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={commit}
-                className="flex h-8 items-center gap-1.5 rounded-[9px] border border-hairline bg-surface-2 px-3 text-[14px] text-ink transition-colors hover:bg-white/10"
-              >
-                Save
-                <Kbd>⌘</Kbd>
-                <Kbd>↵</Kbd>
-              </button>
-            </div>
           </div>
         </motion.div>
       </div>

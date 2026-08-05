@@ -13,20 +13,32 @@ import {
   CalendarSearch,
   Circle,
   Clock3,
+  Download,
   Grid2x2,
+  Hourglass,
   PanelLeft,
   Plus,
+  RefreshCw,
   Search,
+  SettingsIcon,
+  Undo2,
+  Upload,
 } from "lucide-react";
 import { Kbd } from "@/components/react/ui/primitives";
 import type { CommandPaletteProps } from "@/components/react/types";
-import { colorOf, type CalEvent } from "@/lib/events";
+import { colorOf, freeGaps, type CalEvent } from "@/lib/events";
 import {
+  MINUTES_PER_DAY,
   addDays,
+  atMinutes,
   daysInMonth,
+  formatDuration,
   formatRelativeDay,
   formatTimeShort,
+  isSameDay,
+  minutesOfDay,
   MONTHS,
+  snap,
   startOfDay,
   WEEKDAYS,
 } from "@/lib/time";
@@ -35,6 +47,11 @@ import { cn } from "@/lib/utils";
 const EASE = [0.32, 0.72, 0, 1] as const;
 const WEEKDAYS_LOWER = WEEKDAYS.map((w) => w.toLowerCase());
 const MONTHS_LOWER = MONTHS.map((m) => m.toLowerCase());
+
+/** The hours a free slot is offered in before the search widens to the day. */
+const WAKING = { from: 8 * 60, to: 22 * 60 };
+/** What a bare "free" means. */
+const DEFAULT_SLOT = 30;
 
 /** One row in the flattened, keyboard-navigable result list. */
 interface Row {
@@ -136,15 +153,40 @@ function parseDate(raw: string, reference: Date): Date | null {
   return null;
 }
 
+/**
+ * A duration, for the free-time search. Deliberately stricter than the date
+ * parser above: a bare number already means a day of the month, so a slot has
+ * to carry a unit or the word "free" to claim the query.
+ */
+function parseDuration(raw: string): number | null {
+  const query = raw.trim().toLowerCase();
+  if (!query) return null;
+  if (query === "free") return DEFAULT_SLOT;
+
+  const hours = /^(?:free\s*)?(\d{1,2})\s*(?:h|hr|hrs|hour|hours)\s*(\d{1,2})?\s*(?:m|min|mins)?$/;
+  const hit = hours.exec(query);
+  if (hit) return Number(hit[1]) * 60 + Number(hit[2] ?? 0);
+
+  const minutes = /^(?:free\s*)?(\d{1,3})\s*(?:m|min|mins|minute|minutes)$/.exec(query);
+  if (minutes) return Number(minutes[1]);
+
+  const bare = /^free\s+(\d{1,3})$/.exec(query);
+  if (bare) return Number(bare[1]);
+
+  return null;
+}
+
 const CHROME_ICON_PROPS = { size: 15, strokeWidth: 1.75 as const, className: "text-ink-3" };
 
 export default function CommandPalette({
   open,
   onClose,
   day,
+  now,
   sidebarOpen,
   events,
   calendars,
+  occurrences,
   clock,
   actions,
 }: CommandPaletteProps) {
@@ -176,13 +218,43 @@ export default function CommandPalette({
         icon: <CalendarSearch {...CHROME_ICON_PROPS} />,
         title: label,
         run: () => {
+          // `goDay` already lands on the day view.
           actions.goDay(jumpDate);
-          actions.setView("day");
           onClose();
         },
       },
     ];
   }, [jumpDate, actions, onClose]);
+
+  /**
+   * Free slots on the selected day. The dial already makes gaps the most
+   * legible thing on the face; this only makes them addressable — and each
+   * row opens a draft already filling the slot it names.
+   */
+  const freeRows: Row[] = useMemo(() => {
+    const wanted = parseDuration(query);
+    if (wanted === null || wanted <= 0) return [];
+
+    // A slot that started twenty minutes ago is not free, it is late.
+    const earliest = isSameDay(day, now) ? snap(minutesOfDay(now) + 7.5, 15) : 0;
+    const waking = { from: Math.max(WAKING.from, earliest), to: WAKING.to };
+    const whole = { from: earliest, to: MINUTES_PER_DAY };
+
+    // Waking hours first; only offer 6 AM or 11 PM when the day has nothing else.
+    let gaps = freeGaps(occurrences, wanted, waking.from, waking.to);
+    if (gaps.length === 0) gaps = freeGaps(occurrences, wanted, whole.from, whole.to);
+
+    return gaps.slice(0, 5).map((gap) => ({
+      id: `free-${gap.start}`,
+      icon: <Hourglass {...CHROME_ICON_PROPS} />,
+      title: `${formatTimeShort(atMinutes(day, gap.start), clock)} – ${formatTimeShort(atMinutes(day, gap.end), clock)}`,
+      meta: <span className="label text-ink-3">{formatDuration(gap.end - gap.start)} free</span>,
+      run: () => {
+        actions.newEventAt(gap.start, Math.min(gap.start + wanted, gap.end));
+        onClose();
+      },
+    }));
+  }, [query, occurrences, day, now, clock, actions, onClose]);
 
   const eventRows: Row[] = useMemo(() => {
     const matches = (e: CalEvent) =>
@@ -304,6 +376,77 @@ export default function CommandPalette({
           onClose();
         },
       },
+      {
+        id: "cmd-settings",
+        icon: <SettingsIcon {...CHROME_ICON_PROPS} />,
+        title: "Settings",
+        meta: (
+          <>
+            <Kbd>⌘</Kbd>
+            <Kbd>,</Kbd>
+          </>
+        ),
+        run: () => {
+          actions.openSettings();
+          onClose();
+        },
+      },
+      {
+        id: "cmd-undo",
+        icon: <Undo2 {...CHROME_ICON_PROPS} />,
+        title: "Undo",
+        meta: (
+          <>
+            <Kbd>⌘</Kbd>
+            <Kbd>Z</Kbd>
+          </>
+        ),
+        run: () => {
+          actions.undo();
+          onClose();
+        },
+      },
+      {
+        id: "cmd-export-ics",
+        icon: <Download {...CHROME_ICON_PROPS} />,
+        title: "Export events as .ics",
+        run: () => {
+          actions.exportIcs();
+          onClose();
+        },
+      },
+      {
+        id: "cmd-export-json",
+        icon: <Download {...CHROME_ICON_PROPS} />,
+        title: "Save a backup",
+        run: () => {
+          actions.exportBackup();
+          onClose();
+        },
+      },
+      {
+        id: "cmd-import",
+        icon: <Upload {...CHROME_ICON_PROPS} />,
+        title: "Import a file…",
+        run: () => {
+          actions.importFile();
+          onClose();
+        },
+      },
+      // Only offered once there is something to refresh.
+      ...(calendars.some((c) => c.feed)
+        ? [
+            {
+              id: "cmd-refresh-feeds",
+              icon: <RefreshCw {...CHROME_ICON_PROPS} />,
+              title: "Refresh subscriptions",
+              run: () => {
+                actions.refreshFeeds();
+                onClose();
+              },
+            },
+          ]
+        : []),
       ...calendars.map((cal) => ({
         id: `cmd-cal-${cal.id}`,
         dot: cal.color,
@@ -321,10 +464,11 @@ export default function CommandPalette({
     () =>
       [
         { title: "Jump", rows: jumpRows },
+        { title: "Free time", rows: freeRows },
         { title: "Events", rows: eventRows },
         { title: "Commands", rows: commandRows },
       ].filter((g) => g.rows.length > 0),
-    [jumpRows, eventRows, commandRows],
+    [jumpRows, freeRows, eventRows, commandRows],
   );
 
   const flatItems = useMemo(() => groups.flatMap((g) => g.rows), [groups]);
@@ -391,8 +535,8 @@ export default function CommandPalette({
                   setQuery(e.target.value);
                   setHighlighted(0);
                 }}
-                placeholder="Search events, jump to a date, run a command…"
-                aria-label="Search events, jump to a date, run a command"
+                placeholder="Search, jump to a date, find 45m free, run a command…"
+                aria-label="Search, jump to a date, find free time, run a command"
                 aria-controls="cmdk-listbox"
                 aria-activedescendant={
                   flatItems[highlighted] ? `cmdk-option-${highlighted}` : undefined
