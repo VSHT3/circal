@@ -9,6 +9,15 @@ interface Props {
 const { title, description } = Astro.props;
 
 /**
+ * Absolute, because every crawler that reads these requires it — a relative
+ * `og:image` is simply dropped. `Astro.site` is the production origin, so this
+ * points at circal.app even from a dev preview; the alternative is a card that
+ * works nowhere.
+ */
+const canonical = new URL(Astro.url.pathname, Astro.site);
+const ogImage = new URL("/og.png", Astro.site);
+
+/**
  * A string rather than inline script content: inside an Astro expression the
  * tag's body is parsed as JSX, where a bare `{}` is a broken expression.
  */
@@ -30,10 +39,23 @@ const registerServiceWorker = `window.addEventListener("load",()=>{navigator.ser
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="circal" />
-    <link rel="canonical" href={new URL(Astro.url.pathname, Astro.site)} />
+    <link rel="canonical" href={canonical} />
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
     <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="circal" />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={ogImage} />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="circal — a day is a circle" />
+    {
+      /* `summary_large_image` is the only card that shows a 1.91:1 image at
+         full width; `summary` would crop the wordmark to a square. */
+    }
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:image" content={ogImage} />
     {
       /* Only in production: a worker caching `astro dev`'s output would serve
          a stale bundle over the one that just hot-reloaded. */

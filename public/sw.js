@@ -9,7 +9,10 @@
  * cache for performance — it barely fetches anything to begin with.
  * ------------------------------------------------------------------ */
 
-const CACHE = "circal-v1";
+// Bumped when an *unhashed* `public/` asset changes — the icons are the only
+// ones — because stale-while-revalidate would otherwise serve the old file
+// once more to every installed client. Hashed assets never need this.
+const CACHE = "circal-v2";
 
 self.addEventListener("install", () => {
   // No precache list: Astro content-hashes every built asset filename, so

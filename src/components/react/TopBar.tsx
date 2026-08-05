@@ -3,7 +3,15 @@
  * command palette and new-event entry points.
  * ------------------------------------------------------------------ */
 
-import { ChevronLeft, ChevronRight, Command, PanelLeft, Plus, Settings } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Circle,
+  Command,
+  PanelLeft,
+  Plus,
+  Settings,
+} from "lucide-react";
 import { formatDayHeader } from "@/lib/time";
 import type { TopBarProps } from "@/components/react/types";
 import { ActionPill, IconButton, Segmented } from "@/components/react/ui/primitives";
@@ -14,6 +22,22 @@ export default function TopBar({ day, view, sidebarOpen, onStep, actions }: TopB
   return (
     <div className="relative flex h-12 shrink-0 items-center border-b border-hairline px-3">
       <div className="flex items-center gap-2">
+        {/* The mark, which is the favicon: one thin circumference. It is
+            identity, not a control — no hover, no click target — and it sits at
+            `ink-2` because chrome is grey and a pure-white ring here would be
+            the brightest thing on the face outside the dial.
+
+            Below 1080px it is gone entirely, mark and divider both: the date
+            readout is centred on the *bar*, not on the space left over, so the
+            108px this lockup costs is 108px the readout stops having. 1080 is
+            where the two still clear each other with the longest header
+            `formatDayHeader` produces (`WEDNESDAY · SEP 30`). */}
+        <span className="hidden items-center gap-2 pl-0.5 text-ink-2 min-[1080px]:flex">
+          <Circle size={15} strokeWidth={1.75} aria-hidden="true" />
+          <span className="font-mono text-[13px] tracking-[0.14em]">circal</span>
+        </span>
+        <span aria-hidden="true" className="mx-1 hidden h-4 w-px bg-hairline min-[1080px]:block" />
+
         <IconButton label="Toggle sidebar" active={sidebarOpen} onClick={actions.toggleSidebar}>
           <PanelLeft size={15} strokeWidth={1.75} />
         </IconButton>
