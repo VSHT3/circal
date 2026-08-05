@@ -96,6 +96,146 @@ export function atMinutes(day: Date, minutes: number): Date {
   return out;
 }
 
+/* ------------------------------- time zones ------------------------------- */
+
+/**
+ * Zone arithmetic, built on `Intl` rather than a tz database.
+ *
+ * Two callers need it and neither can use `Date`'s local-only accessors: the
+ * dial's second-timezone ring has to know where another zone's hours fall on
+ * *this* day's face, and the ICS parser has to read a `TZID=…` wall time back
+ * into an instant. `Intl.DateTimeFormat` already ships the whole IANA table,
+ * so the only thing missing is the inverse direction, which is `zonedToUtc`.
+ */
+
+/** `Intl.DateTimeFormat` construction is expensive and these are hot. */
+const ZONE_FORMATTERS = new Map<string, Intl.DateTimeFormat>();
+
+function zoneFormatter(zone: string): Intl.DateTimeFormat {
+  let fmt = ZONE_FORMATTERS.get(zone);
+  if (!fmt) {
+    fmt = new Intl.DateTimeFormat("en-US", {
+      timeZone: zone,
+      hourCycle: "h23",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+    ZONE_FORMATTERS.set(zone, fmt);
+  }
+  return fmt;
+}
+
+interface ZoneParts {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+  second: number;
+}
+
+/** The wall-clock fields `zone` is showing at the instant `at`. Not exported:
+ *  `zoneOffset` is the only thing that has ever needed them. */
+function zoneParts(at: Date, zone: string): ZoneParts {
+  const out: Record<string, number> = {};
+  for (const part of zoneFormatter(zone).formatToParts(at)) {
+    if (part.type !== "literal") out[part.type] = Number(part.value);
+  }
+  return {
+    year: out.year ?? at.getFullYear(),
+    month: out.month ?? at.getMonth() + 1,
+    day: out.day ?? at.getDate(),
+    // `hourCycle: "h23"` still emits 24 for midnight in some engines.
+    hour: (out.hour ?? at.getHours()) % 24,
+    minute: out.minute ?? at.getMinutes(),
+    second: out.second ?? at.getSeconds(),
+  };
+}
+
+/** Minutes `zone` runs ahead of UTC at the instant `at`. Negative west of it. */
+export function zoneOffset(at: Date, zone: string): number {
+  const p = zoneParts(at, zone);
+  const asUtc = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second);
+  return Math.round((asUtc - Math.floor(at.getTime() / 1000) * 1000) / 60_000);
+}
+
+/**
+ * Wall-clock fields *in `zone`* → the instant they name. The inverse of
+ * `zoneParts`, and the piece `Intl` does not provide.
+ *
+ * Two passes: the first guesses the offset from the naive UTC reading, the
+ * second re-reads it at the corrected instant. That settles every case except
+ * a time inside a spring-forward gap, which does not exist and resolves to the
+ * instant after it — the same thing every calendar does.
+ */
+export function zonedToUtc(
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number,
+  zone: string,
+): number {
+  const naive = Date.UTC(year, month - 1, day, hour, minute);
+  const first = naive - zoneOffset(new Date(naive), zone) * 60_000;
+  return naive - zoneOffset(new Date(first), zone) * 60_000;
+}
+
+/**
+ * The city half of an IANA name: `Asia/Tokyo` → `Tokyo`,
+ * `America/Argentina/Buenos_Aires` → `Buenos Aires`.
+ *
+ * The city, not the abbreviation. `JST` is only legible if you already know
+ * it, and half the world's zones have no abbreviation at all — the platform
+ * hands back `GMT+5:45` for Kathmandu, which says nothing a relative offset
+ * does not already say better.
+ */
+export function zoneCity(zone: string): string {
+  const last = zone.split("/").pop() ?? zone;
+  return last.replace(/_/g, " ");
+}
+
+/** The region half: `Asia/Tokyo` → `Asia`, `UTC` → `""`. */
+export function zoneRegion(zone: string): string {
+  const parts = zone.split("/");
+  return parts.length > 1 ? parts.slice(0, -1).join("/").replace(/_/g, " ") : "";
+}
+
+/**
+ * A signed hour offset, for one zone measured against another: `+7`, `-3`,
+ * `+5:45`, `same`. Whole hours drop the `:00` — most offsets are whole hours
+ * and `+7:00` is three characters of noise on a dial rim.
+ */
+export function formatOffset(minutes: number): string {
+  if (minutes === 0) return "same";
+  const sign = minutes < 0 ? "−" : "+";
+  const total = Math.abs(minutes);
+  const hours = Math.floor(total / 60);
+  const rest = total % 60;
+  return rest === 0 ? `${sign}${hours}` : `${sign}${hours}:${`${rest}`.padStart(2, "0")}`;
+}
+
+export function localZone(): string {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone;
+}
+
+/**
+ * Every zone the platform knows, for the picker. `supportedValuesOf` is the
+ * only way to get the list without shipping one; the fallback keeps the
+ * control usable on an engine that lacks it.
+ */
+export function allZones(): string[] {
+  if ("supportedValuesOf" in Intl && typeof Intl.supportedValuesOf === "function") {
+    const supported = Intl.supportedValuesOf("timeZone");
+    if (supported.length) return supported;
+  }
+  return ["UTC", localZone()];
+}
+
 /* -------------------------------- formatting ------------------------------ */
 
 /**
