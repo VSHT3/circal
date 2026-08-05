@@ -20,7 +20,9 @@ import {
   MINUTES_PER_DAY,
   addDays,
   dayKey,
+  formatRelativeDay,
   fromDayKey,
+  isSameDay,
   minutesOfDay,
   snap,
   startOfDay,
@@ -251,6 +253,28 @@ export default function App() {
 
   const openOccurrence = useCallback((occ: Occurrence) => actions.openEvent(occ.event), [actions]);
 
+  /**
+   * An arc dragged on the dial. The deltas are minutes and they apply to the
+   * event's own instants, so a recurring event moves as a series (the seed
+   * moves, every occurrence follows) and one dragged past midnight lands on
+   * the next day and leaves this one — which is what dragging it there meant.
+   *
+   * A notice, because that last case is the one where the arc you just moved
+   * is no longer on screen: without a word it reads as a deletion.
+   */
+  const adjustOccurrence = useCallback(
+    (occ: Occurrence, startDeltaMin: number, endDeltaMin: number) => {
+      const { event } = occ;
+      const start = event.start + startDeltaMin * 60_000;
+      const end = event.end + endDeltaMin * 60_000;
+      store.update(event.id, { start, end });
+      if (!isSameDay(new Date(start), day)) {
+        notify(`Moved to ${formatRelativeDay(new Date(start))} — ⌘Z to undo`);
+      }
+    },
+    [day],
+  );
+
   return (
     <div className="flex h-dvh w-dvw flex-col overflow-hidden bg-void">
       <TopBar day={day} view={view} sidebarOpen={sidebarOpen} onStep={step} actions={actions} />
@@ -289,6 +313,7 @@ export default function App() {
                 clock={settings.clock}
                 onOpen={openOccurrence}
                 onCreate={(startMin, endMin) => openDraft(startMin, endMin, day)}
+                onAdjust={adjustOccurrence}
               />
             </div>
           ) : (

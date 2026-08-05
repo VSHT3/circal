@@ -19,7 +19,7 @@ import {
   polar,
 } from "@/lib/dial";
 import { colorOf, statusOf, type Calendar, type Occurrence } from "@/lib/events";
-import { detent } from "@/lib/feedback";
+import { detent, type Detent } from "@/lib/feedback";
 import { sunTimes, type Place } from "@/lib/sun";
 import {
   MINUTES_PER_DAY,
@@ -61,6 +61,14 @@ export interface DialProps {
   tickHaptics: boolean;
   onOpen: (occ: Occurrence) => void;
   onCreate: (startMin: number, endMin: number) => void;
+  /**
+   * An existing event dragged to a new place on the face. Both deltas are
+   * whole `STEP`s of minutes: equal for a move, one of them zero for a
+   * resize. Applied to the event's own instants, not to the day — an
+   * occurrence dragged past midnight belongs to the next day, which is what
+   * dragging it there meant.
+   */
+  onAdjust: (occ: Occurrence, startDeltaMin: number, endDeltaMin: number) => void;
 }
 
 /** Minutes a bare click on the ring turns into. */
@@ -78,16 +86,68 @@ function grey(level: number): string {
 }
 
 /**
- * Two ring positions do not say which way round the circle the user dragged.
- * Take the shorter sweep: anything over twelve hours was a counter-clockwise
- * drag, not a twenty-hour event.
+ * Shortest signed distance from one ring position to another. Two positions
+ * do not say which way round the circle the pointer went, so take the short
+ * way: anything over twelve hours was a counter-clockwise drag, not a
+ * twenty-hour one.
+ *
+ * A gesture accumulates these per pointer event rather than measuring from
+ * where it started, which is what lets a drag pass the twelve-hour mark (and
+ * midnight, more than once) without the delta flipping sign underneath it.
  */
-function resolveDrag(from: number, to: number): { start: number; end: number } {
+function wrapDelta(from: number, to: number): number {
   const forward = (((to - from) % MINUTES_PER_DAY) + MINUTES_PER_DAY) % MINUTES_PER_DAY;
-  const span = forward <= MINUTES_PER_DAY / 2 ? forward : forward - MINUTES_PER_DAY;
+  return forward <= MINUTES_PER_DAY / 2 ? forward : forward - MINUTES_PER_DAY;
+}
+
+/** The two ends of a drag-to-create, in the order the day has them. */
+function resolveDrag(from: number, to: number): { start: number; end: number } {
+  const span = wrapDelta(from, to);
   const start = span >= 0 ? from : from + span;
   const end = span >= 0 ? from + span : from;
   return { start: clamp(start, 0, MINUTES_PER_DAY - STEP), end: clamp(end, STEP, MINUTES_PER_DAY) };
+}
+
+/**
+ * What a press on an arc took hold of: one of its two ends, all of it, or —
+ * on a subscribed calendar's event — nothing that can be moved.
+ */
+type Grip = "start" | "end" | "whole" | "none";
+
+interface Adjust {
+  occ: Occurrence;
+  grip: Grip;
+  /** Ring position the pointer was last seen at, snapped. */
+  at: number;
+  /** How far the grip has travelled so far. Always a whole `STEP`. */
+  delta: number;
+}
+
+/**
+ * The minimum duration, as a limit on the grip's travel rather than on the
+ * result. Clamping the delta is what makes the arc stop dead at fifteen
+ * minutes and start following the pointer again the instant it turns back;
+ * clamping the *end* instead banks the overshoot and the arc lags by however
+ * far the pointer ran on. A step that changes no delta also makes no sound.
+ */
+function clampDelta({ occ, grip }: Adjust, delta: number): number {
+  if (grip === "none") return 0;
+  if (grip === "start") return Math.min(delta, occ.endMin - STEP - occ.startMin);
+  if (grip === "end") return Math.max(delta, occ.startMin + STEP - occ.endMin);
+  return delta;
+}
+
+/**
+ * Where the arc is being dragged to, in minutes since midnight of the day on
+ * screen. Out-of-range values are honest: a move that runs past midnight
+ * draws past the top of the face and lands on the next day, which is what
+ * dragging it there meant.
+ */
+function adjusted({ occ, grip, delta }: Adjust): { start: number; end: number } {
+  if (grip === "whole") return { start: occ.startMin + delta, end: occ.endMin + delta };
+  if (grip === "start") return { start: occ.startMin + delta, end: occ.endMin };
+  if (grip === "end") return { start: occ.startMin, end: occ.endMin + delta };
+  return { start: occ.startMin, end: occ.endMin };
 }
 
 export default function Dial({
@@ -109,14 +169,22 @@ export default function Dial({
   tickHaptics,
   onOpen,
   onCreate,
+  onAdjust,
 }: DialProps) {
   const [stageRef, width, height] = useElementSize<HTMLDivElement>();
   const [hovered, setHovered] = useState<string | null>(null);
   const [drag, setDrag] = useState<{ from: number; to: number } | null>(null);
+  const [adjust, setAdjust] = useState<Adjust | null>(null);
 
   const u = Math.min(width, height) / VIEW_SIZE;
   const today = isSameDay(day, now);
   const nowMin = minutesOfDay(now);
+
+  /** Calendars nobody here may edit: a subscription is a mirror. */
+  const feedIds = useMemo(
+    () => new Set(calendars.filter((c) => c.feed).map((c) => c.id)),
+    [calendars],
+  );
 
   /** How much of this day is spent: all of a past day, none of a future one. */
   const elapsed = today ? nowMin : startOfDay(day) < startOfDay(now) ? MINUTES_PER_DAY : 0;
@@ -164,42 +232,45 @@ export default function Dial({
 
   /* ------------------------------ pointer ------------------------------ */
 
-  // The handler lives on a <circle>, so `ownerSVGElement` is always the root
-  // <svg>; the guard is only there because the DOM types allow null.
-  function pointIn(e: ReactPointerEvent<SVGCircleElement>): { x: number; y: number } | null {
+  // The handlers live on a <circle> and on the arcs' <path>s, so
+  // `ownerSVGElement` is always the root <svg>; the guard is only there
+  // because the DOM types allow null.
+  function pointIn(e: ReactPointerEvent<SVGGraphicsElement>): { x: number; y: number } | null {
     const ctm = e.currentTarget.ownerSVGElement?.getScreenCTM();
     if (!ctm) return null;
     return new DOMPoint(e.clientX, e.clientY).matrixTransform(ctm.inverse());
   }
 
-  /** Every fifteen-minute step the drag lands on, including the one it starts
+  function minutesAt(e: ReactPointerEvent<SVGGraphicsElement>): number | null {
+    const point = pointIn(e);
+    return point ? snap(minutesAtPoint(point.x, point.y, clock), STEP) : null;
+  }
+
+  /** Every fifteen-minute step a drag lands on, including the one it starts
    *  on — the grab is a detent too, and it is the user gesture that lets the
    *  audio context start at all. */
-  function step() {
-    detent({ sound: tickSound, haptics: tickHaptics });
+  function step(kind: Detent) {
+    detent(kind, { sound: tickSound, haptics: tickHaptics });
   }
 
   function onRingDown(e: ReactPointerEvent<SVGCircleElement>) {
     if (e.button !== 0) return;
-    const point = pointIn(e);
-    if (!point) return;
+    const m = minutesAt(e);
+    if (m === null) return;
     e.currentTarget.setPointerCapture(e.pointerId);
-    const m = snap(minutesAtPoint(point.x, point.y, clock), STEP);
     setDrag({ from: m, to: m });
-    step();
+    step("step");
   }
 
   function onRingMove(e: ReactPointerEvent<SVGCircleElement>) {
     if (!drag) return;
-    const point = pointIn(e);
-    if (!point) return;
-    const to = snap(minutesAtPoint(point.x, point.y, clock), STEP);
+    const to = minutesAt(e);
     // Pointermove fires far more often than the ghost changes shape. Bailing
     // on an unchanged step is what makes the clicks countable, and it saves
     // the re-render the drag would otherwise do per event.
-    if (to === drag.to) return;
+    if (to === null || to === drag.to) return;
     setDrag({ ...drag, to });
-    step();
+    step("step");
   }
 
   function onRingUp() {
@@ -212,6 +283,48 @@ export default function Dial({
     } else {
       onCreate(start, end);
     }
+  }
+
+  /* ------------------------- dragging what exists ------------------------- */
+
+  function onArcDown(occ: Occurrence, grip: Grip, e: ReactPointerEvent<SVGPathElement>) {
+    if (e.button !== 0) return;
+    const at = minutesAt(e);
+    if (at === null) return;
+    // The ring under the arc would otherwise start drawing a new event
+    // through the one being grabbed.
+    e.stopPropagation();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setAdjust({ occ, grip, at, delta: 0 });
+    // Nothing is going to move on somebody else's event, so nothing clicks.
+    if (grip !== "none") step(grip === "whole" ? "slide" : "step");
+  }
+
+  function onArcMove(e: ReactPointerEvent<SVGPathElement>) {
+    if (!adjust) return;
+    const at = minutesAt(e);
+    if (at === null || at === adjust.at) return;
+    // Accumulated per event rather than measured from the grab, so the drag
+    // survives passing the twelve-hour mark. Clamped rather than let run:
+    // a delta that overshot the minimum duration would have to be unwound
+    // before the arc started following the pointer back.
+    const delta = clampDelta(adjust, adjust.delta + wrapDelta(adjust.at, at));
+    const moved = delta !== adjust.delta;
+    setAdjust({ ...adjust, at, delta });
+    if (moved) step(adjust.grip === "whole" ? "slide" : "step");
+  }
+
+  function onArcUp() {
+    if (!adjust) return;
+    const { occ, grip, delta } = adjust;
+    setAdjust(null);
+    // A press that moved nothing is a click, and a click opens the event.
+    // That covers a read-only arc, which can never move at all.
+    if (delta === 0) {
+      onOpen(occ);
+      return;
+    }
+    onAdjust(occ, grip === "end" ? 0 : delta, grip === "start" ? 0 : delta);
   }
 
   /* ------------------------------- render ------------------------------- */
@@ -304,8 +417,14 @@ export default function Dial({
             color={colorOf(occ.event, calendars)}
             dimmed={today && statusOf(occ, now) === "past"}
             hovered={hovered === occ.key}
+            // Somebody else's calendar: it opens, it never moves.
+            locked={feedIds.has(occ.event.calendarId)}
+            range={adjust?.occ.key === occ.key ? adjusted(adjust) : null}
             onHover={setHovered}
-            onOpen={onOpen}
+            onGrab={onArcDown}
+            onGrabMove={onArcMove}
+            onGrabEnd={onArcUp}
+            onGrabCancel={() => setAdjust(null)}
           />
         ))}
 
@@ -313,7 +432,9 @@ export default function Dial({
           <GhostArc clock={clock} start={ghost.start} end={ghost.end} />
         )}
 
-        {today && <NowHand minutes={nowMin} clock={clock} dimmed={drag !== null} />}
+        {today && (
+          <NowHand minutes={nowMin} clock={clock} dimmed={drag !== null || adjust !== null} />
+        )}
       </svg>
 
       <CenterPanel
@@ -323,7 +444,7 @@ export default function Dial({
         calendars={calendars}
         u={u}
         clock={clock}
-        drag={ghost && ghost.end > ghost.start ? ghost : null}
+        drag={ghost && ghost.end > ghost.start ? ghost : adjust ? adjusted(adjust) : null}
         hovered={hovered}
         onHover={setHovered}
         onOpen={onOpen}
@@ -630,62 +751,101 @@ function HourLabels({ clock }: { clock: Clock }) {
   );
 }
 
+/**
+ * One event, as an arc — and as three drag targets.
+ *
+ * The body moves the whole event; the two ends move one instant each. They
+ * are separate hit paths rather than one path plus a hit test, because the
+ * cursor has to say which is which *before* the press: on a dial there is no
+ * edge to see, so the pointer is the only affordance the ends get.
+ *
+ * A grip is at most a third of the sweep, so a short event still has a middle
+ * to grab, and an event too short to have ends at all (a dot) only moves.
+ */
 function EventArc({
   occ,
   clock,
   color,
   dimmed,
   hovered,
+  locked,
+  range,
   onHover,
-  onOpen,
+  onGrab,
+  onGrabMove,
+  onGrabEnd,
+  onGrabCancel,
 }: {
   occ: Occurrence;
   clock: Clock;
   color: string;
   dimmed: boolean;
   hovered: boolean;
+  /** From a subscription: draggable by nobody. */
+  locked: boolean;
+  /** Where the drag currently has it, or `null` when it is where it belongs. */
+  range: { start: number; end: number } | null;
   onHover: (key: string | null) => void;
-  onOpen: (occ: Occurrence) => void;
+  onGrab: (occ: Occurrence, grip: Grip, e: ReactPointerEvent<SVGPathElement>) => void;
+  onGrabMove: (e: ReactPointerEvent<SVGPathElement>) => void;
+  onGrabEnd: () => void;
+  onGrabCancel: () => void;
 }) {
   if (occ.event.allDay) return null;
 
   const r = DIAL.LANE - occ.lane * DIAL.LANE_STEP;
   const width = DIAL.ARC_WIDTH;
   const inset = capInset(r);
-  const from = angleAt(occ.startMin, clock);
-  const to = angleAt(occ.endMin, clock);
+  const from = angleAt(range ? range.start : occ.startMin, clock);
+  const to = angleAt(range ? range.end : occ.endMin, clock);
   // Sub-cap-length events collapse to their own round cap: a dot on the ring
   // at the right minute, rather than an arc that lies about its duration.
   const dot = to - from <= inset * 2;
-  const d = dot
-    ? arcPath(r, (from + to) / 2, (from + to) / 2 + 0.001)
-    : arcPath(r, from + inset, to - inset);
+  const head = from + inset;
+  const tail = to - inset;
+  const d = dot ? arcPath(r, (from + to) / 2, (from + to) / 2 + 0.001) : arcPath(r, head, tail);
+
+  /** Degrees of the sweep each end owns. */
+  const grip = Math.min(inset * 2.4, (tail - head) / 3);
+  const zones: { grip: Grip; d: string; cursor: string }[] =
+    locked || dot
+      ? [{ grip: locked ? "none" : "whole", d, cursor: locked ? "cursor-pointer" : "cursor-grab" }]
+      : [
+          { grip: "whole", d, cursor: "cursor-grab" },
+          { grip: "start", d: arcPath(r, head, head + grip), cursor: "cursor-ew-resize" },
+          { grip: "end", d: arcPath(r, tail - grip, tail), cursor: "cursor-ew-resize" },
+        ];
 
   return (
-    <g
-      className="cursor-pointer"
-      onPointerEnter={() => onHover(occ.key)}
-      onPointerLeave={() => onHover(null)}
-      onPointerDown={(e) => e.stopPropagation()}
-      onClick={() => onOpen(occ)}
-    >
+    <g onPointerEnter={() => onHover(occ.key)} onPointerLeave={() => onHover(null)}>
       <path
         d={d}
         fill="none"
         stroke={color}
-        strokeWidth={hovered ? width + 3 : width}
+        strokeWidth={hovered || range ? width + 3 : width}
         strokeLinecap="round"
-        opacity={dimmed && !hovered ? 0.42 : 1}
+        opacity={dimmed && !hovered && !range ? 0.42 : 1}
+        pointerEvents="none"
         style={{ transition: "stroke-width 140ms var(--ease), opacity 140ms var(--ease)" }}
       />
-      <path
-        d={d}
-        fill="none"
-        stroke="transparent"
-        strokeWidth={width + 16}
-        strokeLinecap="round"
-        pointerEvents="stroke"
-      />
+      {/* The ends are listed after the body, so where they overlap it they
+          win the hit test — a stacking order, not a subtraction. */}
+      {zones.map((zone) => (
+        <path
+          key={zone.grip}
+          className={zone.cursor}
+          d={zone.d}
+          fill="none"
+          stroke="transparent"
+          strokeWidth={width + 16}
+          strokeLinecap={zone.grip === "whole" ? "round" : "butt"}
+          pointerEvents="stroke"
+          onPointerDown={(e) => onGrab(occ, zone.grip, e)}
+          onPointerMove={onGrabMove}
+          onPointerUp={onGrabEnd}
+          onPointerCancel={onGrabCancel}
+        />
+      ))}
     </g>
   );
 }

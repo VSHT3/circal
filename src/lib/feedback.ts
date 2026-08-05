@@ -1,17 +1,24 @@
 /* ------------------------------------------------------------------ *
  * Detents.
  *
- * The dial's drag moves in fifteen-minute steps. A step you can only *see*
- * is half a step: the whole appeal of a physical dial is that the mechanism
- * counts for you while your eye is somewhere else. So each step gets a click,
- * and — where the hardware admits to having a motor — a tap.
+ * Every drag on the dial moves in fifteen-minute steps. A step you can only
+ * *see* is half a step: the whole appeal of a physical dial is that the
+ * mechanism counts for you while your eye is somewhere else. So each step
+ * gets a click, and — where the hardware admits to having a motor — a tap.
  *
- * The click is synthesised, not sampled — three milliseconds of noise struck
+ * There are two of them, because the dial does two different things with a
+ * step. `"step"` is an edge landing on a mark: drawing a new range, or moving
+ * one end of an existing one. `"slide"` is a whole event travelling under the
+ * pointer, which is a heavier object and gets a lower, rounder sound. Telling
+ * them apart by ear is the point — it is how you know, without looking, that
+ * you grabbed the middle of an arc when you meant to grab its end.
+ *
+ * Both are synthesised, not sampled — three milliseconds of noise struck
  * through two resonant filters, which is what a mechanical detent physically
- * is: a hard little impulse and whatever the housing around it does with
- * that impulse. Rendered offline it peaks at about 0.14 and is over in three
- * milliseconds; the resonances are jittered a few percent per click, so a
- * row of them reads as a sequence rather than a machine gun.
+ * is: a hard little impulse and whatever the housing around it does with that
+ * impulse. Rendered offline `"step"` peaks near 0.25 and is over in three
+ * milliseconds. The resonances are jittered a few percent per click, so a row
+ * of them reads as a sequence rather than a machine gun.
  *
  * Everything here is best-effort and silent about failing. No Web Audio, a
  * context the browser refuses to start, no vibrator: the drag still snaps,
@@ -30,9 +37,6 @@ const LEVEL = 0.9;
  *  them, and forty clicks in a second is a buzz, not a count. Drop the ones
  *  that would land inside this window; the step itself still happens. */
 const MIN_GAP_MS = 22;
-/** Vibration length. A tap — long enough for the motor to move, short enough
- *  that ninety-six of them do not merge into a hum. */
-const BUZZ_MS = 8;
 /**
  * The exciter: 3 ms of noise with its own decay baked into the samples.
  *
@@ -43,6 +47,52 @@ const BUZZ_MS = 8;
  * is a hiss.
  */
 const BURST_SECONDS = 0.003;
+
+/** Which of the dial's two gestures made the step. */
+export type Detent = "step" | "slide";
+
+interface Resonance {
+  hz: number;
+  q: number;
+  /** Fraction of `LEVEL`. */
+  level: number;
+  /** Seconds to silence. Shorter than the filter's own ring-out, always. */
+  decay: number;
+}
+
+interface Voice {
+  /** The body of the mechanism — what gives the click its pitch. */
+  body: Resonance;
+  /** The edge of the snap, an octave and a half up: presence, not pitch. */
+  edge: Resonance;
+  /** Raw impulse over the top, high-passed. The contact itself. */
+  contact: { hz: number; level: number };
+  /** Vibration length in ms. A tap, never a rumble. */
+  buzz: number;
+}
+
+/**
+ * An edge landing on a mark, and a whole event sliding past one.
+ *
+ * The slide is the same mechanism an octave down, longer and softer: it reads
+ * as weight, which is exactly the difference between moving one end of an
+ * event and moving all of it. Its contact filter is lower too — with the
+ * step's 2 kHz highpass the two sounded like the same click at two volumes.
+ */
+const VOICES: Record<Detent, Voice> = {
+  step: {
+    body: { hz: 1950, q: 8, level: 1, decay: 0.009 },
+    edge: { hz: 4200, q: 16, level: 0.5, decay: 0.005 },
+    contact: { hz: 2000, level: 0.35 },
+    buzz: 8,
+  },
+  slide: {
+    body: { hz: 920, q: 6, level: 0.9, decay: 0.014 },
+    edge: { hz: 1900, q: 11, level: 0.28, decay: 0.007 },
+    contact: { hz: 900, level: 0.16 },
+    buzz: 5,
+  },
+};
 
 let ctx: AudioContext | null = null;
 let burstBuffer: AudioBuffer | null = null;
@@ -83,13 +133,11 @@ function audio(): { ctx: AudioContext; burst: AudioBuffer } | null {
 /**
  * One detent: an impulse struck through two resonators.
  *
- * The low resonator is the body of the mechanism, the high one is the edge of
- * the snap, and a little of the raw impulse over the top is the contact
- * itself. Nothing here lasts more than about twelve milliseconds and nothing
- * reaches below a kilohertz — a click with low frequencies in it is a knock,
+ * Nothing here lasts more than about fifteen milliseconds and nothing reaches
+ * below eight hundred hertz — a click with low frequencies in it is a knock,
  * and a click that outlives its transient is a blip.
  */
-function click() {
+function click(voice: Voice) {
   const built = audio();
   if (!built) return;
   const { ctx: ac, burst: impulse } = built;
@@ -103,7 +151,7 @@ function click() {
   const detune = 0.96 + Math.random() * 0.08;
 
   /** A resonator, struck by the impulse and cut short of its own ring-out. */
-  const strike = (hz: number, q: number, level: number, decay: number) => {
+  const strike = ({ hz, q, level, decay }: Resonance) => {
     const res = ac.createBiquadFilter();
     res.type = "bandpass";
     res.frequency.value = hz * detune;
@@ -113,23 +161,23 @@ function click() {
     // No attack ramp: the impulse *is* the attack, and a ramp in front of it
     // only rounds off the one part of the sound that matters. Exponential to
     // a floor rather than to zero, which a ramp cannot reach.
-    env.gain.setValueAtTime(level, t);
+    env.gain.setValueAtTime(LEVEL * level, t);
     env.gain.exponentialRampToValueAtTime(0.0001, t + decay);
 
     burst.connect(res).connect(env).connect(ac.destination);
   };
 
-  strike(1950, 8, LEVEL, 0.009);
-  strike(4200, 16, LEVEL * 0.5, 0.005);
+  strike(voice.body);
+  strike(voice.edge);
 
   // The contact. High-passed, because the impulse's own low end is the part
   // that made the first draft of this sound like a bubble.
-  const edge = ac.createBiquadFilter();
-  edge.type = "highpass";
-  edge.frequency.value = 2000;
-  const edgeGain = ac.createGain();
-  edgeGain.gain.value = LEVEL * 0.35;
-  burst.connect(edge).connect(edgeGain).connect(ac.destination);
+  const contact = ac.createBiquadFilter();
+  contact.type = "highpass";
+  contact.frequency.value = voice.contact.hz;
+  const contactGain = ac.createGain();
+  contactGain.gain.value = LEVEL * voice.contact.level;
+  burst.connect(contact).connect(contactGain).connect(ac.destination);
 
   burst.start(t);
   // One-shot and self-terminating, so the graph behind it is collected when
@@ -147,23 +195,24 @@ export function canVibrate(): boolean {
   return typeof navigator !== "undefined" && typeof navigator.vibrate === "function";
 }
 
-function buzz() {
+function buzz(ms: number) {
   if (!canVibrate()) return;
   // Throws in no browser that has it, but this is called from a pointermove
   // and a vibrator is a device — treat it like one.
   try {
-    navigator.vibrate(BUZZ_MS);
+    navigator.vibrate(ms);
   } catch {
     /* no tap, then */
   }
 }
 
 /** One step of the dial, in whichever channels the user left on. */
-export function detent({ sound, haptics }: { sound: boolean; haptics: boolean }) {
+export function detent(kind: Detent, { sound, haptics }: { sound: boolean; haptics: boolean }) {
   if (!sound && !haptics) return;
   const at = performance.now();
   if (at - lastAt < MIN_GAP_MS) return;
   lastAt = at;
-  if (sound) click();
-  if (haptics) buzz();
+  const voice = VOICES[kind];
+  if (sound) click(voice);
+  if (haptics) buzz(voice.buzz);
 }

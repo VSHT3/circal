@@ -26,6 +26,26 @@ const MIN_DURATION_MIN = 5;
 const DAY_MS = 86_400_000;
 
 /**
+ * Open the native date picker on the Date row.
+ *
+ * The row is a label with a transparent `input[type=date]` stretched over it,
+ * and clicking the *field* of a date input opens nothing in Chrome or Safari
+ * — only its calendar indicator does, which is the one part this input is
+ * hiding. So the row's own click has to ask for the picker directly.
+ *
+ * Wrapped, because `showPicker` throws without a user gesture and does not
+ * exist in every browser that renders the field. Either way the row stays
+ * typeable and the arrow keys still step the date.
+ */
+function openDatePicker(input: HTMLInputElement) {
+  try {
+    input.showPicker();
+  } catch {
+    /* no picker; the field itself still edits */
+  }
+}
+
+/**
  * A twelve-hour clock field. Free text while focused, normalised on blur or
  * Enter; ↑/↓ nudge by five minutes so keyboard-only editing is not a retype.
  */
@@ -335,6 +355,12 @@ export default function EventEditor({
                   aria-label="Date"
                   value={dayKey(new Date(draft.start))}
                   onChange={(e) => handleDateChange(e.target.value)}
+                  onClick={(e) => openDatePicker(e.currentTarget)}
+                  onKeyDown={(e) => {
+                    if (e.key !== "Enter" && e.key !== " ") return;
+                    e.preventDefault();
+                    openDatePicker(e.currentTarget);
+                  }}
                   className="absolute inset-0 cursor-pointer opacity-0"
                 />
               </Row>

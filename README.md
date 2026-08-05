@@ -90,12 +90,20 @@ the gaps in the day that fit it. Picking one opens a draft already filling the
 slot.
 
 Drag anywhere on the ring to block out time — the readout in the middle turns
-into the range you are drawing. It moves in fifteen-minute steps, and each step
-**clicks**: a three-millisecond synthesised detent, plus a tap on hardware with
-a vibrator. Both channels switch off under **Detents** in Settings, and the
-vibration switch only appears on a device that has a motor to offer. A click on
-the ring creates an hour. Click an arc, an agenda row or a day in the year grid
-to open it.
+into the range you are drawing. A click on the ring creates an hour instead.
+
+An arc already on the face is draggable too: grab its middle to move the whole
+event, or either end to move that end alone. The minimum is one fifteen-minute
+step, ends stop dead there, and a move that passes midnight lands on the next
+day and says so. A subscription's arcs only open — somebody else's calendar is
+a mirror. Click an arc, an agenda row or a day in the year grid to open it.
+
+Every drag moves in fifteen-minute steps and each step **clicks**: a
+three-millisecond synthesised detent, plus a tap on hardware with a vibrator.
+Moving a whole event sounds lower and rounder than moving one of its ends, so
+you can hear which one you grabbed. Both channels switch off under **Detents**
+in Settings, and the vibration switch only appears on a device that has a motor
+to offer.
 
 The selected day is in the URL (`?d=2026-08-05`), so a day is linkable and the
 back button works.

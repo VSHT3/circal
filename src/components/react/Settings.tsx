@@ -232,7 +232,8 @@ export default function Settings({
                   )}
                 </div>
                 <span className="label text-ink-3">
-                  Clicks each fifteen-minute step while dragging a new event onto the dial
+                  Clicks every fifteen-minute step you drag on the dial — a lower one for an event
+                  moving whole, a sharper one for either of its ends
                 </span>
               </FieldRow>
 
