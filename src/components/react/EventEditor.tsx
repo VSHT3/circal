@@ -19,31 +19,17 @@ import {
   type Clock,
 } from "@/lib/time";
 import { cn } from "@/lib/utils";
-import { FieldRow as Row, Kbd, Select, Switch } from "@/components/react/ui/primitives";
+import {
+  FieldRow as Row,
+  Kbd,
+  Select,
+  Switch,
+  openDatePicker,
+} from "@/components/react/ui/primitives";
 import type { EventEditorProps } from "@/components/react/types";
 
 const MIN_DURATION_MIN = 5;
 const DAY_MS = 86_400_000;
-
-/**
- * Open the native date picker on the Date row.
- *
- * The row is a label with a transparent `input[type=date]` stretched over it,
- * and clicking the *field* of a date input opens nothing in Chrome or Safari
- * — only its calendar indicator does, which is the one part this input is
- * hiding. So the row's own click has to ask for the picker directly.
- *
- * Wrapped, because `showPicker` throws without a user gesture and does not
- * exist in every browser that renders the field. Either way the row stays
- * typeable and the arrow keys still step the date.
- */
-function openDatePicker(input: HTMLInputElement) {
-  try {
-    input.showPicker();
-  } catch {
-    /* no picker; the field itself still edits */
-  }
-}
 
 /**
  * A twelve-hour clock field. Free text while focused, normalised on blur or

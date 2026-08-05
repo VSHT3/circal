@@ -4,6 +4,10 @@
  * Every piece of chrome in circal is one of these. Adding a seventh variant
  * of a button is how a product stops looking like one thing, so a new surface
  * composes what is here or the control moves in here first.
+ *
+ * The two field controls at the bottom are shared by the settings card and the
+ * life view's prompt — the same date and the same number, asked for in two
+ * places.
  * ------------------------------------------------------------------ */
 
 import { ChevronsUpDown } from "lucide-react";
@@ -114,7 +118,12 @@ export function ActionPill({
   );
 }
 
-/** Two-state segmented control. `value` is the id of the active segment. */
+/**
+ * Segmented control. `value` is the id of the active segment.
+ *
+ * The shortcut chips are hidden below 900px: they cost 48px a segment and name
+ * a key nobody has on the window sizes where the top bar is short of room.
+ */
 export function Segmented<T extends string>({
   value,
   onChange,
@@ -140,7 +149,13 @@ export function Segmented<T extends string>({
             )}
           >
             {option.label}
-            {!on && option.keys?.map((k) => <Kbd key={k}>{k}</Kbd>)}
+            {!on && option.keys && (
+              <span className="hidden items-center gap-1.5 min-[900px]:flex">
+                {option.keys.map((k) => (
+                  <Kbd key={k}>{k}</Kbd>
+                ))}
+              </span>
+            )}
           </button>
         );
       })}
@@ -249,5 +264,120 @@ export function Select<T extends string>({
         ))}
       </select>
     </div>
+  );
+}
+
+/**
+ * Open the native date picker.
+ *
+ * A styled date row is a face with a transparent `input[type=date]` stretched
+ * over it, and clicking the *field* of a date input opens nothing in Chrome or
+ * Safari — only its calendar indicator does, which is the one part the input is
+ * hiding. So the row's own click has to ask for the picker directly.
+ *
+ * Wrapped, because `showPicker` throws without a user gesture and does not
+ * exist in every browser that renders the field. Either way the field stays
+ * typeable and the arrow keys still step the date.
+ */
+export function openDatePicker(input: HTMLInputElement) {
+  try {
+    input.showPicker();
+  } catch {
+    /* no picker; the field itself still edits */
+  }
+}
+
+/**
+ * A date, as a value you can click. `children` is the printed face — a caller
+ * with something better to say than the raw value (a relative day, an age)
+ * passes it, and the invisible input covers whatever that turns out to be.
+ */
+export function DateField({
+  value,
+  onChange,
+  label,
+  min,
+  max,
+  className,
+  children,
+}: {
+  /** `YYYY-MM-DD`, always — the native field speaks nothing else. */
+  value: string;
+  onChange: (next: string) => void;
+  label: string;
+  min?: string;
+  max?: string;
+  className?: string;
+  children?: ReactNode;
+}) {
+  return (
+    <span
+      className={cn(
+        "relative flex h-8 min-w-0 items-center gap-2 rounded-[8px] bg-surface-2 px-2.5 text-[13px] text-ink",
+        className,
+      )}
+    >
+      {children ?? <span className="truncate tabular-nums">{value || "—"}</span>}
+      <input
+        type="date"
+        aria-label={label}
+        value={value}
+        min={min}
+        max={max}
+        onChange={(e) => onChange(e.target.value)}
+        onClick={(e) => openDatePicker(e.currentTarget)}
+        onKeyDown={(e) => {
+          if (e.key !== "Enter" && e.key !== " ") return;
+          e.preventDefault();
+          openDatePicker(e.currentTarget);
+        }}
+        className="absolute inset-0 cursor-pointer opacity-0"
+      />
+    </span>
+  );
+}
+
+/**
+ * A small integer with a unit after it. Committed on change and clamped on
+ * blur rather than per keystroke: clamping while typing makes "8" jump to the
+ * minimum before the "0" arrives.
+ */
+export function NumberField({
+  value,
+  onChange,
+  label,
+  suffix,
+  min,
+  max,
+  className,
+}: {
+  value: number;
+  onChange: (next: number) => void;
+  label: string;
+  suffix?: string;
+  min: number;
+  max: number;
+  className?: string;
+}) {
+  return (
+    <span
+      className={cn(
+        "flex h-8 items-center gap-1.5 rounded-[8px] bg-surface-2 px-2.5 text-[13px] text-ink",
+        className,
+      )}
+    >
+      <input
+        type="number"
+        inputMode="numeric"
+        aria-label={label}
+        value={value}
+        min={min}
+        max={max}
+        onChange={(e) => onChange(Number(e.target.value))}
+        onBlur={(e) => onChange(Math.min(max, Math.max(min, Math.round(Number(e.target.value)))))}
+        className="w-[3.5ch] [appearance:textfield] tabular-nums [&::-webkit-inner-spin-button]:appearance-none"
+      />
+      {suffix && <span className="label text-ink-3">{suffix}</span>}
+    </span>
   );
 }
