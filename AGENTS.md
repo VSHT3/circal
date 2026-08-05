@@ -39,7 +39,7 @@ src/pages/index.astro   static HTML shell
 | `src/components/react/`                  | The island. `App.tsx` shell, `Dial.tsx` instrument, panels                                                                |
 | `src/components/react/ui/primitives.tsx` | The six shared controls all chrome is built from                                                                          |
 | `src/components/react/types.ts`          | **Every panel prop interface.** Edit shapes here                                                                          |
-| `src/styles/global.css`                  | Design tokens, `@theme inline` colour mappings, four component classes                                                    |
+| `src/styles/global.css`                  | Design tokens, `@theme inline` colour mappings, five component classes                                                    |
 
 ## Development Commands
 
@@ -52,6 +52,26 @@ pnpm deploy     # astro build && wrangler deploy
 ```
 
 `pnpm verify` is the only quality gate; run it before declaring work done. Individual steps: `pnpm format:check`, `pnpm lint` (eslint), `pnpm check` (astro check / tsc), `pnpm build`.
+
+## Git & Commits
+
+Commit **regularly** — one commit per coherent change, not one per session. A
+commit that touches the dial's geometry, the store's schema and a doc in the
+same breath cannot be reverted, bisected or reviewed.
+
+- **Conventional Commits**: `<type>(<scope>): <imperative summary>`, scope
+  optional. Types: `feat`, `fix`, `refactor`, `perf`, `docs`, `test`, `chore`,
+  `build`, `ci`, `style`, `revert`.
+- Subject ≤ 50 chars where it fits, hard cap 72. Imperative mood, lowercase
+  after the colon, no trailing period.
+- Scope is the area, not the filename: `dial`, `center-panel`, `store`,
+  `events`, `time`, `sidebar`, `palette`, `editor`, `styles`.
+- **Body only when the _why_ is not obvious** from the diff — a rendering
+  artefact being worked around, a schema bump, a reverted decision. Wrap at
+  72, bullets `-`, issue refs last (`Closes #42`).
+- Never: AI attribution trailers, "this commit does X", emoji, restating the
+  filename the scope already names.
+- Run `pnpm verify` before committing. The gate is per-commit, not per-branch.
 
 ## Code Conventions & Common Patterns
 
@@ -71,7 +91,7 @@ pnpm deploy     # astro build && wrangler deploy
 | `text-accent`                    | `#a3d9e4`                         | default calendar colour                 |
 | `text-danger`                    | `#ff5a5a`                         | destructive only                        |
 
-`fill-*` and `stroke-*` variants exist too and are used in SVG. Component classes: `.label` (uppercase 11px mono, the app's label voice), `.kbd`, `.fade-y` (mask a scroll area's ends), `.no-scrollbar` — pair the last two on every scroll region. Chrome is greyscale by rule: **colour belongs to events**. Never read `calendar.color` or `event.color` directly — call `colorOf(event, calendars)`, which resolves the event's own override first and falls back to its calendar. The presets live in `PALETTE` (`src/lib/events.ts`): ten digital pastels, high value and moderate saturation so two can share a dial at a 14-unit stroke.
+`fill-*` and `stroke-*` variants exist too and are used in SVG. Component classes: `.label` (uppercase 11px mono, the app's label voice), `.kbd`, `.fade-y` (mask both ends of a scroll area), `.fade-b` (bottom only, proportional — for a short list whose first row must stay crisp), `.no-scrollbar` — pair a fade with `.no-scrollbar` on every scroll region, and apply the fade **only when the list actually overflows**; a permanent fade on a list that fits reads as a rendering fault. Chrome is greyscale by rule: **colour belongs to events**. Never read `calendar.color` or `event.color` directly — call `colorOf(event, calendars)`, which resolves the event's own override first and falls back to its calendar. The presets live in `PALETTE` (`src/lib/events.ts`): ten digital pastels, high value and moderate saturation so two can share a dial at a 14-unit stroke.
 
 **New chrome must reuse `ui/primitives.tsx`** — `Kbd`, `IconButton`, `ActionPill`, `Segmented`, `Switch`, `Select`. Do not hand-roll a button.
 
@@ -130,6 +150,8 @@ If you add a test framework, wire it into `verify` in `package.json` so the gate
 - **`dayKey()` is deliberately local-time.** `toISOString()` shifts the day west of UTC, which is exactly where a day-keyed store breaks. Never swap it in.
 - **`angleAt` and `minutesAtPoint` are exact inverses** and must stay so. Both take a `Clock` and differ only by `origin()` — the minute that sits at the top (720 for `12h`, 0 for `24h`).
 - **`arcPath` draws a full turn as two half-arcs**, because a single elliptical arc whose endpoints coincide renders nothing. Removing that branch makes a whole-day arc vanish.
+- **A gradient built from overlapping strokes must be opaque.** The elapsed ring is a chain of arcs, and translucent ones compound their alpha wherever they overlap — every join paints a bright bead and the trail reads as a row of tick marks. On a true-black canvas an opaque grey is identical to translucent white, so `Dial.tsx` ramps the _colour_ (`grey(level)`), uses butt caps between segments and rounds only the two ends of the whole run.
+- **The now-hand stops at `DIAL.HAND_INNER` (205).** A hand through the centre crosses the readout and the agenda, which is a lot of ink spent on a time the readout already prints. It is a spoke: a pip on the track at the exact minute, fading out along a `userSpaceOnUse` gradient before the centre panel. If the panel grows, `HAND_INNER` must clear its furthest corner.
 - **Lane packing is face-independent.** `dayAgenda` takes no `Clock`: both faces put one day on one revolution, so two events collide on screen exactly when they collide in time.
 - **`CalEvent.color` is an override, not the colour.** Empty string means "follow the calendar" and is the default every event should stay on, so recolouring a calendar still moves them. Only `colorOf` knows the precedence.
 - **`Settings` is schema-versioned.** `SCHEMA` in `src/lib/store.ts` is bumped when a stored value changes _meaning_ rather than shape (it went to `2` when `clock: "24h"` stopped meaning the noon-at-top face). A stale schema resets settings to defaults and keeps events.
