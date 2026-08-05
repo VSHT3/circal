@@ -30,7 +30,7 @@ import {
   startOfDay,
 } from "@/lib/time";
 import { LIFE_META_H, lifeDot, lifeStage } from "@/lib/life";
-import { useElementSize, useHotkeys, useNow } from "./hooks";
+import { useElementSize, useHotkeys, useNow, useTypingSound } from "./hooks";
 import type { EditorTarget, ShellActions, ViewFlow, ViewMode } from "./types";
 import CommandPalette from "./CommandPalette";
 import Dial from "./Dial";
@@ -388,11 +388,36 @@ export default function App() {
     },
   });
 
+  // Every field in the app, on the same switch as the dial's clicks: one
+  // setting called Sound, because a user who turned the dial quiet did not
+  // ask for a keyboard.
+  useTypingSound(settings.tickSound);
+
   /** The sound channels, as every cue in the shell wants them. */
   const channels = useMemo(
     () => ({ sound: settings.tickSound, haptics: settings.tickHaptics }),
     [settings.tickSound, settings.tickHaptics],
   );
+
+  /**
+   * A panel arriving says so, from wherever it was opened — ⌘P, the top bar,
+   * or the palette handing over to settings. One effect per panel rather than a
+   * cue at each call site, because there are four call sites and they would
+   * drift; audio is an external system, which is what an effect is for.
+   *
+   * The channels come from a ref so that flipping Sound while a panel is open
+   * does not re-announce it, and so `actions` need not depend on them.
+   */
+  const channelsRef = useRef(channels);
+  useEffect(() => {
+    channelsRef.current = channels;
+  }, [channels]);
+  useEffect(() => {
+    if (paletteOpen) cue("opened", channelsRef.current);
+  }, [paletteOpen]);
+  useEffect(() => {
+    if (settingsOpen) cue("opened", channelsRef.current);
+  }, [settingsOpen]);
 
   const commit = useCallback(
     (draft: Omit<CalEvent, "id">) => {

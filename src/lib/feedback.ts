@@ -23,11 +23,18 @@
 
 /**
  * Gain into the resonators — not the peak of the result. A narrow bandpass
- * struck by three milliseconds of noise throws most of that noise away, so
- * the graph as tuned below lands at about a quarter of this at the speaker:
- * 0.9 in renders as a peak of 0.25 for a detent. Measured, not guessed.
+ * struck by three milliseconds of noise throws most of that noise away, so the
+ * graph as tuned below lands at about a quarter of this at the speaker.
+ *
+ * It was 0.9, tuned before the keyboard existed and measured against nothing
+ * but itself. Beside a keystroke it was plainly quiet: the cues carried 0.66×
+ * a letter click's *energy*, which is what the ear compares — not peak, since a
+ * 3 ms noise burst and a 12 ms sinusoid at the same peak are nowhere near the
+ * same loudness. 1.35 is the factor that closes that gap, applied to the whole
+ * family at once so their balance with each other survives (`slide` stays the
+ * soft one at 0.41× a letter, `deleted` the loud one at 1.5×).
  */
-const LEVEL = 0.9;
+const LEVEL = 1.35;
 /** A flick across the ring can cross steps faster than the ear separates
  *  them, and forty clicks in a second is a buzz, not a count. Drop the ones
  *  that would land inside this window; the step itself still happens. */
@@ -53,10 +60,44 @@ interface Strike {
   at?: number;
 }
 
+/** One damped sinusoid, optionally gliding, optionally late. */
+export interface Layer {
+  /** Hz at the attack. */
+  from: number;
+  /** Hz it arrives at, exponentially, after `glide`. */
+  to: number;
+  /** Seconds of glide; the pitch holds after it. */
+  glide: number;
+  /** Seconds for the amplitude to fall by `e`. */
+  tau: number;
+  /** Relative to the loudest layer of the voice. Omitted means 1. */
+  level?: number;
+  /**
+   * Seconds after the voice begins. This is how a thing lands twice: a second
+   * contact is a second layer a few milliseconds late, not a second sound
+   * scheduled by the caller — one buffer per voice keeps it one `start()`, and
+   * the pair has to survive `playbackRate` as a unit or the gap between the
+   * contacts stops tracking the pitch.
+   */
+  at?: number;
+}
+
+/** A voice: layers summed, then scaled so the sum peaks where asked. */
+export interface Synth {
+  layers: Layer[];
+  /** Seconds of buffer. Four time constants of tail, then silence. */
+  length: number;
+  /** Peak of the finished sum, in output amplitude. */
+  peak: number;
+}
+
 interface Sound {
-  strikes: Strike[];
+  /** Struck: noise through resonators. Every cue but `opened`. */
+  strikes?: Strike[];
   /** Raw impulse over the top, high-passed: the contact itself, at t=0. */
-  contact: { hz: number; level: number };
+  contact?: { hz: number; level: number };
+  /** Sounded: damped sinusoids, the keyboard's mechanism. `opened` only. */
+  voice?: Synth;
   /** Vibration, in ms — a pattern for the cues that want two taps. */
   buzz: number | number[];
   /** Rate-limited, because it can fire dozens of times a second. */
@@ -64,22 +105,30 @@ interface Sound {
 }
 
 /**
- * Five cues out of one mechanism.
+ * Five cues, now out of two mechanisms.
  *
  * `step` is an edge landing on a mark. `slide` is the same mechanism an
  * octave down, longer and softer — it reads as weight, which is exactly the
  * difference between moving one end of an event and moving all of it.
  *
- * The three long ones are struck two or three times:
+ * `created` and `deleted` are struck three times:
  *
- * - `opened` — a low knock, then a brighter tick as the editor arrives on
- *   top of it. Wooden Qs and a long-ish body: this is a thing being set
- *   down, not a chime.
  * - `created` — a solid low body with a click on it, then a bright tick a
  *   moment later. Pitches rising, because the gesture finished.
  * - `deleted` — the same three hits with the pitches falling and the last
  *   one hollow and long, so it reads as something being dropped away rather
  *   than filed. Two taps of haptics too: it is the one destructive cue.
+ *
+ * `opened` is the exception and is *sounded* rather than struck — two damped
+ * sinusoids, the keyboard's mechanism, no noise in it at all. It was a knock
+ * and a bright tick like the others and it read as thin and high beside a
+ * keystroke, which is what this cue now lands next to: ⌘P fires it. Lowering
+ * its resonances did nothing measurable, because the brightness was never the
+ * resonances — 86% of a struck cue's energy sits above 3 kHz, against a
+ * keystroke's 4.5%, and that is the impulse itself. Cutting the impulse fixes
+ * the tone by making the cue quiet. So: a low landing at 900 → 180 Hz, then a
+ * second contact 50 ms later at 520 → 130 Hz, half the level — a thing being
+ * set down, in the same voice as the keys around it.
  */
 const SOUNDS: Record<Cue, Sound> = {
   step: {
@@ -101,15 +150,16 @@ const SOUNDS: Record<Cue, Sound> = {
     gated: true,
   },
   opened: {
-    // Levels above 1 on purpose: a resonance this narrow keeps a fraction of
-    // what is struck into it, and these have to sit level with a detent's
-    // 0.27 rather than under it.
-    strikes: [
-      { hz: 540, q: 5, level: 1.6, decay: 0.045 },
-      { hz: 1150, q: 9, level: 0.6, decay: 0.012 },
-      { hz: 1560, q: 9, level: 0.85, decay: 0.03, at: 0.055 },
-    ],
-    contact: { hz: 700, level: 0.2 },
+    voice: {
+      layers: [
+        { from: 900, to: 180, glide: 0.012, tau: 0.006 },
+        { from: 520, to: 130, glide: 0.01, tau: 0.01, level: 0.55, at: 0.05 },
+      ],
+      length: 0.11,
+      // A shade over a letter click (0.24): this is a panel arriving, and it
+      // answers a deliberate ⌘P rather than accompanying a keystroke.
+      peak: 0.28,
+    },
     buzz: 9,
   },
   created: {
@@ -139,21 +189,19 @@ let mute = false;
 let lastAt = 0;
 
 /**
- * The context, built on first use. That first use is inside a pointerdown
- * handler, which is what the autoplay policies want to see — a context
+ * The context, built on first use. That first use is inside a pointerdown or
+ * keydown handler, which is what the autoplay policies want to see — a context
  * constructed at module load would start `suspended` and stay there.
+ *
+ * Exported because `lib/keys.ts` plays through the same graph. Two contexts
+ * for one app is two output devices to keep resumed and two sets of latency,
+ * and the browser only promises a handful of them per page.
  */
-function audio(): { ctx: AudioContext; burst: AudioBuffer } | null {
+export function audioContext(): AudioContext | null {
   if (mute) return null;
-  if (!ctx || !burstBuffer) {
+  if (!ctx) {
     try {
       ctx = new AudioContext();
-      const length = Math.ceil(ctx.sampleRate * BURST_SECONDS);
-      burstBuffer = ctx.createBuffer(1, length, ctx.sampleRate);
-      const samples = burstBuffer.getChannelData(0);
-      for (let i = 0; i < length; i += 1) {
-        samples[i] = (Math.random() * 2 - 1) * Math.exp((-6 * i) / length);
-      }
     } catch {
       mute = true;
       return null;
@@ -163,12 +211,80 @@ function audio(): { ctx: AudioContext; burst: AudioBuffer } | null {
   // back with the context asleep. Ask, do not wait — the resume lands long
   // before the drag ends, and the first click is not worth blocking on.
   if (ctx.state === "suspended") void ctx.resume();
-  return { ctx, burst: burstBuffer };
+  return ctx;
+}
+
+function audio(): { ctx: AudioContext; burst: AudioBuffer } | null {
+  const ac = audioContext();
+  if (!ac) return null;
+  if (!burstBuffer) {
+    const length = Math.ceil(ac.sampleRate * BURST_SECONDS);
+    burstBuffer = ac.createBuffer(1, length, ac.sampleRate);
+    const samples = burstBuffer.getChannelData(0);
+    for (let i = 0; i < length; i += 1) {
+      samples[i] = (Math.random() * 2 - 1) * Math.exp((-6 * i) / length);
+    }
+  }
+  return { ctx: ac, burst: burstBuffer };
 }
 
 /**
- * One cue: an impulse per distinct strike time, each struck through its own
- * resonators.
+ * A voice into a buffer: sum the layers, then scale the sum so it peaks at the
+ * level asked for. Normalising the *sum* rather than trusting the layer levels
+ * is the only way a multi-layer voice stays predictable — two partials add to
+ * somewhere between 1.0 and 1.5 depending on where their phases land, and
+ * guessing that is how one voice ends up twice its neighbours.
+ *
+ * Exported because `lib/keys.ts` builds every key with it. It lives here
+ * rather than there because this module owns the `AudioContext`, and the
+ * dependency has to run one way.
+ */
+export function renderVoice(ac: AudioContext, voice: Synth): AudioBuffer {
+  const rate = ac.sampleRate;
+  const length = Math.max(1, Math.ceil(rate * voice.length));
+  const buffer = ac.createBuffer(1, length, rate);
+  const out = buffer.getChannelData(0);
+
+  for (const layer of voice.layers) {
+    const ratio = layer.to / layer.from;
+    const level = layer.level ?? 1;
+    const start = Math.min(length, Math.round(rate * (layer.at ?? 0)));
+    let phase = 0;
+    for (let i = start; i < length; i += 1) {
+      // Time since *this layer* began, not since the voice did: a late layer is
+      // its own contact, with its own glide, decay and attack from zero.
+      const t = (i - start) / rate;
+      // Exponential glide, held once it arrives, integrated as it goes: the
+      // phase has to be the running integral of frequency, not `f(t) * t`, or
+      // the pitch heard is the wrong one everywhere except t=0.
+      const hz = layer.from * Math.pow(ratio, Math.min(t / layer.glide, 1));
+      phase += (2 * Math.PI * hz) / rate;
+      // A 0.2 ms ramp on the front. The attack is the sound, so it is as short
+      // as it can be without the layer opening on a step, which is a click of
+      // its own on top of the one intended.
+      out[i] += Math.sin(phase) * Math.exp(-t / layer.tau) * level * Math.min(1, t / 0.0002);
+    }
+  }
+
+  let max = 0;
+  for (let i = 0; i < length; i += 1) max = Math.max(max, Math.abs(out[i]));
+  const scale = max > 0 ? voice.peak / max : 0;
+  // A 3 ms fade on the tail. The envelope is already inaudible by then, but
+  // "inaudible" and "zero" differ by a step, and a step is a click.
+  const fade = Math.min(length, Math.ceil(rate * 0.003));
+  for (let i = 0; i < length; i += 1) {
+    const tail = i > length - fade ? (length - i) / fade : 1;
+    out[i] = out[i] * scale * tail;
+  }
+  return buffer;
+}
+
+/** Rendered once, on the cue's first use. `opened` is the only one so far. */
+const voices = new Map<Synth, AudioBuffer>();
+
+/**
+ * One cue. A sounded one is a single buffer; a struck one is an impulse per
+ * distinct strike time, each through its own resonators.
  *
  * A separate impulse per hit rather than one long-lived source, because the
  * hits *are* separate contacts — and because the noise is different each
@@ -184,6 +300,24 @@ function play(sound: Sound) {
   // Every resonance a shade off the last cue's. Identical cues in a row read
   // as a machine gun; a few percent makes a row of them a sequence.
   const detune = 0.96 + Math.random() * 0.08;
+
+  if (sound.voice) {
+    let buffer = voices.get(sound.voice);
+    if (!buffer) {
+      buffer = renderVoice(ac, sound.voice);
+      voices.set(sound.voice, buffer);
+    }
+    const source = ac.createBufferSource();
+    source.buffer = buffer;
+    // The same trick the resonances get, applied to the whole voice: one
+    // buffer heard twice at the same rate is the machine gun this avoids.
+    source.playbackRate.value = detune;
+    source.connect(ac.destination);
+    source.start();
+    return;
+  }
+  if (!sound.strikes || !sound.contact) return;
+  const contactSpec = sound.contact;
 
   /** The strikes of one hit, keyed by when it lands. */
   const hits = new Map<number, Strike[]>();
@@ -206,10 +340,9 @@ function play(sound: Sound) {
     // detent sound like a bubble.
     const contact = ac.createBiquadFilter();
     contact.type = "highpass";
-    contact.frequency.value = sound.contact.hz;
+    contact.frequency.value = contactSpec.hz;
     const gain = ac.createGain();
-    gain.gain.value =
-      LEVEL * sound.contact.level * Math.max(...strikes.map((strike) => strike.level));
+    gain.gain.value = LEVEL * contactSpec.level * Math.max(...strikes.map((s) => s.level));
     burst.connect(contact).connect(gain).connect(ac.destination);
   }
 
