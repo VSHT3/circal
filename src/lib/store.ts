@@ -45,9 +45,12 @@ export interface Settings {
   /** Whether that ring is captioned with the city, the offset, both, neither. */
   showZoneName: boolean;
   showZoneOffset: boolean;
+  /** The second zone's own band, on its own rim, with its own two halves. */
+  zoneDaylight: boolean;
+  zoneMoonlight: boolean;
   /** Where the sun is computed for, chosen by city. `null` = no lightcycle. */
   place: PickedPlace | null;
-  /** The two halves of the lightcycle band, each its own switch. */
+  /** The two halves of your band, each its own switch. */
   daylight: boolean;
   /** The hours the sun is down, in violet. */
   moonlight: boolean;
@@ -72,6 +75,10 @@ export const DEFAULT_SETTINGS: Settings = {
   secondZone: "",
   showZoneName: true,
   showZoneOffset: true,
+  // Off: the captions describe a ring that is already there, but a band is
+  // another ring, and chrome does not get to appear unasked.
+  zoneDaylight: false,
+  zoneMoonlight: false,
   place: null,
   // Both on, because the band *is* the track: with one half off the ring
   // simply stops at dusk (or at dawn), and an incomplete ring reads as a
@@ -356,8 +363,17 @@ export const store = {
     commit({ ...base, settings: { ...base.settings, place } }, false);
   },
 
-  /** The four independent dial annotations, each its own switch. */
-  setDialToggle(key: "showZoneName" | "showZoneOffset" | "daylight" | "moonlight", on: boolean) {
+  /** The six independent dial annotations, each its own switch. */
+  setDialToggle(
+    key:
+      | "showZoneName"
+      | "showZoneOffset"
+      | "zoneDaylight"
+      | "zoneMoonlight"
+      | "daylight"
+      | "moonlight",
+    on: boolean,
+  ) {
     const base = fresh();
     commit({ ...base, settings: { ...base.settings, [key]: on } }, false);
   },

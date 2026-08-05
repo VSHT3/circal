@@ -443,13 +443,45 @@ const COORDS: Record<string, readonly [number, number]> = {
   "Pacific/Wallis": [-13.3, -176.17],
 };
 
+/**
+ * The second-ring picker offers whatever zones the *browser* reports, and
+ * browsers still report the tz database's retired spellings — Chrome says
+ * `Asia/Calcutta`, `Europe/Kiev`, `America/Buenos_Aires`. `zone.tab` has
+ * moved on, so a straight lookup would decide India has no sunrise. Same
+ * place, older name.
+ */
+const ALIASES: Record<string, string> = {
+  "Africa/Asmera": "Africa/Asmara",
+  "America/Buenos_Aires": "America/Argentina/Buenos_Aires",
+  "America/Catamarca": "America/Argentina/Catamarca",
+  "America/Coral_Harbour": "America/Atikokan",
+  "America/Cordoba": "America/Argentina/Cordoba",
+  "America/Godthab": "America/Nuuk",
+  "America/Indianapolis": "America/Indiana/Indianapolis",
+  "America/Jujuy": "America/Argentina/Jujuy",
+  "America/Louisville": "America/Kentucky/Louisville",
+  "America/Mendoza": "America/Argentina/Mendoza",
+  "Asia/Calcutta": "Asia/Kolkata",
+  "Asia/Katmandu": "Asia/Kathmandu",
+  "Asia/Rangoon": "Asia/Yangon",
+  "Asia/Saigon": "Asia/Ho_Chi_Minh",
+  "Atlantic/Faeroe": "Atlantic/Faroe",
+  "Europe/Kiev": "Europe/Kyiv",
+  "Pacific/Enderbury": "Pacific/Kanton",
+  "Pacific/Ponape": "Pacific/Pohnpei",
+  "Pacific/Truk": "Pacific/Chuuk",
+};
+
+/** `null` for a zone with no place behind it — `UTC`, `Etc/GMT+5`. */
 export function placeForZone(zone: string): PickedPlace | null {
-  const coords = COORDS[zone];
+  const coords = COORDS[zone] ?? COORDS[ALIASES[zone]];
   if (!coords) return null;
+  // Keyed by the name it was picked by, retired or not, so the picker can
+  // hand back the value it was given.
   return { zone, lat: coords[0], lon: coords[1], label: zoneLabel(zone) };
 }
 
-/** Every place the daylight picker offers, sorted the way it is read. */
+/** Every place the lightcycle picker offers, sorted the way it is read. */
 export const PLACE_OPTIONS: { value: string; label: string }[] = Object.keys(COORDS)
   .map((zone) => ({ value: zone, label: zoneLabel(zone) }))
   .sort((a, b) => a.label.localeCompare(b.label));

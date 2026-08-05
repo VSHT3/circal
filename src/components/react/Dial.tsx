@@ -50,6 +50,11 @@ export interface DialProps {
   secondZone: string;
   showZoneName: boolean;
   showZoneOffset: boolean;
+  /** Where that zone is, for its own band on its own rim. Its two halves
+   *  switch independently of yours — two places, two cycles. */
+  zonePlace: Place | null;
+  zoneDaylight: boolean;
+  zoneMoonlight: boolean;
   onOpen: (occ: Occurrence) => void;
   onCreate: (startMin: number, endMin: number) => void;
 }
@@ -93,6 +98,9 @@ export default function Dial({
   secondZone,
   showZoneName,
   showZoneOffset,
+  zonePlace,
+  zoneDaylight,
+  zoneMoonlight,
   onOpen,
   onCreate,
 }: DialProps) {
@@ -107,8 +115,9 @@ export default function Dial({
   /** How much of this day is spent: all of a past day, none of a future one. */
   const elapsed = today ? nowMin : startOfDay(day) < startOfDay(now) ? MINUTES_PER_DAY : 0;
 
-  /** The band owns the track only while it has a half left to draw. */
+  /** A band is drawn only while it has a half left to draw. */
   const band = place && (daylight || moonlight) ? place : null;
+  const zoneBand = zonePlace && (zoneDaylight || zoneMoonlight) ? zonePlace : null;
 
   /**
    * SVG has no conic gradient, so the elapsed ring is drawn as a chain of
@@ -206,7 +215,24 @@ export default function Dial({
         <circle cx={DIAL.C} cy={DIAL.C} r={DIAL.TRACK} fill="url(#dial-glow)" />
 
         {band && (
-          <SunBand day={day} clock={clock} place={band} daylight={daylight} moonlight={moonlight} />
+          <SunBand
+            day={day}
+            clock={clock}
+            place={band}
+            daylight={daylight}
+            moonlight={moonlight}
+            radius={DIAL.TRACK}
+          />
+        )}
+        {zoneBand && (
+          <SunBand
+            day={day}
+            clock={clock}
+            place={zoneBand}
+            daylight={zoneDaylight}
+            moonlight={zoneMoonlight}
+            radius={DIAL.ZONE_BAND}
+          />
         )}
         {secondZone && (
           <ZoneRing
@@ -295,10 +321,12 @@ export default function Dial({
  * calendar can draw a sunrise line, but only a dial shows the *shape* of the
  * day's light, and that shape visibly turns through the year.
  *
- * It is drawn *on* the track, replacing the elapsed ring rather than sitting
- * outside it. Two rings a few units apart read as one line doubled by
+ * Your own is drawn *on* the track, replacing the elapsed ring rather than
+ * sitting outside it. Two rings a few units apart read as one line doubled by
  * mistake, and between "how much of the day is gone" and "where the light
- * is", the light is the one worth the rim.
+ * is", the light is the one worth the rim. The second zone's gets a rim of
+ * its own out at `ZONE_BAND`, beside the numerals it belongs to: it is a
+ * different place's day, and the two phases beside each other is the point.
  *
  * Same construction as the ring it replaces, for the same reason: a chain of
  * *opaque* butt-capped arcs. Translucent segments compound their alpha at
@@ -310,12 +338,14 @@ function SunBand({
   place,
   daylight,
   moonlight,
+  radius,
 }: {
   day: Date;
   clock: Clock;
   place: Place;
   daylight: boolean;
   moonlight: boolean;
+  radius: number;
 }) {
   const segments = useMemo(() => {
     const sun = sunTimes(day, place);
@@ -380,12 +410,12 @@ function SunBand({
       const k = Math.abs(value);
       return [
         {
-          d: arcPath(DIAL.TRACK, from, to),
+          d: arcPath(radius, from, to),
           stroke: `rgb(${Math.round(r * k)},${Math.round(g * k)},${Math.round(b * k)})`,
         },
       ];
     });
-  }, [day, clock, place, daylight, moonlight]);
+  }, [day, clock, place, daylight, moonlight, radius]);
 
   return (
     <g pointerEvents="none" shapeRendering="geometricPrecision">

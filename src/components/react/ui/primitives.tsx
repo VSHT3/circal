@@ -184,19 +184,26 @@ export function Switch({
  * in the grid's left column, but settings that sit two or three to a row need
  * to name themselves — and a small one, because these annotate a control
  * that already has a `FieldRow` label above them.
+ *
+ * `name` overrides the accessible name where two rows use the same word:
+ * "Daylight" appears twice in the settings card, once per place, and the
+ * printed label leans on the row it sits in to say which. A screen reader
+ * has no row to lean on.
  */
 export function Toggle({
   label,
+  name,
   checked,
   onChange,
 }: {
   label: string;
+  name?: string;
   checked: boolean;
   onChange: (next: boolean) => void;
 }) {
   return (
     <span className="flex items-center gap-2">
-      <Switch checked={checked} onChange={onChange} label={label} />
+      <Switch checked={checked} onChange={onChange} label={name ?? label} />
       <span className={cn("label", checked ? "text-ink-2" : "text-ink-3")}>{label}</span>
     </span>
   );

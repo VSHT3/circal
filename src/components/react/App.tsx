@@ -13,6 +13,7 @@ import type { Clock } from "@/lib/time";
 import { dayAgenda, type CalEvent, type Occurrence } from "@/lib/events";
 import { draftEvent, store, useStore } from "@/lib/store";
 import { exportBackup, exportIcs, importFile } from "@/lib/backup";
+import { placeForZone } from "@/lib/places";
 import { refreshFeed, refreshStaleFeeds } from "@/lib/feeds";
 import { notify } from "@/lib/notify";
 import {
@@ -94,6 +95,17 @@ export default function App() {
   const feedIds = useMemo(
     () => new Set(calendars.filter((c) => c.feed).map((c) => c.id)),
     [calendars],
+  );
+
+  /**
+   * The second zone's coordinates, for its own band. `null` when the zone has
+   * no place behind it — the picker offers every zone the browser knows, and
+   * a handful of those (`UTC`, and aliases like `Asia/Calcutta`) are not in
+   * the coordinate table.
+   */
+  const zonePlace = useMemo(
+    () => (settings.secondZone ? placeForZone(settings.secondZone) : null),
+    [settings.secondZone],
   );
 
   /**
@@ -269,6 +281,9 @@ export default function App() {
                 secondZone={settings.secondZone}
                 showZoneName={settings.showZoneName}
                 showZoneOffset={settings.showZoneOffset}
+                zonePlace={zonePlace}
+                zoneDaylight={settings.zoneDaylight}
+                zoneMoonlight={settings.zoneMoonlight}
                 clock={settings.clock}
                 onOpen={openOccurrence}
                 onCreate={(startMin, endMin) => openDraft(startMin, endMin, day)}
@@ -308,6 +323,8 @@ export default function App() {
         secondZone={settings.secondZone}
         showZoneName={settings.showZoneName}
         showZoneOffset={settings.showZoneOffset}
+        zoneDaylight={settings.zoneDaylight}
+        zoneMoonlight={settings.zoneMoonlight}
         place={settings.place}
         daylight={settings.daylight}
         moonlight={settings.moonlight}

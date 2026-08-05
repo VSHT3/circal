@@ -41,7 +41,11 @@ Two optional annotations, both configured in **Settings** (`⌘,`):
   caption names the city and how far ahead or behind you it is — `Tokyo +7`,
   not `GMT+9` — and the name and the offset switch on and off separately.
   There is no second hand, because the instant is the same everywhere; only
-  the labels move.
+  the labels move. That zone gets **Daylight** and **Moonlight** of its own,
+  drawn as a second band on the rim outside yours: two places' light on one
+  face, so you can see at a glance that their morning is your afternoon.
+  Its two switches are independent of yours — a comparison you can only half
+  draw is not a comparison.
 
 With the lightcycle off — no city, or both halves switched off — the dial is
 exactly as it was: the elapsed day as a ramp of light around the rim.

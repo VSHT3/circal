@@ -55,6 +55,8 @@ export default function Settings({
   secondZone,
   showZoneName,
   showZoneOffset,
+  zoneDaylight,
+  zoneMoonlight,
   place,
   daylight,
   moonlight,
@@ -67,6 +69,13 @@ export default function Settings({
 
   const subscriptions = calendars.filter((c) => c.feed);
   const sun = place ? sunTimes(startOfDay(new Date()), place) : null;
+  /**
+   * The second zone can only carry a band if the coordinate table knows it:
+   * the zone picker offers everything the browser does, which includes `UTC`
+   * and a few aliases that have no place behind them. No coordinates, no
+   * switch — an offer we cannot keep is worse than one we never made.
+   */
+  const zonePlace = secondZone ? placeForZone(secondZone) : null;
 
   function pickPlace(zone: string) {
     store.setPlace(zone ? placeForZone(zone) : null);
@@ -135,7 +144,7 @@ export default function Settings({
                   options={ZONE_OPTIONS}
                 />
                 {secondZone && (
-                  <div className="flex items-center gap-4">
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                     <Toggle
                       label="City name"
                       checked={showZoneName}
@@ -146,6 +155,22 @@ export default function Settings({
                       checked={showZoneOffset}
                       onChange={(on) => store.setDialToggle("showZoneOffset", on)}
                     />
+                    {zonePlace && (
+                      <>
+                        <Toggle
+                          label="Daylight"
+                          name="Second ring daylight"
+                          checked={zoneDaylight}
+                          onChange={(on) => store.setDialToggle("zoneDaylight", on)}
+                        />
+                        <Toggle
+                          label="Moonlight"
+                          name="Second ring moonlight"
+                          checked={zoneMoonlight}
+                          onChange={(on) => store.setDialToggle("zoneMoonlight", on)}
+                        />
+                      </>
+                    )}
                   </div>
                 )}
               </FieldRow>

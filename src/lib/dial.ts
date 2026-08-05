@@ -23,13 +23,16 @@ export const DIAL = {
   SIZE: 1000,
   C: 500,
   /**
-   * Nothing is drawn outside the track, so the viewBox is cropped to
-   * `PAD PAD (SIZE-2·PAD)` — otherwise a fifth of the rendered box would be
-   * empty margin and the dial would sit small in its own window.
+   * The viewBox is cropped to `PAD PAD (SIZE-2·PAD)`; without it a fifth of
+   * the rendered box would be empty margin and the dial would sit small in
+   * its own window. What fixes the number is the *second zone's* ring, the
+   * only thing drawn outside the track: its numerals reach 453 and its
+   * caption runs further to the right of the topmost one, so the crop has to
+   * leave 470 units of radius, not the 461 the numerals alone would need.
    */
-  PAD: 44,
+  PAD: 30,
 
-  /** Elapsed-day ring — the outermost drawn element. */
+  /** Your own day's ring — track for the elapsed trail, or for your band. */
   TRACK: 400,
   TRACK_WIDTH: 3,
 
@@ -61,16 +64,24 @@ export const DIAL = {
   HAND_PIP: 3.6,
 
   /**
-   * Ring the second timezone's quarter-hours are named on. The outermost
-   * thing on the face, and still inside the cropped viewBox: `PAD` leaves
-   * 456 units of radius, and a 15-unit numeral centred here reaches 432.
+   * The second zone's lightcycle band, and the ring its quarter-hours are
+   * named on. Both belong to the other place, so they sit together outside
+   * everything of yours, and 21 units of black separate the band from your
+   * track — a few units apart the two bands read as one line accidentally
+   * doubled, which is the whole reason your own band is *on* the track
+   * rather than beside it. There is deliberately no second radius for your
+   * own light: the day's light and the day's progress are the same ring's
+   * worth of information.
    *
-   * There is no separate radius for the lightcycle band. It is drawn *on* the
-   * track, at the track's own width — two concentric rings a few units apart
-   * read as one line that has been doubled by mistake, and the day's light
-   * and the day's progress are the same ring's worth of information anyway.
+   * `ZONE` is the outermost thing on the face and the reason `PAD` is what
+   * it is: a 15-unit numeral centred here reaches 453, and the caption
+   * beside the topmost one runs another 131 units to the right at worst.
+   * That caption runs *horizontally*, outwards from a numeral, so it never
+   * crosses the band inside it — keep the band inside the numerals if either
+   * radius moves.
    */
-  ZONE: 424,
+  ZONE_BAND: 424,
+  ZONE: 446,
 } as const;
 
 /** Side of the cropped viewBox, in user units — the overlay's scale basis. */

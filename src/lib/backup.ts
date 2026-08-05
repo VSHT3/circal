@@ -86,6 +86,10 @@ function readSettings(value: unknown): Settings {
     // existed came from a dial that was showing all of them.
     showZoneName: value.showZoneName !== false,
     showZoneOffset: value.showZoneOffset !== false,
+    // Except the second zone's two halves, off unless asked for — absent
+    // means they were never switched on.
+    zoneDaylight: value.zoneDaylight === true,
+    zoneMoonlight: value.zoneMoonlight === true,
     // Re-derived from the zone rather than trusted: a backup carries a name we
     // can look up, and the table is the authority on where that place is.
     place: isRecord(place) && typeof place.zone === "string" ? placeForZone(place.zone) : null,
