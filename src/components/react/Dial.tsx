@@ -47,6 +47,15 @@ const CLICK_DURATION = 60;
 const STEP = 15;
 
 /**
+ * White at `level` alpha, pre-composited against the black canvas. Opaque, so
+ * overlapping strokes replace rather than accumulate.
+ */
+function grey(level: number): string {
+  const v = Math.round(clamp(level, 0, 1) * 255);
+  return `rgb(${v},${v},${v})`;
+}
+
+/**
  * Two ring positions do not say which way round the circle the user dragged.
  * Take the shorter sweep: anything over twelve hours was a counter-clockwise
  * drag, not a twenty-hour event.
@@ -81,22 +90,32 @@ export default function Dial({
 
   /**
    * SVG has no conic gradient, so the elapsed ring is drawn as a chain of
-   * short arcs whose opacity ramps towards the present. Fifteen minutes each,
-   * overlapping slightly so the joins do not show.
+   * short arcs whose brightness ramps towards the present.
+   *
+   * The ramp is in the *colour*, not the opacity: on a pure-black canvas an
+   * opaque grey is indistinguishable from translucent white, and opaque
+   * segments can overlap without their alphas compounding. Translucent ones
+   * cannot — every join brightened into a bead, and the trail read as a row
+   * of tick marks. Butt caps for the same reason; only the two ends of the
+   * whole trail are rounded.
    */
   const elapsedSegments = useMemo(() => {
     if (elapsed <= 0) return [];
     const from = angleAt(0, clock);
     const to = from + (elapsed / MINUTES_PER_DAY) * 360;
-    const count = clamp(Math.round(elapsed / STEP), 2, 96);
+    const count = clamp(Math.round(elapsed / 8), 2, 180);
     return Array.from({ length: count }, (_, i) => {
       const a = from + ((to - from) * i) / count;
-      const b = from + ((to - from) * (i + 1)) / count + 0.35;
+      // Overlap the next segment: an exact butt-to-butt join leaves an
+      // antialiasing seam, which is the same artefact one shade darker.
+      const b = from + ((to - from) * (i + 1)) / count + 0.4;
+      // Eased, not linear: a straight ramp reads as a uniformly grey ring,
+      // where the day should stay nearly dark until it approaches now.
+      const level = 0.045 + 0.62 * ((i + 0.7) / count) ** 1.7;
       return {
         d: arcPath(DIAL.TRACK, a, Math.min(b, to)),
-        // Eased, not linear: a straight ramp reads as a uniformly grey ring,
-        // where the day should stay nearly dark until it approaches now.
-        opacity: 0.045 + 0.6 * ((i + 0.7) / count) ** 1.7,
+        stroke: grey(level),
+        cap: i === 0 || i === count - 1 ? ("round" as const) : ("butt" as const),
       };
     });
   }, [elapsed, clock]);
@@ -161,17 +180,18 @@ export default function Dial({
 
         <circle cx={DIAL.C} cy={DIAL.C} r={DIAL.TRACK} fill="url(#dial-glow)" />
 
-        {elapsedSegments.map((segment, i) => (
-          <path
-            key={i}
-            d={segment.d}
-            fill="none"
-            stroke="#fff"
-            strokeOpacity={segment.opacity}
-            strokeWidth={DIAL.TRACK_WIDTH}
-            strokeLinecap="round"
-          />
-        ))}
+        <g shapeRendering="geometricPrecision">
+          {elapsedSegments.map((segment, i) => (
+            <path
+              key={i}
+              d={segment.d}
+              fill="none"
+              stroke={segment.stroke}
+              strokeWidth={DIAL.TRACK_WIDTH}
+              strokeLinecap={segment.cap}
+            />
+          ))}
+        </g>
 
         <Ticks clock={clock} />
         <HourLabels clock={clock} />
