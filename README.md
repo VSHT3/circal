@@ -23,18 +23,19 @@ else.
 
 ![the day view](docs/day.png)
 
-## Daylight and a second zone
+## Lightcycle and a second zone
 
 Two optional annotations, both configured in **Settings** (`⌘,`):
 
-- **Daylight.** Pick your city and the track stops describing the elapsed day
+- **Lightcycle.** Pick your city and the track stops describing the elapsed day
   and starts describing the light: civil twilight as a shoulder rising out of
-  black, sunrise to sunset ramping with the sun's altitude, and — separately
-  switchable — the night hours in violet, which closes the ring. It is drawn
-  _on_ the track rather than beside it, because two rings a few units apart
-  read as one line doubled by mistake. This is the one thing the circle can
-  show that a grid cannot, and its shape visibly turns through the year. Polar
-  day and polar night are handled; the band simply fills or vanishes.
+  black, sunrise to sunset ramping with the sun's altitude, and the night hours
+  in violet, which closes the ring. **Daylight** and **Moonlight** switch
+  independently, so you can keep either half alone. It is drawn _on_ the track
+  rather than beside it, because two rings a few units apart read as one line
+  doubled by mistake. This is the one thing the circle can show that a grid
+  cannot, and its shape visibly turns through the year. Polar day and polar
+  night are handled; the band simply fills or vanishes.
 - **A second timezone.** Pick a zone and its `00 · 06 · 12 · 18` appear on an
   outer ring, rotated so they sit where those hours fall on _your_ day. The
   caption names the city and how far ahead or behind you it is — `Tokyo +7`,
@@ -42,8 +43,8 @@ Two optional annotations, both configured in **Settings** (`⌘,`):
   There is no second hand, because the instant is the same everywhere; only
   the labels move.
 
-With daylight off, the dial is exactly as it was: the elapsed day as a ramp of
-light around the rim.
+With the lightcycle off — no city, or both halves switched off — the dial is
+exactly as it was: the elapsed day as a ramp of light around the rim.
 
 ## Your data
 

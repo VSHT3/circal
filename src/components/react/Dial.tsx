@@ -41,10 +41,11 @@ export interface DialProps {
   clock: Clock;
   occurrences: Occurrence[];
   calendars: Calendar[];
-  /** Daylight band; `null` leaves the elapsed ring on the track instead. */
+  /** Lightcycle band; `null` leaves the elapsed ring on the track instead. */
   place: Place | null;
-  /** Draw the hours the sun is down, in violet, alongside the daylight. */
-  night: boolean;
+  /** The two halves of that band: the lit hours, and the dark ones in violet. */
+  daylight: boolean;
+  moonlight: boolean;
   /** IANA zone for the outer ring; `""` leaves it off. */
   secondZone: string;
   showZoneName: boolean;
@@ -87,7 +88,8 @@ export default function Dial({
   occurrences,
   calendars,
   place,
-  night,
+  daylight,
+  moonlight,
   secondZone,
   showZoneName,
   showZoneOffset,
@@ -105,6 +107,9 @@ export default function Dial({
   /** How much of this day is spent: all of a past day, none of a future one. */
   const elapsed = today ? nowMin : startOfDay(day) < startOfDay(now) ? MINUTES_PER_DAY : 0;
 
+  /** The band owns the track only while it has a half left to draw. */
+  const band = place && (daylight || moonlight) ? place : null;
+
   /**
    * SVG has no conic gradient, so the elapsed ring is drawn as a chain of
    * short arcs whose brightness ramps towards the present.
@@ -116,11 +121,11 @@ export default function Dial({
    * of tick marks. Butt caps for the same reason; only the two ends of the
    * whole trail are rounded.
    *
-   * The daylight band takes over this same radius when a place is set, so
-   * there is nothing to compute here then.
+   * The lightcycle band takes over this same radius when it is on, so there
+   * is nothing to compute here then.
    */
   const elapsedSegments = useMemo(() => {
-    if (place || elapsed <= 0) return [];
+    if (band || elapsed <= 0) return [];
     const from = angleAt(0, clock);
     const to = from + (elapsed / MINUTES_PER_DAY) * 360;
     const count = clamp(Math.round(elapsed / 8), 2, 180);
@@ -138,7 +143,7 @@ export default function Dial({
         cap: i === 0 || i === count - 1 ? ("round" as const) : ("butt" as const),
       };
     });
-  }, [place, elapsed, clock]);
+  }, [band, elapsed, clock]);
 
   const ghost = drag ? resolveDrag(drag.from, drag.to) : null;
 
@@ -200,7 +205,9 @@ export default function Dial({
 
         <circle cx={DIAL.C} cy={DIAL.C} r={DIAL.TRACK} fill="url(#dial-glow)" />
 
-        {place && <SunBand day={day} clock={clock} place={place} night={night} />}
+        {band && (
+          <SunBand day={day} clock={clock} place={band} daylight={daylight} moonlight={moonlight} />
+        )}
         {secondZone && (
           <ZoneRing
             now={now}
@@ -282,7 +289,7 @@ export default function Dial({
 /* -------------------------------- pieces --------------------------------- */
 
 /**
- * The daylight band: where the sun actually is on this day, at this place.
+ * The lightcycle band: where the sun actually is on this day, at this place.
  *
  * The single feature the circle earns that a grid cannot — a rectangular
  * calendar can draw a sunrise line, but only a dial shows the *shape* of the
@@ -301,12 +308,14 @@ function SunBand({
   day,
   clock,
   place,
-  night,
+  daylight,
+  moonlight,
 }: {
   day: Date;
   clock: Clock;
   place: Place;
-  night: boolean;
+  daylight: boolean;
+  moonlight: boolean;
 }) {
   const segments = useMemo(() => {
     const sun = sunTimes(day, place);
@@ -318,6 +327,10 @@ function SunBand({
      * One continuous function rather than four cases with their own constants,
      * because every discontinuity in here becomes a visible step on the rim —
      * the shoulders used to start at 0.04 and the band began with a hard edge.
+     *
+     * It answers for the whole day whatever the two switches say: dropping a
+     * half is a filter on the segments below, not a hole punched in the curve,
+     * so the half that stays keeps the exact shape it had beside the other.
      */
     const light = (m: number): number => {
       if (sun.polar === "day") return 0.86;
@@ -339,7 +352,6 @@ function SunBand({
           return 0.14 * ((dusk - m) / (dusk - sunset));
         }
       }
-      if (!night) return 0;
       // Night wraps midnight, so it is measured as the fraction of the way
       // from dusk to the next dawn rather than as a span of this day.
       const from = sun.dusk ?? sun.sunset ?? 0;
@@ -355,6 +367,7 @@ function SunBand({
     const step = MINUTES_PER_DAY / COUNT;
 
     return Array.from({ length: COUNT }, (_, i) => light((i + 0.5) * step)).flatMap((value, i) => {
+      if (value > 0 ? !daylight : !moonlight) return [];
       if (Math.abs(value) <= 0.004) return [];
       const from = angleAt(i * step, clock);
       // Overlap the neighbour: an exact butt-to-butt join leaves an
@@ -372,7 +385,7 @@ function SunBand({
         },
       ];
     });
-  }, [day, clock, place, night]);
+  }, [day, clock, place, daylight, moonlight]);
 
   return (
     <g pointerEvents="none" shapeRendering="geometricPrecision">

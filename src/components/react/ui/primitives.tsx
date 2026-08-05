@@ -37,7 +37,9 @@ export function FieldRow({
   return (
     <div
       className={cn(
-        "grid min-h-[38px] grid-cols-[76px_1fr] gap-2.5 px-3.5",
+        // The label column is a variable so a card with a long label can widen
+        // it — `LIGHTCYCLE` overruns 76px — without moving every other card.
+        "grid min-h-[38px] grid-cols-[var(--field-label,76px)_1fr] gap-2.5 px-3.5",
         align === "top" ? "items-start py-2.5" : "items-center",
         !last && "border-b border-hairline",
         disabled && "pointer-events-none opacity-40",

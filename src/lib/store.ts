@@ -45,10 +45,12 @@ export interface Settings {
   /** Whether that ring is captioned with the city, the offset, both, neither. */
   showZoneName: boolean;
   showZoneOffset: boolean;
-  /** Where the sun is computed for, chosen by city. `null` = no daylight band. */
+  /** Where the sun is computed for, chosen by city. `null` = no lightcycle. */
   place: PickedPlace | null;
-  /** Draw the hours the sun is down, in violet, alongside the daylight. */
-  night: boolean;
+  /** The two halves of the lightcycle band, each its own switch. */
+  daylight: boolean;
+  /** The hours the sun is down, in violet. */
+  moonlight: boolean;
 }
 
 export interface Snapshot {
@@ -71,10 +73,11 @@ export const DEFAULT_SETTINGS: Settings = {
   showZoneName: true,
   showZoneOffset: true,
   place: null,
-  // On, because the daylight band now *is* the track: with night off the ring
-  // simply stops at dusk, and an incomplete ring reads as a rendering fault
-  // rather than as a choice.
-  night: true,
+  // Both on, because the band *is* the track: with one half off the ring
+  // simply stops at dusk (or at dawn), and an incomplete ring reads as a
+  // rendering fault rather than as a choice.
+  daylight: true,
+  moonlight: true,
 };
 
 const DEFAULT_CALENDARS: Calendar[] = [
@@ -138,11 +141,22 @@ const EMPTY: Snapshot = {
   settings: DEFAULT_SETTINGS,
 };
 
+/**
+ * `night` split into the pair `daylight` / `moonlight`. A blob still carrying
+ * the old key keeps the choice it names — the dark half — and loses the key.
+ */
+function migrateSettings(stored: Partial<Settings> & { night?: boolean }): Partial<Settings> {
+  const { night, ...rest } = stored;
+  return night === undefined ? rest : { moonlight: night, ...rest };
+}
+
 function parse(raw: string): Snapshot {
   const parsed: Partial<Snapshot> = JSON.parse(raw);
   // A stale schema means the stored values no longer mean what they say.
   const settings =
-    parsed.schema === SCHEMA ? { ...DEFAULT_SETTINGS, ...parsed.settings } : DEFAULT_SETTINGS;
+    parsed.schema === SCHEMA
+      ? { ...DEFAULT_SETTINGS, ...migrateSettings(parsed.settings ?? {}) }
+      : DEFAULT_SETTINGS;
   return {
     schema: SCHEMA,
     events: Array.isArray(parsed.events) ? parsed.events : [],
@@ -342,8 +356,8 @@ export const store = {
     commit({ ...base, settings: { ...base.settings, place } }, false);
   },
 
-  /** The three independent dial annotations, each its own switch. */
-  setDialToggle(key: "showZoneName" | "showZoneOffset" | "night", on: boolean) {
+  /** The four independent dial annotations, each its own switch. */
+  setDialToggle(key: "showZoneName" | "showZoneOffset" | "daylight" | "moonlight", on: boolean) {
     const base = fresh();
     commit({ ...base, settings: { ...base.settings, [key]: on } }, false);
   },

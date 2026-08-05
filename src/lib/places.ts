@@ -1,7 +1,7 @@
 /* ------------------------------------------------------------------ *
  * Where a place is.
  *
- * The daylight band needs a latitude and a longitude, and asking for them
+ * The lightcycle band needs a latitude and a longitude, and asking for them
  * directly was a bad trade: two number fields and a permission prompt, to
  * answer a question the user can answer with the name of their city. So it
  * reuses the timezone picker's list — an IANA zone *is* a city — and looks

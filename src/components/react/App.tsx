@@ -264,7 +264,8 @@ export default function App() {
                 occurrences={agenda.all}
                 calendars={calendars}
                 place={settings.place}
-                night={settings.night}
+                daylight={settings.daylight}
+                moonlight={settings.moonlight}
                 secondZone={settings.secondZone}
                 showZoneName={settings.showZoneName}
                 showZoneOffset={settings.showZoneOffset}
@@ -308,7 +309,8 @@ export default function App() {
         showZoneName={settings.showZoneName}
         showZoneOffset={settings.showZoneOffset}
         place={settings.place}
-        night={settings.night}
+        daylight={settings.daylight}
+        moonlight={settings.moonlight}
         calendars={calendars}
         actions={actions}
       />

@@ -100,8 +100,10 @@ export interface SettingsPanelProps {
   secondZone: string;
   showZoneName: boolean;
   showZoneOffset: boolean;
+  /** Where the lightcycle is computed for; `null` = no band. */
   place: PickedPlace | null;
-  night: boolean;
+  daylight: boolean;
+  moonlight: boolean;
   calendars: Calendar[];
   actions: ShellActions;
 }

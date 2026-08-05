@@ -65,7 +65,7 @@ export const DIAL = {
    * thing on the face, and still inside the cropped viewBox: `PAD` leaves
    * 456 units of radius, and a 15-unit numeral centred here reaches 432.
    *
-   * There is no separate radius for the daylight band. It is drawn *on* the
+   * There is no separate radius for the lightcycle band. It is drawn *on* the
    * track, at the track's own width — two concentric rings a few units apart
    * read as one line that has been doubled by mistake, and the day's light
    * and the day's progress are the same ring's worth of information anyway.

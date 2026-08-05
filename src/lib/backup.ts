@@ -82,14 +82,16 @@ function readSettings(value: unknown): Settings {
   return {
     clock: value.clock === "24h" ? "24h" : "12h",
     secondZone: typeof value.secondZone === "string" ? value.secondZone : "",
-    // The three dial switches read absent-as-on: a backup written before they
-    // existed came from a dial that was showing all three.
+    // The dial switches read absent-as-on: a backup written before they
+    // existed came from a dial that was showing all of them.
     showZoneName: value.showZoneName !== false,
     showZoneOffset: value.showZoneOffset !== false,
     // Re-derived from the zone rather than trusted: a backup carries a name we
     // can look up, and the table is the authority on where that place is.
     place: isRecord(place) && typeof place.zone === "string" ? placeForZone(place.zone) : null,
-    night: value.night !== false,
+    daylight: value.daylight !== false,
+    // `night` is what the dark half was called before it was split off.
+    moonlight: value.moonlight !== undefined ? value.moonlight !== false : value.night !== false,
   };
 }
 

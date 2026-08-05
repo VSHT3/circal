@@ -37,7 +37,7 @@ const ZONE_OPTIONS = [
     .sort((a, b) => a.label.localeCompare(b.label)),
 ];
 
-const DAYLIGHT_OPTIONS = [OFF, ...PLACE_OPTIONS];
+const LIGHTCYCLE_OPTIONS = [OFF, ...PLACE_OPTIONS];
 
 function relativeAge(at: number): string {
   if (!at) return "never pulled";
@@ -56,7 +56,8 @@ export default function Settings({
   showZoneName,
   showZoneOffset,
   place,
-  night,
+  daylight,
+  moonlight,
   calendars,
   actions,
 }: SettingsPanelProps) {
@@ -113,7 +114,7 @@ export default function Settings({
               <span className="text-[17px] font-medium text-ink">Settings</span>
             </div>
 
-            <div className="no-scrollbar flex-1 overflow-y-auto">
+            <div className="no-scrollbar flex-1 overflow-y-auto [--field-label:88px]">
               <FieldRow label="Dial">
                 <Segmented
                   value={clock}
@@ -149,20 +150,27 @@ export default function Settings({
                 )}
               </FieldRow>
 
-              <FieldRow label="Daylight" align="top">
+              <FieldRow label="Lightcycle" align="top">
                 <Select
                   value={place?.zone ?? ""}
                   onChange={pickPlace}
                   label="Place"
                   className="flex-1"
-                  options={DAYLIGHT_OPTIONS}
+                  options={LIGHTCYCLE_OPTIONS}
                 />
                 {place && (
-                  <Toggle
-                    label="Night too"
-                    checked={night}
-                    onChange={(on) => store.setDialToggle("night", on)}
-                  />
+                  <div className="flex items-center gap-4">
+                    <Toggle
+                      label="Daylight"
+                      checked={daylight}
+                      onChange={(on) => store.setDialToggle("daylight", on)}
+                    />
+                    <Toggle
+                      label="Moonlight"
+                      checked={moonlight}
+                      onChange={(on) => store.setDialToggle("moonlight", on)}
+                    />
+                  </div>
                 )}
                 <span className="label text-ink-3">
                   {!place
