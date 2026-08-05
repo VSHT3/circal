@@ -21,7 +21,7 @@ import { useSyncExternalStore } from "react";
 import { startOfDay, type Clock } from "./time";
 import { notify } from "./notify";
 import { PALETTE, type CalEvent, type Calendar, type Repeat } from "./events";
-import type { Place } from "./sun";
+import type { PickedPlace } from "./places";
 
 const KEY = "circal.v1";
 
@@ -42,8 +42,8 @@ export interface Settings {
   clock: Clock;
   /** IANA zone for the dial's second ring. `""` = the ring is off. */
   secondZone: string;
-  /** Where the sun is computed for. `null` = no daylight band. */
-  place: Place | null;
+  /** Where the sun is computed for, chosen by city. `null` = no daylight band. */
+  place: PickedPlace | null;
 }
 
 export interface Snapshot {
@@ -125,14 +125,18 @@ const EMPTY: Snapshot = {
 
 function parse(raw: string): Snapshot {
   const parsed: Partial<Snapshot> = JSON.parse(raw);
+  // A stale schema means the stored values no longer mean what they say.
+  const settings =
+    parsed.schema === SCHEMA ? { ...DEFAULT_SETTINGS, ...parsed.settings } : DEFAULT_SETTINGS;
   return {
     schema: SCHEMA,
     events: Array.isArray(parsed.events) ? parsed.events : [],
     calendars: parsed.calendars?.length ? parsed.calendars : DEFAULT_CALENDARS,
     feeds: parsed.feeds ?? {},
-    // A stale schema means the stored values no longer mean what they say.
-    settings:
-      parsed.schema === SCHEMA ? { ...DEFAULT_SETTINGS, ...parsed.settings } : DEFAULT_SETTINGS,
+    // A place is chosen by city now. One written as bare coordinates cannot be
+    // shown in the picker, and a band the settings panel says is off is worse
+    // than no band — drop it and let it be re-picked.
+    settings: settings.place?.zone ? settings : { ...settings, place: null },
   };
 }
 
@@ -318,7 +322,7 @@ export const store = {
     commit({ ...base, settings: { ...base.settings, secondZone } }, false);
   },
 
-  setPlace(place: Place | null) {
+  setPlace(place: PickedPlace | null) {
     const base = fresh();
     commit({ ...base, settings: { ...base.settings, place } }, false);
   },

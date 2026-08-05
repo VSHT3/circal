@@ -122,15 +122,3 @@ export function sunTimes(day: Date, place: Place): SunDay {
 
   return { dawn, sunrise, sunset, dusk, polar };
 }
-
-/** True when `lat`/`lon` are finite and in range. Used to validate typed input. */
-export function isValidPlace(lat: number, lon: number): boolean {
-  return (
-    Number.isFinite(lat) &&
-    Number.isFinite(lon) &&
-    lat >= -90 &&
-    lat <= 90 &&
-    lon >= -180 &&
-    lon <= 180
-  );
-}

@@ -2,7 +2,7 @@
 
 import type { Clock } from "@/lib/time";
 import type { CalEvent, Calendar, Occurrence } from "@/lib/events";
-import type { Place } from "@/lib/sun";
+import type { PickedPlace } from "@/lib/places";
 
 export type ViewMode = "day" | "year";
 
@@ -98,7 +98,7 @@ export interface SettingsPanelProps {
   clock: Clock;
   /** `""` = the dial's second ring is off. */
   secondZone: string;
-  place: Place | null;
+  place: PickedPlace | null;
   calendars: Calendar[];
   actions: ShellActions;
 }

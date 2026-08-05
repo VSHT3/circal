@@ -13,6 +13,7 @@
  * ------------------------------------------------------------------ */
 
 import { fromIcs, toIcs } from "./ics";
+import { placeForZone } from "./places";
 import { store, type Settings, type Snapshot } from "./store";
 import { notify } from "./notify";
 import { dayKey } from "./time";
@@ -82,14 +83,9 @@ function readSettings(value: unknown): Settings {
   return {
     clock: value.clock === "24h" ? "24h" : "12h",
     secondZone: typeof value.secondZone === "string" ? value.secondZone : "",
-    place:
-      isRecord(place) && typeof place.lat === "number" && typeof place.lon === "number"
-        ? {
-            lat: place.lat,
-            lon: place.lon,
-            label: typeof place.label === "string" ? place.label : "",
-          }
-        : null,
+    // Re-derived from the zone rather than trusted: a backup carries a name we
+    // can look up, and the table is the authority on where that place is.
+    place: isRecord(place) && typeof place.zone === "string" ? placeForZone(place.zone) : null,
   };
 }
 

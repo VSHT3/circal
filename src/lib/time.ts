@@ -206,6 +206,19 @@ export function zoneRegion(zone: string): string {
 }
 
 /**
+ * How a zone is named in a picker: `Tokyo · Asia`.
+ *
+ * City first, and that ordering is the whole point. A native `<select>`'s
+ * type-ahead matches from the *start* of the option text, and nobody looking
+ * for Tokyo types "Asia" — leading with the continent turns four hundred
+ * entries into a scroll.
+ */
+export function zoneLabel(zone: string): string {
+  const region = zoneRegion(zone);
+  return region ? `${zoneCity(zone)} · ${region}` : zoneCity(zone);
+}
+
+/**
  * A signed hour offset, for one zone measured against another: `+7`, `-3`,
  * `+5:45`, `same`. Whole hours drop the `:00` — most offsets are whole hours
  * and `+7:00` is three characters of noise on a dial rim.

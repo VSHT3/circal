@@ -28,12 +28,12 @@ else.
 Two optional annotations live outside the track, both configured in
 **Settings** (`⌘,`):
 
-- **Daylight.** Give circal a latitude and longitude — typed, or taken from
-  the browser — and the rim is shaded with the day's actual light: civil
-  twilight as a low shoulder, sunrise to sunset ramping with the sun's
-  altitude. It is the one thing the circle can show that a grid cannot, and
-  its shape visibly turns through the year. Polar day and polar night are
-  handled; the band simply fills or vanishes.
+- **Daylight.** Pick your city from the same list the second ring uses and the
+  rim is shaded with the day's actual light: civil twilight as a low shoulder,
+  sunrise to sunset ramping with the sun's altitude. It is the one thing the
+  circle can show that a grid cannot, and its shape visibly turns through the
+  year. Polar day and polar night are handled; the band simply fills or
+  vanishes.
 - **A second timezone.** Pick a zone and its `00 · 06 · 12 · 18` appear on an
   outer ring, rotated so they sit where those hours fall on _your_ day. The
   caption names the city and how far ahead or behind you it is — `Tokyo +7`,
@@ -101,6 +101,7 @@ src/
     time.ts      day arithmetic, the app's formatting voice, zone conversion
     events.ts    event model, recurrence expansion, lane packing, free gaps
     sun.ts       solar position — sunrise, sunset, civil twilight
+    places.ts    city → coordinates, from the IANA tz database
     ics.ts       RFC 5545 serialise and parse
     store.ts     the store (useSyncExternalStore + localStorage)
     feeds.ts     subscription pulls
