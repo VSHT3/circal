@@ -50,9 +50,15 @@ export const DIAL = {
   /** Inner edge of the drag-to-create annulus, clear of the centre panel. */
   DRAG_INNER: 165,
 
-  /** The now-hand runs from the track through the centre and a little past. */
-  HAND_WIDTH: 1.6,
-  HAND_TAIL: 26,
+  /**
+   * The now-hand is a spoke, not a diameter: it runs inwards from the track
+   * and fades out before `HAND_INNER`, which clears the readout and the
+   * agenda card. A hand through the centre crosses both.
+   */
+  HAND_WIDTH: 1.7,
+  HAND_INNER: 205,
+  /** Round pip on the track marking the exact minute. */
+  HAND_PIP: 3.6,
 } as const;
 
 /** Side of the cropped viewBox, in user units — the overlay's scale basis. */

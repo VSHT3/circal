@@ -418,24 +418,52 @@ function GhostArc({ clock, start, end }: { clock: Clock; start: number; end: num
   );
 }
 
-/** `dimmed` while a drag is in progress: the hand marks a time the user is no
- *  longer reading, and at full white it competes with the range being drawn. */
+/**
+ * The present, as a spoke on the rim rather than a needle through the middle.
+ *
+ * It starts as a pip on the track at the exact minute, runs inwards, and is
+ * gone before it reaches the readout — a full diameter crosses the digits and
+ * the agenda, which is a lot of ink spent on a time the readout already says.
+ *
+ * `dimmed` while a drag is in progress: the hand marks a time the user is no
+ * longer reading, and at full white it competes with the range being drawn.
+ */
 function NowHand({ minutes, clock, dimmed }: { minutes: number; clock: Clock; dimmed: boolean }) {
   const deg = angleAt(minutes, clock);
   const head = polar(DIAL.TRACK, deg);
-  const tail = polar(-DIAL.HAND_TAIL, deg);
+  const inner = polar(DIAL.HAND_INNER, deg);
   return (
-    <line
-      x1={head.x}
-      y1={head.y}
-      x2={tail.x}
-      y2={tail.y}
-      stroke="#fff"
-      strokeOpacity={dimmed ? 0.22 : 1}
-      strokeWidth={DIAL.HAND_WIDTH}
-      strokeLinecap="round"
+    <g
       pointerEvents="none"
-      style={{ transition: "stroke-opacity 140ms var(--ease)" }}
-    />
+      opacity={dimmed ? 0.22 : 1}
+      style={{ transition: "opacity 140ms var(--ease)" }}
+    >
+      <defs>
+        {/* Along the spoke, not across it: solid at the rim, gone by the
+            inner end, so the hand has no hard tail to notice. */}
+        <linearGradient
+          id="now-hand"
+          gradientUnits="userSpaceOnUse"
+          x1={head.x}
+          y1={head.y}
+          x2={inner.x}
+          y2={inner.y}
+        >
+          <stop offset="0%" stopColor="#fff" stopOpacity="1" />
+          <stop offset="42%" stopColor="#fff" stopOpacity="0.62" />
+          <stop offset="100%" stopColor="#fff" stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <line
+        x1={head.x}
+        y1={head.y}
+        x2={inner.x}
+        y2={inner.y}
+        stroke="url(#now-hand)"
+        strokeWidth={DIAL.HAND_WIDTH}
+        strokeLinecap="round"
+      />
+      <circle cx={head.x} cy={head.y} r={DIAL.HAND_PIP} fill="#fff" />
+    </g>
   );
 }
