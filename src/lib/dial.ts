@@ -1,11 +1,15 @@
 /* ------------------------------------------------------------------ *
  * Dial geometry.
  *
- * One revolution = 24 hours, **noon at the top**, clockwise. That single
- * choice fixes everything else: 6 PM sits at 3 o'clock, midnight at the
- * bottom, 6 AM at 9 o'clock, and the waking half of the day occupies the
- * top half of the circle — which is why the layout reads as a day and not
- * as a clock face.
+ * One revolution = one day, always. The two faces differ only in what sits
+ * at the top and how the hours are named:
+ *
+ *   12h  noon at the top, midnight at the bottom, hours read 12 · 1…11 · 12
+ *        with AM/PM captions — the twelve hours, twice.
+ *   24h  midnight at the top, noon at the bottom, hours read 00 · 1…23.
+ *
+ * Both run clockwise at 0.25° per minute, so an event's arc is the same
+ * length on either face; switching is a 180° rotation and a relabel.
  *
  * All numbers below are in the SVG user units of a 1000×1000 viewBox, so a
  * component only ever sets the rendered pixel size once and every radius,
@@ -38,24 +42,13 @@ export const DIAL = {
   /** Ring the hour numerals are centred on. */
   LABELS: 340,
 
-  /** 24-hour dial: one lane ring, stepping inwards for overlaps. */
+  /** Centre of the outermost event lane, and the step inwards per lane. */
   LANE: 293,
   LANE_STEP: 27,
   ARC_WIDTH: 14,
 
-  /**
-   * 12-hour dial: the day is two turns, so it is drawn as two concentric
-   * bands — morning inside, afternoon outside — and the whole day is still
-   * visible at once. `BAND_SPLIT` is the radius that decides which band a
-   * drag lands in.
-   */
-  LANE_PM: 300,
-  LANE_AM: 212,
-  LANE_STEP_12: 22,
-  BAND_SPLIT: 245,
-
   /** Inner edge of the drag-to-create annulus, clear of the centre panel. */
-  DRAG_INNER: 150,
+  DRAG_INNER: 165,
 
   /** The now-hand runs from the track through the centre and a little past. */
   HAND_WIDTH: 1.6,
@@ -66,21 +59,20 @@ export const DIAL = {
 export const VIEW_SIZE = DIAL.SIZE - 2 * DIAL.PAD;
 export const VIEW_BOX = `${DIAL.PAD} ${DIAL.PAD} ${VIEW_SIZE} ${VIEW_SIZE}`;
 
-/** Which face the dial wears. `24h` = one turn a day; `12h` = two. */
-export type Clock = "24h" | "12h";
+/** How the face names its hours. Geometry is identical; the origin differs. */
+export type Clock = "12h" | "24h";
 
-/** Minutes in one revolution of the face. */
-export const TURN: Record<Clock, number> = { "24h": MINUTES_PER_DAY, "12h": 720 };
+/** Degrees of arc per minute — one revolution per day on both faces. */
+export const DEG_PER_MINUTE = 360 / MINUTES_PER_DAY;
 
-/**
- * Minutes since midnight → degrees clockwise from the top.
- *  - `24h`: noon at the top, midnight at the bottom, one turn a day.
- *  - `12h`: a conventional clock face — 12 at the top, two turns a day.
- */
-export function angleAt(minutes: number, clock: Clock = "24h"): number {
-  return clock === "24h"
-    ? (minutes - MINUTES_PER_DAY / 2) * (360 / MINUTES_PER_DAY)
-    : (minutes % TURN["12h"]) * (360 / TURN["12h"]);
+/** The minute that sits at the top of the face. */
+function origin(clock: Clock): number {
+  return clock === "12h" ? MINUTES_PER_DAY / 2 : 0;
+}
+
+/** Minutes since midnight → degrees clockwise from the top of the face. */
+export function angleAt(minutes: number, clock: Clock = "12h"): number {
+  return (minutes - origin(clock)) * DEG_PER_MINUTE;
 }
 
 /** Degrees clockwise from 12 o'clock → point on the circle of radius `r`. */
@@ -90,14 +82,11 @@ export function polar(r: number, deg: number): { x: number; y: number } {
 }
 
 /**
- * Clockwise arc on radius `r`. `to` may exceed `from` by up to 360°; a sweep
- * of a full turn is drawn as two half-turns because a single elliptical arc
- * whose endpoints coincide renders as nothing.
+ * Clockwise arc on radius `r`. A sweep of a full turn is drawn as two
+ * half-turns because a single elliptical arc whose endpoints coincide renders
+ * as nothing.
  */
 export function arcPath(r: number, from: number, to: number): string {
-  // A 12-hour face wraps: an event that crosses 12 comes back with a smaller
-  // angle than it started at, and an arc must always sweep forwards.
-  if (to < from) to += 360;
   const sweep = to - from;
   if (sweep >= 359.999) {
     const half = polar(r, from + 180);
@@ -115,16 +104,12 @@ export function arcPath(r: number, from: number, to: number): string {
 
 /**
  * Inverse of `angleAt`: a point in viewBox units → minutes since midnight.
- * On the 12-hour face an angle names two times a day, so the caller passes
- * which half it means — the drag ring reads that off the pointer's radius.
+ * Used by drag-to-create, so the result is always inside `[0, 1440)`.
  */
-export function minutesAtPoint(x: number, y: number, clock: Clock = "24h", pm = false): number {
+export function minutesAtPoint(x: number, y: number, clock: Clock = "12h"): number {
   const raw = (Math.atan2(x - DIAL.C, DIAL.C - y) * 180) / Math.PI;
   const deg = ((raw % 360) + 360) % 360;
-  const minutes =
-    clock === "24h"
-      ? MINUTES_PER_DAY / 2 + deg * (MINUTES_PER_DAY / 360)
-      : deg * (TURN["12h"] / 360) + (pm ? TURN["12h"] : 0);
+  const minutes = origin(clock) + deg / DEG_PER_MINUTE;
   return ((minutes % MINUTES_PER_DAY) + MINUTES_PER_DAY) % MINUTES_PER_DAY;
 }
 

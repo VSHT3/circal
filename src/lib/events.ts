@@ -153,27 +153,13 @@ export function packLanes(occurrences: Occurrence[], pad = 6): Occurrence[] {
 
 /**
  * Timed occurrences with lanes assigned, plus the all-day ones kept apart.
- *
- * On the twelve-hour face the day is drawn as two concentric bands, so lanes
- * are packed per band: a 9 AM and a 9 PM event sit at the same angle but on
- * different rings and must not be told they collide.
+ * Lane packing is face-independent: both dials put one day on one revolution,
+ * so two events collide on screen exactly when they collide in time.
  */
-export function dayAgenda(
-  events: CalEvent[],
-  calendars: Calendar[],
-  day: Date,
-  clock: "24h" | "12h" = "24h",
-) {
+export function dayAgenda(events: CalEvent[], calendars: Calendar[], day: Date) {
   const all = occurrencesOn(events, calendars, day);
   const allDay = all.filter((o) => o.event.allDay);
-  const rest = all.filter((o) => !o.event.allDay);
-  const timed =
-    clock === "24h"
-      ? packLanes(rest)
-      : [
-          ...packLanes(rest.filter((o) => o.startMin < 720)),
-          ...packLanes(rest.filter((o) => o.startMin >= 720)),
-        ].sort((a, b) => a.startMin - b.startMin);
+  const timed = packLanes(all.filter((o) => !o.event.allDay));
   return { timed, allDay, all: [...allDay, ...timed] };
 }
 

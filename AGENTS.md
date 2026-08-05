@@ -2,7 +2,9 @@
 
 ## Project Overview
 
-**circal** is a calendar whose day view is a single dial — a web recreation of Raycast's macOS app _Radical_. One revolution is twenty-four hours: **noon at the top, midnight at the bottom, clockwise**, so 6 AM sits at nine o'clock and 6 PM at three. Events are arcs, the elapsed day is a ramp of light around the rim, the hand is the current minute.
+**circal** is a calendar whose day view is a single dial — a web recreation of Raycast's macOS app _Radical_. One revolution is always one day, clockwise at 0.25° per minute. Events are arcs, the elapsed day is a ramp of light around the rim, the hand is the current minute.
+
+The `Clock` setting picks only what the face is _called_, never its geometry: `12h` puts noon at the top and labels `12 · 1…11` twice with AM/PM captions; `24h` puts midnight at the top and labels `00 · 1…23`. Switching is a 180° rotation plus a relabel, so an event's arc has the same length and sweep on either face.
 
 No backend. Events live in `localStorage` under `circal.v1`. Shipped as an assets-only Cloudflare Worker.
 
@@ -97,7 +99,7 @@ if (seeded !== day) {
 | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `src/pages/index.astro`         | The only route. Mounts `<App client:only="react" />` — `client:only` because a live clock plus `localStorage` makes any SSR markup wrong on hydrate |
 | `src/components/react/App.tsx`  | Island root; owns view state, builds `actions`, registers the nine global hotkeys                                                                   |
-| `src/components/react/Dial.tsx` | The instrument. Draw order: elapsed ring → ticks → numerals → band guides → drag annulus → event arcs → ghost arc → now-hand                        |
+| `src/components/react/Dial.tsx` | The instrument. Draw order: elapsed ring → ticks → numerals → drag annulus → event arcs → ghost arc → now-hand                                      |
 | `src/components/react/types.ts` | All panel prop contracts (`DialProps` and `CenterPanelProps` are the two deliberate exceptions, declared locally)                                   |
 | `astro.config.mjs`              | `devToolbar: false` (it floats over the dial), `trailingSlash: "always"`                                                                            |
 | `eslint.config.js`              | Flat config; `jsx-a11y/no-autofocus` is off for exactly `CommandPalette.tsx` and `EventEditor.tsx` (modals must take focus)                         |
@@ -126,9 +128,10 @@ If you add a test framework, wire it into `verify` in `package.json` so the gate
 ## Gotchas
 
 - **`dayKey()` is deliberately local-time.** `toISOString()` shifts the day west of UTC, which is exactly where a day-keyed store breaks. Never swap it in.
-- **`angleAt` and `minutesAtPoint` are exact inverses** and must stay so; `minutesAtPoint` takes a `pm` flag because a 12-hour angle names two times a day.
-- **`arcPath` has two special cases**: it adds 360° when `to < from` (12-hour wrap), and draws a full turn as two half-arcs because a single arc whose endpoints coincide renders nothing. Removing either makes arcs vanish.
-- **`dayAgenda` packs lanes per band in 12-hour mode** (split at minute 720). Do not merge the two `packLanes` calls — a 9 AM and a 9 PM event share an angle but sit on different rings.
+- **`angleAt` and `minutesAtPoint` are exact inverses** and must stay so. Both take a `Clock` and differ only by `origin()` — the minute that sits at the top (720 for `12h`, 0 for `24h`).
+- **`arcPath` draws a full turn as two half-arcs**, because a single elliptical arc whose endpoints coincide renders nothing. Removing that branch makes a whole-day arc vanish.
+- **Lane packing is face-independent.** `dayAgenda` takes no `Clock`: both faces put one day on one revolution, so two events collide on screen exactly when they collide in time.
+- **`Settings` is schema-versioned.** `SCHEMA` in `src/lib/store.ts` is bumped when a stored value changes _meaning_ rather than shape (it went to `2` when `clock: "24h"` stopped meaning the noon-at-top face). A stale schema resets settings to defaults and keeps events.
 - **Store hydration is lazy, at first `subscribe`**, not module scope; `load()` and `commit()` swallow `localStorage` errors on purpose (private mode / quota must not brick the app).
 - **`seed()` only runs when no stored blob exists** and anchors on today's local midnight.
 - **`<input type="time">` is banned here** — it renders in the _browser's_ UI locale, not the app's. Use the `TimeField` in `EventEditor.tsx`, backed by `parseClock` (accepts `10:45 AM`, `10:45am`, `1045`, `9p`, `13:00`).

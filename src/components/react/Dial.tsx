@@ -7,10 +7,9 @@
  * to fit, so nothing here ever reads a pixel size except the overlay.
  * ------------------------------------------------------------------ */
 
-import { useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useMemo, useState, type PointerEvent as ReactPointerEvent } from "react";
 import {
   DIAL,
-  TURN,
   VIEW_BOX,
   VIEW_SIZE,
   angleAt,
@@ -33,13 +32,6 @@ export interface DialProps {
   calendars: Calendar[];
   onOpen: (occ: Occurrence) => void;
   onCreate: (startMin: number, endMin: number) => void;
-}
-
-/** Radius of the lane an occurrence's arc is drawn on. */
-function laneRadius(occ: Occurrence, clock: Clock): number {
-  if (clock === "24h") return DIAL.LANE - occ.lane * DIAL.LANE_STEP;
-  const base = occ.startMin < TURN["12h"] ? DIAL.LANE_AM : DIAL.LANE_PM;
-  return base - occ.lane * DIAL.LANE_STEP_12;
 }
 
 /** Minutes a bare click on the ring turns into. */
@@ -72,8 +64,6 @@ export default function Dial({
   const [stageRef, width, height] = useElementSize<HTMLDivElement>();
   const [hovered, setHovered] = useState<string | null>(null);
   const [drag, setDrag] = useState<{ from: number; to: number } | null>(null);
-  /** Which band the pointer went down in — the whole drag stays in that half. */
-  const dragBand = useRef(false);
 
   const u = Math.min(width, height) / VIEW_SIZE;
   const today = isSameDay(day, now);
@@ -85,18 +75,13 @@ export default function Dial({
   /**
    * SVG has no conic gradient, so the elapsed ring is drawn as a chain of
    * short arcs whose opacity ramps towards the present. Fifteen minutes each,
-   * overlapping slightly so the joins do not show. On the twelve-hour face it
-   * tracks the current half-day, since that is one turn of this dial.
+   * overlapping slightly so the joins do not show.
    */
   const elapsedSegments = useMemo(() => {
-    const turn = TURN[clock];
-    // A full past day is a whole turn of either face; today is the progress
-    // through the current turn.
-    const spent = elapsed === MINUTES_PER_DAY ? turn : elapsed % turn;
-    if (spent <= 0) return [];
-    const from = angleAt(elapsed - spent, clock);
-    const to = from + (spent / turn) * 360;
-    const count = clamp(Math.round(spent / STEP), 2, 96);
+    if (elapsed <= 0) return [];
+    const from = angleAt(0, clock);
+    const to = from + (elapsed / MINUTES_PER_DAY) * 360;
+    const count = clamp(Math.round(elapsed / STEP), 2, 96);
     return Array.from({ length: count }, (_, i) => {
       const a = from + ((to - from) * i) / count;
       const b = from + ((to - from) * (i + 1)) / count + 0.35;
@@ -126,10 +111,7 @@ export default function Dial({
     const point = pointIn(e);
     if (!point) return;
     e.currentTarget.setPointerCapture(e.pointerId);
-    // On the twelve-hour face the angle is ambiguous, so the radius picks the
-    // half: press inside the morning band, drag a morning event.
-    dragBand.current = Math.hypot(point.x - DIAL.C, point.y - DIAL.C) >= DIAL.BAND_SPLIT;
-    const m = snap(minutesAtPoint(point.x, point.y, clock, dragBand.current), STEP);
+    const m = snap(minutesAtPoint(point.x, point.y, clock), STEP);
     setDrag({ from: m, to: m });
   }
 
@@ -137,7 +119,7 @@ export default function Dial({
     if (!drag) return;
     const point = pointIn(e);
     if (!point) return;
-    setDrag({ ...drag, to: snap(minutesAtPoint(point.x, point.y, clock, dragBand.current), STEP) });
+    setDrag({ ...drag, to: snap(minutesAtPoint(point.x, point.y, clock), STEP) });
   }
 
   function onRingUp() {
@@ -186,7 +168,6 @@ export default function Dial({
 
         <Ticks clock={clock} />
         <HourLabels clock={clock} />
-        {clock === "12h" && <BandGuides />}
 
         {/* Drag target. An annulus, so the agenda in the middle stays clickable
             and the corners of the window do not create events. */}
@@ -244,12 +225,10 @@ export default function Dial({
 function Ticks({ clock }: { clock: Clock }) {
   // Half-hour resolution: enough texture to read the ring as a scale, sparse
   // enough that the numerals still lead.
-  const hours = clock === "24h" ? 24 : 12;
   const ticks = [];
-  for (let i = 0; i < hours * 2; i += 1) {
-    const minutes = i * 30;
-    const deg = angleAt(minutes, clock);
-    const cardinal = deg % 90 === 0;
+  for (let i = 0; i < 48; i += 1) {
+    const deg = angleAt(i * 30, clock);
+    const cardinal = ((deg % 90) + 90) % 90 === 0;
     const hour = i % 2 === 0;
     const inner = cardinal ? 374 : hour ? DIAL.TICK_INNER : DIAL.TICK_INNER_MINOR;
     const a = polar(inner, deg);
@@ -272,14 +251,15 @@ function Ticks({ clock }: { clock: Clock }) {
 }
 
 function HourLabels({ clock }: { clock: Clock }) {
-  const hours = clock === "24h" ? 24 : 12;
   return (
     <g pointerEvents="none" textAnchor="middle">
-      {Array.from({ length: hours }, (_, h) => {
+      {Array.from({ length: 24 }, (_, h) => {
         const { x, y } = polar(DIAL.LABELS, angleAt(h * 60, clock));
-        // Quarter-turn hours are the anchors you actually navigate by.
-        const major = h % (hours / 4) === 0;
-        const display = h % 12 === 0 ? 12 : h % 12;
+        // The quarter-turn hours are the anchors you navigate by. On the
+        // AM/PM face they are the two noons and the two sixes; on the
+        // 24-hour face, 00 · 06 · 12 · 18.
+        const major = h % 6 === 0;
+        const twelve = h % 12 === 0 ? 12 : h % 12;
 
         if (!major) {
           return (
@@ -292,7 +272,7 @@ function HourLabels({ clock }: { clock: Clock }) {
               fontSize={19.5}
               fontWeight={450}
             >
-              {display}
+              {clock === "12h" ? twelve : h}
             </text>
           );
         }
@@ -301,18 +281,18 @@ function HourLabels({ clock }: { clock: Clock }) {
           <g key={h}>
             <text
               x={x}
-              y={clock === "24h" ? y - 4 : y}
+              // The AM/PM face carries a caption under the numeral, so its
+              // major label sits high to keep the pair optically centred.
+              y={clock === "12h" ? y - 4 : y}
               dominantBaseline="central"
               className="fill-ink"
               fontSize={30}
               fontWeight={600}
               letterSpacing="-0.02em"
             >
-              {display}
+              {clock === "12h" ? twelve : `${h}`.padStart(2, "0")}
             </text>
-            {/* Only the 24-hour face can say which half of the day a numeral
-                belongs to; on the 12-hour face that is the band's job. */}
-            {clock === "24h" && (
+            {clock === "12h" && (
               <text
                 x={x}
                 y={y + 20}
@@ -325,48 +305,6 @@ function HourLabels({ clock }: { clock: Clock }) {
                 {h < 12 ? "AM" : "PM"}
               </text>
             )}
-          </g>
-        );
-      })}
-    </g>
-  );
-}
-
-/**
- * The two rings the twelve-hour face splits the day across. Without them an
- * empty morning band is invisible and the face looks like it lost an event.
- */
-function BandGuides() {
-  return (
-    <g pointerEvents="none">
-      {(["AM", "PM"] as const).map((band) => {
-        const r = band === "AM" ? DIAL.LANE_AM : DIAL.LANE_PM;
-        const mark = polar(r, 270);
-        return (
-          <g key={band}>
-            <circle
-              cx={DIAL.C}
-              cy={DIAL.C}
-              r={r}
-              fill="none"
-              stroke="#fff"
-              strokeOpacity={0.08}
-              strokeWidth={1}
-              strokeDasharray="1 9"
-            />
-            <circle cx={mark.x} cy={mark.y} r={13} className="fill-void" />
-            <text
-              x={mark.x}
-              y={mark.y}
-              textAnchor="middle"
-              dominantBaseline="central"
-              className="fill-ink-4 font-mono"
-              fontSize={12}
-              fontWeight={500}
-              letterSpacing="0.08em"
-            >
-              {band}
-            </text>
           </g>
         );
       })}
@@ -393,11 +331,11 @@ function EventArc({
 }) {
   if (occ.event.allDay) return null;
 
-  const r = laneRadius(occ, clock);
-  const width = clock === "24h" ? DIAL.ARC_WIDTH : DIAL.ARC_WIDTH - 2;
+  const r = DIAL.LANE - occ.lane * DIAL.LANE_STEP;
+  const width = DIAL.ARC_WIDTH;
   const inset = capInset(r);
   const from = angleAt(occ.startMin, clock);
-  const to = from + ((occ.endMin - occ.startMin) / TURN[clock]) * 360;
+  const to = angleAt(occ.endMin, clock);
   // Sub-cap-length events collapse to their own round cap: a dot on the ring
   // at the right minute, rather than an arc that lies about its duration.
   const dot = to - from <= inset * 2;
@@ -434,19 +372,18 @@ function EventArc({
   );
 }
 
-/** The range being dragged, drawn on the band that range belongs to. */
+/** The range being dragged, on the outermost lane. */
 function GhostArc({ clock, start, end }: { clock: Clock; start: number; end: number }) {
-  const r = clock === "24h" ? DIAL.LANE : start < TURN["12h"] ? DIAL.LANE_AM : DIAL.LANE_PM;
-  const inset = capInset(r);
+  const inset = capInset(DIAL.LANE);
   const from = angleAt(start, clock) + inset;
-  const to = Math.max(from, angleAt(start, clock) + ((end - start) / TURN[clock]) * 360 - inset);
+  const to = Math.max(from, angleAt(end, clock) - inset);
   return (
     <path
-      d={arcPath(r, from, to)}
+      d={arcPath(DIAL.LANE, from, to)}
       fill="none"
       stroke="#fff"
       strokeOpacity={0.45}
-      strokeWidth={clock === "24h" ? DIAL.ARC_WIDTH : DIAL.ARC_WIDTH - 2}
+      strokeWidth={DIAL.ARC_WIDTH}
       strokeLinecap="round"
       pointerEvents="none"
     />

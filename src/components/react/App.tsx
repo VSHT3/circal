@@ -28,10 +28,7 @@ export default function App() {
   const [editor, setEditor] = useState<EditorTarget | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
 
-  const agenda = useMemo(
-    () => dayAgenda(events, calendars, day, settings.clock),
-    [events, calendars, day, settings.clock],
-  );
+  const agenda = useMemo(() => dayAgenda(events, calendars, day), [events, calendars, day]);
   const defaultCalendar = calendars[0]?.id ?? "personal";
 
   const openDraft = useCallback(

@@ -298,9 +298,9 @@ export default function CommandPalette({
       {
         id: "cmd-clock",
         icon: <Clock3 {...CHROME_ICON_PROPS} />,
-        title: clock === "24h" ? "Use the 12-hour dial (AM/PM bands)" : "Use the 24-hour dial",
+        title: clock === "12h" ? "Use the 24-hour dial (00–23)" : "Use the 12-hour dial (AM/PM)",
         run: () => {
-          actions.setClock(clock === "24h" ? "12h" : "24h");
+          actions.setClock(clock === "12h" ? "24h" : "12h");
           onClose();
         },
       },

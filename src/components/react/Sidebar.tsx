@@ -134,8 +134,8 @@ export default function Sidebar({
               value={clock}
               onChange={actions.setClock}
               options={[
+                { id: "12h" as const, label: "12 h" },
                 { id: "24h" as const, label: "24 h" },
-                { id: "12h" as const, label: "12 h ×2" },
               ]}
             />
           </section>

@@ -2,15 +2,19 @@
 
 A calendar whose day is a circle.
 
-One revolution is twenty-four hours: **noon at the top, midnight at the bottom,
-6 AM at nine o'clock, 6 PM at three.** Events are arcs, the day so far is a
-ramp of light around the rim, and the hand is the current minute. A web
-recreation of [Radical](https://www.raycast.com) for the browser.
+A day is one revolution. Events are arcs, the day so far is a ramp of light
+around the rim, and the hand is the current minute. A web recreation of
+[Radical](https://www.raycast.com) for the browser.
 
-Prefer a conventional clock? The sidebar's **Dial** setting switches the face
-to twelve hours — the day then takes two turns, drawn as two concentric bands,
-morning inside and afternoon outside, so the whole day is still on screen at
-once.
+The sidebar's **Dial** setting picks how the face names its hours:
+
+- **12 h** — noon at the top, midnight at the bottom, `12 · 1…11` twice with
+  AM/PM captions. 6 AM sits at nine o'clock, 6 PM at three.
+- **24 h** — midnight at the top, `00 · 1…23` running clockwise, so `06` is at
+  three o'clock, `12` at the bottom and `18` at nine.
+
+Same geometry either way: an event's arc is the same length on both faces, and
+switching is a 180° rotation and a relabel.
 
 ![the day view](docs/day.png)
 

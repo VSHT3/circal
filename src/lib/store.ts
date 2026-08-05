@@ -15,18 +15,27 @@ import type { CalEvent, Calendar, Repeat } from "./events";
 
 const KEY = "circal.v1";
 
+/**
+ * Bumped when a stored field changes meaning rather than shape. `clock: "24h"`
+ * used to name the noon-at-top AM/PM face; it now names the 0–23 face, so a
+ * blob written before this bump would silently show the wrong dial. Events
+ * survive the bump — only settings reset.
+ */
+const SCHEMA = 2;
+
 export interface Settings {
   /** Which face the dial wears — see `lib/dial.ts`. */
   clock: Clock;
 }
 
 export interface Snapshot {
+  schema: number;
   events: CalEvent[];
   calendars: Calendar[];
   settings: Settings;
 }
 
-const DEFAULT_SETTINGS: Settings = { clock: "24h" };
+const DEFAULT_SETTINGS: Settings = { clock: "12h" };
 
 /** The eight calendar colours. Muted enough that two can share the dial. */
 export const PALETTE = [
@@ -93,6 +102,7 @@ function seed(): CalEvent[] {
 /* --------------------------------- state ---------------------------------- */
 
 const EMPTY: Snapshot = {
+  schema: SCHEMA,
   events: [],
   calendars: DEFAULT_CALENDARS,
   settings: DEFAULT_SETTINGS,
@@ -105,9 +115,12 @@ function load(): Snapshot {
     if (!raw) return { ...EMPTY, events: seed() };
     const parsed = JSON.parse(raw) as Partial<Snapshot>;
     return {
+      schema: SCHEMA,
       events: Array.isArray(parsed.events) ? parsed.events : [],
       calendars: parsed.calendars?.length ? parsed.calendars : DEFAULT_CALENDARS,
-      settings: { ...DEFAULT_SETTINGS, ...parsed.settings },
+      // A stale schema means the stored values no longer mean what they say.
+      settings:
+        parsed.schema === SCHEMA ? { ...DEFAULT_SETTINGS, ...parsed.settings } : DEFAULT_SETTINGS,
     };
   } catch {
     // A corrupted blob must not brick the app; start clean rather than throw.
