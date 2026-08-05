@@ -1,10 +1,28 @@
 /* Shared prop contracts between the shell (`App.tsx`) and its panels. */
 
+import type { RefObject } from "react";
 import type { Clock } from "@/lib/time";
 import type { CalEvent, Calendar, Occurrence } from "@/lib/events";
+import type { LifeStage } from "@/lib/life";
 import type { PickedPlace } from "@/lib/places";
 
 export type ViewMode = "day" | "year" | "life";
+
+/**
+ * The view change in progress, and the day it lands on.
+ *
+ * Read through a ref rather than passed as a value, because it is needed by
+ * elements that are *leaving*: the props of a component being removed are
+ * frozen at its last render, so nothing in them can name the view that is
+ * arriving. Motion resolves a dynamic `exit` variant when the exit starts, and
+ * `usePresence` fires then too — both read `.current` and get the truth.
+ */
+export interface ViewFlow {
+  from: ViewMode;
+  to: ViewMode;
+  /** The selected day *after* the change — which day the zoom is about. */
+  day: Date;
+}
 
 /** What the editor is currently editing: an existing event, or a new draft. */
 export interface EditorTarget {
@@ -78,6 +96,13 @@ export interface YearViewProps {
 }
 
 export interface LifeViewProps {
+  /**
+   * The span and the geometry, resolved by the shell — which needs the same
+   * layout to know where the dial should land. `null` when there is nothing to
+   * draw: no birth date yet, or a panel too small to be a field.
+   */
+  stage: LifeStage | null;
+  flow: RefObject<ViewFlow>;
   /** `YYYY-MM-DD`, or `""` — which is what puts the prompt on screen. */
   birth: string;
   /** Years the grid runs for, from the birthday. */

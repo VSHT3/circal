@@ -19,7 +19,7 @@
  * ------------------------------------------------------------------ */
 
 import { colorOf, type CalEvent, type Calendar } from "./events";
-import { MONTHS, addDays, dayKey, daysInMonth, startOfDay } from "./time";
+import { MONTHS, addDays, dayKey, daysInMonth, fromDayKey, startOfDay } from "./time";
 
 const DAY_MS = 86_400_000;
 const WEEK = 7;
@@ -59,6 +59,21 @@ const LINE_PITCH = 1.6;
  * Fixed, because both are one `.label` string wide and neither grows.
  */
 export const LIFE_GUTTER = { left: 26, right: 38 } as const;
+
+/**
+ * Height of the readout strip above the field, and the one number the shell
+ * and the view have to agree on: `App.tsx` subtracts it to work out where a
+ * day's dot lands on screen, because that point is the origin of the zoom
+ * between the dial and this grid. The strip is given exactly this height in
+ * CSS rather than left to its content — a strip that grows by two pixels would
+ * put the dial's landing point two pixels off every dot in the field.
+ */
+export const LIFE_META_H = 28;
+
+export interface LifePoint {
+  x: number;
+  y: number;
+}
 
 export interface LifeSpan {
   /** Local midnight of the birthday. */
@@ -167,6 +182,38 @@ export function lifeLayout(boxWidth: number, boxHeight: number, span: LifeSpan):
   };
 }
 
+export interface LifeStage {
+  span: LifeSpan;
+  layout: LifeLayout;
+  /** The field's own box: the panel, less the readout strip above it. */
+  box: { width: number; height: number };
+}
+
+/**
+ * The life a panel of this size would draw, or `null` when there is nothing to
+ * draw — no birth date yet, or a box too small to be a field.
+ *
+ * Resolved by the *shell* rather than by the view, because the zoom between the
+ * dial and this grid needs a day's dot in screen coordinates while the grid may
+ * not be mounted yet. One layout, computed once, read by both.
+ */
+export function lifeStage(
+  birth: string,
+  expectancyYears: number,
+  panelWidth: number,
+  panelHeight: number,
+): LifeStage | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(birth)) return null;
+  const start = fromDayKey(birth);
+  if (Number.isNaN(start.getTime())) return null;
+
+  const box = { width: panelWidth, height: panelHeight - LIFE_META_H };
+  if (box.width < 1 || box.height < 1) return null;
+
+  const span = lifeSpan(start, expectancyYears);
+  return { span, layout: lifeLayout(box.width, box.height, span), box };
+}
+
 /** Monday-first weekday of 1 January: how far right that year starts. */
 function jan1Offset(year: number): number {
   return (new Date(year, 0, 1).getDay() + 6) % WEEK;
@@ -190,6 +237,18 @@ export function lifeCell(layout: LifeLayout, date: Date): { row: number; col: nu
     row: (date.getFullYear() - layout.birthYear) * layout.linesPerYear + line,
     col: slot - line * layout.colsPerLine,
   };
+}
+
+/**
+ * A day's dot, in the field's own coordinates — `null` for a day outside the
+ * life. Every caller that needs a *point* rather than a cell goes through
+ * this: the hover ring, the death mark, and the zoom, which has to land the
+ * dial on exactly the dot the field draws.
+ */
+export function lifeDot(layout: LifeLayout, span: LifeSpan, date: Date): LifePoint | null {
+  if (date < span.birth || date > span.death) return null;
+  const { row, col } = lifeCell(layout, date);
+  return { x: lifeDotX(layout, col), y: lifeDotY(layout, row) };
 }
 
 /**

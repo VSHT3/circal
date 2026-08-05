@@ -2,66 +2,98 @@
  * ⌘L — one life, one screen, one dot per day.
  *
  * The day view is a single revolution. This is every revolution you get: the
- * same day, pulled back until it is three pixels wide and thirty thousand of
+ * same day, pulled back until it is four pixels wide and thirty thousand of
  * them fit in the window. Days you have spent are dim, today is the one lit
  * dot, the ones you have not are plain grey — the whole point being that the
  * dim part is not coming back.
  *
- * Three things about the implementation, all forced by the dot count:
+ * Four things about the implementation, all forced by the dot count:
  *
  * 1. **The field is a canvas.** Thirty thousand SVG circles is thirty thousand
  *    DOM nodes: the mount alone costs the best part of a second and nothing
- *    can be animated afterwards. The canvas is drawn once per layout or data
- *    change and otherwise left alone.
- * 2. **Nothing that follows the pointer is drawn on it.** Hover, selection,
- *    today's halo and the death mark are four SVG circles in an overlay, so
- *    moving the mouse never costs a redraw of the field underneath.
- * 3. **The zoom is a shared circle, not a scaled bitmap.** Arriving from the
- *    dial, a ring starts at the dial's own rim and shrinks onto today's dot
- *    while the field fades up around it; leaving, it runs the other way. The
- *    canvas itself only scales the last little bit, because a bitmap blown up
- *    two hundred times is mush.
+ *    can be animated afterwards.
+ * 2. **It is drawn once, into an offscreen canvas.** The visible canvas only
+ *    ever blits that bitmap, so a frame of animation costs one `drawImage`
+ *    instead of thirty thousand arcs.
+ * 3. **The reveal is a mask, not a redraw.** Arriving from the dial, a
+ *    wavefront travels out from the day you were looking at and the dots fade
+ *    up as it passes: one radial gradient in `destination-in` per frame. Going
+ *    back, the same wave collapses onto that dot — and `usePresence` is what
+ *    holds the unmount open until it has.
+ * 4. **Nothing that follows the pointer is on the field.** Hover, selection,
+ *    today's halo and the death mark are SVG circles in an overlay, so moving
+ *    the mouse never costs a repaint of the bitmap underneath.
+ *
+ * The other half of the transition — the dial itself shrinking onto that dot —
+ * is in `App.tsx`, because it belongs to the panel that is leaving.
  * ------------------------------------------------------------------ */
 
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
+  type RefObject,
 } from "react";
-import { motion, useReducedMotion } from "motion/react";
-import { DIAL, VIEW_SIZE } from "@/lib/dial";
+import {
+  animate,
+  motion,
+  useMotionValue,
+  useMotionValueEvent,
+  usePresence,
+  useReducedMotion,
+} from "motion/react";
 import { colorOf, occurrencesOn, type CalEvent, type Calendar } from "@/lib/events";
 import {
   dim,
   formatAge,
   formatCount,
   formatLifeDate,
-  lifeCell,
   lifeCellAt,
   lifeDensity,
+  lifeDot,
   lifeDotX,
   lifeDotY,
-  lifeLayout,
   lifeRowTop,
-  lifeSpan,
   lifeStats,
   lifeYearRange,
   LIFE_GUTTER,
+  LIFE_META_H,
   type LifeLayout,
+  type LifePoint,
   type LifeSpan,
+  type LifeStage,
 } from "@/lib/life";
 import { LIFE_EXPECTANCY_RANGE, store } from "@/lib/store";
 import { WEEKDAYS, dayKey, fromDayKey, isSameDay, startOfDay } from "@/lib/time";
 import { cn } from "@/lib/utils";
-import type { LifeViewProps } from "@/components/react/types";
+import type { LifeViewProps, ViewFlow } from "@/components/react/types";
 import { DateField, NumberField } from "@/components/react/ui/primitives";
-import { useElementSize } from "./hooks";
 
 const EASE = [0.32, 0.72, 0, 1] as const;
 const TAU = Math.PI * 2;
 const DAY_MS = 86_400_000;
+
+/**
+ * The wave.
+ *
+ * Long, because it is the transition and not a flourish: the dial spends its
+ * own zoom collapsing onto one dot, and this starts while that is still on its
+ * way so the two read as one movement rather than two animations queued up.
+ *
+ * The curve is nearly linear on purpose. Every ease-out worth the name puts
+ * most of the travel in the first fifth of the duration, and a wavefront that
+ * crosses the window in 120ms and then creeps is not a wave — it is a wipe
+ * with a long tail. Constant speed, with just enough of a shoulder to stop
+ * rather than hit the edge.
+ */
+const RIPPLE_OUT = { duration: 1.05, delay: 0.3, ease: [0.3, 0.35, 0.5, 1] as const };
+/** Collapsing is the other way round: slow off the mark, then away. */
+const RIPPLE_IN = { duration: 0.55, ease: [0.5, 0, 0.75, 0] as const };
+/** How wide the wavefront's own gradient is, as a share of its travel. */
+const FEATHER = 0.16;
 
 /**
  * How bright a day is. Two tones per state, alternating by month: a month is
@@ -91,37 +123,25 @@ interface Box {
   height: number;
 }
 
-interface Point {
-  x: number;
-  y: number;
-}
-
 /* --------------------------------- drawing -------------------------------- */
 
 /**
  * The whole field in one pass, batched by colour: one `Path2D` per distinct
  * colour and one `fill` each, rather than thirty thousand `beginPath`/`fill`
- * pairs. Today is left out of the batch and drawn last — it is the only dot
- * with a different radius, and it belongs on top of its neighbours.
+ * pairs.
+ *
+ * Today is drawn last and larger, and it takes its event's colour when it has
+ * one — a day carrying something says so whether or not it is this one, and
+ * the halo in the overlay is what marks it as today.
  */
-function drawLife(
-  canvas: HTMLCanvasElement,
+function drawField(
+  ctx: CanvasRenderingContext2D,
   box: Box,
   layout: LifeLayout,
   span: LifeSpan,
   density: Map<string, string>,
   today: Date,
 ) {
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return;
-
-  // Backing store in device pixels, drawing in CSS pixels: a two-pixel dot is
-  // four on a retina screen, and drawn at half the coordinates it would be a
-  // grey smear instead.
-  const dpr = window.devicePixelRatio || 1;
-  canvas.width = Math.round(box.width * dpr);
-  canvas.height = Math.round(box.height * dpr);
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, box.width, box.height);
 
   const paths = new Map<string, Path2D>();
@@ -140,7 +160,7 @@ function drawLife(
   const todayMs = today.getTime();
   const coloured = density.size > 0;
   const radius = layout.radius;
-  let lit: Point | null = null;
+  let lit: { at: LifePoint; color: string } | null = null;
 
   for (let index = 0; index < layout.years; index++) {
     const { year, offset, from, to } = lifeYearRange(span, index);
@@ -156,13 +176,13 @@ function drawLife(
       const line = Math.floor(slot / layout.colsPerLine);
       const x = lifeDotX(layout, slot - line * layout.colsPerLine);
       const y = lifeDotY(layout, firstRow + line);
+      const event = coloured ? density.get(dayKey(cursor)) : undefined;
 
       if (cursor.getTime() === todayMs) {
-        lit = { x, y };
+        lit = { at: { x, y }, color: event ?? TODAY_COLOR };
         continue;
       }
       const past = cursor.getTime() < todayMs;
-      const event = coloured ? density.get(dayKey(cursor)) : undefined;
       plot(
         event
           ? past
@@ -182,11 +202,21 @@ function drawLife(
   }
 
   if (lit) {
-    ctx.fillStyle = TODAY_COLOR;
+    ctx.fillStyle = lit.color;
     ctx.beginPath();
-    ctx.arc(lit.x, lit.y, Math.max(radius * 1.8, 2), 0, TAU);
+    ctx.arc(lit.at.x, lit.at.y, Math.max(radius * 1.9, 2.2), 0, TAU);
     ctx.fill();
   }
+}
+
+/** Furthest a wavefront leaving `from` has to travel to clear the box. */
+function reach(box: Box, from: LifePoint): number {
+  return Math.max(
+    Math.hypot(from.x, from.y),
+    Math.hypot(box.width - from.x, from.y),
+    Math.hypot(from.x, box.height - from.y),
+    Math.hypot(box.width - from.x, box.height - from.y),
+  );
 }
 
 /* -------------------------------- formatting ------------------------------- */
@@ -214,6 +244,8 @@ function formatDistance(date: Date, today: Date): string {
 /* ---------------------------------- shell --------------------------------- */
 
 export default function LifeView({
+  stage,
+  flow,
   birth,
   expectancy,
   now,
@@ -222,73 +254,60 @@ export default function LifeView({
   calendars,
   onSelectDay,
 }: LifeViewProps) {
-  const [gridRef, width, height] = useElementSize<HTMLDivElement>();
-
   /**
-   * The *day*, not the instant: `now` ticks every second, and every memo below
-   * it would be thrown away sixty times a minute for a grid that changes once
-   * at midnight. Only the percentage in the strip reads the instant.
+   * The *day*, not the instant: `now` ticks every second, and the field would
+   * be redrawn sixty times a minute for a grid that changes once at midnight.
+   * Only the percentage in the strip reads the instant.
    */
   const todayKey = dayKey(now);
   const today = useMemo(() => fromDayKey(todayKey), [todayKey]);
-
-  const span = useMemo(
-    () => (birth ? lifeSpan(fromDayKey(birth), expectancy) : null),
-    [birth, expectancy],
-  );
-  const layout = useMemo(
-    () => (span && width > 0 && height > 0 ? lifeLayout(width, height, span) : null),
-    [span, width, height],
-  );
-  const stats = useMemo(() => (span ? lifeStats(span, now) : null), [span, now]);
+  const stats = useMemo(() => (stage ? lifeStats(stage.span, now) : null), [stage, now]);
 
   return (
     <div className="flex h-full w-full flex-col overflow-hidden">
-      {span && stats && (
-        // Two halves that give way in order: the birth date and age go first
-        // (both are in the settings card), then the estimated end. What never
-        // goes is the count and the percentage — they are the readout.
-        <div className="flex shrink-0 items-baseline gap-3 px-1 pb-1.5">
-          <span className="label hidden shrink-0 text-[10px] text-ink-3 sm:inline">
-            Born {formatLifeDate(span.birth)} <span className="text-ink-4">·</span>{" "}
-            <span className="text-ink-2">{formatAge(stats.age)}</span>
-          </span>
-          <span className="label ml-auto truncate text-[10px] text-ink-3">
-            <span className="text-ink-2">{formatCount(stats.daysLived)}</span> lived{" "}
-            <span className="text-ink-4">·</span> {formatCount(stats.daysLeft)} left{" "}
-            <span className="text-ink-4">·</span>{" "}
-            {/* Six decimals, so it visibly moves: a life is long enough that two
-                would sit still for seven hours at a time. */}
-            <span className="text-accent tabular-nums">{(stats.fraction * 100).toFixed(6)}%</span>
-            <span className="hidden lg:inline">
-              {" "}
-              <span className="text-ink-4">·</span> until {formatLifeDate(span.death)}
+      {/* Exactly `LIFE_META_H` tall, and not a pixel by accident: the shell
+          subtracts that number to find where a dot lands on screen. */}
+      <div
+        className="flex shrink-0 items-center gap-3 px-1"
+        style={{ height: LIFE_META_H }}
+        aria-live="off"
+      >
+        {stage && stats && (
+          <>
+            <span className="label hidden shrink-0 text-[10px] text-ink-3 sm:inline">
+              Born {formatLifeDate(stage.span.birth)} <span className="text-ink-4">·</span>{" "}
+              <span className="text-ink-2">{formatAge(stats.age)}</span>
             </span>
-          </span>
-        </div>
-      )}
+            <span className="label ml-auto truncate text-[10px] text-ink-3">
+              <span className="text-ink-2">{formatCount(stats.daysLived)}</span> lived{" "}
+              <span className="text-ink-4">·</span> {formatCount(stats.daysLeft)} left{" "}
+              <span className="text-ink-4">·</span>{" "}
+              {/* Six decimals, so it visibly moves: a life is long enough that
+                  two would sit still for seven hours at a time. */}
+              <span className="text-accent tabular-nums">{(stats.fraction * 100).toFixed(6)}%</span>
+              <span className="hidden lg:inline">
+                {" "}
+                <span className="text-ink-4">·</span> until {formatLifeDate(stage.span.death)}
+              </span>
+            </span>
+          </>
+        )}
+      </div>
 
-      {/* Measured first, drawn second: the layout is a function of this box, so
-          the field cannot exist before the box has a size.
-
-          Mounted unconditionally, including while the prompt is up, because
-          `useElementSize` observes once: rendering the prompt *instead of* this
-          div left the observer attached to nothing, and answering the prompt
-          then produced a grid of zero by zero. */}
-      <div ref={gridRef} className="relative min-h-0 flex-1">
-        {span && layout && (
+      <div className="relative min-h-0 flex-1">
+        {stage ? (
           <LifeGrid
-            box={{ width, height }}
-            layout={layout}
-            span={span}
+            stage={stage}
+            flow={flow}
             today={today}
             selected={selected}
             events={events}
             calendars={calendars}
             onSelectDay={onSelectDay}
           />
+        ) : (
+          <BirthPrompt now={now} birth={birth} expectancy={expectancy} />
         )}
-        {!span && <BirthPrompt now={now} expectancy={expectancy} />}
       </div>
     </div>
   );
@@ -296,23 +315,21 @@ export default function LifeView({
 
 /* ---------------------------------- grid ---------------------------------- */
 
-interface Hover extends Point {
+interface Hover extends LifePoint {
   date: Date;
 }
 
 function LifeGrid({
-  box,
-  layout,
-  span,
+  stage,
+  flow,
   today,
   selected,
   events,
   calendars,
   onSelectDay,
 }: {
-  box: Box;
-  layout: LifeLayout;
-  span: LifeSpan;
+  stage: LifeStage;
+  flow: RefObject<ViewFlow>;
   today: Date;
   selected: Date;
   events: CalEvent[];
@@ -320,44 +337,154 @@ function LifeGrid({
   onSelectDay: (day: Date) => void;
 }) {
   const reducedMotion = useReducedMotion();
+  const { span, layout, box } = stage;
+
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  /** The field, drawn once. The visible canvas only ever blits this. */
+  const fieldRef = useRef<HTMLCanvasElement | null>(null);
   const [hover, setHover] = useState<Hover | null>(null);
 
   const density = useMemo(() => lifeDensity(events, calendars, span), [events, calendars, span]);
 
-  /* The canvas is an external system: it is written to, not rendered. */
+  /**
+   * Where the wave starts, and where the dial lands: the dot of the day the
+   * shell is pointing at, which is the day you were looking at on the dial —
+   * or the one you just clicked here, on the way back. Today's dot when that
+   * day is off the grid, the middle of the field when today is too.
+   */
+  const centre: LifePoint = { x: box.width / 2, y: box.height / 2 };
+  const focus = useCallback(
+    (): LifePoint =>
+      lifeDot(layout, span, flow.current.day) ?? lifeDot(layout, span, today) ?? centre,
+    // `centre` is derived from `box`, which `layout` is derived from too.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [layout, span, today, flow],
+  );
+
+  /**
+   * The wavefront, `0`…`1` of its reach. Seeded rather than assigned in an
+   * effect: at `1` for one frame the whole field would flash into place before
+   * the reveal had a chance to start.
+   */
+  const rippling = !reducedMotion && flow.current.from === "day";
+  const reveal = useMotionValue(rippling ? 0 : 1);
+  /** Fixed when an animation starts, so a mid-flight re-render cannot move the
+   *  centre of the wave out from under it. */
+  const originRef = useRef<LifePoint>(focus());
+
+  const paint = useCallback(() => {
+    const canvas = canvasRef.current;
+    const field = fieldRef.current;
+    if (!canvas || !field) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, box.width, box.height);
+    ctx.globalCompositeOperation = "source-over";
+    ctx.drawImage(field, 0, 0, box.width, box.height);
+
+    const progress = reveal.get();
+    if (progress >= 1) return;
+
+    // The mask. `destination-in` keeps what the gradient covers, so the dots
+    // fade up through the wavefront's own shoulder instead of switching on.
+    const from = originRef.current;
+    const edge = progress * reach(box, from) * (1 + FEATHER);
+    const feather = reach(box, from) * FEATHER;
+    const wave = ctx.createRadialGradient(
+      from.x,
+      from.y,
+      Math.max(0, edge - feather),
+      from.x,
+      from.y,
+      Math.max(0.01, edge),
+    );
+    wave.addColorStop(0, "rgba(0,0,0,1)");
+    wave.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.globalCompositeOperation = "destination-in";
+    ctx.fillStyle = wave;
+    ctx.fillRect(0, 0, box.width, box.height);
+
+    // The crest, drawn back on top: one thin accent circumference, brightest
+    // when the wave leaves the dot and gone by the time it clears the box.
+    ctx.globalCompositeOperation = "source-over";
+    ctx.strokeStyle = TODAY_COLOR;
+    ctx.globalAlpha = 0.3 * (1 - progress) ** 0.55;
+    ctx.lineWidth = 1.25;
+    ctx.beginPath();
+    ctx.arc(from.x, from.y, Math.max(0.01, edge - feather * 0.5), 0, TAU);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }, [box, reveal]);
+
+  /* The canvases are external systems: they are written to, not rendered. */
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    drawLife(canvas, box, layout, span, density, today);
-  }, [box, layout, span, density, today]);
 
-  /** A day's dot in box coordinates, or `null` for a day outside the life. */
-  const dotOf = (date: Date): Point | null => {
-    if (date < span.birth || date > span.death) return null;
-    const { row, col } = lifeCell(layout, date);
-    return { x: lifeDotX(layout, col), y: lifeDotY(layout, row) };
-  };
+    // Backing stores in device pixels, drawing in CSS pixels: a two-pixel dot
+    // is four on a retina screen, and drawn at half the coordinates it would be
+    // a grey smear instead.
+    const dpr = window.devicePixelRatio || 1;
+    // Built and filled before it is handed to the ref, never after: a value
+    // living in a ref is not ours to mutate.
+    const field = document.createElement("canvas");
+    field.width = Math.round(box.width * dpr);
+    field.height = Math.round(box.height * dpr);
+    const ctx = field.getContext("2d");
+    if (!ctx) return;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    drawField(ctx, box, layout, span, density, today);
+
+    fieldRef.current = field;
+    canvas.width = field.width;
+    canvas.height = field.height;
+    paint();
+  }, [box, layout, span, density, today, paint]);
+
+  useMotionValueEvent(reveal, "change", paint);
+
+  /* Arriving: the wave leaves the dot the dial is collapsing onto. */
+  useEffect(() => {
+    if (!rippling) return;
+    originRef.current = focus();
+    const controls = animate(reveal, 1, RIPPLE_OUT);
+    return () => controls.stop();
+    // Mount only: a re-render must not restart the wave mid-flight.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   /**
-   * Where the zoom lands: today's dot, or the middle of the field when today
-   * is not in the span at all — a birth date in the future, an expectancy
-   * already run out. Both are somebody's honest input, and a ring that
-   * shrinks into a corner for no visible reason is not the answer to either.
+   * Leaving. `usePresence` holds the unmount open until the wave has collapsed
+   * — and `flow` is read through a ref because the props of an element that is
+   * being removed are frozen at the last render, so they cannot say which view
+   * is arriving.
    */
-  const centre: Point = { x: box.width / 2, y: box.height / 2 };
-  const todayDot = dotOf(today);
-  const target = todayDot ?? centre;
-  /** The dial's rim at this box size — where the ring comes from. */
-  const dialRadius = (Math.min(box.width, box.height) / VIEW_SIZE) * DIAL.TRACK;
+  const [isPresent, safeToRemove] = usePresence();
+  useEffect(() => {
+    if (isPresent) return;
+    if (reducedMotion || flow.current.to !== "day") {
+      safeToRemove?.();
+      return;
+    }
+    originRef.current = focus();
+    const controls = animate(reveal, 0, { ...RIPPLE_IN, onComplete: () => safeToRemove?.() });
+    return () => controls.stop();
+  }, [isPresent, safeToRemove, reducedMotion, flow, focus, reveal]);
 
+  /** A day's dot, or `null` for a day outside the life. */
+  const dotOf = (date: Date) => lifeDot(layout, span, date);
+
+  const todayDot = dotOf(today);
   const hoverDot = hover ? dotOf(hover.date) : null;
   const selectedDot = isSameDay(selected, today) ? null : dotOf(selected);
   const deathDot = dotOf(span.death);
   /** One rule per decade of age, on the line that decade's year starts. */
   const rules = Math.floor((layout.years - 1) / DECADE) + 1;
 
-  function locate(e: ReactPointerEvent<HTMLCanvasElement>): { date: Date; at: Point } | null {
+  function locate(e: ReactPointerEvent<HTMLCanvasElement>): { date: Date; at: LifePoint } | null {
     const rect = e.currentTarget.getBoundingClientRect();
     const at = { x: e.clientX - rect.left, y: e.clientY - rect.top };
     const date = lifeCellAt(layout, span, at.x, at.y);
@@ -366,51 +493,11 @@ function LifeGrid({
 
   return (
     <>
-      {/* The decade rules and their labels: ten of each at most, so they are
-          DOM and carry the app's own type rather than a canvas approximation of
-          it. The age is on the left, the calendar year it falls in on the
-          right — the grid is a life first and a calendar second. */}
-      {Array.from({ length: rules }, (_, i) => {
-        const age = i * DECADE;
-        const row = age * layout.linesPerYear;
-        return (
-          <div key={age} aria-hidden className="pointer-events-none absolute inset-0">
-            {age > 0 && (
-              <span
-                className="absolute border-t border-hairline"
-                style={{
-                  top: lifeRowTop(layout, row),
-                  left: layout.offsetX,
-                  width: layout.width,
-                }}
-              />
-            )}
-            <span
-              className="label absolute -translate-y-1/2 text-right text-[9px] text-ink-4"
-              style={{ top: lifeDotY(layout, row), left: 0, width: LIFE_GUTTER.left - 6 }}
-            >
-              {age}
-            </span>
-            <span
-              className="label absolute -translate-y-1/2 text-[9px] text-ink-4"
-              style={{ top: lifeDotY(layout, row), left: layout.offsetX + layout.width + 6 }}
-            >
-              {layout.birthYear + age}
-            </span>
-          </div>
-        );
-      })}
-
-      <motion.canvas
+      <canvas
         ref={canvasRef}
         role="img"
         aria-label={`Your life in days, one dot per day, ${formatCount(span.days)} of them`}
         className="absolute inset-0 h-full w-full touch-none"
-        style={{ transformOrigin: `${target.x}px ${target.y}px` }}
-        initial={reducedMotion ? false : { opacity: 0, scale: 1.7 }}
-        animate={{ opacity: 1, scale: 1 }}
-        exit={reducedMotion ? undefined : { opacity: 0, scale: 1.7 }}
-        transition={{ duration: 0.55, ease: EASE }}
         onPointerMove={(e) => {
           const hit = locate(e);
           // Bail on the same day: a pointer crossing one dot fires a dozen
@@ -427,90 +514,103 @@ function LifeGrid({
         }}
       />
 
-      <svg
-        aria-hidden
-        className="pointer-events-none absolute inset-0 h-full w-full"
-        viewBox={`0 0 ${Math.max(1, box.width)} ${Math.max(1, box.height)}`}
+      {/* The chrome — rules, gutters, marks — comes in behind the wave rather
+          than with it: at full opacity from the first frame it would draw a
+          decade rule across a field that is not there yet. */}
+      <motion.div
+        className="pointer-events-none absolute inset-0"
+        initial={rippling ? { opacity: 0 } : false}
+        animate={{ opacity: 1 }}
+        exit={reducedMotion ? undefined : { opacity: 0 }}
+        transition={{ duration: 0.4, delay: rippling ? 0.55 : 0, ease: EASE }}
       >
-        {/* The estimate, marked rather than drawn: one dim red circumference on
-            the last day the grid has. */}
-        {deathDot && (
-          <circle
-            cx={deathDot.x}
-            cy={deathDot.y}
-            r={Math.max(layout.radius * 2.2, 2.6)}
-            fill="none"
-            stroke="var(--danger)"
-            strokeWidth={1}
-            opacity={0.5}
-          />
-        )}
-        {selectedDot && (
-          <circle
-            cx={selectedDot.x}
-            cy={selectedDot.y}
-            r={Math.max(layout.radius * 2.4, 3)}
-            fill="none"
-            stroke="var(--ink)"
-            strokeWidth={1}
-          />
-        )}
-        {todayDot && (
-          <circle
-            cx={todayDot.x}
-            cy={todayDot.y}
-            r={Math.max(layout.radius * 3.4, 4.5)}
-            fill="none"
-            stroke="var(--accent)"
-            strokeWidth={1}
-            opacity={0.45}
-          />
-        )}
-        {hoverDot && (
-          <circle
-            cx={hoverDot.x}
-            cy={hoverDot.y}
-            r={Math.max(layout.radius * 2.8, 3.6)}
-            fill="none"
-            stroke="var(--ink)"
-            strokeWidth={1}
-            opacity={0.7}
-          />
-        )}
+        {/* The decade rules and their labels: ten of each at most, so they are
+            DOM and carry the app's own type rather than a canvas approximation
+            of it. The age is on the left, the calendar year it falls in on the
+            right — the grid is a life first and a calendar second. */}
+        {Array.from({ length: rules }, (_, i) => {
+          const age = i * DECADE;
+          const row = age * layout.linesPerYear;
+          return (
+            <div key={age} aria-hidden className="absolute inset-0">
+              {age > 0 && (
+                <span
+                  className="absolute border-t border-hairline"
+                  style={{
+                    top: lifeRowTop(layout, row),
+                    left: layout.offsetX,
+                    width: layout.width,
+                  }}
+                />
+              )}
+              <span
+                className="label absolute -translate-y-1/2 text-right text-[9px] text-ink-4"
+                style={{ top: lifeDotY(layout, row), left: 0, width: LIFE_GUTTER.left - 6 }}
+              >
+                {age}
+              </span>
+              <span
+                className="label absolute -translate-y-1/2 text-[9px] text-ink-4"
+                style={{ top: lifeDotY(layout, row), left: layout.offsetX + layout.width + 6 }}
+              >
+                {layout.birthYear + age}
+              </span>
+            </div>
+          );
+        })}
 
-        {/* The zoom: the dial's rim, arriving on one day — and on the way out,
-            leaving from it.
-
-            Its own curve, and a longer one than the crossfade: on the panel's
-            ease-out the ring covered four fifths of its travel in the first
-            150ms, while the dial it started from was still bright, so the one
-            element carrying the sense of pulling back was the one nobody could
-            see move. `easeInOut` keeps it moving through the middle of the
-            transition, which is where the eye is. */}
-        {!reducedMotion && (
-          <motion.circle
-            fill="none"
-            stroke="var(--accent)"
-            strokeWidth={1.25}
-            initial={{ cx: centre.x, cy: centre.y, r: dialRadius, opacity: 0.75 }}
-            animate={{
-              cx: target.x,
-              cy: target.y,
-              r: Math.max(layout.radius, 1.5),
-              opacity: [0.75, 0.7, 0],
-            }}
-            exit={{
-              cx: centre.x,
-              cy: centre.y,
-              r: dialRadius,
-              // Held visible across the exit and dropped at the very end: it
-              // hands the eye to the dial's own track, which is exactly there.
-              opacity: [0.6, 0.6, 0],
-            }}
-            transition={{ duration: 0.62, ease: "easeInOut" }}
-          />
-        )}
-      </svg>
+        <svg
+          aria-hidden
+          className="absolute inset-0 h-full w-full"
+          viewBox={`0 0 ${Math.max(1, box.width)} ${Math.max(1, box.height)}`}
+        >
+          {/* The estimate, marked rather than drawn: one dim red circumference
+              on the last day the grid has. */}
+          {deathDot && (
+            <circle
+              cx={deathDot.x}
+              cy={deathDot.y}
+              r={Math.max(layout.radius * 2.2, 2.6)}
+              fill="none"
+              stroke="var(--danger)"
+              strokeWidth={1}
+              opacity={0.5}
+            />
+          )}
+          {selectedDot && (
+            <circle
+              cx={selectedDot.x}
+              cy={selectedDot.y}
+              r={Math.max(layout.radius * 2.4, 3)}
+              fill="none"
+              stroke="var(--ink)"
+              strokeWidth={1}
+            />
+          )}
+          {todayDot && (
+            <circle
+              cx={todayDot.x}
+              cy={todayDot.y}
+              r={Math.max(layout.radius * 3.4, 4.5)}
+              fill="none"
+              stroke="var(--accent)"
+              strokeWidth={1}
+              opacity={0.45}
+            />
+          )}
+          {hoverDot && (
+            <circle
+              cx={hoverDot.x}
+              cy={hoverDot.y}
+              r={Math.max(layout.radius * 2.8, 3.6)}
+              fill="none"
+              stroke="var(--ink)"
+              strokeWidth={1}
+              opacity={0.7}
+            />
+          )}
+        </svg>
+      </motion.div>
 
       {hover && (
         <DayTip hover={hover} today={today} events={events} calendars={calendars} box={box} />
@@ -589,9 +689,9 @@ function DayTip({
  * *is* the view until then. The answer goes straight to the store, like every
  * other setting, and is editable afterwards in the settings card.
  */
-function BirthPrompt({ now, expectancy }: { now: Date; expectancy: number }) {
+function BirthPrompt({ now, birth, expectancy }: { now: Date; birth: string; expectancy: number }) {
   const reducedMotion = useReducedMotion();
-  const [date, setDate] = useState("");
+  const [date, setDate] = useState(birth);
   const [years, setYears] = useState(expectancy);
 
   const parsed = /^\d{4}-\d{2}-\d{2}$/.test(date) ? fromDayKey(date) : null;

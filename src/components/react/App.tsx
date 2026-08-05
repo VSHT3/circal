@@ -8,7 +8,7 @@
  * state is persisted, and deliberately so: it belongs to the tab, not to you.
  * ------------------------------------------------------------------ */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import type { Clock } from "@/lib/time";
 import { dayAgenda, type CalEvent, type Occurrence } from "@/lib/events";
@@ -29,8 +29,9 @@ import {
   snap,
   startOfDay,
 } from "@/lib/time";
-import { useHotkeys, useNow } from "./hooks";
-import type { EditorTarget, ShellActions, ViewMode } from "./types";
+import { LIFE_META_H, lifeDot, lifeStage } from "@/lib/life";
+import { useElementSize, useHotkeys, useNow } from "./hooks";
+import type { EditorTarget, ShellActions, ViewFlow, ViewMode } from "./types";
 import CommandPalette from "./CommandPalette";
 import Dial from "./Dial";
 import EventEditor from "./EventEditor";
@@ -41,8 +42,99 @@ import Toast from "./Toast";
 import TopBar from "./TopBar";
 import YearView from "./YearView";
 
+/* ------------------------------- transitions ------------------------------- */
+
 /** The app's one curve, for the crossfade between views. */
 const PANEL_EASE = [0.32, 0.72, 0, 1] as const;
+
+/**
+ * The padding of a view panel, as a number. It is `p-2` in the class list and
+ * 8 here because the zoom needs a *point*: the life grid's geometry is resolved
+ * against the panel's content box, and the transform origin is measured from
+ * the panel's border box.
+ */
+const PANEL_PAD = 8;
+
+/**
+ * Day ⇄ life is the one pair that zooms, because it is the one pair where the
+ * same thing is drawn at two scales: the dial *is* the dot it lands on. Every
+ * other pair crossfades — a year grid is not a magnified anything.
+ */
+function zoomsOut(flow: ViewFlow): boolean {
+  return flow.from === "day" && flow.to === "life";
+}
+
+function zoomsIn(flow: ViewFlow): boolean {
+  return flow.from === "life" && flow.to === "day";
+}
+
+/**
+ * The dial's scale, from full to the size of one dot, in five geometric steps.
+ *
+ * Interpolating scale linearly is what makes most "zoom" animations feel
+ * wrong: apparent size is linear in scale, so the thing hangs at full size and
+ * then vanishes in the last few frames. Equal *ratios* between keyframes give
+ * a constant rate of zoom — every step is a third of what came before — and
+ * the uneven `times` spend the last stretch of the duration on the smallest
+ * step, which is the settle.
+ */
+const ZOOM_STEPS = [1, 0.3, 0.09, 0.027, 0.008] as const;
+const ZOOM_OUT_TIMES = [0, 0.34, 0.58, 0.79, 1] as const;
+const ZOOM_IN_TIMES = [0, 0.21, 0.42, 0.66, 1] as const;
+/** Long, and deliberately so: it is a change of scale of two orders of
+ *  magnitude, and at half a second that reads as a glitch rather than as a
+ *  move. Both halves are timed against the life view's wave. */
+const ZOOM_OUT = { duration: 0.85, ease: "linear" as const, times: [...ZOOM_OUT_TIMES] };
+const ZOOM_IN = { duration: 0.8, delay: 0.3, ease: "linear" as const, times: [...ZOOM_IN_TIMES] };
+
+/**
+ * What a panel does when it arrives and when it leaves. Both are dynamic
+ * variants, so they are resolved against `flow.current` at the moment the
+ * animation starts rather than at the render that scheduled it — for `exit`
+ * that is the whole point, since by then the panel's own props are frozen.
+ */
+const PANEL = {
+  initial: (flow: RefObject<ViewFlow>) =>
+    zoomsIn(flow.current)
+      ? { opacity: 0, scale: ZOOM_STEPS[ZOOM_STEPS.length - 1] }
+      : { opacity: 0, scale: 1 },
+  active: (flow: RefObject<ViewFlow>) =>
+    zoomsIn(flow.current)
+      ? {
+          // The dial grows out of the dot it left from, fading up early so it
+          // is a dial arriving rather than a dot inflating.
+          opacity: [0, 1, 1, 1, 1],
+          scale: [...ZOOM_STEPS].reverse(),
+          transition: ZOOM_IN,
+        }
+      : {
+          opacity: 1,
+          scale: 1,
+          // Arriving over a dial that is collapsing: wait for it, or the two
+          // fades cross in the middle and both look like ghosts.
+          transition: {
+            duration: 0.4,
+            delay: zoomsOut(flow.current) ? 0.18 : 0,
+            ease: PANEL_EASE,
+          },
+        },
+  exit: (flow: RefObject<ViewFlow>) =>
+    zoomsOut(flow.current)
+      ? {
+          // Held opaque until it is genuinely small: a dial that fades while
+          // it is still large looks like it is being switched off, not moved.
+          opacity: [1, 1, 0.9, 0.5, 0],
+          scale: [...ZOOM_STEPS],
+          pointerEvents: "none" as const,
+          transition: ZOOM_OUT,
+        }
+      : {
+          opacity: 0,
+          scale: 0.97,
+          pointerEvents: "none" as const,
+          transition: { duration: 0.3, ease: PANEL_EASE },
+        },
+} as const;
 
 /* ---------------------------------- url ----------------------------------- */
 
@@ -121,6 +213,35 @@ export default function App() {
   );
 
   /**
+   * The stage: the box a view panel gets, and the life grid resolved against
+   * it. Both live here rather than in `LifeView` because the zoom needs a day's
+   * dot in screen coordinates *while the grid is not mounted yet* — the dial
+   * has to know where it is going before the thing it is going to exists.
+   */
+  const [stageRef, stageWidth, stageHeight] = useElementSize<HTMLElement>();
+  const stage = useMemo(
+    () =>
+      lifeStage(
+        settings.birth,
+        settings.lifeExpectancy,
+        stageWidth - 2 * PANEL_PAD,
+        stageHeight - 2 * PANEL_PAD,
+      ),
+    [settings.birth, settings.lifeExpectancy, stageWidth, stageHeight],
+  );
+
+  /**
+   * Where the zoom meets the grid: the selected day's dot, in the panel's own
+   * coordinates. That is the day you were looking at on the dial on the way
+   * out, and the day you just clicked on the way back — so the dial always
+   * lands on, and leaves from, the day it is actually showing.
+   */
+  const originPoint = stage ? lifeDot(stage.layout, stage.span, day) : null;
+  const origin = originPoint
+    ? `${PANEL_PAD + originPoint.x}px ${PANEL_PAD + LIFE_META_H + originPoint.y}px`
+    : "center";
+
+  /**
    * The location as of *now*, not as of the render this callback was made in.
    *
    * `goDay` and `openEvent` fire back to back from the palette, and with the
@@ -132,10 +253,19 @@ export default function App() {
    */
   const current = useRef(location);
 
+  /**
+   * The view change in progress. A ref, because the two halves of the zoom are
+   * driven by elements that are *leaving* — the panel's `exit` variant and the
+   * life view's `usePresence` — and a leaving element's props are frozen at its
+   * last render, which is one render too early to know what is arriving.
+   */
+  const flow = useRef<ViewFlow>({ from: view, to: view, day });
+
   const go = useCallback((next: Partial<ViewLocation>, mode: "push" | "replace" = "push") => {
     // Derived and written outside the state updater: an updater has to be
     // pure, and StrictMode runs it twice.
     const merged = { ...current.current, ...next };
+    flow.current = { from: current.current.view, to: merged.view, day: merged.day };
     current.current = merged;
     writeLocation(merged, mode);
     setLocation(merged);
@@ -145,6 +275,7 @@ export default function App() {
   useEffect(() => {
     const onPopState = () => {
       const restored = readLocation();
+      flow.current = { from: current.current.view, to: restored.view, day: restored.day };
       current.current = restored;
       setLocation(restored);
     };
@@ -318,23 +449,30 @@ export default function App() {
           actions={actions}
         />
 
-        {/* One view at a time, but never abruptly: the outgoing one stays
-            mounted long enough to shrink out of the way, which is what makes
-            day → life read as pulling back from the dial rather than as a cut.
-            `initial={false}` so a reload lands on its view without one.
+        {/* One view at a time, and never abruptly. Day ⇄ life is a zoom: the
+            dial collapses onto the dot of the day it is showing while the life
+            grid's wave leaves that same dot, and back the other way. Everything
+            else is a crossfade. `initial={false}` so a reload lands on its view
+            without either.
 
-            The exiting panel gives up its pointer events immediately — for 400
-            milliseconds it is still on top of the incoming one, and a click
+            `transformOrigin` is a style rather than a variant because it must
+            be right on the *frozen* render of a panel that is leaving — and it
+            is, since it depends only on the selected day and the box.
+
+            The exiting panel gives up its pointer events at once: for the best
+            part of a second it is still on top of the incoming one, and a click
             landing on the view you just left is a bug you cannot see. */}
-        <main className="relative min-w-0 flex-1">
+        <main ref={stageRef} className="relative min-w-0 flex-1">
           <AnimatePresence initial={false}>
             <motion.div
               key={view}
               className="absolute inset-0 p-2"
-              initial={reducedMotion ? false : { opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={reducedMotion ? undefined : { opacity: 0, scale: 0.94, pointerEvents: "none" }}
-              transition={{ duration: 0.34, ease: PANEL_EASE }}
+              style={{ transformOrigin: origin }}
+              custom={flow}
+              variants={reducedMotion ? undefined : PANEL}
+              initial="initial"
+              animate="active"
+              exit="exit"
             >
               {view === "day" && (
                 <Dial
@@ -371,6 +509,8 @@ export default function App() {
               )}
               {view === "life" && (
                 <LifeView
+                  stage={stage}
+                  flow={flow}
                   birth={settings.birth}
                   expectancy={settings.lifeExpectancy}
                   now={now}
