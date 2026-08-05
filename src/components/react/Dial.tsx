@@ -19,7 +19,7 @@ import {
   polar,
 } from "@/lib/dial";
 import { colorOf, statusOf, type Calendar, type Occurrence } from "@/lib/events";
-import { chime, detent, type Detent } from "@/lib/feedback";
+import { cue, type Cue } from "@/lib/feedback";
 import { sunTimes, type Place } from "@/lib/sun";
 import {
   MINUTES_PER_DAY,
@@ -260,8 +260,8 @@ export default function Dial({
   /** Every fifteen-minute step a drag lands on, including the one it starts
    *  on — the grab is a detent too, and it is the user gesture that lets the
    *  audio context start at all. */
-  function step(kind: Detent) {
-    detent(kind, { sound: tickSound, haptics: tickHaptics });
+  function say(kind: Cue) {
+    cue(kind, { sound: tickSound, haptics: tickHaptics });
   }
 
   function onRingDown(e: ReactPointerEvent<SVGCircleElement>) {
@@ -270,7 +270,7 @@ export default function Dial({
     if (m === null) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     setDrag({ from: m, to: m });
-    step("step");
+    say("step");
   }
 
   function onRingMove(e: ReactPointerEvent<SVGCircleElement>) {
@@ -281,7 +281,7 @@ export default function Dial({
     // the re-render the drag would otherwise do per event.
     if (to === null || to === drag.to) return;
     setDrag({ ...drag, to });
-    step("step");
+    say("step");
   }
 
   function onRingUp() {
@@ -289,8 +289,8 @@ export default function Dial({
     const { start, end } = resolveDrag(drag.from, drag.to);
     setDrag(null);
     // The release: the range stops being something you are drawing and starts
-    // being a draft in a modal, and the two-note pop is that handover.
-    chime("opened", { sound: tickSound, haptics: tickHaptics });
+    // being a draft in a modal, and the knock-and-tick is that handover.
+    say("opened");
     if (end - start < STEP) {
       const from = Math.min(drag.from, MINUTES_PER_DAY - CLICK_DURATION);
       onCreate(from, from + CLICK_DURATION);
@@ -311,7 +311,7 @@ export default function Dial({
     e.currentTarget.setPointerCapture(e.pointerId);
     setAdjust({ occ, grip, at, delta: 0 });
     // Nothing is going to move on somebody else's event, so nothing clicks.
-    if (grip !== "none") step(grip === "whole" ? "slide" : "step");
+    if (grip !== "none") say(grip === "whole" ? "slide" : "step");
   }
 
   function onArcMove(e: ReactPointerEvent<SVGPathElement>) {
@@ -325,7 +325,7 @@ export default function Dial({
     const delta = clampDelta(adjust, adjust.delta + wrapDelta(adjust.at, at));
     const moved = delta !== adjust.delta;
     setAdjust({ ...adjust, at, delta });
-    if (moved) step(adjust.grip === "whole" ? "slide" : "step");
+    if (moved) say(adjust.grip === "whole" ? "slide" : "step");
   }
 
   function onArcUp() {

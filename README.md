@@ -101,9 +101,12 @@ a mirror. Click an arc, an agenda row or a day in the year grid to open it.
 Every drag moves in fifteen-minute steps and each step **clicks**: a
 three-millisecond synthesised detent, plus a tap on hardware with a vibrator.
 Moving a whole event sounds lower and rounder than moving one of its ends, so
-you can hear which one you grabbed. Letting go of a new range pops — the editor
-arriving — and saving a new event answers with two notes going up, the one
-unambiguously finished sound in the app. Both channels switch off under
+you can hear which one you grabbed. Three longer cues come out of the same
+mechanism, struck two or three times instead of once — letting go of a new range
+knocks and ticks as the editor arrives, saving a new event answers with the
+pitches rising, and deleting one falls away hollow, with two taps rather than
+one. No tones anywhere: a clean sine among these clicks sounds like a
+notification from another application. Both channels switch off under
 **Feedback** in Settings, and the vibration switch only appears on a device that
 has a motor to offer.
 

@@ -13,7 +13,7 @@ import type { Clock } from "@/lib/time";
 import { dayAgenda, type CalEvent, type Occurrence } from "@/lib/events";
 import { draftEvent, store, useStore } from "@/lib/store";
 import { exportBackup, exportIcs, importFile } from "@/lib/backup";
-import { chime } from "@/lib/feedback";
+import { cue } from "@/lib/feedback";
 import { placeForZone } from "@/lib/places";
 import { refreshFeed, refreshStaleFeeds } from "@/lib/feeds";
 import { notify } from "@/lib/notify";
@@ -243,6 +243,12 @@ export default function App() {
     },
   });
 
+  /** The sound channels, as every cue in the shell wants them. */
+  const channels = useMemo(
+    () => ({ sound: settings.tickSound, haptics: settings.tickHaptics }),
+    [settings.tickSound, settings.tickHaptics],
+  );
+
   const commit = useCallback(
     (draft: Omit<CalEvent, "id">) => {
       if (editor?.id) {
@@ -250,12 +256,12 @@ export default function App() {
       } else {
         store.create(draft);
         // Only for a new event. Saving an edit changes something that already
-        // existed; this note is for the one moment something starts to.
-        chime("created", { sound: settings.tickSound, haptics: settings.tickHaptics });
+        // existed; this cue is for the one moment something starts to.
+        cue("created", channels);
       }
       setEditor(null);
     },
-    [editor, settings.tickSound, settings.tickHaptics],
+    [editor, channels],
   );
 
   const openOccurrence = useCallback((occ: Occurrence) => actions.openEvent(occ.event), [actions]);
@@ -343,7 +349,12 @@ export default function App() {
           calendars={calendars}
           onSave={commit}
           onDelete={() => {
-            if (editor.id) store.remove(editor.id);
+            if (editor.id) {
+              store.remove(editor.id);
+              // Falling, hollow, and two taps: the one cue that reports
+              // something being taken away rather than put somewhere.
+              cue("deleted", channels);
+            }
             setEditor(null);
           }}
           onClose={() => setEditor(null)}

@@ -233,8 +233,8 @@ export default function Settings({
                 </div>
                 <span className="label text-ink-3">
                   Clicks every fifteen-minute step you drag on the dial — lower for an event moving
-                  whole, sharper for either of its ends — and marks the editor opening and a new
-                  event landing
+                  whole, sharper for either of its ends — and marks the editor opening, a new event
+                  landing, and one being deleted
                 </span>
               </FieldRow>
 
