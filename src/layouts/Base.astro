@@ -7,6 +7,12 @@ interface Props {
 }
 
 const { title, description } = Astro.props;
+
+/**
+ * A string rather than inline script content: inside an Astro expression the
+ * tag's body is parsed as JSX, where a bare `{}` is a broken expression.
+ */
+const registerServiceWorker = `window.addEventListener("load",()=>{navigator.serviceWorker.register("/sw.js").catch(()=>{})})`;
 ---
 
 <!doctype html>
@@ -19,10 +25,20 @@ const { title, description } = Astro.props;
     <title>{title}</title>
     <meta name="description" content={description} />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="circal" />
     <link rel="canonical" href={new URL(Astro.url.pathname, Astro.site)} />
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
     <meta property="og:type" content="website" />
+    {
+      /* Only in production: a worker caching `astro dev`'s output would serve
+         a stale bundle over the one that just hot-reloaded. */
+    }
+    {import.meta.env.PROD && <script is:inline set:html={registerServiceWorker} />}
   </head>
   <body>
     <slot />
