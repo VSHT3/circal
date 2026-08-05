@@ -50,6 +50,25 @@ Two optional annotations, both configured in **Settings** (`⌘,`):
 With the lightcycle off — no city, or both halves switched off — the dial is
 exactly as it was: the elapsed day as a ramp of light around the rim.
 
+## Your life, in days
+
+`⌘L` pulls all the way back. One dot is one day and the whole life is one
+viewport: days grouped into weeks, weeks into years, years into the decades
+marked down the side. Days you have spent are dim, today is the one lit dot,
+the ones you have not are plain grey. A day carrying something wears its
+calendar's colour, so a birthday runs down the grid as a coloured thread.
+
+It asks for one date the first time you open it — a birth date, kept in this
+browser like everything else — and a number of years to expect, which is a
+guess and is drawn as one: the grid simply stops, with the estimated last day
+ringed in red. Both live in **Settings** afterwards.
+
+The strip above the field counts: days lived, days left, and how much of the
+whole is spent to six decimals, which is enough to watch it move. Hover a dot
+for its date, how far off it is and what is on it; click one to open that day
+on the dial. Arriving from the day view, the dial's own rim shrinks onto
+today's dot — the same circle, two hundred times further away.
+
 ## Your data
 
 Events live in this browser's `localStorage` under `circal.v1`. Nothing is
@@ -79,9 +98,9 @@ taking your calendar with it.
 | `⌘N`                | New event                                                     |
 | `⌘,`                | Settings                                                      |
 | `⌘Z` / `⇧⌘Z`        | Undo / redo                                                   |
-| `⌘D` / `⌘Y`         | Day view / year view                                          |
+| `⌘D` / `⌘Y` / `⌘L`  | Day view / year view / life view                              |
 | `⌘B`                | Sidebar                                                       |
-| `←` `→`             | Previous / next day (year in year view)                       |
+| `←` `→`             | Previous / next day (year in the year and life views)         |
 | `T`                 | Today                                                         |
 | `⌘↵` / `⌘⌫` / `esc` | Save / delete / cancel in the editor                          |
 
@@ -110,8 +129,8 @@ notification from another application. Both channels switch off under
 **Feedback** in Settings, and the vibration switch only appears on a device that
 has a motor to offer.
 
-The selected day is in the URL (`?d=2026-08-05`), so a day is linkable and the
-back button works.
+The selected day and the view are in the URL (`?d=2026-08-05`, `&v=life`), so a
+day is linkable and the back button works.
 
 ## Stack
 
@@ -125,6 +144,7 @@ CORS headers.
 src/
   lib/
     dial.ts      polar geometry — the 1000-unit viewBox, radii, arc paths
+    life.ts      the life grid — its span, its layout, its arithmetic
     time.ts      day arithmetic, the app's formatting voice, zone conversion
     events.ts    event model, recurrence expansion, lane packing, free gaps
     sun.ts       solar position — sunrise, sunset, civil twilight
@@ -138,6 +158,7 @@ src/
     App.tsx          shell: which day, which view, which overlay, the URL
     Dial.tsx         the instrument
     CenterPanel.tsx  readout + agenda, pinned to the dial's centre
+    LifeView.tsx     the life grid, on a canvas
     TopBar.tsx  Sidebar.tsx  EventEditor.tsx  YearView.tsx
     CommandPalette.tsx  Settings.tsx  Toast.tsx
 worker/index.ts  assets + the /api/feed proxy
