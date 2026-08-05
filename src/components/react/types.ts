@@ -1,6 +1,6 @@
 /* Shared prop contracts between the shell (`App.tsx`) and its panels. */
 
-import type { Clock } from "@/lib/dial";
+import type { Clock } from "@/lib/time";
 import type { CalEvent, Calendar, Occurrence } from "@/lib/events";
 
 export type ViewMode = "day" | "year";
@@ -47,6 +47,7 @@ export interface SidebarProps {
 
 export interface EventEditorProps {
   target: EditorTarget;
+  clock: Clock;
   calendars: Calendar[];
   onSave: (draft: Omit<CalEvent, "id">) => void;
   /** Only rendered when `target.id` is set. */

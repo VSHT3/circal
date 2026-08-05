@@ -9,9 +9,8 @@
  * ------------------------------------------------------------------ */
 
 import { useSyncExternalStore } from "react";
-import { startOfDay } from "./time";
-import type { Clock } from "./dial";
-import type { CalEvent, Calendar, Repeat } from "./events";
+import { startOfDay, type Clock } from "./time";
+import { PALETTE, type CalEvent, type Calendar, type Repeat } from "./events";
 
 const KEY = "circal.v1";
 
@@ -37,22 +36,10 @@ export interface Snapshot {
 
 const DEFAULT_SETTINGS: Settings = { clock: "12h" };
 
-/** The eight calendar colours. Muted enough that two can share the dial. */
-export const PALETTE = [
-  "#a3d9e4", // cyan
-  "#b7c9f2", // periwinkle
-  "#c6b6ec", // lilac
-  "#eeb0c6", // blush
-  "#f0b98d", // amber
-  "#e6dd9a", // straw
-  "#a8dcb8", // mint
-  "#9fb0bd", // slate
-] as const;
-
 const DEFAULT_CALENDARS: Calendar[] = [
   { id: "personal", name: "Personal", color: PALETTE[0], visible: true },
-  { id: "work", name: "Work", color: PALETTE[2], visible: true },
-  { id: "family", name: "Family", color: PALETTE[3], visible: true },
+  { id: "work", name: "Work", color: PALETTE[3], visible: true },
+  { id: "family", name: "Family", color: PALETTE[5], visible: true },
 ];
 
 export function newId(): string {
@@ -86,6 +73,7 @@ function seed(): CalEvent[] {
     url: "",
     notes: "",
     repeat: "never",
+    color: "",
     ...extra,
   });
 
@@ -235,5 +223,6 @@ export function draftEvent(
     url: "",
     notes: "",
     repeat,
+    color: "",
   };
 }

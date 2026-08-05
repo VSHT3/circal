@@ -201,7 +201,7 @@ export default function CommandPalette({
           <span className="label text-ink-3">
             {event.allDay
               ? "ALL DAY"
-              : `${formatRelativeDay(new Date(event.start))} ${formatTimeShort(new Date(event.start))}`}
+              : `${formatRelativeDay(new Date(event.start))} ${formatTimeShort(new Date(event.start), clock)}`}
           </span>
         ),
         run: () => {
@@ -210,7 +210,7 @@ export default function CommandPalette({
           onClose();
         },
       }));
-  }, [events, q, day, calendars, actions, onClose]);
+  }, [events, q, day, calendars, clock, actions, onClose]);
 
   const commandRows: Row[] = useMemo(() => {
     const base: Row[] = [

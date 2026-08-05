@@ -39,6 +39,12 @@ export interface CalEvent {
   url: string;
   notes: string;
   repeat: Repeat;
+  /**
+   * Overrides the calendar's colour for this event alone. Empty means "follow
+   * the calendar", which is the default and what most events should stay on —
+   * recolouring the calendar then still moves them.
+   */
+  color: string;
 }
 
 /** One concrete appearance of an event on one day, clipped to that day. */
@@ -163,10 +169,34 @@ export function dayAgenda(events: CalEvent[], calendars: Calendar[], day: Date) 
   return { timed, allDay, all: [...allDay, ...timed] };
 }
 
-/* --------------------------------- helpers -------------------------------- */
+/* --------------------------------- colour --------------------------------- */
 
+/**
+ * The preset colours, for calendars and for per-event overrides. Digital
+ * pastels: high value, moderate saturation, tuned to glow a little against
+ * true black without ever reading as a warning light. Two of these can share
+ * a dial and still be told apart at a 14-unit stroke.
+ */
+export const PALETTE = [
+  "#7ce3d8", // aqua
+  "#8ecbff", // sky
+  "#a5a8ff", // periwinkle
+  "#c79bff", // violet
+  "#ff9edb", // orchid
+  "#ff9fb4", // rose
+  "#ffb185", // tangerine
+  "#ffdf8c", // butter
+  "#c6ef8f", // pear
+  "#8bf0b8", // mint
+] as const;
+
+/** Used only when an event points at a calendar that no longer exists. */
+const ORPHAN_COLOR = PALETTE[0];
+
+/** The event's own colour if it has one, else its calendar's. */
 export function colorOf(event: CalEvent, calendars: Calendar[]): string {
-  return calendars.find((c) => c.id === event.calendarId)?.color ?? "#a3d9e4";
+  if (event.color) return event.color;
+  return calendars.find((c) => c.id === event.calendarId)?.color ?? ORPHAN_COLOR;
 }
 
 /** Where an occurrence sits relative to `now`: before it, inside it, after it. */

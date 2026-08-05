@@ -8,6 +8,13 @@
 
 export const MINUTES_PER_DAY = 1440;
 
+/**
+ * How the app names an hour. Lives here rather than in `dial.ts` because it
+ * governs every printed time — the readout, the agenda, the editor — and the
+ * dial's two faces are just the same choice made visible.
+ */
+export type Clock = "12h" | "24h";
+
 export const WEEKDAYS = [
   "Sunday",
   "Monday",
@@ -91,21 +98,32 @@ export function atMinutes(day: Date, minutes: number): Date {
 
 /* -------------------------------- formatting ------------------------------ */
 
-/** `10:50` + a separate `AM` so the readout can style them differently. */
-export function splitTime(d: Date): { time: string; suffix: "AM" | "PM" } {
-  let h = d.getHours();
-  const suffix = h < 12 ? "AM" : "PM";
-  h = h % 12 || 12;
-  return { time: `${h}:${`${d.getMinutes()}`.padStart(2, "0")}`, suffix };
+/**
+ * The readout's two halves, so it can style them differently. On the
+ * twenty-four hour clock there is no half-day to name, so the suffix is empty
+ * and the hour is zero-padded — `07:15`, `13:15`.
+ */
+export function splitTime(d: Date, clock: Clock = "12h"): { time: string; suffix: string } {
+  const minutes = `${d.getMinutes()}`.padStart(2, "0");
+  if (clock === "24h") {
+    return { time: `${`${d.getHours()}`.padStart(2, "0")}:${minutes}`, suffix: "" };
+  }
+  const h = d.getHours();
+  return { time: `${h % 12 || 12}:${minutes}`, suffix: h < 12 ? "AM" : "PM" };
 }
 
-export function formatTime(d: Date): string {
-  const { time, suffix } = splitTime(d);
-  return `${time} ${suffix}`;
+export function formatTime(d: Date, clock: Clock = "12h"): string {
+  const { time, suffix } = splitTime(d, clock);
+  return suffix ? `${time} ${suffix}` : time;
 }
 
-/** `10:45 AM` → but drops `:00`, so 1 PM reads `1 PM`. Used in dense lists. */
-export function formatTimeShort(d: Date): string {
+/**
+ * The dense-list form. On the twelve-hour clock it drops `:00`, so 1 PM reads
+ * `1 PM`; the twenty-four hour clock keeps `HH:MM` throughout, because a bare
+ * `13` does not read as a time.
+ */
+export function formatTimeShort(d: Date, clock: Clock = "12h"): string {
+  if (clock === "24h") return formatTime(d, clock);
   const h = d.getHours() % 12 || 12;
   const suffix = d.getHours() < 12 ? "AM" : "PM";
   return d.getMinutes() === 0

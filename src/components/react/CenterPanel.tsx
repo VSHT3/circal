@@ -10,11 +10,12 @@
 import { colorOf, statusOf, type Calendar, type Occurrence } from "@/lib/events";
 import {
   MONTHS,
+  atMinutes,
   formatDuration,
   formatTimeShort,
   isSameDay,
   splitTime,
-  atMinutes,
+  type Clock,
 } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
@@ -25,6 +26,7 @@ export interface CenterPanelProps {
   calendars: Calendar[];
   /** Pixels per SVG user unit. */
   u: number;
+  clock: Clock;
   /** Live drag-to-create range, in minutes since midnight. */
   drag: { start: number; end: number } | null;
   hovered: string | null;
@@ -38,6 +40,7 @@ export default function CenterPanel({
   occurrences,
   calendars,
   u,
+  clock,
   drag,
   hovered,
   onHover,
@@ -51,10 +54,12 @@ export default function CenterPanel({
   let value: string;
   let suffix: string;
   if (drag) {
-    value = `${formatTimeShort(atMinutes(day, drag.start))} – ${formatTimeShort(atMinutes(day, drag.end))}`;
+    const from = formatTimeShort(atMinutes(day, drag.start), clock);
+    const to = formatTimeShort(atMinutes(day, drag.end), clock);
+    value = `${from} – ${to}`;
     suffix = formatDuration(drag.end - drag.start);
   } else if (today) {
-    const parts = splitTime(now);
+    const parts = splitTime(now, clock);
     value = parts.time;
     suffix = parts.suffix;
   } else {
@@ -68,32 +73,38 @@ export default function CenterPanel({
 
   return (
     <div className="pointer-events-none absolute inset-0">
+      {/* The readout is the hub: dead centre, with the now-hand passing under
+          it. The shadow is what keeps the digits legible where they cross. */}
       <div
         className="absolute top-1/2 left-1/2 flex items-baseline whitespace-nowrap"
         style={{
-          transform: `translate(-50%, calc(-100% - ${44 * u}px))`,
-          gap: `${6 * u}px`,
+          transform: "translate(-50%, -50%)",
+          gap: `${7 * u}px`,
+          textShadow: `0 0 ${14 * u}px #000, 0 0 ${5 * u}px #000`,
         }}
       >
         <span
           className="font-medium text-ink"
-          style={{ fontSize: `${drag ? 22 * u : 31 * u}px`, letterSpacing: "-0.02em" }}
+          style={{ fontSize: `${drag ? 26 * u : 40 * u}px`, letterSpacing: "-0.02em" }}
         >
           {value}
         </span>
-        <span
-          className="font-medium text-ink-2"
-          style={{ fontSize: `${drag ? 14 * u : 17 * u}px` }}
-        >
-          {suffix}
-        </span>
+        {suffix && (
+          <span
+            className="font-medium text-ink-2"
+            style={{ fontSize: `${drag ? 16 * u : 21 * u}px` }}
+          >
+            {suffix}
+          </span>
+        )}
       </div>
 
       {rows.length > 0 && !drag && (
         <div
           className="fade-y no-scrollbar pointer-events-auto absolute top-1/2 left-1/2 overflow-y-auto"
           style={{
-            transform: "translateX(-50%)",
+            // Clears the readout, which now owns the centre.
+            transform: `translate(-50%, ${46 * u}px)`,
             width: `${212 * u}px`,
             maxHeight: `${52 * u}px`,
             borderRadius: `${11 * u}px`,
@@ -144,7 +155,7 @@ export default function CenterPanel({
                     ? "Now"
                     : occ.event.allDay
                       ? "All day"
-                      : formatTimeShort(occ.start).replace(" ", "\u2009")}
+                      : formatTimeShort(occ.start, clock).replace(" ", "\u2009")}
                 </span>
                 <span
                   className="truncate font-mono font-medium text-ink uppercase"

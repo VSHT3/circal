@@ -16,7 +16,7 @@
  * stroke and font scales with it.
  * ------------------------------------------------------------------ */
 
-import { MINUTES_PER_DAY } from "./time";
+import { MINUTES_PER_DAY, type Clock } from "./time";
 
 export const DIAL = {
   /** The coordinate space. C is both cx and cy. */
@@ -58,9 +58,6 @@ export const DIAL = {
 /** Side of the cropped viewBox, in user units — the overlay's scale basis. */
 export const VIEW_SIZE = DIAL.SIZE - 2 * DIAL.PAD;
 export const VIEW_BOX = `${DIAL.PAD} ${DIAL.PAD} ${VIEW_SIZE} ${VIEW_SIZE}`;
-
-/** How the face names its hours. Geometry is identical; the origin differs. */
-export type Clock = "12h" | "24h";
 
 /** Degrees of arc per minute — one revolution per day on both faces. */
 export const DEG_PER_MINUTE = 360 / MINUTES_PER_DAY;

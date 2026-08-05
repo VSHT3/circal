@@ -4,10 +4,9 @@
  * ------------------------------------------------------------------ */
 
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { Calendar as CalendarIcon, Clock } from "lucide-react";
+import { Calendar as CalendarIcon, Clock as ClockIcon } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
-import type { CalEvent } from "@/lib/events";
-import { REPEATS, REPEAT_LABELS } from "@/lib/events";
+import { PALETTE, REPEATS, REPEAT_LABELS, type CalEvent } from "@/lib/events";
 import {
   addDays,
   atMinutes,
@@ -17,6 +16,7 @@ import {
   minutesOfDay,
   parseClock,
   startOfDay,
+  type Clock,
 } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { Kbd, Select, Switch } from "@/components/react/ui/primitives";
@@ -59,11 +59,13 @@ function Row({
  */
 function TimeField({
   value,
+  clock,
   onCommit,
   label,
   disabled,
 }: {
   value: Date;
+  clock: Clock;
   onCommit: (minutes: number) => void;
   label: string;
   disabled?: boolean;
@@ -72,7 +74,7 @@ function TimeField({
   // draft. That keeps the two in sync without an effect that copies props
   // into state on every re-render.
   const [typed, setTyped] = useState<string | null>(null);
-  const text = typed ?? formatTime(value);
+  const text = typed ?? formatTime(value, clock);
 
   function commit(raw: string) {
     const minutes = parseClock(raw);
@@ -93,7 +95,7 @@ function TimeField({
       value={text}
       spellCheck={false}
       onFocus={(e) => {
-        setTyped(formatTime(value));
+        setTyped(formatTime(value, clock));
         e.currentTarget.select();
       }}
       onChange={(e) => setTyped(e.target.value)}
@@ -109,13 +111,105 @@ function TimeField({
           nudge(e.key === "ArrowUp" ? 5 : -5);
         }
       }}
-      className="w-[76px] rounded-[6px] px-1 py-0.5 text-ink tabular-nums transition-colors hover:bg-white/6 focus:bg-white/8"
+      className={cn(
+        "rounded-[6px] px-1 py-0.5 text-ink tabular-nums transition-colors hover:bg-white/6 focus:bg-white/8",
+        clock === "24h" ? "w-[56px]" : "w-[76px]",
+      )}
     />
+  );
+}
+
+/**
+ * One swatch. A plain `<button>` for the presets, and for "custom" a hidden
+ * `<input type="color">` filling the same circle — the OS picker is better
+ * than anything hand-rolled and it is already keyboard- and screen-reader-
+ * addressable.
+ */
+function Swatch({
+  color,
+  selected,
+  label,
+  onSelect,
+  children,
+}: {
+  color: string;
+  selected: boolean;
+  label: string;
+  onSelect?: () => void;
+  children?: ReactNode;
+}) {
+  return (
+    <span
+      className={cn(
+        "relative grid size-[22px] place-items-center rounded-full transition-shadow",
+        selected && "ring-2 ring-ink/70 ring-offset-2 ring-offset-[var(--surface)]",
+      )}
+    >
+      <button
+        type="button"
+        aria-label={label}
+        aria-pressed={selected}
+        title={label}
+        onClick={onSelect}
+        className="size-[18px] rounded-full"
+        style={{ background: color }}
+      />
+      {children}
+    </span>
+  );
+}
+
+/** Presets, the calendar default, and an any-colour picker. */
+function ColorPicker({
+  value,
+  fallback,
+  onChange,
+}: {
+  value: string;
+  fallback: string;
+  onChange: (color: string) => void;
+}) {
+  const custom = value !== "" && !PALETTE.includes(value as (typeof PALETTE)[number]);
+  return (
+    <div className="flex flex-wrap items-center gap-2 py-2">
+      <Swatch
+        color={fallback}
+        selected={value === ""}
+        label="Use the calendar's colour"
+        onSelect={() => onChange("")}
+      />
+      {/* A divider, so "inherit the calendar" reads as a different kind of
+          choice from the ten literal colours next to it. */}
+      <span aria-hidden className="h-4 w-px bg-white/15" />
+      {PALETTE.map((preset) => (
+        <Swatch
+          key={preset}
+          color={preset}
+          selected={value === preset}
+          label={preset}
+          onSelect={() => onChange(preset)}
+        />
+      ))}
+      <Swatch
+        color={custom ? value : "conic-gradient(#ff9fb4,#ffdf8c,#8bf0b8,#8ecbff,#c79bff,#ff9fb4)"}
+        selected={custom}
+        label="Custom colour"
+      >
+        <input
+          type="color"
+          aria-label="Custom colour"
+          value={custom ? value : fallback}
+          onChange={(e) => onChange(e.target.value)}
+          className="absolute inset-0 cursor-pointer opacity-0"
+        />
+      </Swatch>
+    </div>
   );
 }
 
 export default function EventEditor({
   target,
+  clock,
   calendars,
   onSave,
   onDelete,
@@ -230,7 +324,7 @@ export default function EventEditor({
             <span
               aria-hidden
               className="size-[9px] shrink-0 rounded-full"
-              style={{ backgroundColor: calendar?.color ?? "#a3d9e4" }}
+              style={{ backgroundColor: draft.color || (calendar?.color ?? PALETTE[0]) }}
             />
             {/* Focus must move into a modal on open (WAI-ARIA dialog pattern). */}
             <input
@@ -258,9 +352,10 @@ export default function EventEditor({
             </Row>
 
             <Row label="Time" disabled={draft.allDay}>
-              <Clock size={14} className="shrink-0 text-ink-2" />
+              <ClockIcon size={14} className="shrink-0 text-ink-2" />
               <TimeField
                 label="Start time"
+                clock={clock}
                 value={new Date(draft.start)}
                 disabled={draft.allDay}
                 onCommit={handleStartTime}
@@ -268,6 +363,7 @@ export default function EventEditor({
               <span className="text-ink-3">–</span>
               <TimeField
                 label="End time"
+                clock={clock}
                 value={new Date(draft.end)}
                 disabled={draft.allDay}
                 onCommit={handleEndTime}
@@ -288,7 +384,7 @@ export default function EventEditor({
               <span
                 aria-hidden
                 className="size-[9px] shrink-0 rounded-full"
-                style={{ backgroundColor: calendar?.color ?? "#a3d9e4" }}
+                style={{ backgroundColor: calendar?.color ?? PALETTE[0] }}
               />
               <Select
                 value={draft.calendarId}
@@ -296,6 +392,14 @@ export default function EventEditor({
                 options={calendars.map((c) => ({ value: c.id, label: c.name }))}
                 label="Calendar"
                 className="flex-1"
+              />
+            </Row>
+
+            <Row label="Color">
+              <ColorPicker
+                value={draft.color}
+                fallback={calendar?.color ?? PALETTE[0]}
+                onChange={(color) => patch({ color })}
               />
             </Row>
 

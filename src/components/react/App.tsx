@@ -5,7 +5,7 @@
  * ------------------------------------------------------------------ */
 
 import { useCallback, useMemo, useState } from "react";
-import type { Clock } from "@/lib/dial";
+import type { Clock } from "@/lib/time";
 import { dayAgenda, type CalEvent, type Occurrence } from "@/lib/events";
 import { draftEvent, store, useStore } from "@/lib/store";
 import { MINUTES_PER_DAY, addDays, minutesOfDay, snap, startOfDay } from "@/lib/time";
@@ -154,6 +154,7 @@ export default function App() {
       {editor && (
         <EventEditor
           target={editor}
+          clock={settings.clock}
           calendars={calendars}
           onSave={commit}
           onDelete={() => {

@@ -181,7 +181,7 @@ export default function Sidebar({
                 const durationMin = (occ.end.getTime() - occ.start.getTime()) / 60_000;
                 const timeLabel = occ.event.allDay
                   ? "ALL DAY"
-                  : `${formatTimeShort(occ.start)}–${formatTimeShort(occ.end)}`;
+                  : `${formatTimeShort(occ.start, clock)}–${formatTimeShort(occ.end, clock)}`;
                 return (
                   <button
                     key={occ.key}

@@ -14,7 +14,12 @@ The sidebar's **Dial** setting picks how the face names its hours:
   three o'clock, `12` at the bottom and `18` at nine.
 
 Same geometry either way: an event's arc is the same length on both faces, and
-switching is a 180° rotation and a relabel.
+switching is a 180° rotation and a relabel. The setting also picks how every
+time in the app is written — `1:15 PM` or `13:15`.
+
+Events take their colour from their calendar. Any one event can override that
+from the editor's **Color** row: ten digital pastels, or a picker for anything
+else.
 
 ![the day view](docs/day.png)
 

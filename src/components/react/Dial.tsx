@@ -17,10 +17,17 @@ import {
   capInset,
   minutesAtPoint,
   polar,
-  type Clock,
 } from "@/lib/dial";
 import { colorOf, statusOf, type Calendar, type Occurrence } from "@/lib/events";
-import { MINUTES_PER_DAY, clamp, isSameDay, minutesOfDay, snap, startOfDay } from "@/lib/time";
+import {
+  MINUTES_PER_DAY,
+  clamp,
+  isSameDay,
+  minutesOfDay,
+  snap,
+  startOfDay,
+  type Clock,
+} from "@/lib/time";
 import { useElementSize } from "./hooks";
 import CenterPanel from "./CenterPanel";
 
@@ -211,6 +218,7 @@ export default function Dial({
         occurrences={occurrences}
         calendars={calendars}
         u={u}
+        clock={clock}
         drag={ghost && ghost.end > ghost.start ? ghost : null}
         hovered={hovered}
         onHover={setHovered}

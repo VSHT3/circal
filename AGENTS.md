@@ -4,7 +4,7 @@
 
 **circal** is a calendar whose day view is a single dial — a web recreation of Raycast's macOS app _Radical_. One revolution is always one day, clockwise at 0.25° per minute. Events are arcs, the elapsed day is a ramp of light around the rim, the hand is the current minute.
 
-The `Clock` setting picks only what the face is _called_, never its geometry: `12h` puts noon at the top and labels `12 · 1…11` twice with AM/PM captions; `24h` puts midnight at the top and labels `00 · 1…23`. Switching is a 180° rotation plus a relabel, so an event's arc has the same length and sweep on either face.
+The `Clock` setting picks only what the face is _called_, never its geometry: `12h` puts noon at the top and labels `12 · 1…11` twice with AM/PM captions; `24h` puts midnight at the top and labels `00 · 1…23`. Switching is a 180° rotation plus a relabel, so an event's arc has the same length and sweep on either face. It also governs **every printed time** — readout, agenda, sidebar, palette, editor — so `splitTime` / `formatTime` / `formatTimeShort` all take a `Clock` and any surface that prints one must thread it.
 
 No backend. Events live in `localStorage` under `circal.v1`. Shipped as an assets-only Cloudflare Worker.
 
@@ -30,16 +30,16 @@ src/pages/index.astro   static HTML shell
 
 ## Key Directories
 
-| Path                                     | Purpose                                                                                                                    |
-| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `src/lib/dial.ts`                        | Polar geometry: the `DIAL` radius table, `angleAt` / `polar` / `arcPath` / `minutesAtPoint` / `capInset`, the `Clock` type |
-| `src/lib/time.ts`                        | Day arithmetic and the app's formatting voice (`formatTime`, `formatDuration`, `parseClock`, `dayKey`, `snap`)             |
-| `src/lib/events.ts`                      | `CalEvent` / `Calendar` / `Occurrence`, recurrence expansion, `packLanes`, `dayAgenda`                                     |
-| `src/lib/store.ts`                       | `useSyncExternalStore` over `localStorage`, `PALETTE`, `draftEvent`, seed data                                             |
-| `src/components/react/`                  | The island. `App.tsx` shell, `Dial.tsx` instrument, panels                                                                 |
-| `src/components/react/ui/primitives.tsx` | The six shared controls all chrome is built from                                                                           |
-| `src/components/react/types.ts`          | **Every panel prop interface.** Edit shapes here                                                                           |
-| `src/styles/global.css`                  | Design tokens, `@theme inline` colour mappings, four component classes                                                     |
+| Path                                     | Purpose                                                                                                                   |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `src/lib/dial.ts`                        | Polar geometry: the `DIAL` radius table, `angleAt` / `polar` / `arcPath` / `minutesAtPoint` / `capInset`                  |
+| `src/lib/time.ts`                        | The `Clock` type, day arithmetic, and the app's formatting voice (`formatTime`, `formatDuration`, `parseClock`, `dayKey`) |
+| `src/lib/events.ts`                      | `CalEvent` / `Calendar` / `Occurrence`, recurrence expansion, `packLanes`, `dayAgenda`                                    |
+| `src/lib/store.ts`                       | `useSyncExternalStore` over `localStorage`, `draftEvent`, seed data, the `SCHEMA` version                                 |
+| `src/components/react/`                  | The island. `App.tsx` shell, `Dial.tsx` instrument, panels                                                                |
+| `src/components/react/ui/primitives.tsx` | The six shared controls all chrome is built from                                                                          |
+| `src/components/react/types.ts`          | **Every panel prop interface.** Edit shapes here                                                                          |
+| `src/styles/global.css`                  | Design tokens, `@theme inline` colour mappings, four component classes                                                    |
 
 ## Development Commands
 
@@ -71,7 +71,7 @@ pnpm deploy     # astro build && wrangler deploy
 | `text-accent`                    | `#a3d9e4`                         | default calendar colour                 |
 | `text-danger`                    | `#ff5a5a`                         | destructive only                        |
 
-`fill-*` and `stroke-*` variants exist too and are used in SVG. Component classes: `.label` (uppercase 11px mono, the app's label voice), `.kbd`, `.fade-y` (mask a scroll area's ends), `.no-scrollbar` — pair the last two on every scroll region. Chrome is greyscale by rule: **colour belongs to events**, sourced from `colorOf(event, calendars)`.
+`fill-*` and `stroke-*` variants exist too and are used in SVG. Component classes: `.label` (uppercase 11px mono, the app's label voice), `.kbd`, `.fade-y` (mask a scroll area's ends), `.no-scrollbar` — pair the last two on every scroll region. Chrome is greyscale by rule: **colour belongs to events**. Never read `calendar.color` or `event.color` directly — call `colorOf(event, calendars)`, which resolves the event's own override first and falls back to its calendar. The presets live in `PALETTE` (`src/lib/events.ts`): ten digital pastels, high value and moderate saturation so two can share a dial at a 14-unit stroke.
 
 **New chrome must reuse `ui/primitives.tsx`** — `Kbd`, `IconButton`, `ActionPill`, `Segmented`, `Switch`, `Select`. Do not hand-roll a button.
 
@@ -131,6 +131,7 @@ If you add a test framework, wire it into `verify` in `package.json` so the gate
 - **`angleAt` and `minutesAtPoint` are exact inverses** and must stay so. Both take a `Clock` and differ only by `origin()` — the minute that sits at the top (720 for `12h`, 0 for `24h`).
 - **`arcPath` draws a full turn as two half-arcs**, because a single elliptical arc whose endpoints coincide renders nothing. Removing that branch makes a whole-day arc vanish.
 - **Lane packing is face-independent.** `dayAgenda` takes no `Clock`: both faces put one day on one revolution, so two events collide on screen exactly when they collide in time.
+- **`CalEvent.color` is an override, not the colour.** Empty string means "follow the calendar" and is the default every event should stay on, so recolouring a calendar still moves them. Only `colorOf` knows the precedence.
 - **`Settings` is schema-versioned.** `SCHEMA` in `src/lib/store.ts` is bumped when a stored value changes _meaning_ rather than shape (it went to `2` when `clock: "24h"` stopped meaning the noon-at-top face). A stale schema resets settings to defaults and keeps events.
 - **Store hydration is lazy, at first `subscribe`**, not module scope; `load()` and `commit()` swallow `localStorage` errors on purpose (private mode / quota must not brick the app).
 - **`seed()` only runs when no stored blob exists** and anchors on today's local midnight.
