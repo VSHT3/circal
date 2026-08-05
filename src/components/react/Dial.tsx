@@ -75,6 +75,17 @@ export interface DialProps {
 const CLICK_DURATION = 60;
 /** Drag granularity. Matches what a fifteen-minute arc can actually show. */
 const STEP = 15;
+/** Width of an arc's invisible hit stroke: the painted arc plus a margin for
+ *  the pointer. Also, halved, how far a round cap on one reaches past its own
+ *  endpoint — which is what puts a grip outside the body. */
+const HIT_WIDTH = DIAL.ARC_WIDTH + 16;
+/** How far into an arc each end grip reaches, in user units. Deliberately
+ *  mean: an overshooting grip costs whoever wanted to move the event, and on
+ *  a short arc it would leave nothing to grab at all. */
+const GRIP_REACH = 18;
+/** Hit width of a grip. Narrower than the body's, because half of it is the
+ *  cap's reach past the tip and that reach is inward too. */
+const GRIP_WIDTH = DIAL.ARC_WIDTH + 8;
 
 /**
  * White at `level` alpha, pre-composited against the black canvas. Opaque, so
@@ -805,15 +816,56 @@ function EventArc({
   const tail = to - inset;
   const d = dot ? arcPath(r, (from + to) / 2, (from + to) / 2 + 0.001) : arcPath(r, head, tail);
 
-  /** Degrees of the sweep each end owns. */
-  const grip = Math.min(inset * 2.4, (tail - head) / 3);
-  const zones: { grip: Grip; d: string; cursor: string }[] =
+  /**
+   * The grips own the *tips*, the body owns the middle — which is entirely a
+   * question of which path's cap overhangs the endpoint.
+   *
+   * A round cap on a hit stroke reaches half its width past the point it is
+   * centred on, so with a round-capped body and butt-capped grips the outermost
+   * thing at each end of the arc was the *body*: the pointer said "move" on the
+   * cap and "resize" only once you were inside it, which is backwards. So the
+   * body is butt-capped, stopping dead at head and tail, and the grips are
+   * round-capped, hanging out past the tip the way a handle should.
+   *
+   * How far they reach *inwards* is measured in user units rather than degrees,
+   * because a grip has to feel the same size on the outer lane as on the inner
+   * one — and it is deliberately mean. A grip that overshoots is only a nuisance
+   * for whoever wanted to move the event, and on a short arc it is the whole
+   * arc: hence the quarter-of-the-sweep ceiling, and hence the grip's own hit
+   * width narrowing with it, since the cap alone would otherwise reach further
+   * in than the ceiling allows.
+   */
+  const sweepLength = (((tail - head) * Math.PI) / 180) * r;
+  const gripReach = Math.min(GRIP_REACH, sweepLength / 4);
+  const gripWidth = Math.min(GRIP_WIDTH, gripReach * 2);
+  // `0.001` because `arcPath` of a zero sweep draws nothing at all: on a short
+  // arc the two caps are the entire handles.
+  const gripDeg = Math.max(((gripReach - gripWidth / 2) / r) * (180 / Math.PI), 0.001);
+
+  const zones: { grip: Grip; d: string; width: number; cursor: string }[] =
     locked || dot
-      ? [{ grip: locked ? "none" : "whole", d, cursor: locked ? "cursor-pointer" : "cursor-grab" }]
+      ? [
+          {
+            grip: locked ? "none" : "whole",
+            d,
+            width: HIT_WIDTH,
+            cursor: locked ? "cursor-pointer" : "cursor-grab",
+          },
+        ]
       : [
-          { grip: "whole", d, cursor: "cursor-grab" },
-          { grip: "start", d: arcPath(r, head, head + grip), cursor: "cursor-ew-resize" },
-          { grip: "end", d: arcPath(r, tail - grip, tail), cursor: "cursor-ew-resize" },
+          { grip: "whole", d, width: HIT_WIDTH, cursor: "cursor-grab" },
+          {
+            grip: "start",
+            d: arcPath(r, head, head + gripDeg),
+            width: gripWidth,
+            cursor: "cursor-ew-resize",
+          },
+          {
+            grip: "end",
+            d: arcPath(r, tail - gripDeg, tail),
+            width: gripWidth,
+            cursor: "cursor-ew-resize",
+          },
         ];
 
   return (
@@ -837,8 +889,12 @@ function EventArc({
           d={zone.d}
           fill="none"
           stroke="transparent"
-          strokeWidth={width + 16}
-          strokeLinecap={zone.grip === "whole" ? "round" : "butt"}
+          strokeWidth={zone.width}
+          // Butt for the body so it stops at the endpoints, round for the
+          // grips so they are what the tip belongs to. Unless the body is all
+          // there is — a dot, or somebody else's event — and then it has the
+          // whole shape to cover.
+          strokeLinecap={zone.grip === "whole" && zones.length > 1 ? "butt" : "round"}
           pointerEvents="stroke"
           onPointerDown={(e) => onGrab(occ, zone.grip, e)}
           onPointerMove={onGrabMove}
