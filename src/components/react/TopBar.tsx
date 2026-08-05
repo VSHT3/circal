@@ -27,16 +27,18 @@ export default function TopBar({ day, view, sidebarOpen, onStep, actions }: TopB
             `ink-2` because chrome is grey and a pure-white ring here would be
             the brightest thing on the face outside the dial.
 
-            Below 1080px it is gone entirely, mark and divider both: the date
+            Below 1180px it is gone entirely, mark and divider both: the date
             readout is centred on the *bar*, not on the space left over, so the
-            108px this lockup costs is 108px the readout stops having. 1080 is
-            where the two still clear each other with the longest header
-            `formatDayHeader` produces (`WEDNESDAY · SEP 30`). */}
-        <span className="hidden items-center gap-2 pl-0.5 text-ink-2 min-[1080px]:flex">
+            108px this lockup costs is 108px the readout stops having. The
+            threshold is where the two still clear each other with the longest
+            header `formatDayHeader` produces (`WEDNESDAY · SEP 30`) — it moved
+            from 1080 when the view switch grew a third segment, and it has to
+            be re-measured every time anything joins this group. */}
+        <span className="hidden items-center gap-2 pl-0.5 text-ink-2 min-[1180px]:flex">
           <Circle size={15} strokeWidth={1.75} aria-hidden="true" />
           <span className="font-mono text-[13px] tracking-[0.14em]">circal</span>
         </span>
-        <span aria-hidden="true" className="mx-1 hidden h-4 w-px bg-hairline min-[1080px]:block" />
+        <span aria-hidden="true" className="mx-1 hidden h-4 w-px bg-hairline min-[1180px]:block" />
 
         <IconButton label="Toggle sidebar" active={sidebarOpen} onClick={actions.toggleSidebar}>
           <PanelLeft size={15} strokeWidth={1.75} />
@@ -48,6 +50,7 @@ export default function TopBar({ day, view, sidebarOpen, onStep, actions }: TopB
           options={[
             { id: "day", label: "Day", keys: ["⌘", "D"] },
             { id: "year", label: "Year", keys: ["⌘", "Y"] },
+            { id: "life", label: "Life", keys: ["⌘", "L"] },
           ]}
         />
 
@@ -68,16 +71,21 @@ export default function TopBar({ day, view, sidebarOpen, onStep, actions }: TopB
         </div>
       </div>
 
+      {/* The readout names what is on screen: the day on the dial, the year in
+          the grid, and in the life view the one word that view is about —
+          every date it could print is already in its own header. */}
       <div className="pointer-events-none absolute left-1/2 -translate-x-1/2">
-        {view === "day" ? (
-          <span className="label text-[12px] tracking-[0.22em] text-ink-2">
-            {weekday} <span className="text-ink-4">·</span> {date}
-          </span>
-        ) : (
-          <span className="label text-[12px] tracking-[0.22em] text-ink-2">
-            {day.getFullYear()}
-          </span>
-        )}
+        <span className="label text-[12px] tracking-[0.22em] text-ink-2">
+          {view === "day" ? (
+            <>
+              {weekday} <span className="text-ink-4">·</span> {date}
+            </>
+          ) : view === "year" ? (
+            day.getFullYear()
+          ) : (
+            "Life"
+          )}
+        </span>
       </div>
 
       <div className="ml-auto flex items-center gap-1">

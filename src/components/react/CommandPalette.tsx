@@ -15,6 +15,7 @@ import {
   Clock3,
   Download,
   Grid2x2,
+  Grid3x3,
   Hourglass,
   PanelLeft,
   Plus,
@@ -337,6 +338,21 @@ export default function CommandPalette({
         ),
         run: () => {
           actions.setView("year");
+          onClose();
+        },
+      },
+      {
+        id: "cmd-life-view",
+        icon: <Grid3x3 {...CHROME_ICON_PROPS} />,
+        title: "Life view",
+        meta: (
+          <>
+            <Kbd>⌘</Kbd>
+            <Kbd>L</Kbd>
+          </>
+        ),
+        run: () => {
+          actions.setView("life");
           onClose();
         },
       },

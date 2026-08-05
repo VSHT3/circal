@@ -16,14 +16,31 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Download, RefreshCw, Trash2, Upload } from "lucide-react";
 import { refreshFeed } from "@/lib/feeds";
 import { canVibrate } from "@/lib/feedback";
-import { hostLabel, store } from "@/lib/store";
+import { formatCount, formatLifeDate, lifeSpan } from "@/lib/life";
+import { LIFE_EXPECTANCY_RANGE, hostLabel, store } from "@/lib/store";
 import { PLACE_OPTIONS, placeForZone } from "@/lib/places";
 import { sunTimes } from "@/lib/sun";
-import { allZones, atMinutes, formatTimeShort, startOfDay, zoneLabel } from "@/lib/time";
+import {
+  allZones,
+  atMinutes,
+  dayKey,
+  formatTimeShort,
+  fromDayKey,
+  startOfDay,
+  zoneLabel,
+} from "@/lib/time";
 import { cn } from "@/lib/utils";
 import type { Calendar } from "@/lib/events";
 import type { SettingsPanelProps } from "@/components/react/types";
-import { FieldRow, IconButton, Segmented, Select, Toggle } from "@/components/react/ui/primitives";
+import {
+  DateField,
+  FieldRow,
+  IconButton,
+  NumberField,
+  Segmented,
+  Select,
+  Toggle,
+} from "@/components/react/ui/primitives";
 
 const EASE = [0.32, 0.72, 0, 1] as const;
 
@@ -63,6 +80,8 @@ export default function Settings({
   moonlight,
   tickSound,
   tickHaptics,
+  birth,
+  lifeExpectancy,
   calendars,
   actions,
 }: SettingsPanelProps) {
@@ -82,6 +101,12 @@ export default function Settings({
   /** Same rule for the vibration switch: no motor, no offer. Desktop and iOS
    *  are both in that camp, and only the sound half is shown there. */
   const vibrates = canVibrate();
+
+  /** The life the grid would draw with what is set right now — the row prints
+   *  where it ends, so the number beside it is never an abstraction. Plain
+   *  derivation, not a memo: this card renders when it is opened. */
+  const birthDate = /^\d{4}-\d{2}-\d{2}$/.test(birth) ? fromDayKey(birth) : null;
+  const span = birthDate ? lifeSpan(birthDate, lifeExpectancy) : null;
 
   function pickPlace(zone: string) {
     store.setPlace(zone ? placeForZone(zone) : null);
@@ -213,6 +238,36 @@ export default function Settings({
                         : sun?.sunrise != null && sun.sunset != null
                           ? `${formatTimeShort(atMinutes(new Date(), sun.sunrise), clock)} – ${formatTimeShort(atMinutes(new Date(), sun.sunset), clock)}`
                           : "No sunrise today"}
+                </span>
+              </FieldRow>
+
+              <FieldRow label="Life" align="top">
+                <div className="flex flex-wrap items-center gap-2">
+                  <DateField
+                    label="Date of birth"
+                    value={birth}
+                    onChange={(next) => store.setLife(next, lifeExpectancy)}
+                    min="1900-01-01"
+                    max={dayKey(new Date())}
+                    className="w-[150px]"
+                  >
+                    <span className="truncate tabular-nums">
+                      {birthDate ? formatLifeDate(birthDate) : "Not set"}
+                    </span>
+                  </DateField>
+                  <NumberField
+                    label="Life expectancy in years"
+                    value={lifeExpectancy}
+                    onChange={(next) => store.setLife(birth, next)}
+                    suffix="years"
+                    min={LIFE_EXPECTANCY_RANGE.min}
+                    max={LIFE_EXPECTANCY_RANGE.max}
+                  />
+                </div>
+                <span className="label text-ink-3">
+                  {span
+                    ? `${formatCount(span.days)} days — one dot each, ending around ${formatLifeDate(span.death)}`
+                    : "One dot per day for a whole life. The date is asked for once and never leaves this browser"}
                 </span>
               </FieldRow>
 

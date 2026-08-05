@@ -9,6 +9,7 @@
  * ------------------------------------------------------------------ */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import type { Clock } from "@/lib/time";
 import { dayAgenda, type CalEvent, type Occurrence } from "@/lib/events";
 import { draftEvent, store, useStore } from "@/lib/store";
@@ -33,11 +34,15 @@ import type { EditorTarget, ShellActions, ViewMode } from "./types";
 import CommandPalette from "./CommandPalette";
 import Dial from "./Dial";
 import EventEditor from "./EventEditor";
+import LifeView from "./LifeView";
 import Settings from "./Settings";
 import Sidebar from "./Sidebar";
 import Toast from "./Toast";
 import TopBar from "./TopBar";
 import YearView from "./YearView";
+
+/** The app's one curve, for the crossfade between views. */
+const PANEL_EASE = [0.32, 0.72, 0, 1] as const;
 
 /* ---------------------------------- url ----------------------------------- */
 
@@ -45,6 +50,9 @@ interface ViewLocation {
   day: Date;
   view: ViewMode;
 }
+
+/** The views that are named in the URL — `day` is the one that is not. */
+const VIEWS = ["year", "life"] as const;
 
 function readLocation(): ViewLocation {
   const params = new URLSearchParams(window.location.search);
@@ -54,7 +62,7 @@ function readLocation(): ViewLocation {
   const parsed = key && /^\d{4}-\d{2}-\d{2}$/.test(key) ? fromDayKey(key) : null;
   return {
     day: parsed && !Number.isNaN(parsed.getTime()) ? parsed : startOfDay(new Date()),
-    view: params.get("v") === "year" ? "year" : "day",
+    view: VIEWS.find((v) => v === params.get("v")) ?? "day",
   };
 }
 
@@ -66,7 +74,7 @@ function readLocation(): ViewLocation {
 function writeLocation({ day, view }: ViewLocation, mode: "push" | "replace") {
   const params = new URLSearchParams();
   params.set("d", dayKey(day));
-  if (view === "year") params.set("v", "year");
+  if (view !== "day") params.set("v", view);
   const url = `${window.location.pathname}?${params}`;
   if (mode === "push") window.history.pushState(null, "", url);
   else window.history.replaceState(null, "", url);
@@ -75,6 +83,7 @@ function writeLocation({ day, view }: ViewLocation, mode: "push" | "replace") {
 export default function App() {
   const { events, calendars, feeds, settings } = useStore();
   const now = useNow();
+  const reducedMotion = useReducedMotion();
 
   const [location, setLocation] = useState<ViewLocation>(() => readLocation());
   const { day, view } = location;
@@ -211,12 +220,16 @@ export default function App() {
       const from = current.current;
       // Stepping replaces rather than pushes: a held arrow key must not fill
       // the history stack with days you scrolled past.
+      //
+      // A year in the two grid views, a day on the dial. Both grids draw a
+      // year per row or per block, so a step of a day would move the selection
+      // by less than it takes to see.
       go(
         {
           day:
-            from.view === "year"
-              ? new Date(from.day.getFullYear() + delta, from.day.getMonth(), from.day.getDate())
-              : addDays(from.day, delta),
+            from.view === "day"
+              ? addDays(from.day, delta)
+              : new Date(from.day.getFullYear() + delta, from.day.getMonth(), from.day.getDate()),
         },
         "replace",
       );
@@ -230,6 +243,7 @@ export default function App() {
     "mod+y": () => actions.setView("year"),
     "mod+d": () => actions.setView("day"),
     "mod+b": actions.toggleSidebar,
+    "mod+l": () => actions.setView("life"),
     "mod+,": actions.openSettings,
     "mod+z": actions.undo,
     "mod+shift+z": actions.redo,
@@ -304,41 +318,70 @@ export default function App() {
           actions={actions}
         />
 
+        {/* One view at a time, but never abruptly: the outgoing one stays
+            mounted long enough to shrink out of the way, which is what makes
+            day → life read as pulling back from the dial rather than as a cut.
+            `initial={false}` so a reload lands on its view without one.
+
+            The exiting panel gives up its pointer events immediately — for 400
+            milliseconds it is still on top of the incoming one, and a click
+            landing on the view you just left is a bug you cannot see. */}
         <main className="relative min-w-0 flex-1">
-          {view === "day" ? (
-            <div className="absolute inset-0 p-2">
-              <Dial
-                day={day}
-                now={now}
-                occurrences={agenda.all}
-                calendars={calendars}
-                place={settings.place}
-                daylight={settings.daylight}
-                moonlight={settings.moonlight}
-                secondZone={settings.secondZone}
-                showZoneName={settings.showZoneName}
-                showZoneOffset={settings.showZoneOffset}
-                zonePlace={zonePlace}
-                zoneDaylight={settings.zoneDaylight}
-                zoneMoonlight={settings.zoneMoonlight}
-                tickSound={settings.tickSound}
-                tickHaptics={settings.tickHaptics}
-                clock={settings.clock}
-                onOpen={openOccurrence}
-                onCreate={(startMin, endMin) => openDraft(startMin, endMin, day)}
-                onAdjust={adjustOccurrence}
-              />
-            </div>
-          ) : (
-            <YearView
-              year={day.getFullYear()}
-              today={now}
-              selected={day}
-              events={visible}
-              calendars={calendars}
-              onSelectDay={(next) => actions.goDay(next)}
-            />
-          )}
+          <AnimatePresence initial={false}>
+            <motion.div
+              key={view}
+              className="absolute inset-0 p-2"
+              initial={reducedMotion ? false : { opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={reducedMotion ? undefined : { opacity: 0, scale: 0.94, pointerEvents: "none" }}
+              transition={{ duration: 0.34, ease: PANEL_EASE }}
+            >
+              {view === "day" && (
+                <Dial
+                  day={day}
+                  now={now}
+                  occurrences={agenda.all}
+                  calendars={calendars}
+                  place={settings.place}
+                  daylight={settings.daylight}
+                  moonlight={settings.moonlight}
+                  secondZone={settings.secondZone}
+                  showZoneName={settings.showZoneName}
+                  showZoneOffset={settings.showZoneOffset}
+                  zonePlace={zonePlace}
+                  zoneDaylight={settings.zoneDaylight}
+                  zoneMoonlight={settings.zoneMoonlight}
+                  tickSound={settings.tickSound}
+                  tickHaptics={settings.tickHaptics}
+                  clock={settings.clock}
+                  onOpen={openOccurrence}
+                  onCreate={(startMin, endMin) => openDraft(startMin, endMin, day)}
+                  onAdjust={adjustOccurrence}
+                />
+              )}
+              {view === "year" && (
+                <YearView
+                  year={day.getFullYear()}
+                  today={now}
+                  selected={day}
+                  events={visible}
+                  calendars={calendars}
+                  onSelectDay={(next) => actions.goDay(next)}
+                />
+              )}
+              {view === "life" && (
+                <LifeView
+                  birth={settings.birth}
+                  expectancy={settings.lifeExpectancy}
+                  now={now}
+                  selected={day}
+                  events={visible}
+                  calendars={calendars}
+                  onSelectDay={(next) => actions.goDay(next)}
+                />
+              )}
+            </motion.div>
+          </AnimatePresence>
         </main>
       </div>
 
@@ -375,6 +418,8 @@ export default function App() {
         moonlight={settings.moonlight}
         tickSound={settings.tickSound}
         tickHaptics={settings.tickHaptics}
+        birth={settings.birth}
+        lifeExpectancy={settings.lifeExpectancy}
         calendars={calendars}
         actions={actions}
       />

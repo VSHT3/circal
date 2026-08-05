@@ -4,7 +4,7 @@ import type { Clock } from "@/lib/time";
 import type { CalEvent, Calendar, Occurrence } from "@/lib/events";
 import type { PickedPlace } from "@/lib/places";
 
-export type ViewMode = "day" | "year";
+export type ViewMode = "day" | "year" | "life";
 
 /** What the editor is currently editing: an existing event, or a new draft. */
 export interface EditorTarget {
@@ -77,6 +77,19 @@ export interface YearViewProps {
   onSelectDay: (day: Date) => void;
 }
 
+export interface LifeViewProps {
+  /** `YYYY-MM-DD`, or `""` — which is what puts the prompt on screen. */
+  birth: string;
+  /** Years the grid runs for, from the birthday. */
+  expectancy: number;
+  /** Ticking: the readout is a live percentage of a life. */
+  now: Date;
+  selected: Date;
+  events: CalEvent[];
+  calendars: Calendar[];
+  onSelectDay: (day: Date) => void;
+}
+
 export interface CommandPaletteProps {
   open: boolean;
   onClose: () => void;
@@ -108,6 +121,9 @@ export interface SettingsPanelProps {
   moonlight: boolean;
   tickSound: boolean;
   tickHaptics: boolean;
+  /** The life span, as stored: `""` = never asked for. */
+  birth: string;
+  lifeExpectancy: number;
   calendars: Calendar[];
   actions: ShellActions;
 }
