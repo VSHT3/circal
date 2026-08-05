@@ -1,0 +1,223 @@
+/* ------------------------------------------------------------------ *
+ * Left panel: mini month picker, calendar visibility toggles and the
+ * selected day's agenda. Collapses to zero width so the dial re-centres.
+ * ------------------------------------------------------------------ */
+
+import { ChevronLeft, ChevronRight } from "lucide-react";
+import { useMemo, useState } from "react";
+import { colorOf, occurrencesOn, statusOf } from "@/lib/events";
+import {
+  addMonths,
+  formatDuration,
+  formatRelativeDay,
+  formatTimeShort,
+  isSameDay,
+  WEEKDAYS,
+} from "@/lib/time";
+import type { SidebarProps } from "@/components/react/types";
+import { cn } from "@/lib/utils";
+import { IconButton, Segmented } from "@/components/react/ui/primitives";
+
+// Monday-first week order — the reference app never starts a row on Sunday.
+const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0];
+
+export default function Sidebar({
+  open,
+  day,
+  now,
+  occurrences,
+  events,
+  calendars,
+  clock,
+  actions,
+}: SidebarProps) {
+  // The mini month follows the selected day, but can also be paged on its own.
+  // Resetting during render (React's "adjust state when props change") keeps
+  // both true without an effect that renders the stale month first.
+  const [displayMonth, setDisplayMonth] = useState(
+    () => new Date(day.getFullYear(), day.getMonth(), 1),
+  );
+  const [seeded, setSeeded] = useState(day);
+  if (seeded !== day) {
+    setSeeded(day);
+    setDisplayMonth(new Date(day.getFullYear(), day.getMonth(), 1));
+  }
+
+  const cells = useMemo(() => {
+    const year = displayMonth.getFullYear();
+    const month = displayMonth.getMonth();
+    const offset = (new Date(year, month, 1).getDay() + 6) % 7;
+    return Array.from({ length: 42 }, (_, i) => new Date(year, month, 1 - offset + i));
+  }, [displayMonth]);
+
+  return (
+    <div
+      aria-hidden={!open}
+      className={cn(
+        "h-full shrink-0 border-r border-hairline bg-void transition-[width] duration-[220ms]",
+        open ? "w-[260px]" : "w-0 overflow-hidden",
+      )}
+    >
+      {open && (
+        <div className="fade-y no-scrollbar flex h-full w-[260px] flex-col gap-5 overflow-y-auto p-3">
+          <section className="flex w-full shrink-0 flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <span className="label text-ink-2">
+                {displayMonth.toLocaleString(undefined, { month: "long" })}{" "}
+                {displayMonth.getFullYear()}
+              </span>
+              <div className="flex items-center gap-0.5">
+                <IconButton
+                  label="Previous month"
+                  onClick={() => setDisplayMonth((m) => addMonths(m, -1))}
+                >
+                  <ChevronLeft size={13} strokeWidth={1.75} />
+                </IconButton>
+                <IconButton
+                  label="Next month"
+                  onClick={() => setDisplayMonth((m) => addMonths(m, 1))}
+                >
+                  <ChevronRight size={13} strokeWidth={1.75} />
+                </IconButton>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-7 gap-y-1">
+              {WEEK_ORDER.map((i) => (
+                <span key={i} className="label text-center text-[9px] text-ink-4">
+                  {WEEKDAYS[i][0]}
+                </span>
+              ))}
+              {cells.map((cellDate) => {
+                const inMonth = cellDate.getMonth() === displayMonth.getMonth();
+                const isToday = isSameDay(cellDate, now);
+                const isSelected = isSameDay(cellDate, day);
+                const dots = occurrencesOn(events, calendars, cellDate).slice(0, 3);
+                return (
+                  <button
+                    key={cellDate.toISOString()}
+                    type="button"
+                    onClick={() => actions.goDay(cellDate)}
+                    className={cn(
+                      "flex h-7 flex-col items-center justify-center gap-[2px] rounded-[7px] transition-colors hover:bg-white/8",
+                      isSelected && "bg-ink text-void hover:bg-ink",
+                      !isSelected && isToday && "text-accent",
+                      !isSelected && !isToday && inMonth && "text-ink-2",
+                      !isSelected && !isToday && !inMonth && "text-ink-4",
+                    )}
+                  >
+                    <span className="text-[11px] leading-none">{cellDate.getDate()}</span>
+                    {dots.length > 0 && (
+                      <span className="flex items-center gap-[2px]">
+                        {dots.map((occ) => (
+                          <span
+                            key={occ.key}
+                            className="size-[3px] rounded-full"
+                            style={{
+                              backgroundColor: isSelected
+                                ? "currentColor"
+                                : colorOf(occ.event, calendars),
+                            }}
+                          />
+                        ))}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+
+          <section className="flex w-full shrink-0 flex-col gap-2">
+            <span className="label text-ink-3">Dial</span>
+            <Segmented
+              value={clock}
+              onChange={actions.setClock}
+              options={[
+                { id: "24h" as const, label: "24 h" },
+                { id: "12h" as const, label: "12 h ×2" },
+              ]}
+            />
+          </section>
+
+          <section className="flex w-full shrink-0 flex-col gap-1">
+            <span className="label text-ink-3">Calendars</span>
+            {calendars.map((calendar) => (
+              <button
+                key={calendar.id}
+                type="button"
+                role="switch"
+                aria-checked={calendar.visible}
+                onClick={() => actions.toggleCalendar(calendar.id)}
+                className="flex h-7 items-center gap-2 rounded-[8px] px-1.5 transition-colors hover:bg-white/6"
+              >
+                <span
+                  className={cn(
+                    "size-2.5 shrink-0 rounded-full",
+                    !calendar.visible && "opacity-25",
+                  )}
+                  style={{ backgroundColor: calendar.color }}
+                />
+                <span
+                  className={cn(
+                    "truncate text-[12.5px]",
+                    calendar.visible ? "text-ink" : "text-ink-3",
+                  )}
+                >
+                  {calendar.name}
+                </span>
+              </button>
+            ))}
+          </section>
+
+          <section className="flex w-full shrink-0 flex-col gap-1">
+            <span className="label text-ink-3">{formatRelativeDay(day, now)}</span>
+            {occurrences.length === 0 ? (
+              <span className="label text-ink-4">Nothing scheduled</span>
+            ) : (
+              occurrences.map((occ) => {
+                const status = statusOf(occ, now);
+                const color = colorOf(occ.event, calendars);
+                const durationMin = (occ.end.getTime() - occ.start.getTime()) / 60_000;
+                const timeLabel = occ.event.allDay
+                  ? "ALL DAY"
+                  : `${formatTimeShort(occ.start)}–${formatTimeShort(occ.end)}`;
+                return (
+                  <button
+                    key={occ.key}
+                    type="button"
+                    onClick={() => actions.openEvent(occ.event)}
+                    className={cn(
+                      "flex items-stretch gap-2 rounded-[8px] px-1.5 py-1 text-left transition-colors hover:bg-white/6",
+                      status === "past" && "opacity-40",
+                    )}
+                  >
+                    <span
+                      className="w-[2px] shrink-0 self-stretch rounded-full"
+                      style={{ backgroundColor: color }}
+                    />
+                    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                      <span className="flex items-center gap-1.5">
+                        {status === "now" && (
+                          <span
+                            className="size-[5px] shrink-0 animate-pulse rounded-full"
+                            style={{ backgroundColor: color }}
+                          />
+                        )}
+                        <span className="truncate text-[13px] text-ink">{occ.event.title}</span>
+                      </span>
+                      <span className="label text-[10px] text-ink-3">
+                        {status === "now" ? "NOW" : timeLabel} <span className="text-ink-4">·</span>{" "}
+                        {formatDuration(durationMin)}
+                      </span>
+                    </span>
+                  </button>
+                );
+              })
+            )}
+          </section>
+        </div>
+      )}
+    </div>
+  );
+}

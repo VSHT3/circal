@@ -1,0 +1,152 @@
+/* ------------------------------------------------------------------ *
+ * circal — global stylesheet & design tokens
+ *
+ * One idea: a day is a circle. Pure-black canvas, one instrument in the
+ * middle of it, chrome pushed to the edges. Everything that is not the
+ * dial is grey; the only saturated colour in the product is a calendar
+ * colour, and it only ever appears as an event.
+ *
+ * Type: Geist (numerals / UI) + Geist Mono (labels, chrome, meta).
+ * Self-hosted via Fontsource → zero external requests.
+ * ------------------------------------------------------------------ */
+
+@import "tailwindcss";
+
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
+
+@theme inline {
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, "SFMono-Regular", Menlo, monospace;
+
+  --color-void: var(--void);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-hairline: var(--hairline);
+
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-ink-4: var(--ink-4);
+
+  --color-accent: var(--accent);
+  --color-danger: var(--danger);
+}
+
+:root {
+  /* Canvas. True black — the dial's outer glow needs somewhere to fall to,
+     and the reference app is black, not near-black. */
+  --void: #000000;
+  --surface: #131315; /* popovers, cards */
+  --surface-2: #1d1d20; /* controls inside a surface */
+  --hairline: rgba(255, 255, 255, 0.08);
+
+  /* Four steps of grey, brightest first. `ink` is the only pure white. */
+  --ink: #ffffff;
+  --ink-2: #8e8e93; /* secondary text, AM/PM, meta */
+  --ink-3: #5c5c60; /* hour numerals */
+  --ink-4: #2e2e31; /* ticks, disabled */
+
+  --accent: #a3d9e4; /* default calendar colour */
+  --danger: #ff5a5a;
+
+  --radius: 0.625rem;
+
+  /* One duration + one curve for pointer-caused state. */
+  --dur: 160ms;
+  --ease: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+@theme {
+  --default-transition-duration: var(--dur);
+  --default-transition-timing-function: var(--ease);
+}
+
+@layer base {
+  html {
+    @apply font-sans;
+    color-scheme: dark;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    /* The app is exactly one viewport. Nothing scrolls but lists. */
+    overscroll-behavior: none;
+  }
+
+  body {
+    @apply overflow-hidden bg-void text-ink;
+    /* Tabular numerals everywhere: the clock readout re-renders every second
+       and proportional digits make it jitter. */
+    font-variant-numeric: tabular-nums;
+  }
+
+  ::selection {
+    background: var(--accent);
+    color: #000;
+  }
+
+  /* Focus is keyboard-only; the pointer never draws a ring on this canvas. */
+  :focus-visible {
+    outline: 1px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  /* Text fields are the exception: the caret already says where focus is, and
+     a ring around a borderless field reads as a bug, not as feedback. */
+  input:focus-visible,
+  textarea:focus-visible {
+    outline: none;
+  }
+
+  input,
+  textarea {
+    @apply bg-transparent outline-none;
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: var(--ink-3);
+  }
+}
+
+@layer components {
+  /* Uppercase letterspaced mono — the app's label voice. Used by the date
+     header, every form label and every meta string. */
+  .label {
+    @apply font-mono text-[11px] font-medium tracking-[0.18em] uppercase;
+  }
+
+  /* Keyboard chip. Always paired with the action it triggers, never alone. */
+  .kbd {
+    @apply inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-[5px] px-[3px] font-mono text-[11px] leading-none text-ink-2;
+    background: rgba(255, 255, 255, 0.09);
+  }
+
+  /* Scrollable list that fades into its container instead of ending on a
+     hard edge (the agenda under the clock, the sidebar). */
+  .fade-y {
+    mask-image: linear-gradient(
+      to bottom,
+      transparent,
+      #000 10px,
+      #000 calc(100% - 22px),
+      transparent
+    );
+  }
+
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

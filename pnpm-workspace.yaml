@@ -1,0 +1,9 @@
+# pnpm settings live here as of pnpm 10+. pnpm blocks dependency build scripts
+# by default; `allowBuilds` whitelists the native deps that legitimately need
+# to compile/link platform binaries.
+allowBuilds:
+  esbuild: true
+  "@tailwindcss/oxide": true
+  lightningcss: true
+  sharp: true
+  workerd: true

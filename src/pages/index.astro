@@ -1,0 +1,16 @@
+---
+import Base from "@/layouts/Base.astro";
+import App from "@/components/react/App";
+---
+
+<Base
+  title="circal — a day is a circle"
+  description="A calendar that draws your day as a twenty-four hour dial. Noon at the top, midnight at the bottom, every event an arc."
+>
+  {
+    /* `client:only` on purpose: the island renders the current time and reads
+      localStorage, so any server-rendered markup would be wrong by the time it
+      hydrated. There is no static shell worth shipping for a live clock. */
+  }
+  <App client:only="react" />
+</Base>
