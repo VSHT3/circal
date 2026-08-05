@@ -6,7 +6,11 @@
 
 The `Clock` setting picks only what the face is _called_, never its geometry: `12h` puts noon at the top and labels `12 · 1…11` twice with AM/PM captions; `24h` puts midnight at the top and labels `00 · 1…23`. Switching is a 180° rotation plus a relabel, so an event's arc has the same length and sweep on either face. It also governs **every printed time** — readout, agenda, sidebar, palette, editor — so `splitTime` / `formatTime` / `formatTimeShort` all take a `Clock` and any surface that prints one must thread it.
 
-No backend. Events live in `localStorage` under `circal.v1`. Shipped as an assets-only Cloudflare Worker.
+No account, no sync, no server-side state. The user's events live in
+`localStorage` under `circal.v1`. Shipped as a Cloudflare Worker that serves
+static assets plus **exactly one route** — `/api/feed`, a CORS proxy for ICS
+subscriptions, because no calendar host sends CORS headers. If you find
+yourself adding a second route, stop: that is a different product.
 
 `README.md` covers the user-facing keyboard table and feature tour — this file covers the parts you need in order to _edit_ the code safely.
 
@@ -15,37 +19,47 @@ No backend. Events live in `localStorage` under `circal.v1`. Shipped as an asset
 ```
 src/pages/index.astro   static HTML shell
   └─ <App client:only="react" />        ← the ONLY island in the project
-       ├─ useStore()   → { events, calendars, settings }   (persisted)
-       ├─ useState ×5  → day, view, sidebarOpen, editor, paletteOpen
+       ├─ useStore()   → { events, calendars, feeds, settings }   (persisted)
+       ├─ useState ×5  → location{day,view}, sidebar, editor, palette, settings
        ├─ useNow()     → ticking Date, second-aligned
        └─ actions: ShellActions (one useMemo object)
-            ├─ TopBar / Sidebar / CommandPalette   receive `actions` whole
-            └─ Dial / EventEditor / YearView       receive narrow callbacks
+            ├─ TopBar / Sidebar / CommandPalette / Settings  receive `actions` whole
+            └─ Dial / EventEditor / YearView                 receive narrow callbacks
 ```
 
-- **`src/lib/` is the domain layer**, mostly pure. Dependency direction is one-way: `time.ts` (base, imports nothing) ← `dial.ts`, `events.ts` ← `store.ts`. Components import it via `@/lib/*` and never reimplement geometry or date maths locally.
-- **The store is the only source of truth for persisted data.** `App.tsx` holds _view_ state only (which day, which view, which overlay). Mutations go through `store.create/update/remove/toggleCalendar/setClock` — never `setState` a copy of an event.
-- **`dayAgenda(events, calendars, day, clock)`** is the single read path onto a day: it expands recurrence, clips to the day, and packs overlapping events onto concentric lanes. `Dial`, `CenterPanel` and `Sidebar` all render from its output.
+- **`src/lib/` is the domain layer**, mostly pure. Dependency direction is one-way: `time.ts` (base, imports nothing) ← `dial.ts`, `events.ts`, `sun.ts`, `ics.ts` ← `store.ts` ← `feeds.ts`, `backup.ts`. Components import it via `@/lib/*` and never reimplement geometry or date maths locally.
+- **The store is the only source of truth for persisted data.** `App.tsx` holds _view_ state only. Mutations go through `store.*` — never `setState` a copy of an event. Settings-only mutations (`setSecondZone`, `setPlace`, `addFeed`, `removeCalendar`) are called straight from `Settings.tsx` rather than routed through `ShellActions`, because the shell has nothing to update for them.
+- **Two event lists.** `snapshot.events` is what the user wrote; `snapshot.feeds[calendarId]` is what a subscription mirrored. `App.tsx` concatenates them into `visible` for rendering, and _only_ that. Nothing writes to `feeds` except `lib/feeds.ts`, nothing exports it, and an event whose calendar has a `feed` opens read-only.
+- **`dayAgenda(events, calendars, day)`** is the single read path onto a day: it expands recurrence, clips to the day, and packs overlapping events onto concentric lanes. `Dial`, `CenterPanel` and `Sidebar` all render from its output.
 - **Units.** Everything inside the dial is _minutes since local midnight_ (`0…1440`). `CalEvent.start`/`end` are **epoch milliseconds**, and `end` is **exclusive**. Nothing downstream of `dayAgenda` reasons about a `Date`.
+- **The day and view are the URL.** `?d=YYYY-MM-DD&v=year`, written through `go()` in `App.tsx`: `push` for a deliberate jump, `replace` for arrow stepping. `go` reads the current location from a ref, not from its render closure — two `go` calls in one tick would otherwise clobber each other.
 
 ## Key Directories
 
-| Path                                     | Purpose                                                                                                                   |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `src/lib/dial.ts`                        | Polar geometry: the `DIAL` radius table, `angleAt` / `polar` / `arcPath` / `minutesAtPoint` / `capInset`                  |
-| `src/lib/time.ts`                        | The `Clock` type, day arithmetic, and the app's formatting voice (`formatTime`, `formatDuration`, `parseClock`, `dayKey`) |
-| `src/lib/events.ts`                      | `CalEvent` / `Calendar` / `Occurrence`, recurrence expansion, `packLanes`, `dayAgenda`                                    |
-| `src/lib/store.ts`                       | `useSyncExternalStore` over `localStorage`, `draftEvent`, seed data, the `SCHEMA` version                                 |
-| `src/components/react/`                  | The island. `App.tsx` shell, `Dial.tsx` instrument, panels                                                                |
-| `src/components/react/ui/primitives.tsx` | The six shared controls all chrome is built from                                                                          |
-| `src/components/react/types.ts`          | **Every panel prop interface.** Edit shapes here                                                                          |
-| `src/styles/global.css`                  | Design tokens, `@theme inline` colour mappings, five component classes                                                    |
+| Path                                     | Purpose                                                                                                                      |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `src/lib/dial.ts`                        | Polar geometry: the `DIAL` radius table, `angleAt` / `polar` / `arcPath` / `minutesAtPoint` / `capInset`                     |
+| `src/lib/time.ts`                        | The `Clock` type, day arithmetic, the formatting voice (`formatTime`, `parseClock`, `dayKey`), and zone maths (`zonedToUtc`) |
+| `src/lib/events.ts`                      | `CalEvent` / `Calendar` / `Occurrence`, recurrence expansion, `packLanes`, `dayAgenda`, `freeGaps`                           |
+| `src/lib/sun.ts`                         | `Place`, `sunTimes` — NOAA solar position, in minutes since local midnight                                                   |
+| `src/lib/ics.ts`                         | `toIcs` / `fromIcs`. RFC 5545, hand-rolled, no dependency                                                                    |
+| `src/lib/store.ts`                       | `useSyncExternalStore` over `localStorage`, `draftEvent`, seed data, undo history, the `SCHEMA` version                      |
+| `src/lib/feeds.ts`                       | Subscription pulls, through `/api/feed` then direct                                                                          |
+| `src/lib/backup.ts`                      | Export/import, and the only place that validates external input                                                              |
+| `src/lib/notify.ts`                      | The toast channel. Its own store on purpose — a four-second message is not persisted state                                   |
+| `worker/index.ts`                        | Assets + the `/api/feed` proxy and its SSRF guards                                                                           |
+| `public/sw.js`                           | Offline cache. Runtime-only: Astro content-hashes filenames, so there is nothing to precache                                 |
+| `src/components/react/`                  | The island. `App.tsx` shell, `Dial.tsx` instrument, panels                                                                   |
+| `src/components/react/ui/primitives.tsx` | The seven shared controls all chrome is built from                                                                           |
+| `src/components/react/types.ts`          | **Every panel prop interface.** Edit shapes here                                                                             |
+| `src/styles/global.css`                  | Design tokens, `@theme inline` colour mappings, five component classes                                                       |
 
 ## Development Commands
 
 ```sh
 pnpm install
-pnpm dev        # astro dev — http://localhost:4321
+pnpm dev        # astro dev — http://localhost:4321. NO /api/feed here
+pnpm dev:worker # astro build && wrangler dev — the only way to exercise /api/feed
 pnpm verify     # THE gate: format:check && lint && check && build
 pnpm format     # prettier --write . (run this, never hand-format)
 pnpm deploy     # astro build && wrangler deploy
@@ -93,9 +107,9 @@ same breath cannot be reverted, bisected or reviewed.
 
 `fill-*` and `stroke-*` variants exist too and are used in SVG. Component classes: `.label` (uppercase 11px mono, the app's label voice), `.kbd`, `.fade-y` (mask both ends of a scroll area), `.fade-b` (bottom only, proportional — for a short list whose first row must stay crisp), `.no-scrollbar` — pair a fade with `.no-scrollbar` on every scroll region, and apply the fade **only when the list actually overflows**; a permanent fade on a list that fits reads as a rendering fault. Chrome is greyscale by rule: **colour belongs to events**. Never read `calendar.color` or `event.color` directly — call `colorOf(event, calendars)`, which resolves the event's own override first and falls back to its calendar. The presets live in `PALETTE` (`src/lib/events.ts`): ten digital pastels, high value and moderate saturation so two can share a dial at a 14-unit stroke.
 
-**New chrome must reuse `ui/primitives.tsx`** — `Kbd`, `IconButton`, `ActionPill`, `Segmented`, `Switch`, `Select`. Do not hand-roll a button.
+**New chrome must reuse `ui/primitives.tsx`** — `Kbd`, `FieldRow`, `IconButton`, `ActionPill`, `Segmented`, `Switch`, `Select`. Do not hand-roll a button. `FieldRow` is the modal row grid shared by the event editor and the settings panel; two modals with two row grids is two products.
 
-**State sync — hard convention.** `react-hooks/set-state-in-effect` is active and will reject an effect that copies props into state. When new props must reset local state, use React's render-phase adjustment pattern (four existing sites: `Sidebar.tsx:37`, `EventEditor.tsx:134` and `:82`, `CommandPalette.tsx:152`):
+**State sync — hard convention.** `react-hooks/set-state-in-effect` is active and will reject an effect that copies props into state. When new props must reset local state, use React's render-phase adjustment pattern (four existing sites: `Sidebar.tsx:41`, `EventEditor.tsx:201`, `CommandPalette.tsx:201`, `Settings.tsx:62`):
 
 ```tsx
 const [seeded, setSeeded] = useState(day);
@@ -107,7 +121,7 @@ if (seeded !== day) {
 
 **Effects are for external systems only** — `window` listeners, `ResizeObserver`, timers.
 
-**Hotkeys** — `useHotkeys({ "mod+k": fn })`. Combo format is optional `mod+` (⌘ or Ctrl), optional `shift+`, then the lowercased `e.key` (`k`, `escape`, `arrowleft`, `t`). Handlers are skipped while the user is typing in an input unless the combo carries `mod` or is `Escape`.
+**Hotkeys** — `useHotkeys({ "mod+k": fn })`. Combo format is optional `mod+` (⌘ or Ctrl), optional `shift+`, then the lowercased `e.key` (`k`, `escape`, `arrowleft`, `t`). `shift+` is part of the combo whenever Shift is held, printable keys included — without it `⇧⌘Z` and `⌘Z` are the same string and redo becomes undo. Handlers are skipped while the user is typing in an input unless the combo carries `mod` or is `Escape`.
 
 **TypeScript** — `strict`, no `any`. Prefix intentionally unused bindings with `_`.
 
@@ -118,12 +132,12 @@ if (seeded !== day) {
 | File                            | Why it matters                                                                                                                                      |
 | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `src/pages/index.astro`         | The only route. Mounts `<App client:only="react" />` — `client:only` because a live clock plus `localStorage` makes any SSR markup wrong on hydrate |
-| `src/components/react/App.tsx`  | Island root; owns view state, builds `actions`, registers the nine global hotkeys                                                                   |
-| `src/components/react/Dial.tsx` | The instrument. Draw order: elapsed ring → ticks → numerals → drag annulus → event arcs → ghost arc → now-hand                                      |
+| `src/components/react/App.tsx`  | Island root; owns view state and the URL, builds `actions`, registers the global hotkeys                                                            |
+| `src/components/react/Dial.tsx` | The instrument. Draw order: glow → daylight band → zone ring → elapsed ring → ticks → numerals → drag annulus → event arcs → ghost arc → now-hand   |
 | `src/components/react/types.ts` | All panel prop contracts (`DialProps` and `CenterPanelProps` are the two deliberate exceptions, declared locally)                                   |
 | `astro.config.mjs`              | `devToolbar: false` (it floats over the dial), `trailingSlash: "always"`                                                                            |
 | `eslint.config.js`              | Flat config; `jsx-a11y/no-autofocus` is off for exactly `CommandPalette.tsx` and `EventEditor.tsx` (modals must take focus)                         |
-| `wrangler.jsonc`                | Assets-only Worker — deliberately no `main`                                                                                                         |
+| `wrangler.jsonc`                | `main` + `assets.binding` — the Worker exists for `/api/feed` and nothing else                                                                      |
 
 ## Runtime/Tooling Preferences
 
@@ -142,6 +156,7 @@ The honest verification path is:
 
 1. `pnpm verify` — proves it formats, lints, typechecks and builds. It proves nothing about behaviour.
 2. **Drive the change in a browser.** `pnpm dev`, then exercise the specific path: create an event, drag the ring, open ⌘K, switch the dial mode, step days. The dial is a visual instrument; a screenshot of the changed state is the proof.
+3. **Anything touching `/api/feed`, the service worker or the manifest needs `pnpm dev:worker`.** `astro dev` serves neither the Worker route nor a PROD build, so a subscription cannot be added and the service worker never registers.
 
 If you add a test framework, wire it into `verify` in `package.json` so the gate stays single.
 
@@ -155,8 +170,14 @@ If you add a test framework, wire it into `verify` in `package.json` so the gate
 - **Lane packing is face-independent.** `dayAgenda` takes no `Clock`: both faces put one day on one revolution, so two events collide on screen exactly when they collide in time.
 - **`CalEvent.color` is an override, not the colour.** Empty string means "follow the calendar" and is the default every event should stay on, so recolouring a calendar still moves them. Only `colorOf` knows the precedence.
 - **`Settings` is schema-versioned.** `SCHEMA` in `src/lib/store.ts` is bumped when a stored value changes _meaning_ rather than shape (it went to `2` when `clock: "24h"` stopped meaning the noon-at-top face). A stale schema resets settings to defaults and keeps events.
-- **Store hydration is lazy, at first `subscribe`**, not module scope; `load()` and `commit()` swallow `localStorage` errors on purpose (private mode / quota must not brick the app).
+- **Store hydration is lazy, at first `subscribe`**, not module scope; `load()` and `write()` swallow `localStorage` errors on purpose (private mode / quota must not brick the app) — but `write()` also calls `notify(…, "error")`, because a silent failed save is indistinguishable from a successful one and that is how a day's events disappear.
+- **Every action derives from `fresh()`, never from the module's `snapshot`.** `fresh()` re-reads the blob when another tab has written since we last looked. Deriving from the in-memory snapshot loses the other tab's events wholesale in the window before its `storage` event arrives.
+- **Undo is in-memory and session-scoped**, and it is cleared on an inbound `storage` event: undoing onto a base another tab has moved past would resurrect what it just deleted. `commit(next, false)` opts a change out of the history — settings and feed pulls do.
 - **`seed()` only runs when no stored blob exists** and anchors on today's local midnight.
 - **`<input type="time">` is banned here** — it renders in the _browser's_ UI locale, not the app's. Use the `TimeField` in `EventEditor.tsx`, backed by `parseClock` (accepts `10:45 AM`, `10:45am`, `1045`, `9p`, `13:00`).
 - **No `backdrop-filter` on an element that also carries `.fade-y`** — Chromium paints the blur over a box far larger than the element, appearing as a grey rectangle mid-dial (see the comment in `CenterPanel.tsx`).
-- **Dead code, safe to delete**: `fromDayKey` in `src/lib/time.ts` and `store.recolorCalendar` in `src/lib/store.ts` have no callers.
+- **The daylight band is the one sanctioned break in "chrome is greyscale".** It is data about the day, not chrome, and it is warm-but-desaturated for that reason. It uses the same opaque-segment technique as the elapsed ring, for the same alpha-compounding reason.
+- **`DIAL.ZONE` (437) is against the ceiling.** `PAD` leaves 456 units of radius; a 15-unit numeral centred on `ZONE` reaches 445. Anything further out gets cropped by the viewBox — move `PAD` before you move `ZONE`.
+- **The zone ring is measured against the viewer, never against UTC.** `delta = zoneOffset(now, zone) + now.getTimezoneOffset()` — the caption reads `Tokyo +7`, because you are the origin of this dial and "GMT+9" makes the reader do the subtraction. It is also the only form that stays right in the weeks when one of the two zones has changed for DST and the other has not.
+- **Read-only events are a `disabled` fieldset**, not a prop threaded through every control. It cascades to the swatch buttons and the `Select`s nested two components deep, which nothing else would reach. The title input sits outside it and carries its own `disabled`.
+- **`sun.ts` returns minutes since local midnight and does not clip.** A place far from the viewer legitimately produces a negative sunrise or a sunset past 1440; `Dial.tsx` samples inside `[0, 1440]` and lets the rest fall off the face.
