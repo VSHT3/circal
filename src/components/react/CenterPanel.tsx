@@ -34,6 +34,11 @@ export interface CenterPanelProps {
   onOpen: (occ: Occurrence) => void;
 }
 
+/** Height of one agenda row, in SVG user units. The card is sized in these. */
+const ROW_H = 18;
+/** Rows the card shows before it scrolls. */
+const VISIBLE_ROWS = 3;
+
 export default function CenterPanel({
   day,
   now,
@@ -73,26 +78,31 @@ export default function CenterPanel({
 
   return (
     <div className="pointer-events-none absolute inset-0">
-      {/* The readout is the hub: dead centre, with the now-hand passing under
-          it. The shadow is what keeps the digits legible where they cross. */}
+      {/* The readout is the hub, and the largest thing on the face: dead
+          centre, nothing crossing it. The shadow only separates it from the
+          dial's glow. */}
       <div
         className="absolute top-1/2 left-1/2 flex items-baseline whitespace-nowrap"
         style={{
           transform: "translate(-50%, -50%)",
-          gap: `${7 * u}px`,
-          textShadow: `0 0 ${14 * u}px #000, 0 0 ${5 * u}px #000`,
+          gap: `${8 * u}px`,
+          textShadow: `0 0 ${16 * u}px #000`,
         }}
       >
         <span
           className="font-medium text-ink"
-          style={{ fontSize: `${drag ? 26 * u : 40 * u}px`, letterSpacing: "-0.02em" }}
+          style={{
+            fontSize: `${drag ? 32 * u : 54 * u}px`,
+            letterSpacing: "-0.03em",
+            fontVariantNumeric: "tabular-nums",
+          }}
         >
           {value}
         </span>
         {suffix && (
           <span
             className="font-medium text-ink-2"
-            style={{ fontSize: `${drag ? 16 * u : 21 * u}px` }}
+            style={{ fontSize: `${drag ? 18 * u : 26 * u}px` }}
           >
             {suffix}
           </span>
@@ -101,18 +111,25 @@ export default function CenterPanel({
 
       {rows.length > 0 && !drag && (
         <div
-          className="fade-y no-scrollbar pointer-events-auto absolute top-1/2 left-1/2 overflow-y-auto"
+          className={cn(
+            "no-scrollbar pointer-events-auto absolute top-1/2 left-1/2 overflow-y-auto",
+            // Only when there is something below to scroll to. A permanent
+            // fade dims the last row of a list that already fits, which reads
+            // as a rendering fault rather than as "there is more".
+            rows.length > VISIBLE_ROWS && "fade-b",
+          )}
           style={{
-            // Clears the readout, which now owns the centre.
-            transform: `translate(-50%, ${46 * u}px)`,
-            width: `${212 * u}px`,
-            maxHeight: `${52 * u}px`,
-            borderRadius: `${11 * u}px`,
+            // Clears the readout, which owns the centre.
+            transform: `translate(-50%, ${56 * u}px)`,
+            width: `${226 * u}px`,
+            maxHeight: `${(ROW_H * VISIBLE_ROWS + 8) * u}px`,
             padding: `${4 * u}px`,
-            // No backdrop-filter here: combined with `.fade-y`'s mask Chromium
-            // paints the blurred backdrop over a box far larger than the card,
-            // which shows up as a grey rectangle in the middle of the dial.
-            background: "rgba(17,17,19,0.92)",
+            // A pool of darkness, not a card: the slab's edges were the
+            // hardest line inside the dial, and the ring is supposed to be
+            // the only edge on the face. No backdrop-filter — combined with a
+            // mask Chromium paints the blurred backdrop far outside the box.
+            background:
+              "radial-gradient(closest-side, rgba(0,0,0,0.94), rgba(0,0,0,0.82) 62%, transparent)",
           }}
         >
           {rows.map((occ) => {
@@ -133,7 +150,7 @@ export default function CenterPanel({
                   today && status === "past" && "opacity-45",
                 )}
                 style={{
-                  height: `${18 * u}px`,
+                  height: `${ROW_H * u}px`,
                   gap: `${6 * u}px`,
                   paddingInline: `${6 * u}px`,
                 }}

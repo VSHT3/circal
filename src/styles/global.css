@@ -133,6 +133,13 @@
     );
   }
 
+  /* Bottom-only variant, for a short list whose top row must stay crisp.
+     Proportional, so it scales with the dial rather than eating a fixed
+     22px of a row that may be 14px tall. */
+  .fade-b {
+    mask-image: linear-gradient(to bottom, #000 64%, transparent);
+  }
+
   .no-scrollbar {
     scrollbar-width: none;
   }
