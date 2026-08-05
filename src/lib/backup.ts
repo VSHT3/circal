@@ -14,7 +14,7 @@
 
 import { fromIcs, toIcs } from "./ics";
 import { placeForZone } from "./places";
-import { store, type Settings, type Snapshot } from "./store";
+import { DEFAULT_SETTINGS, store, type Settings, type Snapshot } from "./store";
 import { notify } from "./notify";
 import { dayKey } from "./time";
 import { isRecord } from "./utils";
@@ -77,15 +77,19 @@ export function exportBackup(snapshot: Snapshot) {
 /* --------------------------------- import --------------------------------- */
 
 function readSettings(value: unknown): Settings {
-  const fallback: Settings = { clock: "12h", secondZone: "", place: null };
-  if (!isRecord(value)) return fallback;
+  if (!isRecord(value)) return DEFAULT_SETTINGS;
   const place = value.place;
   return {
     clock: value.clock === "24h" ? "24h" : "12h",
     secondZone: typeof value.secondZone === "string" ? value.secondZone : "",
+    // The three dial switches read absent-as-on: a backup written before they
+    // existed came from a dial that was showing all three.
+    showZoneName: value.showZoneName !== false,
+    showZoneOffset: value.showZoneOffset !== false,
     // Re-derived from the zone rather than trusted: a backup carries a name we
     // can look up, and the table is the authority on where that place is.
     place: isRecord(place) && typeof place.zone === "string" ? placeForZone(place.zone) : null,
+    night: value.night !== false,
   };
 }
 

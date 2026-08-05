@@ -264,7 +264,10 @@ export default function App() {
                 occurrences={agenda.all}
                 calendars={calendars}
                 place={settings.place}
+                night={settings.night}
                 secondZone={settings.secondZone}
+                showZoneName={settings.showZoneName}
+                showZoneOffset={settings.showZoneOffset}
                 clock={settings.clock}
                 onOpen={openOccurrence}
                 onCreate={(startMin, endMin) => openDraft(startMin, endMin, day)}
@@ -302,7 +305,10 @@ export default function App() {
         onClose={() => setSettingsOpen(false)}
         clock={settings.clock}
         secondZone={settings.secondZone}
+        showZoneName={settings.showZoneName}
+        showZoneOffset={settings.showZoneOffset}
         place={settings.place}
+        night={settings.night}
         calendars={calendars}
         actions={actions}
       />

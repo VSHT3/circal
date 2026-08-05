@@ -22,7 +22,7 @@ import { allZones, atMinutes, formatTimeShort, startOfDay, zoneLabel } from "@/l
 import { cn } from "@/lib/utils";
 import type { Calendar } from "@/lib/events";
 import type { SettingsPanelProps } from "@/components/react/types";
-import { FieldRow, IconButton, Segmented, Select } from "@/components/react/ui/primitives";
+import { FieldRow, IconButton, Segmented, Select, Toggle } from "@/components/react/ui/primitives";
 
 const EASE = [0.32, 0.72, 0, 1] as const;
 
@@ -53,7 +53,10 @@ export default function Settings({
   onClose,
   clock,
   secondZone,
+  showZoneName,
+  showZoneOffset,
   place,
+  night,
   calendars,
   actions,
 }: SettingsPanelProps) {
@@ -122,7 +125,7 @@ export default function Settings({
                 />
               </FieldRow>
 
-              <FieldRow label="2nd ring">
+              <FieldRow label="2nd ring" align={secondZone ? "top" : "center"}>
                 <Select
                   value={secondZone}
                   onChange={store.setSecondZone}
@@ -130,6 +133,20 @@ export default function Settings({
                   className="flex-1"
                   options={ZONE_OPTIONS}
                 />
+                {secondZone && (
+                  <div className="flex items-center gap-4">
+                    <Toggle
+                      label="City name"
+                      checked={showZoneName}
+                      onChange={(on) => store.setDialToggle("showZoneName", on)}
+                    />
+                    <Toggle
+                      label="Offset"
+                      checked={showZoneOffset}
+                      onChange={(on) => store.setDialToggle("showZoneOffset", on)}
+                    />
+                  </div>
+                )}
               </FieldRow>
 
               <FieldRow label="Daylight" align="top">
@@ -140,9 +157,16 @@ export default function Settings({
                   className="flex-1"
                   options={DAYLIGHT_OPTIONS}
                 />
+                {place && (
+                  <Toggle
+                    label="Night too"
+                    checked={night}
+                    onChange={(on) => store.setDialToggle("night", on)}
+                  />
+                )}
                 <span className="label text-ink-3">
                   {!place
-                    ? "Shades the rim with today's sunrise and sunset"
+                    ? "Puts the day's light on the ring, in place of the elapsed trail"
                     : sun?.polar === "day"
                       ? "Midnight sun"
                       : sun?.polar === "night"

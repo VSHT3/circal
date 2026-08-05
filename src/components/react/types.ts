@@ -98,7 +98,10 @@ export interface SettingsPanelProps {
   clock: Clock;
   /** `""` = the dial's second ring is off. */
   secondZone: string;
+  showZoneName: boolean;
+  showZoneOffset: boolean;
   place: PickedPlace | null;
+  night: boolean;
   calendars: Calendar[];
   actions: ShellActions;
 }

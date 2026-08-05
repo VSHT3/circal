@@ -42,8 +42,13 @@ export interface Settings {
   clock: Clock;
   /** IANA zone for the dial's second ring. `""` = the ring is off. */
   secondZone: string;
+  /** Whether that ring is captioned with the city, the offset, both, neither. */
+  showZoneName: boolean;
+  showZoneOffset: boolean;
   /** Where the sun is computed for, chosen by city. `null` = no daylight band. */
   place: PickedPlace | null;
+  /** Draw the hours the sun is down, in violet, alongside the daylight. */
+  night: boolean;
 }
 
 export interface Snapshot {
@@ -60,7 +65,17 @@ export interface Snapshot {
   settings: Settings;
 }
 
-const DEFAULT_SETTINGS: Settings = { clock: "12h", secondZone: "", place: null };
+export const DEFAULT_SETTINGS: Settings = {
+  clock: "12h",
+  secondZone: "",
+  showZoneName: true,
+  showZoneOffset: true,
+  place: null,
+  // On, because the daylight band now *is* the track: with night off the ring
+  // simply stops at dusk, and an incomplete ring reads as a rendering fault
+  // rather than as a choice.
+  night: true,
+};
 
 const DEFAULT_CALENDARS: Calendar[] = [
   { id: "personal", name: "Personal", color: PALETTE[0], visible: true },
@@ -325,6 +340,12 @@ export const store = {
   setPlace(place: PickedPlace | null) {
     const base = fresh();
     commit({ ...base, settings: { ...base.settings, place } }, false);
+  },
+
+  /** The three independent dial annotations, each its own switch. */
+  setDialToggle(key: "showZoneName" | "showZoneOffset" | "night", on: boolean) {
+    const base = fresh();
+    commit({ ...base, settings: { ...base.settings, [key]: on } }, false);
   },
 
   /* ----------------------------- subscriptions ---------------------------- */

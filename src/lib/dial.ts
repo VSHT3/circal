@@ -61,19 +61,16 @@ export const DIAL = {
   HAND_PIP: 3.6,
 
   /**
-   * Daylight band — outside the track, because it is the day's light rather
-   * than the day's schedule. Sunrise, civil twilight and sunset are drawn on
-   * it as a ramp; night is simply not drawn, the canvas already being black.
-   */
-  SUN: 414,
-  SUN_WIDTH: 7,
-
-  /**
    * Ring the second timezone's quarter-hours are named on. The outermost
    * thing on the face, and still inside the cropped viewBox: `PAD` leaves
-   * 456 units of radius, and a 15-unit numeral centred here reaches 445.
+   * 456 units of radius, and a 15-unit numeral centred here reaches 432.
+   *
+   * There is no separate radius for the daylight band. It is drawn *on* the
+   * track, at the track's own width — two concentric rings a few units apart
+   * read as one line that has been doubled by mistake, and the day's light
+   * and the day's progress are the same ring's worth of information anyway.
    */
-  ZONE: 437,
+  ZONE: 424,
 } as const;
 
 /** Side of the cropped viewBox, in user units — the overlay's scale basis. */

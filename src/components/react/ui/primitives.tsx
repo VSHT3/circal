@@ -178,6 +178,29 @@ export function Switch({
 }
 
 /**
+ * A `Switch` that says what it switches. The editor's rows carry their label
+ * in the grid's left column, but settings that sit two or three to a row need
+ * to name themselves — and a small one, because these annotate a control
+ * that already has a `FieldRow` label above them.
+ */
+export function Toggle({
+  label,
+  checked,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (next: boolean) => void;
+}) {
+  return (
+    <span className="flex items-center gap-2">
+      <Switch checked={checked} onChange={onChange} label={label} />
+      <span className={cn("label", checked ? "text-ink-2" : "text-ink-3")}>{label}</span>
+    </span>
+  );
+}
+
+/**
  * A native `<select>` under a styled face. Hand-rolled listboxes lose
  * type-ahead, mobile wheels and screen-reader semantics; this keeps all three
  * and still renders as a value plus the app's chevron button.
