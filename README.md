@@ -66,8 +66,15 @@ ringed in red. Both live in **Settings** afterwards.
 The strip above the field counts: days lived, days left, and how much of the
 whole is spent to six decimals, which is enough to watch it move. Hover a dot
 for its date, how far off it is and what is on it; click one to open that day
-on the dial. Arriving from the day view, the dial's own rim shrinks onto
-today's dot — the same circle, two hundred times further away.
+on the dial.
+
+Between the dial and the grid it is a zoom, not a cut. Going out, the dial —
+arcs, hand and all — shrinks until it is the single dot standing for the day
+you were looking at, and the field arrives as a wave leaving that same dot,
+the days lighting up as it passes. Coming back, the wave collapses onto the
+day you clicked and the dial grows out of it. Only that pair zooms: the year
+grid is not a magnified anything, so it crossfades, and with **reduce motion**
+set nothing moves at all.
 
 ## Your data
 
