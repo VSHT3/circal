@@ -17,6 +17,11 @@ export interface Env {
 const MAX_FEED_BYTES = 5 * 1024 * 1024;
 const UPSTREAM_TIMEOUT_MS = 10_000;
 
+/** Enough for the `http:`→`https:`→`www.`→CDN chains real calendar hosts use,
+ *  and short enough that a redirect loop costs four round trips, not sixty. */
+const MAX_REDIRECTS = 5;
+const REDIRECT_STATUS = new Set([301, 302, 303, 307, 308]);
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -58,12 +63,9 @@ async function proxyFeed(requestUrl: URL, method: string): Promise<Response> {
 
   let upstream: Response;
   try {
-    upstream = await fetch(target.toString(), {
-      method,
-      headers: { accept: "text/calendar, text/plain;q=0.9, */*;q=0.1" },
-      signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
-    });
+    upstream = await followChecked(target, method);
   } catch (err) {
+    if (err instanceof BlockedHop) return new Response(err.message, { status: 400 });
     const timedOut = err instanceof Error && err.name === "TimeoutError";
     return new Response(timedOut ? "Upstream feed timed out" : "Failed to reach upstream feed", {
       status: timedOut ? 504 : 502,
@@ -90,6 +92,60 @@ async function proxyFeed(requestUrl: URL, method: string): Promise<Response> {
       "cache-control": "public, max-age=300",
     },
   });
+}
+
+/** A hop the guard refused. Distinguished from a network failure because the
+ *  two want different statuses: this is the caller's URL leading somewhere it
+ *  may not go (400), not the upstream being unreachable (502). */
+class BlockedHop extends Error {}
+
+/**
+ * Fetch, following redirects *by hand* so every hop goes through the guard.
+ *
+ * Validating only the URL the user supplied is not a guard at all: an
+ * allowlisted, entirely public host can answer `302 Location:
+ * http://169.254.169.254/latest/meta-data/`, and with the default redirect
+ * mode `fetch` follows it, buffers it, and this Worker hands it back with
+ * `access-control-allow-origin: *`. So the mode is `manual` and each `Location`
+ * is resolved, re-parsed and re-checked before it is followed.
+ *
+ * The timeout is one budget across the whole chain rather than per hop —
+ * otherwise ten redirects legitimately take ten times as long as one.
+ */
+async function followChecked(start: URL, method: string): Promise<Response> {
+  const deadline = AbortSignal.timeout(UPSTREAM_TIMEOUT_MS);
+  let target = start;
+
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    const response = await fetch(target.toString(), {
+      method,
+      headers: { accept: "text/calendar, text/plain;q=0.9, */*;q=0.1" },
+      redirect: "manual",
+      signal: deadline,
+    });
+
+    if (!REDIRECT_STATUS.has(response.status)) return response;
+
+    const location = response.headers.get("location");
+    if (!location) return response;
+
+    // Relative to the hop that sent it, which is what `Location` means.
+    let next: URL;
+    try {
+      next = new URL(location, target);
+    } catch {
+      throw new BlockedHop("Feed redirected to an unparseable address");
+    }
+    if (next.protocol !== "http:" && next.protocol !== "https:") {
+      throw new BlockedHop("Feed redirected to an unsupported protocol");
+    }
+    const blocked = ssrfBlockReason(next.hostname);
+    if (blocked) throw new BlockedHop(`Feed redirected to a blocked address — ${blocked}`);
+
+    target = next;
+  }
+
+  throw new BlockedHop("Feed redirected too many times");
 }
 
 /** Buffers the upstream body chunk by chunk instead of trusting
@@ -128,11 +184,22 @@ async function readCapped(
  * The SSRF guard. Blocks the loopback/private/link-local address space so
  * a feed URL can't be used to probe the Worker's own network — `localhost`
  * and the `.localhost`/`.internal` TLDs by name, and literal IPv4/IPv6
- * addresses in the reserved ranges. DNS rebinding (a public hostname that
- * later resolves to a private address) is out of reach here: `fetch`
- * resolves the name itself and this Worker never sees the resolved IP.
+ * addresses in the reserved ranges.
+ *
+ * "Literal" is the part that takes work: `127.0.0.1`, `2130706433`,
+ * `0177.0.0.1`, `0x7f000001`, `127.1` and `::ffff:127.0.0.1` are one address
+ * in six spellings, and a guard that only reads dotted decimal blocks the
+ * spelling. `ipv4Number` normalises all of them before anything is compared.
+ *
+ * Redirects are handled by `followChecked`, which re-runs this on every hop —
+ * validating only the URL the user typed would let an allowlisted host `302`
+ * straight into the metadata endpoint.
+ *
+ * DNS rebinding (a public hostname that later resolves to a private address)
+ * is out of reach here: `fetch` resolves the name itself and this Worker
+ * never sees the resolved IP.
  */
-function ssrfBlockReason(hostname: string): string | null {
+export function ssrfBlockReason(hostname: string): string | null {
   const host = hostname.toLowerCase();
   if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".internal")) {
     return "Refusing to fetch a local hostname";
@@ -143,22 +210,86 @@ function ssrfBlockReason(hostname: string): string | null {
   return null;
 }
 
+/**
+ * An IPv4 literal in any form a resolver will accept, as a 32-bit number.
+ *
+ * Dotted-quad is only the form people write. `inet_aton`, and every stack
+ * downstream of it, also takes a bare 32-bit integer (`2130706433`), octal
+ * octets (`0177.0.0.1`), hex (`0x7f000001`, `0x7f.0.0.1`) and short forms
+ * with fewer than four parts (`127.1` — the last part carries the remaining
+ * bytes). All of those are `127.0.0.1`, and a guard that only understands
+ * dotted decimal blocks the spelling rather than the address.
+ *
+ * `null` when this is not an IPv4 literal at all, which is the common case:
+ * a hostname to be resolved by name.
+ */
+function ipv4Number(host: string): number | null {
+  const parts = host.split(".");
+  if (parts.length > 4) return null;
+
+  const values: number[] = [];
+  for (const part of parts) {
+    if (part === "") return null;
+    let value: number;
+    if (/^0[xX][0-9a-fA-F]+$/.test(part)) value = parseInt(part.slice(2), 16);
+    else if (/^0[0-7]+$/.test(part)) value = parseInt(part.slice(1), 8);
+    else if (/^\d+$/.test(part)) value = Number(part);
+    else return null;
+    if (!Number.isSafeInteger(value) || value < 0) return null;
+    values.push(value);
+  }
+
+  // Every part but the last is one octet; the last spreads over whatever
+  // bytes are left, which is what makes `127.1` loopback.
+  const last = values.pop();
+  if (last === undefined) return null;
+  const spread = 4 - values.length;
+  if (last >= 2 ** (8 * spread)) return null;
+  if (values.some((v) => v > 255)) return null;
+
+  let n = 0;
+  for (const v of values) n = n * 256 + v;
+  return n * 2 ** (8 * spread) + last;
+}
+
 function isPrivateIpv4(host: string): boolean {
-  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
-  if (!m) return false;
-  const [a, b] = m.slice(1, 3).map(Number);
-  if (a > 255 || b > 255) return false;
+  const n = ipv4Number(host);
+  if (n === null) return false;
+  const a = (n >>> 24) & 255;
+  const b = (n >>> 16) & 255;
   return (
+    a === 0 || // 0.0.0.0/8 — "this network", and 0.0.0.0 is loopback on Linux
     a === 127 || // 127.0.0.0/8 — loopback
     a === 10 || // 10.0.0.0/8 — private
     (a === 172 && b >= 16 && b <= 31) || // 172.16.0.0/12 — private
     (a === 192 && b === 168) || // 192.168.0.0/16 — private
-    (a === 169 && b === 254) // 169.254.0.0/16 — link-local
+    (a === 169 && b === 254) || // 169.254.0.0/16 — link-local, and the
+    // cloud metadata endpoint that makes this whole function load-bearing
+    (a === 100 && b >= 64 && b <= 127) || // 100.64.0.0/10 — carrier NAT
+    a >= 224 // 224.0.0.0/4 multicast, 240.0.0.0/4 reserved
   );
 }
 
 function isPrivateIpv6(host: string): boolean {
-  if (host === "::1") return true; // loopback
+  if (host === "::1" || host === "::") return true; // loopback, unspecified
+
+  // An IPv4-mapped or -compatible address is an IPv4 address wearing a v6
+  // hat — `::ffff:127.0.0.1` and `::ffff:7f00:1` are both loopback, and the
+  // second spells the same octets as two hex groups.
+  const mapped = /^::(?:ffff:)?(?:0:)?([0-9a-f.:]+)$/i.exec(host);
+  if (mapped) {
+    const tail = mapped[1];
+    if (tail.includes(".")) {
+      if (isPrivateIpv4(tail)) return true;
+    } else {
+      const groups = tail.split(":");
+      if (groups.length === 2 && groups.every((g) => /^[0-9a-f]{1,4}$/i.test(g))) {
+        const n = (parseInt(groups[0], 16) << 16) | parseInt(groups[1], 16);
+        if (isPrivateIpv4([24, 16, 8, 0].map((s) => (n >>> s) & 255).join("."))) return true;
+      }
+    }
+  }
+
   const firstGroup = host.split(":")[0];
   // fc00::/7 (unique local) and fe80::/10 (link-local) both resolve to a
   // fixed prefix within the *first* 16-bit group, so a full-width group
