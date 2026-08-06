@@ -85,24 +85,27 @@ function relativeAge(at: number): string {
 export default function Settings({
   open,
   onClose,
-  clock,
-  secondZone,
-  showZoneName,
-  showZoneOffset,
-  zoneDaylight,
-  zoneMoonlight,
-  place,
-  daylight,
-  moonlight,
-  totals,
-  totalsAt,
-  tickSound,
-  tickHaptics,
-  birth,
-  lifeExpectancy,
+  settings,
   calendars,
   actions,
 }: SettingsPanelProps) {
+  const {
+    clock,
+    secondZone,
+    showZoneName,
+    showZoneOffset,
+    zoneDaylight,
+    zoneMoonlight,
+    place,
+    daylight,
+    moonlight,
+    totals,
+    totalsAt,
+    tickSound,
+    tickHaptics,
+    birth,
+    lifeExpectancy,
+  } = settings;
   const reducedMotion = useReducedMotion();
   const [feedUrl, setFeedUrl] = useState("");
   const [pulling, setPulling] = useState<string | null>(null);

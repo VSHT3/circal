@@ -209,7 +209,7 @@ export function zoneCity(zone: string): string {
 }
 
 /** The region half: `Asia/Tokyo` → `Asia`, `UTC` → `""`. */
-export function zoneRegion(zone: string): string {
+function zoneRegion(zone: string): string {
   const parts = zone.split("/");
   return parts.length > 1 ? parts.slice(0, -1).join("/").replace(/_/g, " ") : "";
 }
@@ -241,7 +241,7 @@ export function formatOffset(minutes: number): string {
   return rest === 0 ? `${sign}${hours}` : `${sign}${hours}:${`${rest}`.padStart(2, "0")}`;
 }
 
-export function localZone(): string {
+function localZone(): string {
   return Intl.DateTimeFormat().resolvedOptions().timeZone;
 }
 

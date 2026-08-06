@@ -96,7 +96,7 @@ export const VIEW_SIZE = DIAL.SIZE - 2 * DIAL.PAD;
 export const VIEW_BOX = `${DIAL.PAD} ${DIAL.PAD} ${VIEW_SIZE} ${VIEW_SIZE}`;
 
 /** Degrees of arc per minute — one revolution per day on both faces. */
-export const DEG_PER_MINUTE = 360 / MINUTES_PER_DAY;
+const DEG_PER_MINUTE = 360 / MINUTES_PER_DAY;
 
 /** The minute that sits at the top of the face. */
 function origin(clock: Clock): number {

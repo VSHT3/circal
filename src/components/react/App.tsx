@@ -531,20 +531,8 @@ export default function App() {
                   now={now}
                   occurrences={agenda.all}
                   calendars={calendars}
-                  place={settings.place}
-                  daylight={settings.daylight}
-                  moonlight={settings.moonlight}
-                  totals={settings.totals}
-                  totalsAt={settings.totalsAt}
-                  secondZone={settings.secondZone}
-                  showZoneName={settings.showZoneName}
-                  showZoneOffset={settings.showZoneOffset}
+                  settings={settings}
                   zonePlace={zonePlace}
-                  zoneDaylight={settings.zoneDaylight}
-                  zoneMoonlight={settings.zoneMoonlight}
-                  tickSound={settings.tickSound}
-                  tickHaptics={settings.tickHaptics}
-                  clock={settings.clock}
                   onOpen={openOccurrence}
                   onCreate={(startMin, endMin) => openDraft(startMin, endMin, day)}
                   onAdjust={adjustOccurrence}
@@ -602,21 +590,7 @@ export default function App() {
       <Settings
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
-        clock={settings.clock}
-        secondZone={settings.secondZone}
-        showZoneName={settings.showZoneName}
-        showZoneOffset={settings.showZoneOffset}
-        zoneDaylight={settings.zoneDaylight}
-        zoneMoonlight={settings.zoneMoonlight}
-        place={settings.place}
-        daylight={settings.daylight}
-        moonlight={settings.moonlight}
-        totals={settings.totals}
-        totalsAt={settings.totalsAt}
-        tickSound={settings.tickSound}
-        tickHaptics={settings.tickHaptics}
-        birth={settings.birth}
-        lifeExpectancy={settings.lifeExpectancy}
+        settings={settings}
         calendars={calendars}
         actions={actions}
       />

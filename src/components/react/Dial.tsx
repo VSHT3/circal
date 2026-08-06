@@ -43,7 +43,7 @@ import {
   zoneOffset,
   type Clock,
 } from "@/lib/time";
-import type { TotalsPosition } from "@/lib/store";
+import type { Settings } from "@/lib/store";
 import { useElementSize, useHotkeys } from "./hooks";
 import CenterPanel from "./CenterPanel";
 
@@ -64,29 +64,20 @@ export interface DragPreview {
 export interface DialProps {
   day: Date;
   now: Date;
-  clock: Clock;
   occurrences: Occurrence[];
   calendars: Calendar[];
-  /** Lightcycle band; `null` leaves the elapsed ring on the track instead. */
-  place: Place | null;
-  /** The two halves of that band: the lit hours, and the dark ones in violet. */
-  daylight: boolean;
-  moonlight: boolean;
-  /** IANA zone for the outer ring; `""` leaves it off. */
-  secondZone: string;
-  showZoneName: boolean;
-  showZoneOffset: boolean;
-  /** Where that zone is, for its own band on its own rim. Its two halves
-   *  switch independently of yours — two places, two cycles. */
+  /**
+   * The whole settings object rather than one prop per field. The dial reads
+   * thirteen of them and forwarded every one through this interface, `App.tsx`
+   * and its own destructure — three places to touch for a single switch.
+   */
+  settings: Settings;
+  /**
+   * Where the second zone is, for its own band on its own rim — derived by the
+   * shell from `settings.secondZone`, so it is not a setting itself. Its two
+   * halves switch independently of yours: two places, two cycles.
+   */
   zonePlace: Place | null;
-  zoneDaylight: boolean;
-  zoneMoonlight: boolean;
-  /** Whether the centre prints the day's totals, and where on the stage. */
-  totals: boolean;
-  totalsAt: TotalsPosition;
-  /** Whether each fifteen-minute step of a drag clicks, and whether it taps. */
-  tickSound: boolean;
-  tickHaptics: boolean;
   onOpen: (occ: Occurrence) => void;
   onCreate: (startMin: number, endMin: number) => void;
   /**
@@ -279,28 +270,31 @@ function dragSpan(adjust: Adjust, day: Date): { start: number; end: number } {
 export default function Dial({
   day,
   now,
-  clock,
   occurrences,
   calendars,
-  place,
-  daylight,
-  moonlight,
-  secondZone,
-  showZoneName,
-  showZoneOffset,
+  settings,
   zonePlace,
-  zoneDaylight,
-  zoneMoonlight,
-  totals,
-  totalsAt,
-  tickSound,
-  tickHaptics,
   onOpen,
   onCreate,
   onAdjust,
   onPreview,
   onStepDay,
 }: DialProps) {
+  const {
+    clock,
+    place,
+    daylight,
+    moonlight,
+    secondZone,
+    showZoneName,
+    showZoneOffset,
+    zoneDaylight,
+    zoneMoonlight,
+    totals,
+    totalsAt,
+    tickSound,
+    tickHaptics,
+  } = settings;
   const [stageRef, width, height] = useElementSize<HTMLDivElement>();
   /** Every gesture's capture target, and the frame its coordinates are read
    *  in. See `capture`. */

@@ -4,8 +4,7 @@ import type { RefObject } from "react";
 import type { Clock } from "@/lib/time";
 import type { CalEvent, Calendar, Occurrence } from "@/lib/events";
 import type { LifeStage } from "@/lib/life";
-import type { PickedPlace } from "@/lib/places";
-import type { TotalsPosition } from "@/lib/store";
+import type { Settings } from "@/lib/store";
 
 export type ViewMode = "day" | "year" | "life";
 
@@ -131,28 +130,19 @@ export interface CommandPaletteProps {
   actions: ShellActions;
 }
 
+/**
+ * The whole settings object, rather than one prop per field.
+ *
+ * Threading them individually meant six files had to change to add a single
+ * boolean — this interface re-listed every field of `Settings`, `App.tsx`
+ * forwarded each one, and the panel destructured them again. Passing the
+ * object is the same bargain already struck for `actions`: one prop, and the
+ * shell has nothing to forward.
+ */
 export interface SettingsPanelProps {
   open: boolean;
   onClose: () => void;
-  clock: Clock;
-  /** `""` = the dial's second ring is off. */
-  secondZone: string;
-  showZoneName: boolean;
-  showZoneOffset: boolean;
-  zoneDaylight: boolean;
-  zoneMoonlight: boolean;
-  /** Where the lightcycle is computed for; `null` = no band. */
-  place: PickedPlace | null;
-  daylight: boolean;
-  moonlight: boolean;
-  /** Whether the centre prints the day's totals, and where on the stage. */
-  totals: boolean;
-  totalsAt: TotalsPosition;
-  tickSound: boolean;
-  tickHaptics: boolean;
-  /** The life span, as stored: `""` = never asked for. */
-  birth: string;
-  lifeExpectancy: number;
+  settings: Settings;
   calendars: Calendar[];
   actions: ShellActions;
 }
