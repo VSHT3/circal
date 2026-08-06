@@ -18,7 +18,15 @@ import { DEFAULT_SETTINGS, store, type Settings, type Snapshot } from "./store";
 import { notify } from "./notify";
 import { dayKey } from "./time";
 import { isRecord } from "./utils";
-import type { CalEvent, Calendar } from "./events";
+import {
+  NEVER,
+  REPEATS,
+  recurrenceOf,
+  type CalEvent,
+  type Calendar,
+  type Recurrence,
+  type Repeat,
+} from "./events";
 
 const BACKUP_VERSION = 1;
 
@@ -118,6 +126,36 @@ function readSettings(value: unknown): Settings {
   };
 }
 
+/** Bounds on a recurrence, all of which draw something wrong when they are
+ *  out of them: an interval of zero divides by nothing, a weekday of `9`
+ *  fires never, a monthly position of `12` is a week that does not exist. */
+const MAX_INTERVAL = 999;
+
+function readRecurrence(value: Record<string, unknown>): Recurrence {
+  const { repeat, interval, until, byDay, nth, exdates } = value;
+  if (!REPEATS.includes(repeat as Repeat) || repeat === "never") return { ...NEVER };
+
+  const whole = (v: unknown, lo: number, hi: number, fallback: number) =>
+    typeof v === "number" && Number.isFinite(v)
+      ? Math.min(hi, Math.max(lo, Math.trunc(v)))
+      : fallback;
+
+  return {
+    repeat: repeat as Repeat,
+    interval: whole(interval, 1, MAX_INTERVAL, NEVER.interval),
+    until: typeof until === "number" && Number.isFinite(until) && until > 0 ? until : NEVER.until,
+    byDay: Array.isArray(byDay)
+      ? [...new Set(byDay.filter((d) => Number.isInteger(d) && d >= 0 && d <= 6))].sort(
+          (a: number, b: number) => a - b,
+        )
+      : [],
+    nth: whole(nth, -5, 5, NEVER.nth),
+    exdates: Array.isArray(exdates)
+      ? [...new Set(exdates.filter((d) => typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d)))]
+      : [],
+  };
+}
+
 /**
  * A backup is external input, so nothing is trusted: every field is checked
  * and anything unreadable is dropped rather than allowed to become an event
@@ -128,7 +166,6 @@ function readEvent(value: unknown): CalEvent | null {
   const { id, title, calendarId, start, end } = value;
   if (typeof start !== "number" || typeof end !== "number") return null;
   if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null;
-  const repeat = value.repeat;
   return {
     id: typeof id === "string" && id ? id : `${start}-${Math.random().toString(36).slice(2, 8)}`,
     title: typeof title === "string" ? title : "Untitled",
@@ -139,10 +176,7 @@ function readEvent(value: unknown): CalEvent | null {
     location: typeof value.location === "string" ? value.location : "",
     url: typeof value.url === "string" ? value.url : "",
     notes: typeof value.notes === "string" ? value.notes : "",
-    repeat:
-      repeat === "daily" || repeat === "weekly" || repeat === "monthly" || repeat === "yearly"
-        ? repeat
-        : "never",
+    ...readRecurrence(value),
     color: typeof value.color === "string" ? value.color : "",
   };
 }
@@ -208,7 +242,7 @@ function importIcs(text: string, filename: string) {
       location: e.location,
       url: e.url,
       notes: e.notes,
-      repeat: e.repeat,
+      ...recurrenceOf(e),
       color: "",
     })),
   );

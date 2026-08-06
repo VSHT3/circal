@@ -6,18 +6,102 @@
  * local calendar is unambiguous and JSON-safe.
  * ------------------------------------------------------------------ */
 
-import { MINUTES_PER_DAY, addDays, isSameDay, minutesOfDay, startOfDay, dayKey } from "./time";
+import {
+  MINUTES_PER_DAY,
+  addDays,
+  addMonths,
+  daysBetween,
+  daysInMonth,
+  isSameDay,
+  minutesOfDay,
+  startOfDay,
+  dayKey,
+} from "./time";
 
 export const REPEATS = ["never", "daily", "weekly", "monthly", "yearly"] as const;
 export type Repeat = (typeof REPEATS)[number];
 
+/** Bare frequencies, because the row that prints them also prints an
+ *  interval beside them: "Every week — every 2 weeks" reads as a fault. */
 export const REPEAT_LABELS: Record<Repeat, string> = {
   never: "Never",
-  daily: "Every day",
-  weekly: "Every week",
-  monthly: "Every month",
-  yearly: "Every year",
+  daily: "Daily",
+  weekly: "Weekly",
+  monthly: "Monthly",
+  yearly: "Yearly",
 };
+
+/** The unit an `interval` counts, singular at one. */
+export function repeatUnit(repeat: Repeat, n: number): string {
+  const unit = { never: "", daily: "day", weekly: "week", monthly: "month", yearly: "year" }[
+    repeat
+  ];
+  return n === 1 ? unit : `${unit}s`;
+}
+
+/**
+ * The recurrence half of an event. Flat on `CalEvent` rather than nested,
+ * because `repeat === "never"` is the cheapest and most-asked question in the
+ * app; everything below it only matters once the answer is no.
+ *
+ * Deliberately a subset of RFC 5545 — the parts a shared calendar actually
+ * sends. What is not modelled (BYMONTH, BYWEEKNO, BYYEARDAY, RDATE,
+ * per-occurrence RECURRENCE-ID overrides) is dropped on parse rather than
+ * approximated: an approximated rule puts a meeting on a day it is not on and
+ * says nothing about having done so.
+ */
+export interface Recurrence {
+  repeat: Repeat;
+  /** Fire every nth period. `1` = every one, and never less. */
+  interval: number;
+  /**
+   * The last instant an occurrence may *start*, epoch ms, inclusive. `0` =
+   * forever. RRULE's COUNT is walked into one of these on the way in: two
+   * ways to bound one series is one too many, and they name the same series.
+   */
+  until: number;
+  /**
+   * Weekdays a weekly rule fires on, `0` = Sunday. Empty means the seed's own
+   * weekday, which is what an editor that never touched this produces. On a
+   * monthly rule it holds the single weekday `nth` counts.
+   */
+  byDay: number[];
+  /**
+   * Monthly only. `0` = on the seed's day of the month; `1`–`5` = that
+   * numbered `byDay` weekday of the month; `-1` = the last one.
+   */
+  nth: number;
+  /**
+   * Days the series skips, as local `YYYY-MM-DD`. Day keys rather than
+   * instants, because an event fires at most once per day here — so the day
+   * *is* an occurrence's identity, and a stored instant would stop matching
+   * the moment the series' time of day was edited.
+   */
+  exdates: string[];
+}
+
+/** An event that happens once. Every construction site spreads this. */
+export const NEVER: Recurrence = {
+  repeat: "never",
+  interval: 1,
+  until: 0,
+  byDay: [],
+  nth: 0,
+  exdates: [],
+};
+
+/** The recurrence fields alone, copied out of anything carrying them — an
+ *  importer hands one over whole rather than restating six fields. */
+export function recurrenceOf(source: Recurrence): Recurrence {
+  return {
+    repeat: source.repeat,
+    interval: source.interval,
+    until: source.until,
+    byDay: [...source.byDay],
+    nth: source.nth,
+    exdates: [...source.exdates],
+  };
+}
 
 export interface Calendar {
   id: string;
@@ -41,7 +125,7 @@ export interface Feed {
   error: string;
 }
 
-export interface CalEvent {
+export interface CalEvent extends Recurrence {
   id: string;
   title: string;
   calendarId: string;
@@ -53,7 +137,6 @@ export interface CalEvent {
   location: string;
   url: string;
   notes: string;
-  repeat: Repeat;
   /**
    * Overrides the calendar's colour for this event alone. Empty means "follow
    * the calendar", which is the default and what most events should stay on —
@@ -80,10 +163,164 @@ export interface Occurrence {
 
 /* ------------------------------- recurrence ------------------------------- */
 
+/** Monday-start, because RFC 5545's default WKST is MO — and an interval of
+ *  weeks has to count from a fixed edge or "every 2 weeks" drifts. */
+function weekStart(d: Date): Date {
+  const day = startOfDay(d);
+  return addDays(day, -((day.getDay() + 6) % 7));
+}
+
 /**
- * Does `event` start on `date`, and if so, when? Returns the concrete instants
- * for that occurrence. Recurrence is intentionally shallow — the five rules
- * Radical's editor offers, no RRULE, no exceptions.
+ * Which of its month's Tuesdays a Tuesday is — 1 for the first. Counted from
+ * the end when `fromEnd`, so `-1` is the last one in the month and `-2` the
+ * one before it: RFC 5545 spells both, and a rule this cannot represent is a
+ * meeting that vanishes.
+ */
+function weekdayPosition(d: Date, fromEnd: boolean): number {
+  return fromEnd
+    ? -(Math.floor((daysInMonth(d.getFullYear(), d.getMonth()) - d.getDate()) / 7) + 1)
+    : Math.floor((d.getDate() - 1) / 7) + 1;
+}
+
+/**
+ * The occurrence's start on `day`: the seed's time of day, on that date.
+ * Wall clock rather than elapsed time, so a series keeps its hour across a
+ * DST boundary — nine in the morning stays nine in the morning.
+ */
+function startOn(day: Date, seed: Date): Date {
+  const start = startOfDay(day);
+  start.setHours(seed.getHours(), seed.getMinutes(), 0, 0);
+  return start;
+}
+
+/** The weekdays a rule fires on, defaulting to the seed's own. */
+function weekdaysOf(rule: Recurrence, seed: Date): number[] {
+  return rule.byDay.length ? rule.byDay : [seed.getDay()];
+}
+
+/** `day` of `month`, or `null` when that month is too short for it. */
+function monthDayOf(month: Date, day: number): Date | null {
+  const y = month.getFullYear();
+  const m = month.getMonth();
+  return day <= daysInMonth(y, m) ? new Date(y, m, day) : null;
+}
+
+/** The date a monthly rule names inside `month`, or `null` when that month
+ *  has no such date — no 31st, no fifth Friday. */
+function monthlyDay(rule: Recurrence, seed: Date, month: Date): Date | null {
+  const y = month.getFullYear();
+  const m = month.getMonth();
+  if (rule.nth === 0) return monthDayOf(month, seed.getDate());
+
+  const weekday = weekdaysOf(rule, seed)[0];
+  const last = daysInMonth(y, m);
+  if (rule.nth < 0) {
+    const lastMatch = last - ((new Date(y, m, last).getDay() - weekday + 7) % 7);
+    const date = lastMatch + (rule.nth + 1) * 7;
+    return date >= 1 ? new Date(y, m, date) : null;
+  }
+  const firstMatch = 1 + ((weekday - new Date(y, m, 1).getDay() + 7) % 7);
+  return monthDayOf(month, firstMatch + (rule.nth - 1) * 7);
+}
+
+/**
+ * Does the rule fire on `date`? O(1) at every frequency, which is what keeps
+ * `occurrencesOn` a filter over the event list rather than an expansion of
+ * every series from its seed up to the day on screen.
+ *
+ * A rule naming a date some months do not have — the 31st, 29 February, a
+ * fifth Friday — simply does not fire in those months. That is RFC 5545
+ * §3.3.10 on an invalid instance, and it is the only answer that does not
+ * invent a date the sender never wrote.
+ */
+function fires(rule: Recurrence, seed: Date, date: Date): boolean {
+  const every = Math.max(1, Math.trunc(rule.interval));
+  switch (rule.repeat) {
+    case "never":
+      return false;
+    case "daily":
+      return daysBetween(seed, date) % every === 0;
+    case "weekly":
+      return (
+        weekdaysOf(rule, seed).includes(date.getDay()) &&
+        Math.round(daysBetween(weekStart(seed), weekStart(date)) / 7) % every === 0
+      );
+    case "monthly": {
+      const months =
+        (date.getFullYear() - seed.getFullYear()) * 12 + (date.getMonth() - seed.getMonth());
+      if (months % every !== 0) return false;
+      if (rule.nth === 0) return date.getDate() === seed.getDate();
+      if (date.getDay() !== weekdaysOf(rule, seed)[0]) return false;
+      return weekdayPosition(date, rule.nth < 0) === rule.nth;
+    }
+    case "yearly":
+      return (
+        (date.getFullYear() - seed.getFullYear()) % every === 0 &&
+        date.getMonth() === seed.getMonth() &&
+        date.getDate() === seed.getDate()
+      );
+  }
+}
+
+/**
+ * How far a walk will go looking for the end of a COUNT. Generous, because
+ * the fallback is "unbounded" and the two failure modes are not symmetric:
+ * over-running a bound shows occurrences that should have stopped, guessing
+ * one too early deletes them, and only the second loses data.
+ */
+const WALK_CAP = 2000;
+
+/**
+ * Where an RRULE `COUNT` lands, as the `until` this model stores instead.
+ *
+ * Counting is by the *rule*, before EXDATE: RFC 5545 subtracts exceptions
+ * from the generated set, so an excluded day still spends one of the count.
+ * Returns `null` for a count this refuses to walk — read as unbounded.
+ */
+export function countedUntil(rule: Recurrence, start: number, count: number): number | null {
+  if (rule.repeat === "never" || count < 1 || count > WALK_CAP) return null;
+  const seed = new Date(start);
+  const seedDay = startOfDay(seed);
+  const every = Math.max(1, Math.trunc(rule.interval));
+
+  if (rule.repeat === "daily") {
+    return startOn(addDays(seedDay, (count - 1) * every), seed).getTime();
+  }
+
+  if (rule.repeat === "weekly") {
+    // In week order, so the nth instance is the nth one a reader would count.
+    const days = [...weekdaysOf(rule, seed)].sort((a, b) => ((a + 6) % 7) - ((b + 6) % 7));
+    let seen = 0;
+    let week = weekStart(seedDay);
+    for (let step = 0; step < WALK_CAP; step++) {
+      for (const weekday of days) {
+        const day = addDays(week, (weekday + 6) % 7);
+        if (day < seedDay) continue;
+        if (++seen === count) return startOn(day, seed).getTime();
+      }
+      week = addDays(week, 7 * every);
+    }
+    return null;
+  }
+
+  // Monthly and yearly both step whole periods and skip the ones with no such
+  // date, exactly as `fires` does — a skipped month spends nothing.
+  const stepMonths = rule.repeat === "monthly" ? every : every * 12;
+  const firstOfMonth = new Date(seedDay.getFullYear(), seedDay.getMonth(), 1);
+  let seen = 0;
+  for (let step = 0; step < WALK_CAP; step++) {
+    const month = addMonths(firstOfMonth, step * stepMonths);
+    const day =
+      rule.repeat === "monthly" ? monthlyDay(rule, seed, month) : monthDayOf(month, seed.getDate());
+    if (!day || day < seedDay) continue;
+    if (++seen === count) return startOn(day, seed).getTime();
+  }
+  return null;
+}
+
+/**
+ * Does `event` start on `date`, and if so, when? Returns the concrete
+ * instants for that occurrence, or `null` when the series does not reach it.
  */
 function occurrenceStartingOn(event: CalEvent, date: Date): { start: Date; end: Date } | null {
   const seed = new Date(event.start);
@@ -95,18 +332,15 @@ function occurrenceStartingOn(event: CalEvent, date: Date): { start: Date; end: 
 
   // A recurrence never fires before its seed.
   if (startOfDay(date).getTime() < startOfDay(seed).getTime()) return null;
+  if (!fires(event, seed, date)) return null;
+  // Checked after the rule, never as part of it: EXDATE is subtracted from
+  // the generated set rather than consulted while generating it.
+  if (event.exdates.length > 0 && event.exdates.includes(dayKey(date))) return null;
 
-  const fires =
-    event.repeat === "daily" ||
-    (event.repeat === "weekly" && date.getDay() === seed.getDay()) ||
-    (event.repeat === "monthly" && date.getDate() === seed.getDate()) ||
-    (event.repeat === "yearly" &&
-      date.getMonth() === seed.getMonth() &&
-      date.getDate() === seed.getDate());
-  if (!fires) return null;
-
-  const start = startOfDay(date);
-  start.setHours(seed.getHours(), seed.getMinutes(), 0, 0);
+  const start = startOn(date, seed);
+  // UNTIL bounds the *start*, inclusive. Without it a series that ended in
+  // 2023 repeats onto today's dial forever.
+  if (event.until > 0 && start.getTime() > event.until) return null;
   return { start, end: new Date(start.getTime() + duration) };
 }
 
@@ -165,7 +399,7 @@ export function occurrencesOn(events: CalEvent[], calendars: Calendar[], day: Da
  * merely touch (10:00–11:00, 11:00–12:00) still share a ring, while two that
  * would visually collide do not.
  */
-export function packLanes(occurrences: Occurrence[], pad = 6): Occurrence[] {
+function packLanes(occurrences: Occurrence[], pad = 6): Occurrence[] {
   const laneEnds: number[] = [];
   return occurrences.map((occ) => {
     if (occ.event.allDay) return occ;

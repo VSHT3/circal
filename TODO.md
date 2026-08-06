@@ -1,5 +1,7 @@
 # todo
 
+Fixed dial hover animations
+
 ## the list, and what I think of it
 
 **1. quotes page** — _you are a worm through time, you have no obligations to your former self, be
@@ -163,21 +165,28 @@ already spent" is a better idea than either half alone. **[high / small]**
 list and nowhere on the face. Either a hairline full-circumference ring in the event's colour just
 inside `TRACK`, or a chip in the interior — but not silence. **[high / small]**
 
-### Recurrence and ICS are where the product actually breaks
+### ~~Recurrence and ICS are where the product actually breaks~~ — done
 
-This is not polish; it is wrong output on screen.
+`Repeat` is now a `Recurrence`: `repeat` plus `interval`, `until`, `byDay`, `nth`, `exdates`, flat
+on `CalEvent`. `fires()` in `events.ts` is an O(1) predicate per frequency, so `occurrencesOn` is
+still a filter over the event list rather than an expansion of every series.
 
-- `ics.ts` parses **`FREQ` only**. A subscribed `FREQ=WEEKLY;BYDAY=TU,TH` renders as weekly on the
-  seed's weekday — **half the meetings vanish**. `INTERVAL=2` becomes weekly. **`UNTIL` and `COUNT`
-  are dropped, so a series that ended in 2023 repeats onto today's dial forever.**
-- `occurrenceStartingOn` matches by `getDate()` (`events.ts:102`), so **monthly-on-the-31st silently
-  skips February, April, June, September and November**, and a yearly Feb 29 fires once in four.
-- No EXDATE and no per-occurrence exception. Defensible for your own events; not for a mirrored
-  feed, which is precisely the data you do not control.
+- `FREQ=WEEKLY;BYDAY=TU,TH` renders two meetings a week. `INTERVAL=2` is fortnightly.
+- `UNTIL` and `COUNT` both bound the series — `COUNT` is walked into an `until` on the way in
+  (`countedUntil`), so the model carries one bound rather than two.
+- `EXDATE` is parsed (across several lines), stored as local day keys, expanded and emitted.
+- Monthly nth-weekday, forwards and backwards: `BYDAY=3TH`, `BYDAY=-1FR`, and `BYSETPOS`.
+- Monthly-on-the-31st and yearly-on-29-Feb skip the months with no such date — RFC 5545 §3.3.10's
+  invalid-instance rule, deliberate now rather than accidental. `lifeDensity` had the
+  `new Date(y, 1, 29)` rollover bug and no longer paints 1 March.
+- `toIcs` emits all of it; round-trip verified through the live modules.
+- The editor grew the rule: frequency, interval, weekday chips, monthly position, and an end date.
 
-Minimum credible model: `interval`, `until`, `byDay: number[]` and `exdates: string[]` on
-`CalEvent`, one chips row in the editor, and honest RRULE emit and parse. **An app that subscribes
-to other people's calendars has to be able to represent what they send.** **[critical / medium]**
+Still not modelled, and dropped to "happens once" rather than approximated: BYMONTH, BYWEEKNO,
+BYYEARDAY, RDATE, sub-daily FREQ, and **RECURRENCE-ID** — a per-occurrence _override_. EXDATE can
+remove a day; nothing can yet replace one, and no surface offers "skip / edit just this
+occurrence". That is the next honest step here, and it wants the editor to know which occurrence
+it was opened from.
 
 ### The year view is the weak sibling, and the biggest opportunity
 
@@ -258,6 +267,6 @@ off-thesis. Say so in the UI rather than leaving the absence unexplained.
 
 ### If it were five things
 
-Invert the life grid's tone → next event and countdown in the interior → labels on arcs → real
-RRULE in and out → quick-add in ⌘P. The first two change how the app feels daily; the third and
-fourth decide whether it can be somebody's actual calendar.
+Invert the life grid's tone → next event and countdown in the interior → labels on arcs →
+~~real RRULE in and out~~ (done) → quick-add in ⌘P. The first two change how the app feels daily;
+the remaining one and the shipped RRULE decide whether it can be somebody's actual calendar.

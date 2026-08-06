@@ -158,7 +158,7 @@ function fit(boxWidth: number, boxHeight: number, years: number, weeksPerLine: n
  * Ties go to the earlier candidate — fewer lines per year is easier to read,
  * so the split only gets finer when it actually buys legibility.
  */
-export function lifeLayout(boxWidth: number, boxHeight: number, span: LifeSpan): LifeLayout {
+function lifeLayout(boxWidth: number, boxHeight: number, span: LifeSpan): LifeLayout {
   let best = fit(boxWidth, boxHeight, span.years, SPLITS[0]);
   for (const weeks of SPLITS.slice(1)) {
     const candidate = fit(boxWidth, boxHeight, span.years, weeks);
@@ -230,7 +230,7 @@ function dayOfYear(date: Date): number {
  * A day's place in the grid. The slot is its position in the year's 372, and
  * the split turns that into a line and a column.
  */
-export function lifeCell(layout: LifeLayout, date: Date): { row: number; col: number } {
+function lifeCell(layout: LifeLayout, date: Date): { row: number; col: number } {
   const slot = jan1Offset(date.getFullYear()) + dayOfYear(date);
   const line = Math.floor(slot / layout.colsPerLine);
   return {
@@ -329,10 +329,12 @@ export function lifeCellAt(layout: LifeLayout, span: LifeSpan, x: number, y: num
  * wins, because a dot this size has room for one.
  *
  * Only dated events and yearly repeats are counted. A daily or weekly rule
- * fires more often than this grid can distinguish and has no end date, so it
- * would paint every remaining day of the life one colour and say nothing at
- * all; a birthday, an anniversary, a deadline is exactly what a life grid is
- * for.
+ * fires more often than this grid can distinguish, so it would paint every
+ * remaining day of the life one colour and say nothing at all; a birthday, an
+ * anniversary, a deadline is exactly what a life grid is for. A *bounded*
+ * daily rule could now be drawn — `until` says where it stops — but the year
+ * grid counts repeats on its own terms too, and one policy shared by one core
+ * is a separate change from being able to express the rule.
  */
 export function lifeDensity(
   events: CalEvent[],
@@ -356,9 +358,21 @@ export function lifeDensity(
     const color = colorOf(event, calendars);
     if (event.repeat === "yearly") {
       const seed = new Date(event.start);
-      const from = Math.max(seed.getFullYear(), span.birth.getFullYear());
-      for (let year = from; year <= span.death.getFullYear(); year++) {
-        mark(new Date(year, seed.getMonth(), seed.getDate()), color);
+      const every = Math.max(1, Math.trunc(event.interval));
+      const last =
+        event.until > 0
+          ? Math.min(span.death.getFullYear(), new Date(event.until).getFullYear())
+          : span.death.getFullYear();
+      // From the seed's own year rather than from the birth year, so an
+      // interval keeps the phase the series was written with.
+      for (let year = seed.getFullYear(); year <= last; year += every) {
+        const date = new Date(year, seed.getMonth(), seed.getDate());
+        // 29 February in a common year does not exist, and `Date` rolls it
+        // forward to 1 March — a dot on a day the series never lands on.
+        if (date.getMonth() !== seed.getMonth()) continue;
+        if (event.until > 0 && date.getTime() > event.until) continue;
+        if (event.exdates.includes(dayKey(date))) continue;
+        mark(date, color);
       }
       continue;
     }

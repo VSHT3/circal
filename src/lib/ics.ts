@@ -10,12 +10,12 @@
  * VALUE=DATE, DURATION-instead-of-DTEND) all get a fallback.
  * ------------------------------------------------------------------ */
 
-import { dayKey, zonedToUtc } from "./time";
-import type { CalEvent, Repeat } from "./events";
+import { dayKey, fromDayKey, zonedToUtc } from "./time";
+import { NEVER, countedUntil, type CalEvent, type Recurrence, type Repeat } from "./events";
 
 /** A VEVENT reduced to what circal models. `uid` is kept so a re-import of
  *  the same feed replaces rather than duplicates. */
-export interface IcsEvent {
+export interface IcsEvent extends Recurrence {
   uid: string;
   title: string;
   start: number;
@@ -24,7 +24,6 @@ export interface IcsEvent {
   location: string;
   url: string;
   notes: string;
-  repeat: Repeat;
 }
 
 /* --------------------------------- text ----------------------------------- */
@@ -102,6 +101,64 @@ function utcStamp(d: Date): string {
   return `${d.getUTCFullYear()}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}T${p(d.getUTCHours())}${p(d.getUTCMinutes())}${p(d.getUTCSeconds())}Z`;
 }
 
+/** The `VALUE=DATE` form. Local, because an all-day event's date is the one
+ *  the user is looking at and not the one UTC happens to be having. */
+function dateStamp(d: Date): string {
+  return dayKey(d).replace(/-/g, "");
+}
+
+/* ------------------------------- recurrence -------------------------------- */
+
+/** RFC 5545's two-letter weekdays, indexed by `Date.getDay()`. */
+const ICS_DAYS = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"] as const;
+
+/**
+ * The RRULE for an event, or `null` when it happens once.
+ *
+ * UNTIL takes the value type of DTSTART (§3.3.10) — a DATE for an all-day
+ * series, a UTC datetime for a timed one. Mixing the two is the part of this
+ * property strict consumers reject outright.
+ */
+function rruleOf(event: CalEvent): string | null {
+  if (event.repeat === "never") return null;
+  const seed = new Date(event.start);
+  const parts = [`FREQ=${event.repeat.toUpperCase()}`];
+
+  if (event.interval > 1) parts.push(`INTERVAL=${event.interval}`);
+  if (event.repeat === "weekly" && event.byDay.length > 0) {
+    parts.push(`BYDAY=${event.byDay.map((d) => ICS_DAYS[d]).join(",")}`);
+  }
+  if (event.repeat === "monthly" && event.nth !== 0) {
+    parts.push(`BYDAY=${event.nth}${ICS_DAYS[event.byDay[0] ?? seed.getDay()]}`);
+  }
+  if (event.until > 0) {
+    const until = new Date(event.until);
+    parts.push(`UNTIL=${event.allDay ? dateStamp(until) : utcStamp(until)}`);
+  }
+  return parts.join(";");
+}
+
+/**
+ * EXDATE: the instants the skipped occurrences would have started at. The
+ * store keeps day keys, so the seed's time of day goes back on each one —
+ * a bare date against a timed DTSTART is the same value-type mismatch as
+ * above, in reverse.
+ */
+function exdateOf(event: CalEvent): string | null {
+  if (event.repeat === "never" || event.exdates.length === 0) return null;
+  const days = [...event.exdates].sort();
+  if (event.allDay) {
+    return `EXDATE;VALUE=DATE:${days.map((key) => key.replace(/-/g, "")).join(",")}`;
+  }
+  const seed = new Date(event.start);
+  const stamps = days.map((key) => {
+    const day = fromDayKey(key);
+    day.setHours(seed.getHours(), seed.getMinutes(), 0, 0);
+    return utcStamp(day);
+  });
+  return `EXDATE:${stamps.join(",")}`;
+}
+
 /* -------------------------------- serialise -------------------------------- */
 
 /** `name` becomes X-WR-CALNAME. */
@@ -121,8 +178,8 @@ export function toIcs(events: CalEvent[], name: string): string {
     lines.push(`DTSTAMP:${stamp}`);
     lines.push(`SUMMARY:${escapeText(event.title)}`);
     if (event.allDay) {
-      lines.push(`DTSTART;VALUE=DATE:${dayKey(new Date(event.start)).replace(/-/g, "")}`);
-      lines.push(`DTEND;VALUE=DATE:${dayKey(new Date(event.end)).replace(/-/g, "")}`);
+      lines.push(`DTSTART;VALUE=DATE:${dateStamp(new Date(event.start))}`);
+      lines.push(`DTEND;VALUE=DATE:${dateStamp(new Date(event.end))}`);
     } else {
       lines.push(`DTSTART:${utcStamp(new Date(event.start))}`);
       lines.push(`DTEND:${utcStamp(new Date(event.end))}`);
@@ -130,7 +187,10 @@ export function toIcs(events: CalEvent[], name: string): string {
     if (event.location) lines.push(`LOCATION:${escapeText(event.location)}`);
     if (event.url) lines.push(`URL:${escapeText(event.url)}`);
     if (event.notes) lines.push(`DESCRIPTION:${escapeText(event.notes)}`);
-    if (event.repeat !== "never") lines.push(`RRULE:FREQ=${event.repeat.toUpperCase()}`);
+    const rrule = rruleOf(event);
+    if (rrule) lines.push(`RRULE:${rrule}`);
+    const exdate = exdateOf(event);
+    if (exdate) lines.push(exdate);
     lines.push("END:VEVENT");
   }
   lines.push("END:VCALENDAR");
@@ -232,9 +292,132 @@ function parseDateProp(prop: PropEntry | undefined): { ms: number; allDay: boole
   return { ms: new Date(y, mo - 1, d, h, mi, s).getTime(), allDay: false };
 }
 
-type Props = Record<string, PropEntry>;
+/**
+ * One VEVENT's properties. EXDATE is kept apart because it is the one
+ * property here that legitimately appears on several lines of the same
+ * component, and a flat map would keep only the last of them — which is a
+ * series quietly gaining back every occurrence it was told to skip.
+ */
+interface Block {
+  props: Record<string, PropEntry>;
+  exdates: PropEntry[];
+}
 
-function buildEvent(props: Props): IcsEvent | null {
+/** `FREQ=WEEKLY;BYDAY=TU,TH` → a lookup. */
+function parseRuleParts(value: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const part of value.split(";")) {
+    const eq = part.indexOf("=");
+    if (eq === -1) continue;
+    out[part.slice(0, eq).trim().toUpperCase()] = part.slice(eq + 1).trim();
+  }
+  return out;
+}
+
+const DAY_TOKEN = /^([+-]?\d{1,2})?(SU|MO|TU|WE|TH|FR|SA)$/;
+
+/** `TU,TH` → days `[2, 4]`; `3TH` → day `[4]` at position 3. */
+function parseByDay(value: string): { days: number[]; position: number } {
+  const days: number[] = [];
+  let position = 0;
+  for (const token of value.toUpperCase().split(",")) {
+    const m = DAY_TOKEN.exec(token.trim());
+    if (!m) continue;
+    const day = ICS_DAYS.indexOf(m[2] as (typeof ICS_DAYS)[number]);
+    if (!days.includes(day)) days.push(day);
+    if (m[1] && position === 0) position = Number(m[1]);
+  }
+  return { days: days.sort((a, b) => a - b), position };
+}
+
+/** A monthly position this model can actually draw: the five weeks a month
+ *  has, forwards or backwards. Anything else is read as "no position". */
+function usablePosition(position: number): number {
+  const n = Math.trunc(position);
+  return n >= -5 && n <= 5 ? n : 0;
+}
+
+/** UNTIL, in either value type. A DATE means "through that whole day", so it
+ *  resolves to the day's last instant rather than its first — an occurrence
+ *  starting that afternoon is still inside the bound. */
+function parseUntil(raw: string): number {
+  const parsed = parseDateProp({ params: {}, value: raw.trim() });
+  if (!parsed) return 0;
+  return parsed.allDay ? parsed.ms + 86_400_000 - 1 : parsed.ms;
+}
+
+/** The excluded days, as the local day keys the store speaks. */
+function parseExdates(entries: PropEntry[]): string[] {
+  const out: string[] = [];
+  for (const entry of entries) {
+    for (const raw of entry.value.split(",")) {
+      const parsed = parseDateProp({ params: entry.params, value: raw.trim() });
+      if (!parsed) continue;
+      const key = dayKey(new Date(parsed.ms));
+      if (!out.includes(key)) out.push(key);
+    }
+  }
+  return out.sort();
+}
+
+/**
+ * RRULE + EXDATE → the rule this app stores. Anything it cannot represent
+ * honestly is dropped back to "happens once" rather than approximated: a
+ * rule rendered on the wrong days is worse than an event rendered once, and
+ * only one of the two is visible as a mistake.
+ */
+function readRecurrence(block: Block, start: number): Recurrence {
+  const rrule = block.props.RRULE?.value;
+  if (!rrule) return { ...NEVER };
+
+  const parts = parseRuleParts(rrule);
+  const freq = parts.FREQ?.toUpperCase();
+  // SECONDLY, MINUTELY and HOURLY have no honest form on a day-keyed dial,
+  // and a missing FREQ is not a rule at all.
+  if (freq !== "DAILY" && freq !== "WEEKLY" && freq !== "MONTHLY" && freq !== "YEARLY") {
+    return { ...NEVER };
+  }
+
+  const repeat = freq.toLowerCase() as Repeat;
+  const interval = Math.max(1, Math.trunc(Number(parts.INTERVAL)) || 1);
+  const parsedDays = parts.BYDAY ? parseByDay(parts.BYDAY) : { days: [], position: 0 };
+
+  let byDay: number[] = [];
+  let nth = 0;
+  if (repeat === "weekly") {
+    // The whole point of the property: FREQ=WEEKLY;BYDAY=TU,TH is two
+    // meetings a week, and reading only FREQ loses one of them.
+    byDay = parsedDays.days;
+  } else if (repeat === "monthly" && parsedDays.days.length > 0) {
+    // BYSETPOS is the other spelling of "the third Thursday". A BYDAY with no
+    // position at all means *every* Thursday of the month — a weekly rule in
+    // a monthly hat — which is left on the day of the month rather than
+    // guessed at.
+    const position = usablePosition(parsedDays.position || Number(parts.BYSETPOS));
+    if (position !== 0) {
+      byDay = [parsedDays.days[0]];
+      nth = position;
+    }
+  }
+
+  const rule: Recurrence = {
+    repeat,
+    interval,
+    until: parts.UNTIL ? parseUntil(parts.UNTIL) : 0,
+    byDay,
+    nth,
+    exdates: parseExdates(block.exdates),
+  };
+  // COUNT and UNTIL are mutually exclusive in a valid rule; if a producer
+  // sends both, the explicit date wins.
+  if (rule.until === 0 && parts.COUNT) {
+    rule.until = countedUntil(rule, start, Math.trunc(Number(parts.COUNT))) ?? 0;
+  }
+  return rule;
+}
+
+function buildEvent(block: Block): IcsEvent | null {
+  const { props } = block;
   const dtstart = parseDateProp(props.DTSTART);
   if (!dtstart) return null;
 
@@ -254,15 +437,6 @@ function buildEvent(props: Props): IcsEvent | null {
       ? crypto.randomUUID()
       : `${dtstart.ms}-${Math.random().toString(36).slice(2)}`;
 
-  let repeat: Repeat = "never";
-  const rrule = props.RRULE?.value;
-  if (rrule) {
-    const freq = /(?:^|;)FREQ=([A-Z]+)/.exec(rrule)?.[1];
-    if (freq === "DAILY" || freq === "WEEKLY" || freq === "MONTHLY" || freq === "YEARLY") {
-      repeat = freq.toLowerCase() as Repeat;
-    }
-  }
-
   return {
     uid,
     title: props.SUMMARY ? unescapeText(props.SUMMARY.value) : "",
@@ -272,7 +446,7 @@ function buildEvent(props: Props): IcsEvent | null {
     location: props.LOCATION ? unescapeText(props.LOCATION.value) : "",
     url: props.URL ? unescapeText(props.URL.value) : "",
     notes: props.DESCRIPTION ? unescapeText(props.DESCRIPTION.value) : "",
-    repeat,
+    ...readRecurrence(block, dtstart.ms),
   };
 }
 
@@ -296,7 +470,7 @@ export function fromIcs(text: string): { name: string; events: IcsEvent[] } {
   // anything else) nested inside one can't leak its own properties in or
   // prematurely close it.
   const stack: string[] = [];
-  let current: Props | null = null;
+  let current: Block | null = null;
 
   for (const raw of lines) {
     const parsed = splitLine(raw);
@@ -306,7 +480,7 @@ export function fromIcs(text: string): { name: string; events: IcsEvent[] } {
     if (propName === "BEGIN") {
       const block = value.toUpperCase();
       stack.push(block);
-      if (block === "VEVENT" && current === null) current = {};
+      if (block === "VEVENT" && current === null) current = { props: {}, exdates: [] };
       continue;
     }
     if (propName === "END") {
@@ -320,7 +494,8 @@ export function fromIcs(text: string): { name: string; events: IcsEvent[] } {
     }
 
     if (current !== null && stack[stack.length - 1] === "VEVENT") {
-      current[propName] = { params, value };
+      if (propName === "EXDATE") current.exdates.push({ params, value });
+      else current.props[propName] = { params, value };
     } else if (current === null && propName === "X-WR-CALNAME") {
       name = unescapeText(value);
     }

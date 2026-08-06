@@ -13,10 +13,10 @@
 
 import { fromIcs } from "./ics";
 import { newId, store } from "./store";
-import type { CalEvent, Calendar } from "./events";
+import { recurrenceOf, type CalEvent, type Calendar } from "./events";
 
 /** Feeds older than this are pulled again when the app starts. */
-export const STALE_AFTER_MS = 30 * 60_000;
+const STALE_AFTER_MS = 30 * 60_000;
 
 const TIMEOUT_MS = 15_000;
 
@@ -60,7 +60,7 @@ export async function refreshFeed(calendar: Calendar): Promise<void> {
       location: e.location,
       url: e.url,
       notes: e.notes,
-      repeat: e.repeat,
+      ...recurrenceOf(e),
       color: "",
     }));
     store.setFeedEvents(calendar.id, cached, name);

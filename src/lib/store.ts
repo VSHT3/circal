@@ -20,7 +20,7 @@
 import { useSyncExternalStore } from "react";
 import { MINUTES_PER_DAY, startOfDay, type Clock } from "./time";
 import { notify } from "./notify";
-import { PALETTE, type CalEvent, type Calendar, type Repeat } from "./events";
+import { NEVER, PALETTE, type CalEvent, type Calendar, type Repeat } from "./events";
 import type { PickedPlace } from "./places";
 
 const KEY = "circal.v1";
@@ -31,8 +31,9 @@ const KEY = "circal.v1";
  * blob written before this bump would silently show the wrong dial. Events
  * survive the bump — only settings reset.
  *
- * Still 2: `secondZone`, `place`, `feeds`, `birth` and `lifeExpectancy` are
- * new *fields*, and a blob without them merges the defaults in. Nothing
+ * Still 2: `secondZone`, `place`, `feeds`, `birth`, `lifeExpectancy` and the
+ * recurrence qualifiers (`interval`, `until`, `byDay`, `nth`, `exdates`) are
+ * new *fields*, and a blob without them has them filled in on read. Nothing
  * already stored changed meaning, so there is no reason to throw away
  * anyone's dial preference.
  */
@@ -99,7 +100,7 @@ export interface Settings {
 }
 
 /** The switches: every field of `Settings` that is a plain boolean. */
-export type BooleanSetting = {
+type BooleanSetting = {
   [K in keyof Settings]: Settings[K] extends boolean ? K : never;
 }[keyof Settings];
 
@@ -186,7 +187,7 @@ function seed(): CalEvent[] {
     location: "",
     url: "",
     notes: "",
-    repeat: "never",
+    ...NEVER,
     color: "",
     ...extra,
   });
@@ -245,6 +246,41 @@ function sane(settings: Settings): Settings {
   };
 }
 
+/**
+ * The recurrence qualifiers a blob written before them does not carry.
+ * Absent is not the same as wrong — an older event simply has no interval —
+ * but `undefined` reaches the expansion maths as `NaN`, which is a series
+ * that fires on no day at all. So they are filled in here, at the one
+ * boundary, rather than guarded for at every read.
+ *
+ * The unchanged case returns the same object: `parse` runs again whenever
+ * another tab writes, and rebuilding every event each time is a copy nobody
+ * asked for.
+ */
+function hydrateEvents(value: unknown): CalEvent[] {
+  if (!Array.isArray(value)) return [];
+  return (value as CalEvent[]).map((event) => {
+    const { interval, until, byDay, nth, exdates } = event;
+    if (
+      typeof interval === "number" &&
+      typeof until === "number" &&
+      typeof nth === "number" &&
+      Array.isArray(byDay) &&
+      Array.isArray(exdates)
+    ) {
+      return event;
+    }
+    return {
+      ...event,
+      interval: typeof interval === "number" ? interval : NEVER.interval,
+      until: typeof until === "number" ? until : NEVER.until,
+      byDay: Array.isArray(byDay) ? byDay : [],
+      nth: typeof nth === "number" ? nth : NEVER.nth,
+      exdates: Array.isArray(exdates) ? exdates : [],
+    };
+  });
+}
+
 function parse(raw: string): Snapshot {
   const parsed: Partial<Snapshot> = JSON.parse(raw);
   // A stale schema means the stored values no longer mean what they say.
@@ -254,9 +290,11 @@ function parse(raw: string): Snapshot {
       : DEFAULT_SETTINGS;
   return {
     schema: SCHEMA,
-    events: Array.isArray(parsed.events) ? parsed.events : [],
+    events: hydrateEvents(parsed.events),
     calendars: parsed.calendars?.length ? parsed.calendars : DEFAULT_CALENDARS,
-    feeds: parsed.feeds ?? {},
+    feeds: Object.fromEntries(
+      Object.entries(parsed.feeds ?? {}).map(([id, events]) => [id, hydrateEvents(events)]),
+    ),
     // Both of these can be stored *wrong* rather than merely missing, and both
     // draw something broken if they are.
     settings: sane(settings),
@@ -627,6 +665,7 @@ export function draftEvent(
     location: "",
     url: "",
     notes: "",
+    ...NEVER,
     repeat,
     color: "",
   };

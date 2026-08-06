@@ -6,13 +6,23 @@
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Calendar as CalendarIcon, Clock as ClockIcon } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
-import { PALETTE, REPEATS, REPEAT_LABELS, type CalEvent } from "@/lib/events";
 import {
+  NEVER,
+  PALETTE,
+  REPEATS,
+  REPEAT_LABELS,
+  repeatUnit,
+  type CalEvent,
+  type Repeat,
+} from "@/lib/events";
+import {
+  WEEKDAYS,
   addDays,
   atMinutes,
   dayKey,
   formatRelativeDay,
   formatTime,
+  fromDayKey,
   minutesOfDay,
   parseClock,
   startOfDay,
@@ -20,8 +30,10 @@ import {
 } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import {
+  DateField,
   FieldRow as Row,
   Kbd,
+  NumberField,
   Select,
   Switch,
   openDatePicker,
@@ -185,6 +197,54 @@ function ColorPicker({
   );
 }
 
+/**
+ * The seven weekdays a weekly rule can name, Monday first — the same week the
+ * life grid's columns are, so "a week" means one thing in this app.
+ */
+const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0];
+
+function DayChip({
+  day,
+  active,
+  onToggle,
+}: {
+  day: number;
+  active: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      aria-label={WEEKDAYS[day]}
+      onClick={onToggle}
+      className={cn(
+        "size-[26px] shrink-0 rounded-full text-[11px] font-medium transition-colors",
+        active ? "bg-ink text-void" : "bg-surface-2 text-ink-2 hover:text-ink",
+      )}
+    >
+      {WEEKDAYS[day][0]}
+    </button>
+  );
+}
+
+const ORDINALS = ["", "First", "Second", "Third", "Fourth", "Fifth"];
+
+/** How a monthly position reads: `Third Thursday`, `Last Thursday`. */
+function nthLabel(nth: number, weekday: number): string {
+  const name = WEEKDAYS[weekday];
+  if (nth > 0) return `${ORDINALS[nth] ?? nth} ${name}`;
+  return nth === -1 ? `Last ${name}` : `${ORDINALS[-nth] ?? -nth} last ${name}`;
+}
+
+/** The last instant of `day`, which is what `until` bounds a series with —
+ *  an occurrence starting that afternoon is inside the day it names. */
+function endOfDay(day: Date): number {
+  const end = startOfDay(day);
+  end.setHours(23, 59, 59, 999);
+  return end.getTime();
+}
+
 export default function EventEditor({
   target,
   clock,
@@ -280,6 +340,48 @@ export default function EventEditor({
       });
     }
   }
+
+  /* ------------------------------ recurrence ------------------------------ */
+
+  const seed = new Date(draft.start);
+  const repeating = draft.repeat !== "never";
+  /** Empty `byDay` means "the seed's own weekday" — the chips show that. */
+  const activeDays = draft.byDay.length > 0 ? draft.byDay : [seed.getDay()];
+
+  function handleRepeatChange(repeat: Repeat) {
+    // A weekday list belongs to the frequency that named it: carried across,
+    // a weekly BYDAY becomes a monthly position nobody chose. The bound and
+    // the interval survive, because they are about the same series either way.
+    patch(repeat === "never" ? { ...NEVER } : { repeat, byDay: [], nth: 0 });
+  }
+
+  function toggleWeekday(day: number) {
+    const next = activeDays.includes(day)
+      ? activeDays.filter((d) => d !== day)
+      : [...activeDays, day].sort((a, b) => a - b);
+    // A weekly rule with no weekday is not a rule; the last one cannot be
+    // taken off, which is also why there is no error to show.
+    if (next.length > 0) patch({ byDay: next });
+  }
+
+  function handleMonthlyMode(value: string) {
+    const nth = Number(value);
+    patch(nth === 0 ? { nth: 0, byDay: [] } : { nth, byDay: [seed.getDay()] });
+  }
+
+  function handleEndsChange(value: string) {
+    // A year out: long enough to be a real bound, short enough that nobody
+    // picked it by accident and forgot.
+    patch({ until: value === "never" ? 0 : endOfDay(addDays(seed, 365)) });
+  }
+
+  /** The three monthly shapes, plus whatever a subscription actually sent. */
+  const monthlyModes = [0, Math.floor((seed.getDate() - 1) / 7) + 1, -1, draft.nth]
+    .filter((nth, i, all) => all.indexOf(nth) === i)
+    .map((nth) => ({
+      value: String(nth),
+      label: nth === 0 ? `Day ${seed.getDate()}` : nthLabel(nth, draft.byDay[0] ?? seed.getDay()),
+    }));
 
   return (
     <AnimatePresence>
@@ -407,14 +509,78 @@ export default function EventEditor({
                 <Switch checked={draft.allDay} onChange={handleAllDayToggle} label="All-day" />
               </Row>
 
-              <Row label="Repeat">
+              {/* The rule, one line per question, and only the questions the
+                  chosen frequency actually raises. A monthly series does not
+                  get asked which weekdays; a one-off is asked nothing. */}
+              <Row label="Repeat" align={repeating ? "top" : "center"}>
                 <Select
                   value={draft.repeat}
-                  onChange={(next) => patch({ repeat: next })}
+                  onChange={handleRepeatChange}
                   options={REPEATS.map((r) => ({ value: r, label: REPEAT_LABELS[r] }))}
                   label="Repeat"
-                  className="flex-1"
                 />
+
+                {repeating && (
+                  <span className="flex items-center gap-2">
+                    <span className="label text-ink-3">Every</span>
+                    <NumberField
+                      value={draft.interval}
+                      onChange={(interval) => patch({ interval })}
+                      label="Repeat interval"
+                      suffix={repeatUnit(draft.repeat, draft.interval)}
+                      min={1}
+                      max={99}
+                    />
+                  </span>
+                )}
+
+                {draft.repeat === "weekly" && (
+                  <span className="flex items-center gap-1">
+                    {WEEK_ORDER.map((day) => (
+                      <DayChip
+                        key={day}
+                        day={day}
+                        active={activeDays.includes(day)}
+                        onToggle={() => toggleWeekday(day)}
+                      />
+                    ))}
+                  </span>
+                )}
+
+                {draft.repeat === "monthly" && (
+                  <span className="flex items-center gap-2">
+                    <span className="label text-ink-3">On</span>
+                    <Select
+                      value={String(draft.nth)}
+                      onChange={handleMonthlyMode}
+                      options={monthlyModes}
+                      label="Monthly on"
+                    />
+                  </span>
+                )}
+
+                {repeating && (
+                  <span className="flex items-center gap-2">
+                    <span className="label text-ink-3">Ends</span>
+                    <Select
+                      value={draft.until > 0 ? "on" : "never"}
+                      onChange={handleEndsChange}
+                      options={[
+                        { value: "never", label: "Never" },
+                        { value: "on", label: "On" },
+                      ]}
+                      label="Repeat ends"
+                    />
+                    {draft.until > 0 && (
+                      <DateField
+                        value={dayKey(new Date(draft.until))}
+                        onChange={(next) => next && patch({ until: endOfDay(fromDayKey(next)) })}
+                        label="Repeat until"
+                        min={dayKey(seed)}
+                      />
+                    )}
+                  </span>
+                )}
               </Row>
 
               <Row label="URL" last>
