@@ -1,6 +1,7 @@
 # todo
 
-Fixed dial hover animations
+Recurrence is real, the interior answers the day, and there is now a test suite —
+571 cases over the domain layer, `pnpm test`, in the gate.
 
 ## the list, and what I think of it
 
@@ -62,15 +63,35 @@ to-do list on a dial is a different product wearing this one as a skin. If you d
 pip, struck through when done, and no inbox. Lower priority than making the calendar you already
 have correct — see RRULE below.
 
-**7. test import**
+**7. ~~test import~~** — done, and bigger than import
 
-Yes — and the honest version is bigger than import. There is no test runner at all, and the modules
-that most need one are exactly the ones that lose data silently when they are wrong: `ics.ts`
-(round-trip), `backup.ts` (`readEvent`/`readSettings`/`importBackup`'s orphan reparenting),
-`store.ts` (`sane()`, `migrateSettings`, the `fresh()` cross-tab path), `events.ts`
-(`occurrenceStartingOn` on month ends and DST). Thirty tests over pure functions, no DOM, vitest,
-wired into `verify` so the gate stays single. This is the cheapest confidence available in the repo
-and it is currently zero.
+Vitest, `tests/`, wired into `verify`. **571 cases, 14 files, 447 ms.** Two projects: `local` under
+`TZ=Europe/Berlin` and `west` under `TZ=America/Los_Angeles` in its own process, because nearly
+every date function here is deliberately local-time and an unpinned suite passes in one zone and
+fails in the other.
+
+| module               | cases   | what it defends                                                                                                                                                                                                                                                                                                     |
+| -------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `recur.ts`           | 67      | every RFC 5545 §3.8.5.3 worked example, transcribed and cross-checked against independent date arithmetic rather than against the engine. WKST sensitivity, BYSETPOS, BYWEEKNO, BYYEARDAY across a leap year, Friday-the-13th, the `MAX_INSTANTS` cap, COUNT counting before EXDATE, DST on both Berlin transitions |
+| `backup.ts`          | 86      | hostile input, one row per thing a hand-edited backup can contain, plus `importBackup`'s orphan reparenting in both directions                                                                                                                                                                                      |
+| `store.ts`           | 63      | write / delete / **move** (day boundary, DST, a recurring series), undo depth and rebasing, the `fresh()` cross-tab path, `sane()`, `migrateSettings`, the quota notify, seeding through `subscribe`                                                                                                                |
+| `time.ts`            | 88      | `dayKey` local-time, `parseClock`'s five forms, both faces, DST arithmetic, `zonedToUtc` in and out of a gap                                                                                                                                                                                                        |
+| `life.ts` + `sun.ts` | 61      | `lifeCellAt` as the exact inverse of `lifeDotX/Y` swept across five years, the density policy, NOAA reference sunrises, polar day and night                                                                                                                                                                         |
+| `ics.ts`             | 50      | round-trip for every value type, octet-counted folding around a 4-byte emoji, escaping, and a table of malformed feeds that must not throw                                                                                                                                                                          |
+| `events.ts`          | 45      | day-clipping, the exclusive end, override suppression, lane packing, `freeGaps`, `colorOf` precedence                                                                                                                                                                                                               |
+| `worker`             | 35 + 35 | the SSRF table in every IPv4 spelling, and the proxy's redirect chain hop by hop                                                                                                                                                                                                                                    |
+| `feeds.ts`           | 11      | id stability across pulls, error recording, and the cross-tab undo interaction                                                                                                                                                                                                                                      |
+| `dial.ts`            | 16      | `angleAt` ↔ `minutesAtPoint` swept over all 1440 minutes on both faces                                                                                                                                                                                                                                              |
+
+Three custom matchers do the heavy lifting on readability — `toBeInstants`, `toOccurOn`,
+`toBeSameInstantAs` print an aligned actual/expected column with `(missing)` / `(unexpected)` /
+`(out of order)` markers, because a 40-instance RRULE diff as raw epoch integers is not a diff.
+
+Deliberately out of scope: no DOM, no jsdom, no component tests. A snapshot of an SVG path is a
+change-detector that fails on every legitimate geometry tweak; the dial stays eye-verified.
+`feedback.ts` and `keys.ts` are tuned by offline measurement, not asserted.
+
+**Seven real bugs fell out of writing it. All seven are fixed** — see the correctness table below.
 
 **8. zoom in life view**
 
@@ -249,19 +270,33 @@ And the honest omission: **there are no reminders.** A calendar that never tells
 viewer. While the tab is open, `Notification` is enough; closed, it needs a server, and a server is
 off-thesis. Say so in the UI rather than leaving the absence unexplained.
 
-### Correctness, regardless of direction
+### Correctness — seven fixed, four open
 
-| what                             | where and why                                                                                                                                                                                                                                                                                   |
-| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **SSRF via redirect**            | `worker/index.ts` validates the URL, then `fetch`es with default redirect-following — an allowlisted host can `302` to `http://127.0.0.1/`. Decimal, octal and hex IPv4 (`http://2130706433/`) and `[::ffff:127.0.0.1]` also bypass the guards. `redirect: "manual"` and re-validate every hop. |
-| **Feed payloads share the blob** | Everything is one `circal.v1` key, so a fat subscription competes with your own events for one ~5MB quota; `write()` toasts once and then loses the write silently on reload. Feeds want their own key, and a cap.                                                                              |
-| **Feeds without UID churn ids**  | `feeds.ts:58` falls back to `newId()`, so React keys, hover and selection reset on every pull — contradicting the comment directly above it.                                                                                                                                                    |
-| **Cross-tab writes wipe undo**   | Deliberate, but a _background_ tab's feed pull destroys the foreground tab's 60-step history. Scope the wipe to writes that actually move the base.                                                                                                                                             |
-| **No focus trap in any modal**   | Three hand-rolled dialogs, no shared primitive: Tab escapes to the page behind, and the global hotkeys (←/→/`t`) still fire under an open editor.                                                                                                                                               |
-| **`text-ink-3` for prose**       | ~3.1:1 on black, and `ink-4` is ~1.5:1 — decorative only, never text. See (4).                                                                                                                                                                                                                  |
-| **1 Hz whole-tree re-render**    | `useNow` ticks every second and `App` hands `now` to Dial, Sidebar, CenterPanel and LifeView, but only the readout and the hand move. Push second-resolution into a leaf and keep the rest on minutes.                                                                                          |
-| **Life grid is invisible to AT** | `role="img"`, one label, 30,000 dots, no focus path. The year grid does it right with real buttons — but its `aria-label` omits whether the day carries anything.                                                                                                                               |
-| **All-day toggle loses times**   | Off → on → off resets to 9–10am (`EventEditor.tsx:275`); the draft keeps no memory of what it had.                                                                                                                                                                                              |
+Fixed while writing the suite, each with the tests that pin it:
+
+| what                                   | the fix                                                                                                                                                                                                                                                                                       |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ~~**SSRF via redirect**~~              | `followChecked` in `worker/index.ts` walks the chain itself with `redirect: "manual"`, re-running the guard on every hop and capping at 5. A `302` into `169.254.169.254` is a 400, not a proxied body.                                                                                       |
+| ~~**IP literals bypass the guard**~~   | `ipv4Number` normalises decimal (`2130706433`), octal (`0177.0.0.1`), hex (`0x7f000001`), short forms (`127.1`) and v4-mapped v6 (`::ffff:127.0.0.1`) before anything is compared. The guard blocked the spelling, not the address. Carrier NAT, multicast and `0.0.0.0/8` added while there. |
+| ~~**Feeds without UID churn ids**~~    | The random id was in `ics.ts`, not `feeds.ts` — `crypto.randomUUID()` on every parse. Now `derivedUid()`, FNV-1a over DTSTART/DTEND/SUMMARY/LOCATION/RECURRENCE-ID. Fixes `.ics` import too, which had the same churn.                                                                        |
+| ~~**Cross-tab writes wipe undo**~~     | The wipe is scoped by `baseSignature()` — events, calendars minus their `feed`, settings. A background tab's feed pull no longer costs the foreground tab sixty steps.                                                                                                                        |
+| ~~**Undo reverted settings**~~         | Found by the suite. Settings commit with `record: false`, but undo restored a whole recorded snapshot, so undoing an event silently rolled back a switch flipped after it. Steps now carry `ownsSettings`, and only `restore` sets it.                                                        |
+| ~~**`zonedToUtc` wrong west of UTC**~~ | Found by the suite. The two-pass estimate converged from the naive UTC reading, so a spring-forward gap resolved _after_ the gap in Berlin and an hour _before_ it in Los Angeles. Now brackets the wall time with the offsets a day either side.                                             |
+| ~~**All-day toggle loses times**~~     | `timedSpan` ref in `EventEditor.tsx` remembers `{ startMin, durationMs }` across the toggle.                                                                                                                                                                                                  |
+| ~~**RDATE without RRULE dropped**~~    | Found by the suite. `readRecurrence` returned a bare `NEVER` when RRULE was absent, discarding EXDATE/RDATE with it — though `repeats()` and `startsBetween` both support an RDATE-only series. The lists are read independently now.                                                         |
+
+Still open:
+
+| what                             | where and why                                                                                                                                                                                                                                                                    |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Feed payloads share the blob** | Everything is one `circal.v1` key, so a fat subscription competes with your own events for one ~5MB quota; `write()` toasts once and then loses the write silently on reload. Feeds want their own key, and a cap. Needs a schema bump and a migration, so it is its own commit. |
+| **No focus trap in any modal**   | Three hand-rolled dialogs, no shared primitive: Tab escapes to the page behind, and the global hotkeys (←/→/`t`) still fire under an open editor.                                                                                                                                |
+| **`text-ink-3` for prose**       | ~3.1:1 on black, and `ink-4` is ~1.5:1 — decorative only, never text. See (4).                                                                                                                                                                                                   |
+| **1 Hz whole-tree re-render**    | `useNow` ticks every second and `App` hands `now` to Dial, Sidebar, CenterPanel and LifeView, but only the readout and the hand move. Push second-resolution into a leaf and keep the rest on minutes.                                                                           |
+| **Life grid is invisible to AT** | `role="img"`, one label, 30,000 dots, no focus path. The year grid does it right with real buttons — but its `aria-label` omits whether the day carries anything.                                                                                                                |
+
+The last four are all DOM-shaped, which is exactly the surface this suite does not cover. That is
+the honest boundary of what 571 pure-function tests buy you.
 
 ### What not to do
 
@@ -273,6 +308,20 @@ off-thesis. Say so in the UI rather than leaving the absence unexplained.
 
 ### If it were five things
 
-Invert the life grid's tone → next event and countdown in the interior → labels on arcs →
-~~real RRULE in and out~~ (done) → quick-add in ⌘P. The first two change how the app feels daily;
-the remaining one and the shipped RRULE decide whether it can be somebody's actual calendar.
+The old list is spent: ~~real RRULE in and out~~, ~~next event and countdown in the interior~~ and
+~~a test suite~~ all shipped. What is left, in order:
+
+1. **Invert the life grid's tone.** `[high / trivial]` — `dim()` already does the work, it is a sign
+   flip. Lived days are the dim ones today, which is backwards emotionally and informationally.
+2. **All-day events on the face**, and **stop making light and progress mutually exclusive.**
+   `[high / small]` each, and they are one afternoon together. Both are the dial saying less than it
+   knows: `EventArc` returns `null` for an all-day event, and switching on Lightcycle deletes the
+   elapsed ring. A setting should not be able to make the instrument silently incomplete.
+3. **Labels on arcs.** `[high / medium]` — the single change that moves the dial from beautiful to
+   readable without hovering.
+4. **Quick-add in ⌘P.** `[high / small]` — every parser exists, the sentence does not. And the
+   parsers it composes are now covered, which is what makes it safe to build on them.
+5. **Ambient mode.** `[high / trivial]` — one boolean from shipping the best desk clock on the web.
+
+Then the year view, which is the one screen still contradicting "one idea at three scales" and the
+thing blocking (2).

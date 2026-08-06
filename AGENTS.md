@@ -71,12 +71,14 @@ src/pages/index.astro   static HTML shell
 pnpm install
 pnpm dev        # astro dev — http://localhost:4321. NO /api/feed here
 pnpm dev:worker # astro build && wrangler dev — the only way to exercise /api/feed
-pnpm verify     # THE gate: format:check && lint && check && build
+pnpm test       # vitest run — two TZ-pinned projects
+pnpm test:watch # vitest
+pnpm verify     # THE gate: format:check && lint && check && test && build
 pnpm format     # prettier --write . (run this, never hand-format)
 pnpm deploy     # astro build && wrangler deploy
 ```
 
-`pnpm verify` = only quality gate; run before declaring work done. Individual steps: `pnpm format:check`, `pnpm lint` (eslint), `pnpm check` (astro check / tsc), `pnpm build`.
+`pnpm verify` = only quality gate; run before declaring work done. Individual steps: `pnpm format:check`, `pnpm lint` (eslint), `pnpm check` (astro check / tsc), `pnpm test` (vitest), `pnpm build`.
 
 ## Git & Commits
 
@@ -162,15 +164,45 @@ if (seeded !== day) {
 
 ## Testing & QA
 
-**No test framework in this repo** — no vitest, jest or playwright, no `*.test.*` / `*.spec.*` files, no `test` script. Do not claim tests pass.
+**Vitest, `tests/`, wired into `verify`.** `pnpm test` (run once), `pnpm test:watch`. Gate is
+`format:check && lint && check && test && build` — test before build so it fails in seconds.
 
-Honest verification path:
+**Two projects, and the split is load-bearing.** `local` runs `tests/**` under `TZ=Europe/Berlin`;
+`west` runs `tests/west/**` under `TZ=America/Los_Angeles`, in its own process. Nearly every date
+function here is deliberately local-time, so an unpinned suite passes in one zone and fails in
+another. Zone-sensitive invariants get re-asserted in `tests/west/`. Own process because a TZ change
+after Node has started is not reliably observed.
 
-1. `pnpm verify` — proves it formats, lints, typechecks, builds. Proves nothing about behaviour.
-2. **Drive change in browser.** `pnpm dev`, then exercise specific path: create event, drag ring, open ⌘P, switch dial mode, step days. Dial = visual instrument; screenshot of changed state = proof.
-3. **Anything touching `/api/feed`, service worker, or manifest needs `pnpm dev:worker`.** `astro dev` serves neither Worker route nor PROD build, so subscription cannot be added and service worker never registers.
+**`tests/helpers.ts` is the shared floor. Read it before writing a test; extend it rather than
+re-inventing it.** `at()`/`ms()`/`day()` build local instants (never `new Date("2026-01-01")` — that
+parses as UTC), `event()`/`calendar()`/`rule()`/`byDay()` build fixtures with every field defaulted,
+`MemoryStorage` stands in for `localStorage`, and `show()` prints an instant as
+`2026-03-08 09:30 Sun`.
 
-If you add test framework, wire into `verify` in `package.json` so gate stays single.
+**Three custom matchers, and instants must use them**: `toBeInstants`, `toOccurOn` (days only),
+`toBeSameInstantAs`. They print an aligned actual-vs-expected column with `(missing)` /
+`(unexpected)` / `(out of order)` markers — a 40-instance RRULE diff is unreadable as raw epoch
+integers, and that readability is the whole reason they exist.
+
+**Scope: the domain layer only** — `src/lib/*` plus the Worker's pure guards. No DOM, no jsdom, no
+component tests. Snapshotting SVG path strings is a change-detector that fails on every legitimate
+geometry tweak; the dial is verified by eye. `feedback.ts`/`keys.ts` need a real `AudioContext` and
+are tuned by offline measurement, not asserted.
+
+**Store tests need `vi.resetModules()` + `await import(...)`** — `snapshot`, `lastRaw`, `hydrated`,
+`past` and `future` are module-level and deliberately survive a page reload, which is exactly what a
+static import would share between tests. That dynamic import is the sanctioned exception to the
+static-import rule.
+
+Tests defend observable contracts and must be able to fail on a plausible bug. A non-obvious line in
+`src/lib/` usually carries a `why` comment; that comment names the invariant worth pinning. Prefer
+`it.each` with `$name` templating and `expect.soft` in table blocks so a failure names the case and
+reports every row.
+
+`pnpm verify` still proves nothing about how it _looks_. A visual change is verified by driving it:
+`pnpm dev`, exercise the path (create event, drag ring, ⌘P, switch face, step days), screenshot.
+Anything touching `/api/feed`, the service worker or the manifest needs `pnpm dev:worker` — `astro
+dev` serves neither the Worker route nor a PROD build.
 
 ## Gotchas
 
@@ -193,8 +225,11 @@ If you add test framework, wire into `verify` in `package.json` so gate stays si
 - **`Settings` schema-versioned.** `SCHEMA` in `src/lib/store.ts` bumped when stored value changes _meaning_ rather than shape (went to `2` when `clock: "24h"` stopped meaning noon-at-top face). Stale schema resets settings to defaults, keeps events.
 - **Store hydration lazy, at first `subscribe`**, not module scope; `load()` and `write()` swallow `localStorage` errors on purpose (private mode / quota must not brick app) — but `write()` also calls `notify(…, "error")`, because silent failed save indistinguishable from successful one and that how a day's events disappear.
 - **Every action derives from `fresh()`, never from module's `snapshot`.** `fresh()` re-reads blob when another tab wrote since we last looked. Deriving from in-memory snapshot loses other tab's events wholesale in window before its `storage` event arrives.
-- **Undo in-memory and session-scoped**, cleared on inbound `storage` event: undoing onto base another tab moved past would resurrect what it just deleted. `commit(next, false)` opts change out of history — settings and feed pulls do.
+- **Undo in-memory and session-scoped**, cleared on an inbound `storage` event _only when the base actually moved_: undoing onto a base another tab moved past would resurrect what it just deleted, but a background tab's **feed pull** writes the same key and used to cost the foreground tab all sixty steps — a loss the user cannot attribute to anything they did. `baseSignature()` is the comparison (events + calendars minus their `feed` + settings); `undo`/`redo` also carry today's `feeds` across rather than restoring the recorded ones, because a feed is a live mirror and never part of an undo step. `commit(next, false)` opts a change out of history — settings and feed pulls do.
 - **`seed()` only runs when no stored blob exists**, anchors on today's local midnight.
+- **A VEVENT with no UID gets a _derived_ one, never a generated one.** `derivedUid()` in `ics.ts` is FNV-1a over DTSTART/DTEND/SUMMARY/LOCATION/RECURRENCE-ID, formatted `<base36>@circal.local`. It was `crypto.randomUUID()`, which meant a new id on every parse: `feeds.ts` builds each event's key from the uid, so every pull remounted every arc and hover, selection and the arc under the pointer all dropped. UID is required by RFC 5545, so this only fires on a feed nobody can fix.
+- **`zonedToUtc` brackets the wall time with two candidate offsets** — the one in force a day before and a day after — and takes the pre-transition one when neither or both read back. That resolves a spring-forward gap to the instant _after_ it and a fall-back ambiguity to the _first_ of the two, in every zone. The earlier two-pass version converged from the naive UTC reading, so which side of a gap it landed on depended on the sign of the offset: Berlin was right and Los Angeles was an hour early.
+- **The all-day toggle remembers the times it had.** `timedSpan` in `EventEditor.tsx` is a ref holding `{ startMin, durationMs }`, captured on the way into all-day and restored on the way out; without it, off → on → off reset every event to 9–10am and silently discarded a duration the user had set.
 - **`<input type="time">` banned here** — renders in _browser's_ UI locale, not app's. Use `TimeField` in `EventEditor.tsx`, backed by `parseClock` (accepts `10:45 AM`, `10:45am`, `1045`, `9p`, `13:00`).
 - **No `backdrop-filter` on element also carrying `.fade-y`** — Chromium paints blur over box far larger than element, appears as grey rectangle mid-dial (see comment in `CenterPanel.tsx`).
 - **Your lightcycle band replaces elapsed ring; does not join it.** Both live on `DIAL.TRACK` at `DIAL.TRACK_WIDTH`, and `elapsedSegments` returns `[]` whenever band has half left to draw (`place && (daylight || moonlight)`, computed once as `band`). Second band on own radius _next to_ track was first attempt, read as one line accidentally doubled. Deliberately no `DIAL.SUN`.
