@@ -101,11 +101,17 @@ const FEATHER = 0.16;
  * are weeks — it is this instead, and the band drifting along the row is the
  * honest shape of the thing.
  *
- * Solid past, faint future. The lived half is the part you own and the part
- * that carries events, and every reader arrives expecting the filled portion
- * of a progress figure to be the spent one. Neither state may go to near-black
- * though: the argument of this view is the whole span in one viewport, and a
- * half you cannot see is a half that is not there.
+ * Solid past, faint future. The lived half is the part you own, and every
+ * reader arrives expecting the filled portion of a progress figure to be the
+ * spent one. Neither state may go to near-black though: the argument of this
+ * view is the whole span in one viewport, and a half you cannot see is a half
+ * that is not there.
+ *
+ * This is the grey channel and it carries time, which is the one thing the
+ * layout already says — a dot's row is its year. So it stops at the field: an
+ * event's colour is never dimmed by how far off it is. Colour is the only
+ * channel with data in it, and the days ahead that carry something are exactly
+ * the ones you can still do anything about.
  *
  * Opaque greys rather than translucent white, for the reason the dial's
  * elapsed ring is: on true black the two are the same colour, and only one of
@@ -114,8 +120,6 @@ const FEATHER = 0.16;
 const TONE = {
   past: [dim("#ffffff", 0.58), dim("#ffffff", 0.45)],
   future: [dim("#ffffff", 0.23), dim("#ffffff", 0.17)],
-  /** How far an event's colour is dimmed while its day is still ahead of you. */
-  eventFuture: 0.45,
 } as const;
 
 /** The accent, as the canvas needs it — a token cannot be read by `fillStyle`. */
@@ -188,17 +192,8 @@ function drawField(
         lit = { at: { x, y }, color: event ?? TODAY_COLOR };
         continue;
       }
-      const past = cursor.getTime() < todayMs;
-      plot(
-        event
-          ? past
-            ? event
-            : dim(event, TONE.eventFuture)
-          : (past ? TONE.past : TONE.future)[cursor.getMonth() % 2],
-        x,
-        y,
-        radius,
-      );
+      const tone = cursor.getTime() < todayMs ? TONE.past : TONE.future;
+      plot(event ?? tone[cursor.getMonth() % 2], x, y, radius);
     }
   }
 
