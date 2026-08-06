@@ -8,6 +8,9 @@
 
 export const MINUTES_PER_DAY = 1440;
 
+/** Wide enough to step clear of any DST transition — they are never a day apart. */
+const DAY_MS = 86_400_000;
+
 /**
  * How the app names an hour. Lives here rather than in `dial.ts` because it
  * governs every printed time — the readout, the agenda, the editor — and the
@@ -176,10 +179,24 @@ export function zoneOffset(at: Date, zone: string): number {
  * Wall-clock fields *in `zone`* → the instant they name. The inverse of
  * `zoneParts`, and the piece `Intl` does not provide.
  *
- * Two passes: the first guesses the offset from the naive UTC reading, the
- * second re-reads it at the corrected instant. That settles every case except
- * a time inside a spring-forward gap, which does not exist and resolves to the
- * instant after it — the same thing every calendar does.
+ * Two candidate offsets rather than two passes: the offset in force a day
+ * before the wall time, and the one a day after. A DST transition is never
+ * within a day of another, so those two bracket every case, and exactly one
+ * of them is the answer.
+ *
+ * The earlier pass-based version was direction-dependent and quietly wrong
+ * west of UTC. It converged from the naive UTC reading, so which side of a
+ * spring-forward gap it landed on depended on the sign of the offset: Berlin
+ * resolved 02:30 on a gap day to 03:30 (correct), while Los Angeles resolved
+ * it to 01:30 — an hour *before* the gap, and an hour earlier than the user
+ * asked for.
+ *
+ * The two ambiguous cases, decided the way every calendar decides them:
+ *  - **Spring forward.** The wall time does not exist. Neither candidate reads
+ *    back, and the pre-transition offset is taken, which lands on the instant
+ *    immediately after the gap.
+ *  - **Fall back.** The wall time happens twice. Both candidates read back,
+ *    and the pre-transition offset is taken, which is the first of the two.
  */
 export function zonedToUtc(
   year: number,
@@ -190,8 +207,23 @@ export function zonedToUtc(
   zone: string,
 ): number {
   const naive = Date.UTC(year, month - 1, day, hour, minute);
-  const first = naive - zoneOffset(new Date(naive), zone) * 60_000;
-  return naive - zoneOffset(new Date(first), zone) * 60_000;
+  const before = naive - zoneOffset(new Date(naive - DAY_MS), zone) * 60_000;
+  const after = naive - zoneOffset(new Date(naive + DAY_MS), zone) * 60_000;
+
+  const reads = (at: number) => {
+    const p = zoneParts(new Date(at), zone);
+    return (
+      p.year === year &&
+      p.month === month &&
+      p.day === day &&
+      p.hour === hour &&
+      p.minute === minute
+    );
+  };
+
+  if (reads(before)) return before;
+  if (reads(after)) return after;
+  return before;
 }
 
 /**
