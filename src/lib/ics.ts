@@ -471,13 +471,23 @@ function parseDateList(entries: PropEntry[]): string[] {
  * VEVENT.
  */
 function readRecurrence(block: Block, start: number): Recurrence {
+  // EXDATE and RDATE are properties of the VEVENT, not of the RRULE, and
+  // RFC 5545 allows a series made of RDATEs alone. The model handles that —
+  // `repeats()` is true for rdates with `repeat: "never"`, and
+  // `startsBetween` adds them whatever the frequency — so dropping them with
+  // the rule lost dates a producer had named explicitly.
+  const dates = {
+    exdates: parseDateList(block.exdates),
+    rdates: parseDateList(block.rdates),
+  };
+
   const rrule = block.props.RRULE?.value;
-  if (!rrule) return { ...NEVER };
+  if (!rrule) return { ...NEVER, ...dates };
 
   const parts = parseRuleParts(rrule);
   const freq = parts.FREQ?.toLowerCase();
   if (!freq || freq === "never" || !FREQUENCIES.includes(freq as Repeat)) {
-    return { ...NEVER };
+    return { ...NEVER, ...dates };
   }
   const repeat = freq as Repeat;
 
@@ -495,8 +505,7 @@ function readRecurrence(block: Block, start: number): Recurrence {
     byMinute: parts.BYMINUTE ? parseIntListRanged(parts.BYMINUTE, 0, 59) : [],
     bySecond: parts.BYSECOND ? parseIntListRanged(parts.BYSECOND, 0, 60) : [],
     bySetPos: parts.BYSETPOS ? parseSignedList(parts.BYSETPOS, 366) : [],
-    exdates: parseDateList(block.exdates),
-    rdates: parseDateList(block.rdates),
+    ...dates,
   };
   // COUNT and UNTIL are mutually exclusive in a valid rule; if a producer
   // sends both, the explicit date wins. Counting reads the rule as parsed
@@ -505,6 +514,29 @@ function readRecurrence(block: Block, start: number): Recurrence {
     rule.until = countedUntil(rule, start, Math.trunc(Number(parts.COUNT))) ?? 0;
   }
   return rule;
+}
+
+/**
+ * A stable synthetic UID for a VEVENT that did not bring one.
+ *
+ * FNV-1a over the properties that identify an occurrence in practice. A hash
+ * rather than the fields themselves because this ends up in a DOM key, and a
+ * SUMMARY can be any length and contain anything.
+ */
+function derivedUid(block: Block["props"], start: number, end: number): string {
+  const source = [
+    start,
+    end,
+    block.SUMMARY?.value ?? "",
+    block.LOCATION?.value ?? "",
+    block["RECURRENCE-ID"]?.value ?? "",
+  ].join("|");
+  let h = 0x811c9dc5;
+  for (let i = 0; i < source.length; i++) {
+    h ^= source.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return `${h.toString(36)}@circal.local`;
 }
 
 function buildEvent(block: Block): IcsEvent | null {
@@ -521,12 +553,14 @@ function buildEvent(block: Block): IcsEvent | null {
     end = dtstart.ms + (duration ?? (dtstart.allDay ? 86_400_000 : 3_600_000));
   }
 
+  // A UID is required by RFC 5545, so this fallback only fires on a
+  // non-conforming feed — which is to say, on exactly the feeds nobody can
+  // fix. It must be *derived*, never generated: a random id here is a new id
+  // on every pull, and `feeds.ts` builds the event's key from it, so React
+  // remounted every arc each refresh — hover dropped, selection dropped, and
+  // the arc under the pointer vanished and came back beneath it.
   const uidValue = props.UID?.value;
-  const uid = uidValue
-    ? unescapeText(uidValue)
-    : typeof crypto !== "undefined" && "randomUUID" in crypto
-      ? crypto.randomUUID()
-      : `${dtstart.ms}-${Math.random().toString(36).slice(2)}`;
+  const uid = uidValue ? unescapeText(uidValue) : derivedUid(props, dtstart.ms, end);
 
   return {
     uid,

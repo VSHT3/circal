@@ -12,7 +12,7 @@
  * ------------------------------------------------------------------ */
 
 import { fromIcs } from "./ics";
-import { newId, store } from "./store";
+import { store } from "./store";
 import { recurrenceOf, type CalEvent, type Calendar } from "./events";
 
 /** Feeds older than this are pulled again when the app starts. */
@@ -54,7 +54,9 @@ export async function refreshFeed(calendar: Calendar): Promise<void> {
       // an override — so the parent's id alone would collide between the
       // two; the RECURRENCE-ID joins the key to keep both stable and apart.
       const isOverride = e.recurrenceId !== "";
-      const parentId = `${calendar.id}:${e.uid || newId()}`;
+      // `fromIcs` guarantees a uid, deriving a stable one when the feed
+      // omitted it — see `derivedUid` there.
+      const parentId = `${calendar.id}:${e.uid}`;
       return {
         id: isOverride ? `${parentId}:${e.recurrenceId}` : parentId,
         title: e.title,
