@@ -137,7 +137,11 @@ export function occurrencesOn(events: CalEvent[], calendars: Calendar[], day: Da
         start: hit.start,
         end: hit.end,
         startMin: continuesBefore ? 0 : minutesOfDay(hit.start),
-        endMin: continuesAfter ? MINUTES_PER_DAY : minutesOfDay(hit.end),
+        // `>=`, not `continuesAfter`: an event ending *exactly* at midnight ends
+        // this day at 1440 rather than the next one at 0. `minutesOfDay` would
+        // say 0, which is a negative duration everywhere it is measured and an
+        // arc drawn backwards round the whole face.
+        endMin: hit.end >= dayEnd ? MINUTES_PER_DAY : minutesOfDay(hit.end),
         continuesBefore,
         continuesAfter,
         lane: 0,
