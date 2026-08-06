@@ -363,13 +363,43 @@ let lastRaw: string | null = null;
 let hydrated = false;
 const listeners = new Set<() => void>();
 
-/** Undo is in-memory and session-scoped: a reload starts fresh. */
+/**
+ * Undo is in-memory and session-scoped: a reload starts fresh.
+ *
+ * A step is the snapshot to go back to, plus whether the action that created
+ * it owns the *settings* in it. Almost none do — `setClock` and its siblings
+ * commit with `record: false`, so they never push a step at all, and an undo
+ * that restored the recorded settings wholesale would silently roll back a
+ * setting the user changed after the step they are undoing. `restore` is the
+ * one action that legitimately replaces settings as part of an undoable
+ * change, so it is the one that sets this.
+ */
+interface UndoStep {
+  snapshot: Snapshot;
+  ownsSettings: boolean;
+}
+
 const UNDO_DEPTH = 60;
-let past: Snapshot[] = [];
-let future: Snapshot[] = [];
+let past: UndoStep[] = [];
+let future: UndoStep[] = [];
 
 function emit() {
   for (const listener of listeners) listener();
+}
+
+/**
+ * The part of a snapshot an undo step can restore, as a string.
+ *
+ * `feeds` is a live mirror of somebody else's calendar and is never undoable,
+ * and a feed pull also stamps `fetchedAt` on the calendar it belongs to — so
+ * neither counts as the base moving. Everything else does.
+ */
+function baseSignature(s: Snapshot): string {
+  return JSON.stringify([
+    s.events,
+    s.calendars.map(({ feed: _feed, ...rest }) => rest),
+    s.settings,
+  ]);
 }
 
 /**
@@ -411,17 +441,41 @@ function write(next: Snapshot) {
   emit();
 }
 
-/** `record: false` for changes not worth an undo step (settings, feed pulls). */
-function commit(next: Snapshot, record = true) {
+/**
+ * `record: false` for changes not worth an undo step (settings, feed pulls).
+ * `ownsSettings` for the one undoable change that also replaces settings.
+ */
+function commit(next: Snapshot, record = true, ownsSettings = false) {
   if (record) {
-    past.push(snapshot);
+    past.push({ snapshot, ownsSettings });
     if (past.length > UNDO_DEPTH) past.shift();
     future = [];
   }
   write(next);
 }
 
-function subscribe(listener: () => void): () => void {
+/**
+ * A recorded step, rebased onto whatever is true *now* for the parts an undo
+ * step does not own. Feeds are a live mirror and never owned; settings are
+ * owned only by `restore`.
+ */
+function rebase(step: UndoStep, current: Snapshot): Snapshot {
+  return {
+    ...step.snapshot,
+    feeds: current.feeds,
+    settings: step.ownsSettings ? step.snapshot.settings : current.settings,
+  };
+}
+
+/**
+ * The external-store subscription `useStore` is built on.
+ *
+ * Exported because it is the whole of this module's cross-tab behaviour — the
+ * `storage` listener that decides when another tab's write invalidates our
+ * undo history lives here and nowhere else, and a contract reachable only
+ * through a mounted React tree cannot be defended by a test.
+ */
+export function subscribe(listener: () => void): () => void {
   // First subscriber pulls localStorage in. Doing it at module scope would run
   // during SSR bundling and during hydration, before the client has committed —
   // this keeps the first render deterministic.
@@ -433,11 +487,19 @@ function subscribe(listener: () => void): () => void {
 
   const onStorage = (e: StorageEvent) => {
     if (e.key !== KEY) return;
+    const before = baseSignature(snapshot);
     snapshot = load();
     // Undoing onto a base another tab has moved on from would resurrect the
     // events it just deleted. Ours is the stale history; drop it.
-    past = [];
-    future = [];
+    //
+    // But only when the base actually moved. A *feed pull* in a background
+    // tab writes the same key, and dropping sixty steps of the foreground
+    // tab's history because a subscription refreshed itself is a data loss
+    // the user cannot even attribute to anything they did.
+    if (baseSignature(snapshot) !== before) {
+      past = [];
+      future = [];
+    }
     emit();
   };
   window.addEventListener("storage", onStorage);
@@ -653,33 +715,52 @@ export const store = {
   /** Whole-store restore from a backup. One undo step, so a misfire is not fatal. */
   restore(next: Pick<Snapshot, "events" | "calendars" | "settings">) {
     const base = fresh();
-    commit({
-      schema: SCHEMA,
-      events: next.events,
-      calendars: next.calendars,
-      // Feeds are a live mirror, not part of a backup; keep whatever is cached.
-      feeds: base.feeds,
-      // Through the same clamp a stored blob goes through: a backup is external
-      // input, and `readSettings` only guarantees the *types*.
-      settings: sane({ ...DEFAULT_SETTINGS, ...next.settings }),
-    });
+    commit(
+      {
+        schema: SCHEMA,
+        events: next.events,
+        calendars: next.calendars,
+        // Feeds are a live mirror, not part of a backup; keep whatever is cached.
+        feeds: base.feeds,
+        // Through the same clamp a stored blob goes through: a backup is external
+        // input, and `readSettings` only guarantees the *types*.
+        settings: sane({ ...DEFAULT_SETTINGS, ...next.settings }),
+      },
+      true,
+      // The one undoable action that replaces settings, so the one whose undo
+      // step has to carry them back.
+      true,
+    );
   },
 
   /* --------------------------------- undo --------------------------------- */
 
+  /**
+   * Both rebase the recorded step onto what is true now: today's `feeds`
+   * always, and today's `settings` unless the step being undone is the one
+   * that replaced them.
+   *
+   * A feed is a live mirror, not something the user did — undoing an event
+   * they created should not roll a subscription back sixty steps. And every
+   * settings action commits with `record: false`, so restoring the recorded
+   * settings wholesale would silently revert a switch the user flipped
+   * *after* the change they are undoing.
+   */
   undo(): boolean {
-    const previous = past.pop();
-    if (!previous) return false;
-    future.push(snapshot);
-    write(previous);
+    const step = past.pop();
+    if (!step) return false;
+    const current = fresh();
+    future.push({ snapshot: current, ownsSettings: step.ownsSettings });
+    write(rebase(step, current));
     return true;
   },
 
   redo(): boolean {
-    const next = future.pop();
-    if (!next) return false;
-    past.push(snapshot);
-    write(next);
+    const step = future.pop();
+    if (!step) return false;
+    const current = fresh();
+    past.push({ snapshot: current, ownsSettings: step.ownsSettings });
+    write(rebase(step, current));
     return true;
   },
 };
