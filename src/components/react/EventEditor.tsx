@@ -5,7 +5,7 @@
 
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Calendar as CalendarIcon, Clock as ClockIcon } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   NEVER,
   PALETTE,
@@ -450,16 +450,31 @@ export default function EventEditor({
     patch({ end: next.getTime() });
   }
 
+  /**
+   * The timed span this event had before All-day was switched on, so switching
+   * it back off returns it rather than resetting to 9–10am. A ref rather than
+   * state: nothing renders from it, and it must survive the two `patch` calls
+   * without causing a third render.
+   *
+   * Seeded from the draft on the way in, so an event that arrives all-day
+   * still has a sensible pair of times to fall back to.
+   */
+  const timedSpan = useRef<{ startMin: number; durationMs: number } | null>(null);
+
   function handleAllDayToggle(next: boolean) {
     const day = startOfDay(new Date(draft.start));
     if (next) {
+      if (!draft.allDay) {
+        timedSpan.current = {
+          startMin: minutesOfDay(new Date(draft.start)),
+          durationMs: draft.end - draft.start,
+        };
+      }
       patch({ allDay: true, start: day.getTime(), end: addDays(day, 1).getTime() });
     } else {
-      patch({
-        allDay: false,
-        start: atMinutes(day, 9 * 60).getTime(),
-        end: atMinutes(day, 10 * 60).getTime(),
-      });
+      const remembered = timedSpan.current ?? { startMin: 9 * 60, durationMs: 3_600_000 };
+      const start = atMinutes(day, remembered.startMin).getTime();
+      patch({ allDay: false, start, end: start + remembered.durationMs });
     }
   }
 
