@@ -72,6 +72,15 @@ export function isSameDay(a: Date, b: Date): boolean {
   );
 }
 
+/**
+ * Whole days from one date to another, by calendar date rather than by elapsed
+ * time: `Math.round` because a day that crosses a DST boundary is 23 or 25
+ * hours long, and floor would call it a day short.
+ */
+export function daysBetween(from: Date, to: Date): number {
+  return Math.round((startOfDay(to).getTime() - startOfDay(from).getTime()) / 86_400_000);
+}
+
 /** `YYYY-MM-DD` in *local* time — `toISOString()` would shift the day in any
  *  timezone west of UTC, which is exactly where a day-keyed store breaks. */
 export function dayKey(d: Date): string {
@@ -294,7 +303,7 @@ export function formatDayHeader(d: Date): { weekday: string; date: string } {
 
 /** Relative label for the date row of the editor: Today / Tomorrow / Aug 12. */
 export function formatRelativeDay(d: Date, today = new Date()): string {
-  const diff = Math.round((startOfDay(d).getTime() - startOfDay(today).getTime()) / 86_400_000);
+  const diff = daysBetween(today, d);
   if (diff === 0) return "Today";
   if (diff === 1) return "Tomorrow";
   if (diff === -1) return "Yesterday";

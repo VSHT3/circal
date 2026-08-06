@@ -33,7 +33,7 @@ import { LIFE_META_H, lifeDot, lifeStage } from "@/lib/life";
 import { useElementSize, useHotkeys, useNow, useTypingSound } from "./hooks";
 import type { EditorTarget, ShellActions, ViewFlow, ViewMode } from "./types";
 import CommandPalette from "./CommandPalette";
-import Dial from "./Dial";
+import Dial, { type DragPreview } from "./Dial";
 import EventEditor from "./EventEditor";
 import LifeView from "./LifeView";
 import Settings from "./Settings";
@@ -185,6 +185,18 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   /**
+   * The arc the dial has hold of, at where the drag has it. Held here rather
+   * than in the dial because the day's agenda is what has to know: fold it in
+   * and a drag becomes a preview of its own result — lanes repack around it,
+   * an event dragged into the day is clipped to it, and the sidebar and the
+   * readout say what the release is about to make true.
+   *
+   * Never written to the store. A gesture in flight is not data, and the
+   * dial clears it on release, on Escape, and on being unmounted.
+   */
+  const [preview, setPreview] = useState<DragPreview | null>(null);
+
+  /**
    * Everything the dial draws: what you wrote plus what you subscribed to.
    * A feed's events are merged only for reading — every mutation still goes
    * through `store.events`, which is why they are two lists in the snapshot.
@@ -194,7 +206,18 @@ export default function App() {
     [events, feeds],
   );
 
-  const agenda = useMemo(() => dayAgenda(visible, calendars, day), [visible, calendars, day]);
+  /** `visible`, with the dragged event where the drag has it. */
+  const previewed = useMemo(
+    () =>
+      preview
+        ? visible.map((e) =>
+            e.id === preview.id ? { ...e, start: preview.start, end: preview.end } : e,
+          )
+        : visible,
+    [visible, preview],
+  );
+
+  const agenda = useMemo(() => dayAgenda(previewed, calendars, day), [previewed, calendars, day]);
   const defaultCalendar = calendars.find((c) => !c.feed)?.id ?? "personal";
   const feedIds = useMemo(
     () => new Set(calendars.filter((c) => c.feed).map((c) => c.id)),
@@ -442,8 +465,11 @@ export default function App() {
    * moves, every occurrence follows) and one dragged past midnight lands on
    * the next day and leaves this one — which is what dragging it there meant.
    *
-   * A notice, because that last case is the one where the arc you just moved
-   * is no longer on screen: without a word it reads as a deletion.
+   * The view has usually followed it there already: the dial asks for the step
+   * itself as the drag carries the arc through midnight. The notice is for the
+   * case where it could not — a multi-day event's clipped occurrence, whose
+   * visible ends are not the event's own instants — because an arc that leaves
+   * the face without a word reads as a deletion.
    */
   const adjustOccurrence = useCallback(
     (occ: Occurrence, startDeltaMin: number, endDeltaMin: number) => {
@@ -522,6 +548,8 @@ export default function App() {
                   onOpen={openOccurrence}
                   onCreate={(startMin, endMin) => openDraft(startMin, endMin, day)}
                   onAdjust={adjustOccurrence}
+                  onPreview={setPreview}
+                  onStepDay={step}
                 />
               )}
               {view === "year" && (

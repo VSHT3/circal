@@ -7,7 +7,14 @@
  * to fit, so nothing here ever reads a pixel size except the overlay.
  * ------------------------------------------------------------------ */
 
-import { useMemo, useState, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
+import { animate, useReducedMotion } from "motion/react";
 import {
   DIAL,
   VIEW_BOX,
@@ -23,7 +30,9 @@ import { cue, type Cue } from "@/lib/feedback";
 import { sunTimes, type Place } from "@/lib/sun";
 import {
   MINUTES_PER_DAY,
+  addDays,
   clamp,
+  daysBetween,
   formatOffset,
   isSameDay,
   minutesOfDay,
@@ -36,6 +45,20 @@ import {
 import type { TotalsPosition } from "@/lib/store";
 import { useElementSize, useHotkeys } from "./hooks";
 import CenterPanel from "./CenterPanel";
+
+/**
+ * A drag in flight, as the event it will commit. The shell folds it into the
+ * day's agenda for as long as it lasts, which is what makes a drag a preview
+ * of its own result: lanes repack around the arc, an event dragged into the
+ * day is clipped to it, and the readout beside it reads the same as it will
+ * once the pointer is let go.
+ */
+export interface DragPreview {
+  id: string;
+  /** Epoch ms, `end` exclusive — `CalEvent`'s own units. */
+  start: number;
+  end: number;
+}
 
 export interface DialProps {
   day: Date;
@@ -73,6 +96,18 @@ export interface DialProps {
    * dragging it there meant.
    */
   onAdjust: (occ: Occurrence, startDeltaMin: number, endDeltaMin: number) => void;
+  /**
+   * The drag in flight, per fifteen-minute step, and `null` the moment it ends.
+   * The dial does not draw from it: it hands it up so that the agenda it is
+   * handed back already has it in.
+   */
+  onPreview: (preview: DragPreview | null) => void;
+  /**
+   * Move the view by whole days. The dial asks for this itself while a drag
+   * carries an event off the day on screen: an arc you are still holding has
+   * to stay drawn, and the day it has landed on is the one to be looking at.
+   */
+  onStepDay: (delta: number) => void;
 }
 
 /** Minutes a bare click on the ring turns into. */
@@ -90,6 +125,16 @@ const GRIP_REACH = 18;
 /** Hit width of a grip. Narrower than the body's, because half of it is the
  *  cap's reach past the tip and that reach is inward too. */
 const GRIP_WIDTH = DIAL.ARC_WIDTH + 8;
+/**
+ * A lane change, as a duration and a curve. The same 140 ms and the same easing
+ * as the arc's stroke-width transition: an arc that thickens as it is grabbed
+ * and slides inwards as it passes another event is doing one thing, and two
+ * curves would make it read as two.
+ *
+ * `--ease` is a CSS variable, so the numbers are repeated here rather than read.
+ */
+const LANE_MS = 140;
+const LANE_EASE = [0.32, 0.72, 0, 1] as const;
 
 /**
  * White at `level` alpha, pre-composited against the black canvas. Opaque, so
@@ -153,6 +198,12 @@ interface Adjust {
   at: number;
   /** How far the grip has travelled so far. Always a whole `STEP`. */
   delta: number;
+  /**
+   * How many days the *view* has moved on this gesture's account, so that
+   * abandoning the gesture can give them back. Nothing is measured from it:
+   * the arcs come from the day's own agenda, with the drag folded in.
+   */
+  shift: number;
 }
 
 /**
@@ -169,17 +220,56 @@ function clampDelta({ occ, grip }: Adjust, delta: number): number {
   return delta;
 }
 
+/** The two deltas the grip applies: an end each for a resize, both for a move. */
+function deltas({ grip, delta }: Adjust): { start: number; end: number } {
+  return { start: grip === "end" ? 0 : delta, end: grip === "start" ? 0 : delta };
+}
+
 /**
- * Where the arc is being dragged to, in minutes since midnight of the day on
- * screen. Out-of-range values are honest: a move that runs past midnight
- * draws past the top of the face and lands on the next day, which is what
- * dragging it there meant.
+ * The event as the release will commit it. The deltas apply to the event's own
+ * instants, which is why a recurring event moves as a series.
  */
-function adjusted({ occ, grip, delta }: Adjust): { start: number; end: number } {
-  if (grip === "whole") return { start: occ.startMin + delta, end: occ.endMin + delta };
-  if (grip === "start") return { start: occ.startMin + delta, end: occ.endMin };
-  if (grip === "end") return { start: occ.startMin, end: occ.endMin + delta };
-  return { start: occ.startMin, end: occ.endMin };
+function draggedEvent(adjust: Adjust): DragPreview {
+  const { event } = adjust.occ;
+  const { start, end } = deltas(adjust);
+  return { id: event.id, start: event.start + start * 60_000, end: event.end + end * 60_000 };
+}
+
+/**
+ * Where the drag has put *this* occurrence, as instants. The day on screen and
+ * the readout are measured against these rather than against the visible ends,
+ * which are the day's clipping of them and not the event's own times.
+ */
+function draggedOccurrence(adjust: Adjust): { start: number; end: number } {
+  const { start, end } = deltas(adjust);
+  return {
+    start: adjust.occ.start.getTime() + start * 60_000,
+    end: adjust.occ.end.getTime() + end * 60_000,
+  };
+}
+
+/**
+ * How far the view has to move for the arc being dragged to still be drawn:
+ * nothing at all while the event overlaps the day on screen, otherwise the
+ * distance to the day its start has landed on.
+ *
+ * Which is the rule that makes a drag through midnight switch the day, and
+ * makes it switch *then* rather than earlier: while the event straddles, its
+ * head genuinely belongs to the day on screen and the clipped arc says so.
+ */
+function dayFollow(adjust: Adjust, day: Date): number {
+  const { start, end } = draggedOccurrence(adjust);
+  const from = startOfDay(day);
+  if (start < addDays(from, 1).getTime() && end > from.getTime()) return 0;
+  return daysBetween(from, new Date(start));
+}
+
+/** The dragged occurrence in minutes since the displayed midnight — the
+ *  readout's units, and out of range whenever the event spans midnight. */
+function dragSpan(adjust: Adjust, day: Date): { start: number; end: number } {
+  const base = startOfDay(day).getTime();
+  const { start, end } = draggedOccurrence(adjust);
+  return { start: (start - base) / 60_000, end: (end - base) / 60_000 };
 }
 
 export default function Dial({
@@ -204,8 +294,13 @@ export default function Dial({
   onOpen,
   onCreate,
   onAdjust,
+  onPreview,
+  onStepDay,
 }: DialProps) {
   const [stageRef, width, height] = useElementSize<HTMLDivElement>();
+  /** Every gesture's capture target, and the frame its coordinates are read
+   *  in. See `capture`. */
+  const svgRef = useRef<SVGSVGElement>(null);
   const [hovered, setHovered] = useState<string | null>(null);
   const [draw, setDraw] = useState<Draw | null>(null);
   const [adjust, setAdjust] = useState<Adjust | null>(null);
@@ -239,7 +334,7 @@ export default function Dial({
   useHotkeys({
     escape: () => {
       setDraw(null);
-      setAdjust(null);
+      cancelAdjust();
     },
   });
 
@@ -280,20 +375,49 @@ export default function Dial({
 
   const ghost = draw ? resolveDraw(draw) : null;
 
+  /**
+   * The event a drag has hold of, for the arc's own sake: it is drawn thicker,
+   * and it is never dimmed for being in the past. Matched by event rather than
+   * by occurrence key, because the drag moves it and the key it had at the
+   * grab belongs to the instants it has left behind.
+   */
+  const dragging = adjust?.occ.event.id ?? null;
+
+  /**
+   * The dial itself draws no preview. `onPreview` hands the drag to the shell,
+   * the shell folds it into `dayAgenda`, and the arcs come back already at the
+   * dragged times — clipped to the day, repacked into lanes around whatever
+   * they now overlap, and identical to the state the release will leave.
+   */
+  useEffect(() => {
+    // A view switch can take the dial away mid-gesture (⌘Y, ⌘L and `t` are one
+    // key each) and the release that would clear the preview never arrives.
+    return () => onPreview(null);
+  }, [onPreview]);
+
   /* ------------------------------ pointer ------------------------------ */
 
-  // The handlers live on a <circle> and on the arcs' <path>s, so
-  // `ownerSVGElement` is always the root <svg>; the guard is only there
-  // because the DOM types allow null.
-  function pointIn(e: ReactPointerEvent<SVGGraphicsElement>): { x: number; y: number } | null {
-    const ctm = e.currentTarget.ownerSVGElement?.getScreenCTM();
+  /**
+   * The pointer, as a minute on the face. Read through the root <svg> rather
+   * than through the event's own target, because a gesture in flight is
+   * captured *by the root* — so the target is the root, and an outermost <svg>
+   * has no `ownerSVGElement` to ask.
+   */
+  function minutesAt(e: { clientX: number; clientY: number }): number | null {
+    const ctm = svgRef.current?.getScreenCTM();
     if (!ctm) return null;
-    return new DOMPoint(e.clientX, e.clientY).matrixTransform(ctm.inverse());
+    const { x, y } = new DOMPoint(e.clientX, e.clientY).matrixTransform(ctm.inverse());
+    return snap(minutesAtPoint(x, y, clock), STEP);
   }
 
-  function minutesAt(e: ReactPointerEvent<SVGGraphicsElement>): number | null {
-    const point = pointIn(e);
-    return point ? snap(minutesAtPoint(point.x, point.y, clock), STEP) : null;
+  /**
+   * Every gesture is captured by the root <svg>, never by the shape it started
+   * on: the day can change under a drag, and the arc being dragged is
+   * unmounted when it does — which releases a capture held by its own path and
+   * drops the rest of the gesture on the floor.
+   */
+  function capture(e: ReactPointerEvent<SVGElement>) {
+    svgRef.current?.setPointerCapture(e.pointerId);
   }
 
   /** Every fifteen-minute step a drag lands on, including the one it starts
@@ -307,12 +431,12 @@ export default function Dial({
     if (e.button !== 0) return;
     const m = minutesAt(e);
     if (m === null) return;
-    e.currentTarget.setPointerCapture(e.pointerId);
+    capture(e);
     setDraw({ from: m, at: m, sweep: 0 });
     say("step");
   }
 
-  function onRingMove(e: ReactPointerEvent<SVGCircleElement>) {
+  function onRingMove(e: ReactPointerEvent<SVGSVGElement>) {
     if (!draw) return;
     const at = minutesAt(e);
     // Pointermove fires far more often than the ghost changes shape. Bailing
@@ -356,13 +480,13 @@ export default function Dial({
     // The ring under the arc would otherwise start drawing a new event
     // through the one being grabbed.
     e.stopPropagation();
-    e.currentTarget.setPointerCapture(e.pointerId);
-    setAdjust({ occ, grip, at, delta: 0 });
+    capture(e);
+    setAdjust({ occ, grip, at, delta: 0, shift: 0 });
     // Nothing is going to move on somebody else's event, so nothing clicks.
     if (grip !== "none") say(grip === "whole" ? "slide" : "step");
   }
 
-  function onArcMove(e: ReactPointerEvent<SVGPathElement>) {
+  function onArcMove(e: ReactPointerEvent<SVGSVGElement>) {
     if (!adjust) return;
     const at = minutesAt(e);
     if (at === null || at === adjust.at) return;
@@ -371,22 +495,63 @@ export default function Dial({
     // a delta that overshot the minimum duration would have to be unwound
     // before the arc started following the pointer back.
     const delta = clampDelta(adjust, adjust.delta + wrapDelta(adjust.at, at));
-    const moved = delta !== adjust.delta;
-    setAdjust({ ...adjust, at, delta });
-    if (moved) say(adjust.grip === "whole" ? "slide" : "step");
+    if (delta === adjust.delta) {
+      setAdjust({ ...adjust, at });
+      return;
+    }
+    const next = { ...adjust, at, delta };
+    const step = dayFollow(next, day);
+    setAdjust({ ...next, shift: adjust.shift + step });
+    if (step !== 0) onStepDay(step);
+    onPreview(draggedEvent(next));
+    say(adjust.grip === "whole" ? "slide" : "step");
   }
 
   function onArcUp() {
     if (!adjust) return;
-    const { occ, grip, delta } = adjust;
+    const { occ, delta } = adjust;
+    const { start, end } = deltas(adjust);
     setAdjust(null);
+    onPreview(null);
     // A press that moved nothing is a click, and a click opens the event.
     // That covers a read-only arc, which can never move at all.
     if (delta === 0) {
       onOpen(occ);
       return;
     }
-    onAdjust(occ, grip === "end" ? 0 : delta, grip === "start" ? 0 : delta);
+    onAdjust(occ, start, end);
+  }
+
+  /**
+   * Abandoning a drag gives the day back too: the view followed the event
+   * through midnight on the gesture's account, and the gesture ends up having
+   * made nothing happen.
+   */
+  function cancelAdjust() {
+    if (!adjust) return;
+    if (adjust.shift !== 0) onStepDay(-adjust.shift);
+    onPreview(null);
+    setAdjust(null);
+  }
+
+  /**
+   * One gesture surface: the root <svg> holds the capture, so every move and
+   * release after the press arrives here whatever the press started on, and
+   * the shapes below only have to say which gesture it was.
+   */
+  function onGestureMove(e: ReactPointerEvent<SVGSVGElement>) {
+    if (draw) onRingMove(e);
+    else if (adjust) onArcMove(e);
+  }
+
+  function onGestureUp() {
+    if (draw) onRingUp();
+    else if (adjust) onArcUp();
+  }
+
+  function onGestureCancel() {
+    setDraw(null);
+    cancelAdjust();
   }
 
   /* ------------------------------- render ------------------------------- */
@@ -394,10 +559,14 @@ export default function Dial({
   return (
     <div ref={stageRef} className="relative h-full w-full">
       <svg
+        ref={svgRef}
         viewBox={VIEW_BOX}
         preserveAspectRatio="xMidYMid meet"
         className="h-full w-full touch-none select-none"
         role="presentation"
+        onPointerMove={onGestureMove}
+        onPointerUp={onGestureUp}
+        onPointerCancel={onGestureCancel}
       >
         <defs>
           <radialGradient id="dial-glow">
@@ -466,9 +635,6 @@ export default function Dial({
           strokeWidth={DIAL.TRACK - DIAL.DRAG_INNER}
           className="[pointer-events:stroke] cursor-crosshair"
           onPointerDown={onRingDown}
-          onPointerMove={onRingMove}
-          onPointerUp={onRingUp}
-          onPointerCancel={() => setDraw(null)}
         />
 
         {occurrences.map((occ) => (
@@ -481,12 +647,9 @@ export default function Dial({
             hovered={hovered === occ.key}
             // Somebody else's calendar: it opens, it never moves.
             locked={feedIds.has(occ.event.calendarId)}
-            range={adjust?.occ.key === occ.key ? adjusted(adjust) : null}
+            dragging={dragging === occ.event.id}
             onHover={setHovered}
             onGrab={onArcDown}
-            onGrabMove={onArcMove}
-            onGrabEnd={onArcUp}
-            onGrabCancel={() => setAdjust(null)}
           />
         ))}
 
@@ -508,7 +671,7 @@ export default function Dial({
         clock={clock}
         totals={totals}
         totalsAt={totalsAt}
-        drag={ghost && ghost.end > ghost.start ? ghost : adjust ? adjusted(adjust) : null}
+        drag={ghost && ghost.end > ghost.start ? ghost : adjust ? dragSpan(adjust, day) : null}
         hovered={hovered}
         onHover={setHovered}
         onOpen={onOpen}
@@ -816,6 +979,40 @@ function HourLabels({ clock }: { clock: Clock }) {
 }
 
 /**
+ * A lane's radius, eased rather than stepped.
+ *
+ * Lanes repack live while an arc is dragged past another, so an event that has
+ * to give up the outer ring moves 27 units inwards between one pointer event
+ * and the next — and a shape that teleports reads as a redraw rather than as
+ * something making room. The drag's own angular steps stay instant: those are
+ * the fifteen-minute detents, and they are meant to be felt.
+ *
+ * The eased value is React state, not a motion value on the attribute, because
+ * the whole path is rebuilt from the radius — `capInset` has to follow it, or
+ * an arc mid-move lies about its length.
+ */
+function useEasedRadius(target: number): number {
+  const reducedMotion = useReducedMotion();
+  const [eased, setEased] = useState(target);
+  const at = useRef(target);
+
+  useEffect(() => {
+    if (reducedMotion || at.current === target) return;
+    const run = animate(at.current, target, {
+      duration: LANE_MS / 1000,
+      ease: [...LANE_EASE],
+      onUpdate: (r) => {
+        at.current = r;
+        setEased(r);
+      },
+    });
+    return () => run.stop();
+  }, [target, reducedMotion]);
+
+  return reducedMotion ? target : eased;
+}
+
+/**
  * One event, as an arc — and as three drag targets.
  *
  * The body moves the whole event; the two ends move one instant each. They
@@ -833,12 +1030,9 @@ function EventArc({
   dimmed,
   hovered,
   locked,
-  range,
+  dragging,
   onHover,
   onGrab,
-  onGrabMove,
-  onGrabEnd,
-  onGrabCancel,
 }: {
   occ: Occurrence;
   clock: Clock;
@@ -847,21 +1041,21 @@ function EventArc({
   hovered: boolean;
   /** From a subscription: draggable by nobody. */
   locked: boolean;
-  /** Where the drag currently has it, or `null` when it is where it belongs. */
-  range: { start: number; end: number } | null;
+  /** Held by a drag: thicker, and never dimmed for being in the past. Where the
+   *  drag has *put* it is already in `occ` — see `onPreview` in `DialProps`. */
+  dragging: boolean;
   onHover: (key: string | null) => void;
   onGrab: (occ: Occurrence, grip: Grip, e: ReactPointerEvent<SVGPathElement>) => void;
-  onGrabMove: (e: ReactPointerEvent<SVGPathElement>) => void;
-  onGrabEnd: () => void;
-  onGrabCancel: () => void;
 }) {
+  // Before the early return, so the hook order does not depend on the event: an
+  // all-day occurrence draws nothing, but it still owns this component.
+  const r = useEasedRadius(DIAL.LANE - occ.lane * DIAL.LANE_STEP);
   if (occ.event.allDay) return null;
 
-  const r = DIAL.LANE - occ.lane * DIAL.LANE_STEP;
   const width = DIAL.ARC_WIDTH;
   const inset = capInset(r);
-  const from = angleAt(range ? range.start : occ.startMin, clock);
-  const to = angleAt(range ? range.end : occ.endMin, clock);
+  const from = angleAt(occ.startMin, clock);
+  const to = angleAt(occ.endMin, clock);
   // Sub-cap-length events collapse to their own round cap: a dot on the ring
   // at the right minute, rather than an arc that lies about its duration.
   const dot = to - from <= inset * 2;
@@ -930,9 +1124,9 @@ function EventArc({
         d={d}
         fill="none"
         stroke={color}
-        strokeWidth={hovered || range ? width + 3 : width}
+        strokeWidth={hovered || dragging ? width + 3 : width}
         strokeLinecap="round"
-        opacity={dimmed && !hovered && !range ? 0.42 : 1}
+        opacity={dimmed && !hovered && !dragging ? 0.42 : 1}
         pointerEvents="none"
         style={{ transition: "stroke-width 140ms var(--ease), opacity 140ms var(--ease)" }}
       />
@@ -953,9 +1147,6 @@ function EventArc({
           strokeLinecap={zone.grip === "whole" && zones.length > 1 ? "butt" : "round"}
           pointerEvents="stroke"
           onPointerDown={(e) => onGrab(occ, zone.grip, e)}
-          onPointerMove={onGrabMove}
-          onPointerUp={onGrabEnd}
-          onPointerCancel={onGrabCancel}
         />
       ))}
     </g>
