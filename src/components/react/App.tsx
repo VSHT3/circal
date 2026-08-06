@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import type { Clock } from "@/lib/time";
-import { dayAgenda, type CalEvent, type Occurrence } from "@/lib/events";
+import { NEVER, dayAgenda, instantKey, type CalEvent, type Occurrence } from "@/lib/events";
 import { draftEvent, store, useStore } from "@/lib/store";
 import { exportBackup, exportIcs, importFile } from "@/lib/backup";
 import { cue } from "@/lib/feedback";
@@ -457,7 +457,71 @@ export default function App() {
     [editor, channels],
   );
 
-  const openOccurrence = useCallback((occ: Occurrence) => actions.openEvent(occ.event), [actions]);
+  /**
+   * "Skip this one": the occurrence the editor was opened from — or the
+   * series' own seed, when it was opened some other way — is added to the
+   * series' own EXDATEs. The series still exists; it simply no longer lands
+   * there.
+   *
+   * Only the exclusion is written. Anything else the draft was carrying is
+   * left alone: "this one does not happen" is not an instruction to save the
+   * half-finished edit above it.
+   */
+  const skipOccurrence = useCallback(() => {
+    if (!editor?.id) return;
+    const at = editor.occurrenceStart ?? editor.draft.start;
+    store.update(editor.id, { exdates: [...editor.draft.exdates, instantKey(at)] });
+    setEditor(null);
+  }, [editor]);
+
+  /**
+   * "Only this one": the edit becomes its own event — RECURRENCE-ID's job —
+   * rather than a change to the series. `NEVER` strips whatever recurrence
+   * fields the draft still carries from the series it was seeded from: an
+   * override is one occurrence, never a second series running alongside the
+   * first.
+   *
+   * The draft's instants are the *series'*, sitting on its seed's day, so
+   * they are rebased onto the day actually being replaced — otherwise
+   * changing Tuesday's time writes an override onto whichever day the series
+   * happens to start on. A draft whose date the user changed by hand is left
+   * where they put it: they named an absolute day, and moving it again would
+   * be answering a question nobody asked.
+   */
+  const overrideOccurrence = useCallback(
+    (draft: Omit<CalEvent, "id">) => {
+      if (!editor?.id) return;
+      const at = editor.occurrenceStart ?? editor.draft.start;
+      const seedDay = startOfDay(new Date(editor.draft.start)).getTime();
+      const keptDate = startOfDay(new Date(draft.start)).getTime() === seedDay;
+      const shift = keptDate ? startOfDay(new Date(at)).getTime() - seedDay : 0;
+      store.create({
+        ...draft,
+        ...NEVER,
+        start: draft.start + shift,
+        end: draft.end + shift,
+        seriesId: editor.id,
+        seriesKey: instantKey(at),
+      });
+      cue("created", channels);
+      setEditor(null);
+    },
+    [editor, channels],
+  );
+
+  const openOccurrence = useCallback(
+    (occ: Occurrence) => {
+      const { id, ...draft } = occ.event;
+      setPaletteOpen(false);
+      setEditor({
+        id,
+        draft,
+        readOnly: feedIds.has(occ.event.calendarId),
+        occurrenceStart: occ.start.getTime(),
+      });
+    },
+    [feedIds],
+  );
 
   /**
    * An arc dragged on the dial. The deltas are minutes and they apply to the
@@ -574,6 +638,8 @@ export default function App() {
           clock={settings.clock}
           calendars={calendars}
           onSave={commit}
+          onSkipOccurrence={skipOccurrence}
+          onOverrideOccurrence={overrideOccurrence}
           onDelete={() => {
             if (editor.id) {
               store.remove(editor.id);

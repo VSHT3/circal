@@ -31,6 +31,13 @@ export interface EditorTarget {
   draft: Omit<CalEvent, "id">;
   /** Set for an event pulled from a subscription: somebody else's data. */
   readOnly?: boolean;
+  /**
+   * The instant of the occurrence the editor was opened from, epoch ms —
+   * what "skip this one" and "only this one" apply to. Unset for a fresh
+   * draft or an event opened without one; those actions then fall back to
+   * the series' own seed, which is the occurrence a bare `openEvent` means.
+   */
+  occurrenceStart?: number;
 }
 
 export interface ShellActions {
@@ -84,6 +91,16 @@ export interface EventEditorProps {
   /** Only rendered when `target.id` is set. */
   onDelete: () => void;
   onClose: () => void;
+  /**
+   * "Skip this one": excludes `target.occurrenceStart` from the series and
+   * changes nothing else. Only rendered for a repeating, editable event.
+   */
+  onSkipOccurrence: () => void;
+  /**
+   * "Only this one": saves the edit as a standalone override of
+   * `target.occurrenceStart`, leaving the series it came from untouched.
+   */
+  onOverrideOccurrence: (draft: Omit<CalEvent, "id">) => void;
 }
 
 export interface YearViewProps {

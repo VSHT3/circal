@@ -12,10 +12,13 @@ import {
   REPEATS,
   REPEAT_LABELS,
   repeatUnit,
+  repeats,
   type CalEvent,
+  type Recurrence,
   type Repeat,
 } from "@/lib/events";
 import {
+  MONTHS,
   WEEKDAYS,
   addDays,
   atMinutes,
@@ -245,6 +248,123 @@ function endOfDay(day: Date): number {
   return end.getTime();
 }
 
+/**
+ * Can the rows below actually spell this rule? A subscription's RRULE can
+ * carry BYWEEKNO, BYSETPOS, a sub-daily FREQ, or a BY* combination none of
+ * them offers — the three rows are a dial, not a parser, and forcing such a
+ * rule onto the nearest checkbox is how an import quietly becomes a
+ * different meeting. `describeRule` is what stands in when this is false.
+ */
+function isExpressible(rule: Recurrence, seed: Date): boolean {
+  if (!(REPEATS as readonly string[]).includes(rule.repeat)) return false;
+  if (
+    rule.byMonth.length > 0 ||
+    rule.byWeekNo.length > 0 ||
+    rule.byYearDay.length > 0 ||
+    rule.byHour.length > 0 ||
+    rule.byMinute.length > 0 ||
+    rule.bySecond.length > 0 ||
+    rule.bySetPos.length > 0
+  ) {
+    return false;
+  }
+  if (rule.repeat === "daily" || rule.repeat === "yearly") {
+    return rule.byMonthDay.length === 0 && rule.byDay.length === 0;
+  }
+  if (rule.repeat === "weekly") {
+    return rule.byMonthDay.length === 0 && rule.byDay.every((w) => w.nth === 0);
+  }
+  if (rule.repeat === "monthly") {
+    if (rule.byMonthDay.length > 0 || rule.byDay.length > 1) return false;
+    if (rule.byDay.length === 0) return true;
+    const [w] = rule.byDay;
+    const seedNth = Math.floor((seed.getDate() - 1) / 7) + 1;
+    return w.day === seed.getDay() && (w.nth === seedNth || w.nth === -1);
+  }
+  return true; // "never"
+}
+
+const POSITIONS = ["", "first", "second", "third", "fourth", "fifth"];
+
+/** `13` → "13th". A date has to read as a date inside a sentence. */
+function ordinal(n: number): string {
+  const tens = n % 100;
+  const suffix = tens >= 11 && tens <= 13 ? "th" : (["th", "st", "nd", "rd"][n % 10] ?? "th");
+  return `${n}${suffix}`;
+}
+
+/** `3` → "third", `-1` → "last", `-2` → "second from last". */
+function positionWord(n: number): string {
+  if (n > 0) return POSITIONS[n] ?? ordinal(n);
+  return n === -1 ? "last" : `${POSITIONS[-n] ?? ordinal(-n)} from last`;
+}
+
+/** `-3` → "3rd from last", counted from the end of the month as RFC does. */
+function monthDayWord(n: number): string {
+  return n > 0 ? ordinal(n) : `${ordinal(-n)} from last`;
+}
+
+function joinWords(items: string[]): string {
+  if (items.length < 2) return items[0] ?? "";
+  return `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+}
+
+/**
+ * The sentence a rule reads as when it cannot be edited here — "Every 2 weeks
+ * on Tue and Thu until 1 Jan 2027".
+ *
+ * It has to be a sentence rather than a dump of the parts, because it is the
+ * only thing standing between the reader and a rule they cannot see: "taking
+ * the -1 of those" tells somebody nothing they did not already fear.
+ */
+function describeRule(rule: Recurrence): string {
+  const every = rule.interval > 1 ? `${rule.interval} ` : "";
+  const parts = [`Every ${every}${repeatUnit(rule.repeat, rule.interval)}`];
+
+  if (rule.byMonth.length > 0) {
+    parts.push(`in ${joinWords(rule.byMonth.map((m) => MONTHS[m - 1].slice(0, 3)))}`);
+  }
+  if (rule.byWeekNo.length > 0) {
+    parts.push(
+      `in week${rule.byWeekNo.length > 1 ? "s" : ""} ${joinWords(rule.byWeekNo.map(String))}`,
+    );
+  }
+  if (rule.byYearDay.length > 0) {
+    parts.push(`on the ${joinWords(rule.byYearDay.map(monthDayWord))} day of the year`);
+  }
+
+  const days = rule.byDay.map((w) =>
+    w.nth === 0
+      ? WEEKDAYS[w.day].slice(0, 3)
+      : `${positionWord(w.nth)} ${WEEKDAYS[w.day].slice(0, 3)}`,
+  );
+  const dates = rule.byMonthDay.map(monthDayWord);
+
+  // BYSETPOS is an adjective on the days the rule just produced — "the last of
+  // Mon, Tue, Wed, Thu and Fri" — never a clause bolted on after them.
+  if (rule.bySetPos.length > 0 && days.length + dates.length > 0) {
+    const pick = joinWords(rule.bySetPos.map(positionWord));
+    parts.push(`on the ${pick} of ${joinWords([...dates, ...days])}`);
+  } else {
+    if (dates.length > 0) parts.push(`on the ${joinWords(dates)}`);
+    if (days.length > 0) parts.push(`on ${joinWords(days)}`);
+    if (rule.bySetPos.length > 0) {
+      parts.push(`keeping the ${joinWords(rule.bySetPos.map(positionWord))}`);
+    }
+  }
+
+  if (rule.byHour.length > 0 || rule.byMinute.length > 0 || rule.bySecond.length > 0) {
+    parts.push("at set times");
+  }
+  if (rule.until > 0) {
+    const until = new Date(rule.until);
+    parts.push(
+      `until ${until.getDate()} ${MONTHS[until.getMonth()].slice(0, 3)} ${until.getFullYear()}`,
+    );
+  }
+  return parts.join(" ");
+}
+
 export default function EventEditor({
   target,
   clock,
@@ -252,6 +372,8 @@ export default function EventEditor({
   onSave,
   onDelete,
   onClose,
+  onSkipOccurrence,
+  onOverrideOccurrence,
 }: EventEditorProps) {
   const [draft, setDraft] = useState<Omit<CalEvent, "id">>(target.draft);
   const reducedMotion = useReducedMotion();
@@ -344,15 +466,18 @@ export default function EventEditor({
   /* ------------------------------ recurrence ------------------------------ */
 
   const seed = new Date(draft.start);
-  const repeating = draft.repeat !== "never";
+  const repeating = repeats(draft);
+  /** Whether the three rows below can actually spell this rule — false for
+   *  whatever a subscription sent that they have no control for. */
+  const expressible = isExpressible(draft, seed);
   /** Empty `byDay` means "the seed's own weekday" — the chips show that. */
-  const activeDays = draft.byDay.length > 0 ? draft.byDay : [seed.getDay()];
+  const activeDays = draft.byDay.length > 0 ? draft.byDay.map((w) => w.day) : [seed.getDay()];
 
   function handleRepeatChange(repeat: Repeat) {
     // A weekday list belongs to the frequency that named it: carried across,
     // a weekly BYDAY becomes a monthly position nobody chose. The bound and
     // the interval survive, because they are about the same series either way.
-    patch(repeat === "never" ? { ...NEVER } : { repeat, byDay: [], nth: 0 });
+    patch(repeat === "never" ? { ...NEVER } : { repeat, byDay: [] });
   }
 
   function toggleWeekday(day: number) {
@@ -361,12 +486,15 @@ export default function EventEditor({
       : [...activeDays, day].sort((a, b) => a - b);
     // A weekly rule with no weekday is not a rule; the last one cannot be
     // taken off, which is also why there is no error to show.
-    if (next.length > 0) patch({ byDay: next });
+    if (next.length > 0) patch({ byDay: next.map((d) => ({ day: d, nth: 0 })) });
   }
+
+  /** The seed's own monthly position — "Second" for its second Tuesday. */
+  const seedNth = Math.floor((seed.getDate() - 1) / 7) + 1;
 
   function handleMonthlyMode(value: string) {
     const nth = Number(value);
-    patch(nth === 0 ? { nth: 0, byDay: [] } : { nth, byDay: [seed.getDay()] });
+    patch({ byDay: nth === 0 ? [] : [{ day: seed.getDay(), nth }] });
   }
 
   function handleEndsChange(value: string) {
@@ -375,13 +503,14 @@ export default function EventEditor({
     patch({ until: value === "never" ? 0 : endOfDay(addDays(seed, 365)) });
   }
 
-  /** The three monthly shapes, plus whatever a subscription actually sent. */
-  const monthlyModes = [0, Math.floor((seed.getDate() - 1) / 7) + 1, -1, draft.nth]
-    .filter((nth, i, all) => all.indexOf(nth) === i)
-    .map((nth) => ({
-      value: String(nth),
-      label: nth === 0 ? `Day ${seed.getDate()}` : nthLabel(nth, draft.byDay[0] ?? seed.getDay()),
-    }));
+  /** "Day N", the seed's own positional weekday, or the last one — the three
+   *  shapes a monthly rule can take from here. */
+  const monthlyValue = draft.byDay.length === 0 ? "0" : String(draft.byDay[0].nth);
+  const monthlyModes = [
+    { value: "0", label: `Day ${seed.getDate()}` },
+    { value: String(seedNth), label: nthLabel(seedNth, seed.getDay()) },
+    { value: "-1", label: nthLabel(-1, seed.getDay()) },
+  ];
 
   return (
     <AnimatePresence>
@@ -513,73 +642,81 @@ export default function EventEditor({
                   chosen frequency actually raises. A monthly series does not
                   get asked which weekdays; a one-off is asked nothing. */}
               <Row label="Repeat" align={repeating ? "top" : "center"}>
-                <Select
-                  value={draft.repeat}
-                  onChange={handleRepeatChange}
-                  options={REPEATS.map((r) => ({ value: r, label: REPEAT_LABELS[r] }))}
-                  label="Repeat"
-                />
-
-                {repeating && (
-                  <span className="flex items-center gap-2">
-                    <span className="label text-ink-3">Every</span>
-                    <NumberField
-                      value={draft.interval}
-                      onChange={(interval) => patch({ interval })}
-                      label="Repeat interval"
-                      suffix={repeatUnit(draft.repeat, draft.interval)}
-                      min={1}
-                      max={99}
-                    />
-                  </span>
-                )}
-
-                {draft.repeat === "weekly" && (
-                  <span className="flex items-center gap-1">
-                    {WEEK_ORDER.map((day) => (
-                      <DayChip
-                        key={day}
-                        day={day}
-                        active={activeDays.includes(day)}
-                        onToggle={() => toggleWeekday(day)}
-                      />
-                    ))}
-                  </span>
-                )}
-
-                {draft.repeat === "monthly" && (
-                  <span className="flex items-center gap-2">
-                    <span className="label text-ink-3">On</span>
+                {!expressible ? (
+                  <span>{describeRule(draft)}</span>
+                ) : (
+                  <>
                     <Select
-                      value={String(draft.nth)}
-                      onChange={handleMonthlyMode}
-                      options={monthlyModes}
-                      label="Monthly on"
+                      value={draft.repeat}
+                      onChange={handleRepeatChange}
+                      options={REPEATS.map((r) => ({ value: r, label: REPEAT_LABELS[r] }))}
+                      label="Repeat"
                     />
-                  </span>
-                )}
 
-                {repeating && (
-                  <span className="flex items-center gap-2">
-                    <span className="label text-ink-3">Ends</span>
-                    <Select
-                      value={draft.until > 0 ? "on" : "never"}
-                      onChange={handleEndsChange}
-                      options={[
-                        { value: "never", label: "Never" },
-                        { value: "on", label: "On" },
-                      ]}
-                      label="Repeat ends"
-                    />
-                    {draft.until > 0 && (
-                      <DateField
-                        value={dayKey(new Date(draft.until))}
-                        onChange={(next) => next && patch({ until: endOfDay(fromDayKey(next)) })}
-                        label="Repeat until"
-                        min={dayKey(seed)}
-                      />
+                    {repeating && (
+                      <span className="flex items-center gap-2">
+                        <span className="label text-ink-3">Every</span>
+                        <NumberField
+                          value={draft.interval}
+                          onChange={(interval) => patch({ interval })}
+                          label="Repeat interval"
+                          suffix={repeatUnit(draft.repeat, draft.interval)}
+                          min={1}
+                          max={99}
+                        />
+                      </span>
                     )}
-                  </span>
+
+                    {draft.repeat === "weekly" && (
+                      <span className="flex items-center gap-1">
+                        {WEEK_ORDER.map((day) => (
+                          <DayChip
+                            key={day}
+                            day={day}
+                            active={activeDays.includes(day)}
+                            onToggle={() => toggleWeekday(day)}
+                          />
+                        ))}
+                      </span>
+                    )}
+
+                    {draft.repeat === "monthly" && (
+                      <span className="flex items-center gap-2">
+                        <span className="label text-ink-3">On</span>
+                        <Select
+                          value={monthlyValue}
+                          onChange={handleMonthlyMode}
+                          options={monthlyModes}
+                          label="Monthly on"
+                        />
+                      </span>
+                    )}
+
+                    {repeating && (
+                      <span className="flex items-center gap-2">
+                        <span className="label text-ink-3">Ends</span>
+                        <Select
+                          value={draft.until > 0 ? "on" : "never"}
+                          onChange={handleEndsChange}
+                          options={[
+                            { value: "never", label: "Never" },
+                            { value: "on", label: "On" },
+                          ]}
+                          label="Repeat ends"
+                        />
+                        {draft.until > 0 && (
+                          <DateField
+                            value={dayKey(new Date(draft.until))}
+                            onChange={(next) =>
+                              next && patch({ until: endOfDay(fromDayKey(next)) })
+                            }
+                            label="Repeat until"
+                            min={dayKey(seed)}
+                          />
+                        )}
+                      </span>
+                    )}
+                  </>
                 )}
               </Row>
 
@@ -608,6 +745,27 @@ export default function EventEditor({
               />
             </div>
           </fieldset>
+
+          {/* Per-occurrence actions: only a series can be exdated or split,
+              and only when there is something to edit. */}
+          {!readOnly && target.id && repeating && (
+            <div className="flex items-center gap-3 border-t border-hairline px-3.5 py-2 text-[13px] text-ink-2">
+              <button
+                type="button"
+                onClick={onSkipOccurrence}
+                className="transition-colors hover:text-ink"
+              >
+                Skip this one
+              </button>
+              <button
+                type="button"
+                onClick={() => onOverrideOccurrence(draft)}
+                className="transition-colors hover:text-ink"
+              >
+                Only this one
+              </button>
+            </div>
+          )}
 
           {/* footer */}
           <div className="flex items-center gap-2 border-t border-hairline px-3 py-2.5">

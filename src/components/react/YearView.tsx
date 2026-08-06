@@ -7,28 +7,25 @@
 import { useMemo } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import type { YearViewProps } from "@/components/react/types";
-import { colorOf, occurrencesOn, type Calendar, type CalEvent } from "@/lib/events";
+import { type Calendar, type CalEvent } from "@/lib/events";
+import { dayColors, mondayOffset } from "@/lib/life";
 import { MONTHS, WEEKDAYS, daysInMonth, dayKey, isSameDay } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
 /** Monday-first initials row — sliced from `WEEKDAYS`, never a hardcoded set. */
 const WEEKDAY_INITIALS = [1, 2, 3, 4, 5, 6, 0].map((i) => WEEKDAYS[i][0]);
 
-/** Up to 3 distinct calendar colours per day, keyed by `dayKey`. */
+/** Up to 3 distinct calendar colours per day, keyed by `dayKey` — `dayColors`
+ *  is the same per-day core the life grid draws from, so a recurring event
+ *  lands on the same days here as it would there. */
 function buildDensityMap(year: number, events: CalEvent[], calendars: Calendar[]) {
   const map = new Map<string, string[]>();
   for (let month = 0; month < 12; month++) {
     const total = daysInMonth(year, month);
     for (let day = 1; day <= total; day++) {
       const date = new Date(year, month, day);
-      const occurrences = occurrencesOn(events, calendars, date);
-      if (occurrences.length === 0) continue;
-      const colors: string[] = [];
-      for (const occ of occurrences) {
-        const color = colorOf(occ.event, calendars);
-        if (!colors.includes(color)) colors.push(color);
-        if (colors.length === 3) break;
-      }
+      const colors = dayColors(events, calendars, date, 3);
+      if (colors.length === 0) continue;
       map.set(dayKey(date), colors);
     }
   }
@@ -40,9 +37,7 @@ interface MonthCell {
 }
 
 function monthCells(year: number, month: number): MonthCell[] {
-  /* Monday-first offset: Sunday (0) becomes 6, everything else shifts back one. */
-  const firstWeekday = new Date(year, month, 1).getDay();
-  const offset = (firstWeekday + 6) % 7;
+  const offset = mondayOffset(new Date(year, month, 1));
   const total = daysInMonth(year, month);
   const cells: MonthCell[] = [];
   for (let i = 0; i < offset; i++) cells.push({ date: null });

@@ -18,7 +18,8 @@
  * that a pointer lands on the dot it is over.
  * ------------------------------------------------------------------ */
 
-import { colorOf, type CalEvent, type Calendar } from "./events";
+import { colorOf, occurrencesOn, type CalEvent, type Calendar } from "./events";
+import { startsBetween } from "./recur";
 import { MONTHS, addDays, dayKey, daysInMonth, fromDayKey, startOfDay } from "./time";
 
 const DAY_MS = 86_400_000;
@@ -214,9 +215,12 @@ export function lifeStage(
   return { span, layout: lifeLayout(box.width, box.height, span), box };
 }
 
-/** Monday-first weekday of 1 January: how far right that year starts. */
-function jan1Offset(year: number): number {
-  return (new Date(year, 0, 1).getDay() + 6) % WEEK;
+/** Monday-first weekday of `date` — 0 for Monday, 6 for Sunday. Exported so
+ *  a caller drawing its own week grid (`YearView`'s month blocks) reads the
+ *  same offset this file does, rather than re-deriving the `+6 % WEEK` trick
+ *  and risking the two disagreeing on where a week starts. */
+export function mondayOffset(date: Date): number {
+  return (date.getDay() + 6) % WEEK;
 }
 
 /** 0 for 1 January. Rounded for the same DST reason as `lifeSpan`. */
@@ -231,7 +235,7 @@ function dayOfYear(date: Date): number {
  * the split turns that into a line and a column.
  */
 function lifeCell(layout: LifeLayout, date: Date): { row: number; col: number } {
-  const slot = jan1Offset(date.getFullYear()) + dayOfYear(date);
+  const slot = mondayOffset(new Date(date.getFullYear(), 0, 1)) + dayOfYear(date);
   const line = Math.floor(slot / layout.colsPerLine);
   return {
     row: (date.getFullYear() - layout.birthYear) * layout.linesPerYear + line,
@@ -270,7 +274,7 @@ export function lifeYearRange(span: LifeSpan, index: number): LifeYearRange {
   const year = span.birth.getFullYear() + index;
   return {
     year,
-    offset: jan1Offset(year),
+    offset: mondayOffset(new Date(year, 0, 1)),
     from: year === span.birth.getFullYear() ? dayOfYear(span.birth) : 0,
     to:
       year === span.death.getFullYear() ? dayOfYear(span.death) : dayOfYear(new Date(year, 11, 31)),
@@ -314,7 +318,7 @@ export function lifeCellAt(layout: LifeLayout, span: LifeSpan, x: number, y: num
 
   const year = layout.birthYear + Math.floor(row / layout.linesPerYear);
   const line = row % layout.linesPerYear;
-  const offset = line * layout.colsPerLine + col - jan1Offset(year);
+  const offset = line * layout.colsPerLine + col - mondayOffset(new Date(year, 0, 1));
   if (offset < 0) return null;
   const date = new Date(year, 0, 1 + offset);
   if (date.getFullYear() !== year) return null;
@@ -324,17 +328,66 @@ export function lifeCellAt(layout: LifeLayout, span: LifeSpan, x: number, y: num
 
 /* --------------------------------- events --------------------------------- */
 
+/** Frequencies fast enough to fire more often in a year than a life-sized
+ *  dot can tell apart. Left unbounded they would paint every remaining day
+ *  of the life one colour; bounded by `until`, the engine can say exactly
+ *  where they stop, and that is honest to draw. */
+const FAST_REPEATS: Record<CalEvent["repeat"], boolean> = {
+  never: false,
+  secondly: true,
+  minutely: true,
+  hourly: true,
+  daily: true,
+  weekly: true,
+  monthly: false,
+  yearly: false,
+};
+
+/** How many starts one event may still add before its rule stops being
+ *  walked further — a floor under `startsBetween`'s own 512-per-call cap,
+ *  for a window long enough that a life asks it for more than one call's
+ *  worth. A decade of dailies already makes whatever point the rule was
+ *  drawn to make. */
+const MAX_MARKS_PER_EVENT = 3660;
+
 /**
- * Which days carry something, and in what colour — the first event of the day
- * wins, because a dot this size has room for one.
+ * `event`'s starts inside `[from, to)`, walked a calendar year at a time.
+ * `startsBetween` returns at most 512 instants, earliest first — asked for
+ * decades in one call, a daily rule would hand back a few months near its
+ * seed and nothing from every year after. A year is short enough that no
+ * frequency this file still draws (monthly, yearly, or a bounded
+ * daily/weekly) can fill it, so slicing by year keeps every year honest.
+ */
+function yearlyStarts(event: CalEvent, from: number, to: number): number[] {
+  const out: number[] = [];
+  let cursor = from;
+  while (cursor < to && out.length < MAX_MARKS_PER_EVENT) {
+    const nextYear = new Date(cursor).getFullYear() + 1;
+    const sliceEnd = Math.min(new Date(nextYear, 0, 1).getTime(), to);
+    out.push(...startsBetween(event, event.start, cursor, sliceEnd));
+    cursor = sliceEnd;
+  }
+  return out;
+}
+
+/**
+ * Which days carry something, and in what colour — the first event of the
+ * day wins, because a dot this size has room for one.
  *
- * Only dated events and yearly repeats are counted. A daily or weekly rule
- * fires more often than this grid can distinguish, so it would paint every
- * remaining day of the life one colour and say nothing at all; a birthday, an
- * anniversary, a deadline is exactly what a life grid is for. A *bounded*
- * daily rule could now be drawn — `until` says where it stops — but the year
- * grid counts repeats on its own terms too, and one policy shared by one core
- * is a separate change from being able to express the rule.
+ * A dated event marks every day it spans. A repeating one is now drawn
+ * through `startsBetween`, the same engine every other face reads, rather
+ * than by hand — which is what fixes 29 February, and gets interval,
+ * BYMONTH and BYSETPOS right for free. `FAST_REPEATS` still keeps a *bare*
+ * daily or weekly rule off the grid: it fires more often than a dot this
+ * size can distinguish and would paint every remaining day one colour and
+ * say nothing. A *bounded* one (`until > 0`) earns its place, because the
+ * engine can say exactly where it stops; monthly and yearly rules are
+ * included whether bounded or not, since a life is exactly the scale a
+ * birthday or a deadline is drawn at. Each included rule is clipped to
+ * `[max(seed, birth), min(until, death)]` before it is walked, so a rule
+ * bounded decades past the grid's own end is never asked for years the grid
+ * cannot show, and `yearlyStarts` caps what even a rule inside that window
+ * can add.
  */
 export function lifeDensity(
   events: CalEvent[],
@@ -350,41 +403,59 @@ export function lifeDensity(
     if (!out.has(key)) out.set(key, color);
   };
 
-  const ordered = events
-    .filter((e) => !hidden.has(e.calendarId) && (e.repeat === "never" || e.repeat === "yearly"))
-    .sort((a, b) => a.start - b.start);
+  const ordered = events.filter((e) => !hidden.has(e.calendarId)).sort((a, b) => a.start - b.start);
 
   for (const event of ordered) {
     const color = colorOf(event, calendars);
-    if (event.repeat === "yearly") {
-      const seed = new Date(event.start);
-      const every = Math.max(1, Math.trunc(event.interval));
-      const last =
-        event.until > 0
-          ? Math.min(span.death.getFullYear(), new Date(event.until).getFullYear())
-          : span.death.getFullYear();
-      // From the seed's own year rather than from the birth year, so an
-      // interval keeps the phase the series was written with.
-      for (let year = seed.getFullYear(); year <= last; year += every) {
-        const date = new Date(year, seed.getMonth(), seed.getDate());
-        // 29 February in a common year does not exist, and `Date` rolls it
-        // forward to 1 March — a dot on a day the series never lands on.
-        if (date.getMonth() !== seed.getMonth()) continue;
-        if (event.until > 0 && date.getTime() > event.until) continue;
-        if (event.exdates.includes(dayKey(date))) continue;
-        mark(date, color);
+
+    if (event.repeat === "never") {
+      // `end` is exclusive, so an event finishing at midnight belongs to the
+      // day before it — a one-day event would otherwise colour two dots.
+      const last = startOfDay(new Date(Math.max(event.start, event.end - 1)));
+      for (let d = startOfDay(new Date(event.start)); d <= last; d = addDays(d, 1)) {
+        mark(d, color);
       }
       continue;
     }
-    // `end` is exclusive, so an event finishing at midnight belongs to the day
-    // before it — a one-day event would otherwise colour two dots.
-    const last = startOfDay(new Date(Math.max(event.start, event.end - 1)));
-    for (let d = startOfDay(new Date(event.start)); d <= last; d = addDays(d, 1)) {
-      mark(d, color);
+
+    if (FAST_REPEATS[event.repeat] && event.until === 0) continue;
+
+    const from = Math.max(event.start, span.birth.getTime());
+    const untilCap =
+      event.until > 0 ? Math.min(event.until, span.death.getTime()) : span.death.getTime();
+    if (from > untilCap) continue;
+    const to = addDays(startOfDay(new Date(untilCap)), 1).getTime();
+
+    for (const at of yearlyStarts(event, from, to)) {
+      mark(startOfDay(new Date(at)), color);
     }
   }
 
   return out;
+}
+
+/**
+ * Up to `max` distinct colours the events landing on `day` carry, in the
+ * order `occurrencesOn` returns them. The one place that resolves "what
+ * colour is this day" from a day's occurrences, so `YearView`'s month grid
+ * calls it once per cell rather than re-deriving its own dedup loop — a
+ * hidden calendar, an override or a colour-precedence rule then reads the
+ * same wherever a day is drawn as a dot instead of an agenda.
+ */
+export function dayColors(
+  events: CalEvent[],
+  calendars: Calendar[],
+  day: Date,
+  max: number,
+): string[] {
+  const colors: string[] = [];
+  for (const occ of occurrencesOn(events, calendars, day)) {
+    const color = colorOf(occ.event, calendars);
+    if (colors.includes(color)) continue;
+    colors.push(color);
+    if (colors.length === max) break;
+  }
+  return colors;
 }
 
 /* ---------------------------------- stats --------------------------------- */

@@ -165,35 +165,41 @@ already spent" is a better idea than either half alone. **[high / small]**
 list and nowhere on the face. Either a hairline full-circumference ring in the event's colour just
 inside `TRACK`, or a chip in the interior — but not silence. **[high / small]**
 
-### ~~Recurrence and ICS are where the product actually breaks~~ — done
+### ~~Recurrence and ICS are where the product actually breaks~~ — done, in full
 
-`Repeat` is now a `Recurrence`: `repeat` plus `interval`, `until`, `byDay`, `nth`, `exdates`, flat
-on `CalEvent`. `fires()` in `events.ts` is an O(1) predicate per frequency, so `occurrencesOn` is
-still a filter over the event list rather than an expansion of every series.
+`src/lib/recur.ts` is RFC 5545 §3.3.10, whole: a period expanded into candidate days by the BY\*
+parts, given a clock, narrowed by BYSETPOS, then bounded. Verified against every worked example in
+§3.8.5.3 — daily/weekly/monthly/yearly with intervals, `BYDAY=20MO`, `BYWEEKNO=20;BYDAY=MO`,
+`BYYEARDAY=1,100,200`, Friday-the-13th, the first Saturday following the first Sunday, the last
+workday of the month, the third instance of TU/WE/TH — all matching.
 
-- `FREQ=WEEKLY;BYDAY=TU,TH` renders two meetings a week. `INTERVAL=2` is fortnightly.
-- `UNTIL` and `COUNT` both bound the series — `COUNT` is walked into an `until` on the way in
-  (`countedUntil`), so the model carries one bound rather than two.
-- `EXDATE` is parsed (across several lines), stored as local day keys, expanded and emitted.
-- Monthly nth-weekday, forwards and backwards: `BYDAY=3TH`, `BYDAY=-1FR`, and `BYSETPOS`.
-- Monthly-on-the-31st and yearly-on-29-Feb skip the months with no such date — RFC 5545 §3.3.10's
-  invalid-instance rule, deliberate now rather than accidental. `lifeDensity` had the
-  `new Date(y, 1, 29)` rollover bug and no longer paints 1 March.
-- `toIcs` emits all of it; round-trip verified through the live modules.
-- The editor grew the rule: frequency, interval, weekday chips, monthly position, and an end date.
+- Every frequency, including the sub-daily three, which arrive only from a feed and are capped
+  rather than dropped (`MAX_INSTANTS` 512 a call — a `SECONDLY` rule names 86,400 a day).
+- `INTERVAL`, `WKST`, `UNTIL`, `COUNT` (walked into an `until`, so the model carries one bound),
+  `BYMONTH`, `BYWEEKNO`, `BYYEARDAY`, `BYMONTHDAY`, `BYDAY` with signed ordinals, `BYHOUR`,
+  `BYMINUTE`, `BYSECOND`, `BYSETPOS`.
+- `EXDATE` **and** `RDATE`, both across several lines, in both RFC value types, stored as local
+  day-or-instant keys, expanded and emitted.
+- **`RECURRENCE-ID`**: an override is its own event, linked by `seriesId` + `seriesKey`. The series
+  skips the occurrence an override claims, so a moved meeting no longer renders twice. `feeds.ts`
+  gives it an id including the recurrence-id, since it shares its parent's UID.
+- The editor grew the rule — frequency, interval, weekday chips, monthly position, end date — plus
+  **Skip this one** and **Only this one**. A rule it cannot spell is printed as a sentence rather
+  than flattened onto the nearest checkbox.
+- The seed is an instance only when the rule generates it, so deselecting the weekday an event is
+  on actually moves it.
+- `lifeDensity` and `YearView` now share one core and one answer; the `new Date(y, 1, 29)` rollover
+  that painted 1 March is gone, and a _bounded_ daily rule is drawn on the life grid at last.
 
-Still not modelled, and dropped to "happens once" rather than approximated: BYMONTH, BYWEEKNO,
-BYYEARDAY, RDATE, sub-daily FREQ, and **RECURRENCE-ID** — a per-occurrence _override_. EXDATE can
-remove a day; nothing can yet replace one, and no surface offers "skip / edit just this
-occurrence". That is the next honest step here, and it wants the editor to know which occurrence
-it was opened from.
+Not modelled, deliberately: `RANGE=THISANDFUTURE` (only the single instant is replaced) and
+`VALARM`. There are still no reminders — see below.
 
 ### The year view is the weak sibling, and the biggest opportunity
 
-It is a conventional twelve-month grid that shares no code and no metaphor with the other two — it
-even reimplements Monday-offset and density separately from `life.ts` (`YearView.tsx:20,47`). It is
-the one screen that contradicts "one idea at three scales", and it is what blocks (2). Two honest
-paths:
+It is a conventional twelve-month grid that shares no _metaphor_ with the other two. It does now
+share code — `mondayOffset` and `dayColors` both live in `life.ts` and both views call them, so an
+event no longer gets two different answers — but it is still the one screen that contradicts "one
+idea at three scales", and it is still what blocks (2). Two honest paths:
 
 - **On-thesis: the year is a revolution too.** 365 spokes on one ring — and the thing only this app
   can draw, **the day-length curve across a year**, from `sunTimes` sampled 365 times (`sun.ts:72`).

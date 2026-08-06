@@ -31,11 +31,13 @@ const KEY = "circal.v1";
  * blob written before this bump would silently show the wrong dial. Events
  * survive the bump — only settings reset.
  *
- * Still 2: `secondZone`, `place`, `feeds`, `birth`, `lifeExpectancy` and the
- * recurrence qualifiers (`interval`, `until`, `byDay`, `nth`, `exdates`) are
- * new *fields*, and a blob without them has them filled in on read. Nothing
- * already stored changed meaning, so there is no reason to throw away
- * anyone's dial preference.
+ * Still 2: `secondZone`, `place`, `feeds`, `birth`, `lifeExpectancy`, the full
+ * RFC 5545 recurrence fields (`interval`, `until`, `wkst`, the `byMonth` /
+ * `byWeekNo` / `byYearDay` / `byMonthDay` / `byDay` / `byHour` / `byMinute` /
+ * `bySecond` / `bySetPos` limits, `exdates`, `rdates`) and the series-override
+ * pair (`seriesId`, `seriesKey`) are all new *fields*, and a blob without them
+ * has them filled in on read. Nothing already stored changed meaning, so
+ * there is no reason to throw away anyone's dial preference.
  */
 const SCHEMA = 2;
 
@@ -188,6 +190,8 @@ function seed(): CalEvent[] {
     url: "",
     notes: "",
     ...NEVER,
+    seriesId: "",
+    seriesKey: "",
     color: "",
     ...extra,
   });
@@ -247,11 +251,11 @@ function sane(settings: Settings): Settings {
 }
 
 /**
- * The recurrence qualifiers a blob written before them does not carry.
- * Absent is not the same as wrong — an older event simply has no interval —
- * but `undefined` reaches the expansion maths as `NaN`, which is a series
- * that fires on no day at all. So they are filled in here, at the one
- * boundary, rather than guarded for at every read.
+ * The recurrence qualifiers and series-override fields a blob written before
+ * them does not carry. Absent is not the same as wrong — an older event
+ * simply has no interval — but `undefined` reaches the expansion maths as
+ * `NaN`, which is a series that fires on no day at all. So they are filled
+ * in here, at the one boundary, rather than guarded for at every read.
  *
  * The unchanged case returns the same object: `parse` runs again whenever
  * another tab writes, and rebuilding every event each time is a copy nobody
@@ -260,13 +264,41 @@ function sane(settings: Settings): Settings {
 function hydrateEvents(value: unknown): CalEvent[] {
   if (!Array.isArray(value)) return [];
   return (value as CalEvent[]).map((event) => {
-    const { interval, until, byDay, nth, exdates } = event;
+    const {
+      interval,
+      until,
+      wkst,
+      byMonth,
+      byWeekNo,
+      byYearDay,
+      byMonthDay,
+      byDay,
+      byHour,
+      byMinute,
+      bySecond,
+      bySetPos,
+      exdates,
+      rdates,
+      seriesId,
+      seriesKey,
+    } = event;
     if (
       typeof interval === "number" &&
       typeof until === "number" &&
-      typeof nth === "number" &&
+      typeof wkst === "number" &&
+      Array.isArray(byMonth) &&
+      Array.isArray(byWeekNo) &&
+      Array.isArray(byYearDay) &&
+      Array.isArray(byMonthDay) &&
       Array.isArray(byDay) &&
-      Array.isArray(exdates)
+      Array.isArray(byHour) &&
+      Array.isArray(byMinute) &&
+      Array.isArray(bySecond) &&
+      Array.isArray(bySetPos) &&
+      Array.isArray(exdates) &&
+      Array.isArray(rdates) &&
+      typeof seriesId === "string" &&
+      typeof seriesKey === "string"
     ) {
       return event;
     }
@@ -274,9 +306,20 @@ function hydrateEvents(value: unknown): CalEvent[] {
       ...event,
       interval: typeof interval === "number" ? interval : NEVER.interval,
       until: typeof until === "number" ? until : NEVER.until,
+      wkst: typeof wkst === "number" ? wkst : NEVER.wkst,
+      byMonth: Array.isArray(byMonth) ? byMonth : [],
+      byWeekNo: Array.isArray(byWeekNo) ? byWeekNo : [],
+      byYearDay: Array.isArray(byYearDay) ? byYearDay : [],
+      byMonthDay: Array.isArray(byMonthDay) ? byMonthDay : [],
       byDay: Array.isArray(byDay) ? byDay : [],
-      nth: typeof nth === "number" ? nth : NEVER.nth,
+      byHour: Array.isArray(byHour) ? byHour : [],
+      byMinute: Array.isArray(byMinute) ? byMinute : [],
+      bySecond: Array.isArray(bySecond) ? bySecond : [],
+      bySetPos: Array.isArray(bySetPos) ? bySetPos : [],
       exdates: Array.isArray(exdates) ? exdates : [],
+      rdates: Array.isArray(rdates) ? rdates : [],
+      seriesId: typeof seriesId === "string" ? seriesId : "",
+      seriesKey: typeof seriesKey === "string" ? seriesKey : "",
     };
   });
 }
@@ -585,8 +628,13 @@ export const store = {
 
   /* -------------------------------- import -------------------------------- */
 
-  /** Adds a calendar and its events in one undoable step. */
-  addCalendarWithEvents(name: string, events: Omit<CalEvent, "id" | "calendarId">[]): Calendar {
+  /**
+   * Adds a calendar and its events in one undoable step. The caller supplies
+   * each event's own id — an .ics import must know a parent's id before its
+   * override does, to write it into `seriesId`, and generating it here would
+   * be too late for that.
+   */
+  addCalendarWithEvents(name: string, events: Omit<CalEvent, "calendarId">[]): Calendar {
     const base = fresh();
     const calendar: Calendar = {
       id: newId(),
@@ -597,10 +645,7 @@ export const store = {
     commit({
       ...base,
       calendars: [...base.calendars, calendar],
-      events: [
-        ...base.events,
-        ...events.map((e) => ({ ...e, id: newId(), calendarId: calendar.id })),
-      ],
+      events: [...base.events, ...events.map((e) => ({ ...e, calendarId: calendar.id }))],
     });
     return calendar;
   },
@@ -667,6 +712,8 @@ export function draftEvent(
     notes: "",
     ...NEVER,
     repeat,
+    seriesId: "",
+    seriesKey: "",
     color: "",
   };
 }

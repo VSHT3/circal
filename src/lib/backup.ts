@@ -14,13 +14,13 @@
 
 import { fromIcs, toIcs } from "./ics";
 import { placeForZone } from "./places";
-import { DEFAULT_SETTINGS, store, type Settings, type Snapshot } from "./store";
+import { DEFAULT_SETTINGS, newId, store, type Settings, type Snapshot } from "./store";
 import { notify } from "./notify";
 import { dayKey } from "./time";
 import { isRecord } from "./utils";
 import {
+  FREQUENCIES,
   NEVER,
-  REPEATS,
   recurrenceOf,
   type CalEvent,
   type Calendar,
@@ -127,32 +127,100 @@ function readSettings(value: unknown): Settings {
 }
 
 /** Bounds on a recurrence, all of which draw something wrong when they are
- *  out of them: an interval of zero divides by nothing, a weekday of `9`
- *  fires never, a monthly position of `12` is a week that does not exist. */
+ *  out of them: an interval of zero divides by nothing, an out-of-range
+ *  BYMONTHDAY fires on a day that never comes, and a malformed BYDAY entry
+ *  names a weekday RFC 5545 does not have. A backup may legitimately carry a
+ *  sub-daily rule an .ics import produced, so `repeat` is checked against
+ *  every frequency the engine understands, not just the five the editor
+ *  offers. */
 const MAX_INTERVAL = 999;
 
 function readRecurrence(value: Record<string, unknown>): Recurrence {
-  const { repeat, interval, until, byDay, nth, exdates } = value;
-  if (!REPEATS.includes(repeat as Repeat) || repeat === "never") return { ...NEVER };
+  const {
+    repeat,
+    interval,
+    until,
+    wkst,
+    byMonth,
+    byWeekNo,
+    byYearDay,
+    byMonthDay,
+    byDay,
+    byHour,
+    byMinute,
+    bySecond,
+    bySetPos,
+    exdates,
+    rdates,
+  } = value;
+  if (!FREQUENCIES.includes(repeat as Repeat) || repeat === "never") return { ...NEVER };
 
-  const whole = (v: unknown, lo: number, hi: number, fallback: number) =>
-    typeof v === "number" && Number.isFinite(v)
-      ? Math.min(hi, Math.max(lo, Math.trunc(v)))
-      : fallback;
+  // Unsigned RFC lists (BYMONTH, the clock parts): every member in range,
+  // duplicates collapsed. Reused across four fields, so it earns its name.
+  const unsignedInts = (v: unknown, lo: number, hi: number): number[] =>
+    Array.isArray(v)
+      ? [...new Set(v.filter((n): n is number => Number.isInteger(n) && n >= lo && n <= hi))]
+      : [];
+
+  // Signed RFC lists (BYWEEKNO, BYYEARDAY, BYMONTHDAY, BYSETPOS): `0` names
+  // no day or week in any of them, so it is excluded on both sides of zero.
+  const signedInts = (v: unknown, max: number): number[] =>
+    Array.isArray(v)
+      ? [
+          ...new Set(
+            v.filter((n): n is number => Number.isInteger(n) && n !== 0 && n >= -max && n <= max),
+          ),
+        ]
+      : [];
+
+  const byDayValid = Array.isArray(byDay)
+    ? byDay
+        .filter(
+          (d): d is { day: number; nth: number } =>
+            isRecord(d) &&
+            Number.isInteger(d.day) &&
+            (d.day as number) >= 0 &&
+            (d.day as number) <= 6 &&
+            Number.isInteger(d.nth) &&
+            (d.nth as number) >= -5 &&
+            (d.nth as number) <= 5,
+        )
+        .map((d) => ({ day: d.day, nth: d.nth }))
+    : [];
+
+  // Both EXDATE's local forms: a whole day, or one instant of it.
+  const keyPattern = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2})?$/;
+  const exdatesValid = Array.isArray(exdates)
+    ? [...new Set(exdates.filter((k): k is string => typeof k === "string" && keyPattern.test(k)))]
+    : [];
+  const rdatesValid = Array.isArray(rdates)
+    ? [...new Set(rdates.filter((k): k is string => typeof k === "string" && keyPattern.test(k)))]
+    : [];
 
   return {
     repeat: repeat as Repeat,
-    interval: whole(interval, 1, MAX_INTERVAL, NEVER.interval),
+    interval:
+      typeof interval === "number" && Number.isFinite(interval)
+        ? Math.min(MAX_INTERVAL, Math.max(1, Math.trunc(interval)))
+        : NEVER.interval,
     until: typeof until === "number" && Number.isFinite(until) && until > 0 ? until : NEVER.until,
-    byDay: Array.isArray(byDay)
-      ? [...new Set(byDay.filter((d) => Number.isInteger(d) && d >= 0 && d <= 6))].sort(
-          (a: number, b: number) => a - b,
-        )
-      : [],
-    nth: whole(nth, -5, 5, NEVER.nth),
-    exdates: Array.isArray(exdates)
-      ? [...new Set(exdates.filter((d) => typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d)))]
-      : [],
+    // A `wkst` outside 0–6 does not clamp to a nearby weekday, it names
+    // none — so an out-of-range value falls back whole, same as absent.
+    wkst:
+      Number.isInteger(wkst) && (wkst as number) >= 0 && (wkst as number) <= 6
+        ? (wkst as number)
+        : NEVER.wkst,
+    byMonth: unsignedInts(byMonth, 1, 12),
+    byWeekNo: signedInts(byWeekNo, 53),
+    byYearDay: signedInts(byYearDay, 366),
+    byMonthDay: signedInts(byMonthDay, 31),
+    byDay: byDayValid,
+    byHour: unsignedInts(byHour, 0, 23),
+    byMinute: unsignedInts(byMinute, 0, 59),
+    bySecond: unsignedInts(bySecond, 0, 60),
+    bySetPos: signedInts(bySetPos, 366),
+    exdates: exdatesValid,
+    rdates: rdatesValid,
   };
 }
 
@@ -177,6 +245,8 @@ function readEvent(value: unknown): CalEvent | null {
     url: typeof value.url === "string" ? value.url : "",
     notes: typeof value.notes === "string" ? value.notes : "",
     ...readRecurrence(value),
+    seriesId: typeof value.seriesId === "string" ? value.seriesId : "",
+    seriesKey: typeof value.seriesKey === "string" ? value.seriesKey : "",
     color: typeof value.color === "string" ? value.color : "",
   };
 }
@@ -216,9 +286,18 @@ function importBackup(text: string) {
   // the orphan colour forever; park it on the first calendar instead.
   const known = new Set(calendars.map((c) => c.id));
   const fallback = calendars[0].id;
+  // An override naming a series the backup did not carry would never render
+  // — occurrencesOn only hides the parent's instant once the override is
+  // seen, and there is no parent here to hide it from — so it stands alone.
+  const seriesIds = new Set(events.map((e) => e.id));
 
   store.restore({
-    events: events.map((e) => (known.has(e.calendarId) ? e : { ...e, calendarId: fallback })),
+    events: events.map((e) => {
+      const parented = known.has(e.calendarId) ? e : { ...e, calendarId: fallback };
+      return e.seriesId && !seriesIds.has(e.seriesId)
+        ? { ...parented, seriesId: "", seriesKey: "" }
+        : parented;
+    }),
     calendars,
     settings: readSettings(parsed.settings),
   });
@@ -232,19 +311,36 @@ function importIcs(text: string, filename: string) {
     return;
   }
   const label = name || filename.replace(/\.ics$/i, "") || "Imported";
+  // The id each parent VEVENT will get, keyed by uid — an override shares its
+  // parent's uid (that is what makes it an override) and links to it through
+  // this map rather than through the uid itself, since a uid is not what the
+  // store indexes events by.
+  const idByUid = new Map<string, string>();
+  for (const e of events) {
+    if (!e.recurrenceId) idByUid.set(e.uid, newId());
+  }
   store.addCalendarWithEvents(
     label,
-    events.map((e) => ({
-      title: e.title,
-      start: e.start,
-      end: e.end,
-      allDay: e.allDay,
-      location: e.location,
-      url: e.url,
-      notes: e.notes,
-      ...recurrenceOf(e),
-      color: "",
-    })),
+    events.map((e) => {
+      const parentId = idByUid.get(e.uid);
+      const isOverride = e.recurrenceId !== "";
+      return {
+        id: isOverride ? newId() : (parentId ?? newId()),
+        title: e.title,
+        start: e.start,
+        end: e.end,
+        allDay: e.allDay,
+        location: e.location,
+        url: e.url,
+        notes: e.notes,
+        ...recurrenceOf(e),
+        // No parent in this same import — an orphaned override — leaves both
+        // blank rather than pointing at an id nothing will ever generate.
+        seriesId: isOverride && parentId ? parentId : "",
+        seriesKey: isOverride && parentId ? e.recurrenceId : "",
+        color: "",
+      };
+    }),
   );
   notify(`Imported ${events.length} events into “${label}” — ⌘Z to undo`);
 }

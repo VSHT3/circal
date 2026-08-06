@@ -49,20 +49,28 @@ export async function refreshFeed(calendar: Calendar): Promise<void> {
   try {
     const text = await fetchText(calendar.feed.url);
     const { name, events } = fromIcs(text);
-    const cached: CalEvent[] = events.map((e) => ({
-      // Stable across pulls, so React keys and hover state survive a refresh.
-      id: `${calendar.id}:${e.uid || newId()}`,
-      title: e.title,
-      calendarId: calendar.id,
-      start: e.start,
-      end: e.end,
-      allDay: e.allDay,
-      location: e.location,
-      url: e.url,
-      notes: e.notes,
-      ...recurrenceOf(e),
-      color: "",
-    }));
+    const cached: CalEvent[] = events.map((e) => {
+      // An override VEVENT shares its parent's uid — that is what makes it
+      // an override — so the parent's id alone would collide between the
+      // two; the RECURRENCE-ID joins the key to keep both stable and apart.
+      const isOverride = e.recurrenceId !== "";
+      const parentId = `${calendar.id}:${e.uid || newId()}`;
+      return {
+        id: isOverride ? `${parentId}:${e.recurrenceId}` : parentId,
+        title: e.title,
+        calendarId: calendar.id,
+        start: e.start,
+        end: e.end,
+        allDay: e.allDay,
+        location: e.location,
+        url: e.url,
+        notes: e.notes,
+        ...recurrenceOf(e),
+        seriesId: isOverride ? parentId : "",
+        seriesKey: isOverride ? e.recurrenceId : "",
+        color: "",
+      };
+    });
     store.setFeedEvents(calendar.id, cached, name);
   } catch (error) {
     store.setFeedError(calendar.id, error instanceof Error ? error.message : "Refresh failed");
