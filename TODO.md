@@ -171,21 +171,6 @@ cannot tell which is which. `<textPath>` along the arc's own path, mono ~11px, o
 the single change that moves the dial from beautiful to readable without hovering.
 **[high / medium]**
 
-### Stop making light and progress mutually exclusive
-
-`elapsedSegments` returns `[]` whenever a band is drawn (`Dial.tsx:222`), so switching on Lightcycle
-**costs you the elapsed day** — on any day that is not today the face then says nothing at all about
-where the day is. Fix it without adding a radius: **draw the band at full chroma behind `now` and
-materially dimmed ahead of it.** One ring, one mechanism, both facts, and "the light you have
-already spent" is a better idea than either half alone. **[high / small]**
-
-### All-day events are invisible
-
-`EventArc` returns `null` for `allDay` (`Dial.tsx:808`), `packLanes` skips them (`events.ts:167`),
-`freeGaps` ignores them (deliberate and correct). So "Berlin", or a birthday, exists in the agenda
-list and nowhere on the face. Either a hairline full-circumference ring in the event's colour just
-inside `TRACK`, or a chip in the interior — but not silence. **[high / small]**
-
 ### ~~Recurrence and ICS are where the product actually breaks~~ — done, in full
 
 `src/lib/recur.ts` is RFC 5545 §3.3.10, whole: a period expanded into candidate days by the BY\*
@@ -318,15 +303,11 @@ The old list is spent: ~~real RRULE in and out~~, ~~next event and countdown in 
 ~~a test suite~~ all shipped. What is left, in order:
 
 1. ~~**Invert the life grid's tone.**~~ Done — see Life view above.
-2. **All-day events on the face**, and **stop making light and progress mutually exclusive.**
-   `[high / small]` each, and they are one afternoon together. Both are the dial saying less than it
-   knows: `EventArc` returns `null` for an all-day event, and switching on Lightcycle deletes the
-   elapsed ring. A setting should not be able to make the instrument silently incomplete.
-3. **Labels on arcs.** `[high / medium]` — the single change that moves the dial from beautiful to
+2. **Labels on arcs.** `[high / medium]` — the single change that moves the dial from beautiful to
    readable without hovering.
-4. **Quick-add in ⌘P.** `[high / small]` — every parser exists, the sentence does not. And the
+3. **Quick-add in ⌘P.** `[high / small]` — every parser exists, the sentence does not. And the
    parsers it composes are now covered, which is what makes it safe to build on them.
-5. **Ambient mode.** `[high / trivial]` — one boolean from shipping the best desk clock on the web.
+4. **Ambient mode.** `[high / trivial]` — one boolean from shipping the best desk clock on the web.
 
 Then the year view, which is the one screen still contradicting "one idea at three scales" and the
 thing blocking (2).
