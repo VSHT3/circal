@@ -49,6 +49,13 @@ export const DIAL = {
   LANE: 293,
   LANE_STEP: 27,
   ARC_WIDTH: 14,
+  /**
+   * Black between two arcs that abut on one lane, in user units — a little over
+   * a quarter of the stroke. Below about this the two round caps read as one
+   * welded line; much more and a pair of back-to-back events look scheduled
+   * further apart than they are.
+   */
+  SEAM: 4,
 
   /** Inner edge of the drag-to-create annulus, clear of the centre panel. */
   DRAG_INNER: 165,
@@ -146,4 +153,24 @@ export function minutesAtPoint(x: number, y: number, clock: Clock = "12h"): numb
  */
 export function capInset(r: number): number {
   return ((DIAL.ARC_WIDTH / 2 / r) * 180) / Math.PI;
+}
+
+/**
+ * How much of an abutting end an arc gives up, in degrees, so that the black
+ * between two arcs on one lane is never thinner than `DIAL.SEAM`.
+ *
+ * Two round caps whose painted ends land on the same instant touch at a single
+ * point on the centre line and fall away from it either side, which leaves a
+ * pinched black cusp rather than a gap: back-to-back events read as one bent
+ * line with a dent in it. Half the seam comes off each end, so the join stays
+ * centred on the instant the two events actually share.
+ *
+ * It closes what is missing rather than subtracting a fixed amount: two events
+ * with minutes between them are left exactly as they were, and an arc dragged
+ * up against its neighbour arrives at the seam smoothly instead of snapping to
+ * it. `gap` is in minutes; `Infinity` for an end with nothing beside it.
+ */
+export function seamTrim(r: number, gap: number): number {
+  const seam = ((DIAL.SEAM / r) * 180) / Math.PI;
+  return Math.max(0, (seam - gap * DEG_PER_MINUTE) / 2);
 }

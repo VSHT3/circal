@@ -24,6 +24,7 @@ import {
   capInset,
   minutesAtPoint,
   polar,
+  seamTrim,
 } from "@/lib/dial";
 import { colorOf, statusOf, type Calendar, type Occurrence } from "@/lib/events";
 import { cue, type Cue } from "@/lib/feedback";
@@ -135,6 +136,9 @@ const GRIP_WIDTH = DIAL.ARC_WIDTH + 8;
  */
 const LANE_MS = 140;
 const LANE_EASE = [0.32, 0.72, 0, 1] as const;
+/** An arc with nothing beside it on its lane: no seam to cut. Hoisted so it is
+ *  one object rather than one per arc per render. */
+const NO_NEIGHBOUR = { before: Infinity, after: Infinity } as const;
 
 /**
  * White at `level` alpha, pre-composited against the black canvas. Opaque, so
@@ -382,6 +386,31 @@ export default function Dial({
    * grab belongs to the instants it has left behind.
    */
   const dragging = adjust?.occ.event.id ?? null;
+
+  /**
+   * Each arc's clearance from its neighbours on the same lane, in minutes.
+   *
+   * `packLanes` puts two events that merely touch on one ring, which is right —
+   * they do not overlap — but their round caps then land on the same instant
+   * and weld into one bent line (see `seamTrim`). The gap is measured here,
+   * once per agenda, because it is a fact about the pair rather than about
+   * either arc: only the lane they share decides whether they can touch at all.
+   */
+  const gaps = useMemo(() => {
+    const timed = occurrences.filter((o) => !o.event.allDay);
+    return new Map(
+      timed.map((occ) => {
+        let before = Infinity;
+        let after = Infinity;
+        for (const other of timed) {
+          if (other === occ || other.lane !== occ.lane) continue;
+          if (other.endMin <= occ.startMin) before = Math.min(before, occ.startMin - other.endMin);
+          if (other.startMin >= occ.endMin) after = Math.min(after, other.startMin - occ.endMin);
+        }
+        return [occ.key, { before, after }] as const;
+      }),
+    );
+  }, [occurrences]);
 
   /**
    * The dial itself draws no preview. `onPreview` hands the drag to the shell,
@@ -648,6 +677,7 @@ export default function Dial({
             // Somebody else's calendar: it opens, it never moves.
             locked={feedIds.has(occ.event.calendarId)}
             dragging={dragging === occ.event.id}
+            gap={gaps.get(occ.key) ?? NO_NEIGHBOUR}
             onHover={setHovered}
             onGrab={onArcDown}
           />
@@ -1031,6 +1061,7 @@ function EventArc({
   hovered,
   locked,
   dragging,
+  gap,
   onHover,
   onGrab,
 }: {
@@ -1044,6 +1075,9 @@ function EventArc({
   /** Held by a drag: thicker, and never dimmed for being in the past. Where the
    *  drag has *put* it is already in `occ` — see `onPreview` in `DialProps`. */
   dragging: boolean;
+  /** Minutes of clear air before and after, to the nearest arc on this lane.
+   *  `Infinity` when there is none — see `seamTrim`. */
+  gap: { before: number; after: number };
   onHover: (key: string | null) => void;
   onGrab: (occ: Occurrence, grip: Grip, e: ReactPointerEvent<SVGPathElement>) => void;
 }) {
@@ -1062,8 +1096,11 @@ function EventArc({
   // A whole revolution closes instead: the inset that keeps a short arc honest
   // would leave a notch at midnight once the two ends meet.
   const closed = to - from >= 360;
-  const head = closed ? from : from + inset;
-  const tail = closed ? to : to - inset;
+  // Half a seam off each end that has a neighbour hard against it, so two
+  // back-to-back events are two lozenges rather than one dented line. Not on a
+  // dot: it is already shorter than the event it stands for.
+  const head = closed ? from : from + inset + (dot ? 0 : seamTrim(r, gap.before));
+  const tail = closed ? to : to - inset - (dot ? 0 : seamTrim(r, gap.after));
   const d = dot ? arcPath(r, (from + to) / 2, (from + to) / 2 + 0.001) : arcPath(r, head, tail);
 
   /**
