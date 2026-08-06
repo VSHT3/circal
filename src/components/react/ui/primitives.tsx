@@ -225,6 +225,47 @@ export function Toggle({
 }
 
 /**
+ * Nine places, as nine places. A dropdown reading "Top left … Bottom right"
+ * makes you translate a word back into a corner; this is the corner. Buttons
+ * rather than radios, because nine unlabelled cells that answer to the arrow
+ * keys would also swallow the arrow keys the shell steps days with.
+ */
+export function PositionField<T extends string>({
+  value,
+  onChange,
+  options,
+  label,
+}: {
+  value: T;
+  onChange: (next: T) => void;
+  /** Exactly nine, row-major, each named for a screen reader. */
+  options: readonly { value: T; label: string }[];
+  label: string;
+}) {
+  return (
+    <div
+      role="group"
+      aria-label={label}
+      className="grid w-fit grid-cols-3 gap-[3px] rounded-[8px] bg-white/5 p-[3px]"
+    >
+      {options.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          aria-label={option.label}
+          aria-pressed={value === option.value}
+          onClick={() => onChange(option.value)}
+          className={cn(
+            "size-[17px] rounded-[4px] transition-colors",
+            value === option.value ? "bg-ink" : "bg-white/8 hover:bg-white/20",
+          )}
+        />
+      ))}
+    </div>
+  );
+}
+
+/**
  * A native `<select>` under a styled face. Hand-rolled listboxes lose
  * type-ahead, mobile wheels and screen-reader semantics; this keeps all three
  * and still renders as a value plus the app's chevron button.

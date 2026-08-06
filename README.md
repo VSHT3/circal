@@ -21,6 +21,33 @@ Events take their colour from their calendar. Any one event can override that
 from the editor's **Color** row: ten digital pastels, or a picker for anything
 else.
 
+## The middle of the face
+
+The ring says what shape the day is; the middle says the one sentence. It has
+four moods and picks between them itself:
+
+- **The next thing.** On today, the first event still to come is the headline —
+  its name in white, and a countdown beside it that sharpens as it closes:
+  `in 2h 10m`, `in 42m`, and inside the last minute `in 45s`. Under five
+  minutes its dot takes a thin ring. Once it starts, the dot pulses and the
+  countdown becomes `ends in 16m`. Everything after it stays a whisper, which
+  is the whole point — one row is the answer and the others are context.
+- **Whatever you are pointing at.** Hover an arc, or its row, and the readout
+  becomes that event's span — `3 PM – 4:30 PM · 1h 30m` — in exactly the voice
+  a range you are _drawing_ is printed in, because it is the same question. The
+  clock shrinks into the span on the same curve and duration as the arc
+  thickens, so the two read as one movement. A finished event comes back into
+  the list while you point at it: a span with no name is half an answer.
+- **The time**, on today, and **the date** on any other day.
+
+**Totals** (off, in Settings) adds one line: how much of the day is spoken for,
+and how much of it is still free. Booked counts the whole revolution — a six
+o'clock run is time spent — while free counts only the hours you would book in,
+because nobody reads "nineteen hours free" as an offer. The nine-cell picker
+beside the switch says where it sits: under the list, or in any corner or edge
+of the window, which on anything wider than it is tall is black the circle
+never reaches.
+
 ![the day view](docs/day.png)
 
 ## Lightcycle and a second zone
@@ -117,12 +144,19 @@ slot.
 
 Drag anywhere on the ring to block out time — the readout in the middle turns
 into the range you are drawing. A click on the ring creates an hour instead.
+The range follows the way your hand went rather than the shorter way round, so
+a drag can run the whole revolution; take it all the way from midnight back to
+midnight and the readout says **All day**, because that is what it will make.
 
 An arc already on the face is draggable too: grab its middle to move the whole
 event, or either end to move that end alone. The minimum is one fifteen-minute
 step, ends stop dead there, and a move that passes midnight lands on the next
 day and says so. A subscription's arcs only open — somebody else's calendar is
 a mirror. Click an arc, an agenda row or a day in the year grid to open it.
+
+`Esc` abandons a drag in flight — the range or the moved arc goes back to where
+it was and nothing opens. It is the one gesture you can start by accident, and
+letting go used to be the only way out of it.
 
 Every drag moves in fifteen-minute steps and each step **clicks**: a
 three-millisecond synthesised detent, plus a tap on hardware with a vibrator.

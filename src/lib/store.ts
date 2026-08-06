@@ -18,7 +18,7 @@
  * ------------------------------------------------------------------ */
 
 import { useSyncExternalStore } from "react";
-import { startOfDay, type Clock } from "./time";
+import { MINUTES_PER_DAY, startOfDay, type Clock } from "./time";
 import { notify } from "./notify";
 import { PALETTE, type CalEvent, type Calendar, type Repeat } from "./events";
 import type { PickedPlace } from "./places";
@@ -38,6 +38,25 @@ const KEY = "circal.v1";
  */
 const SCHEMA = 2;
 
+/**
+ * The nine places the totals line can take, row-major. `center` is the one
+ * that is not a corner of the stage: it hangs under the agenda card, which is
+ * where the line was born and where it belongs unless it is in the way.
+ */
+export const TOTALS_POSITIONS = [
+  "top-left",
+  "top",
+  "top-right",
+  "left",
+  "center",
+  "right",
+  "bottom-left",
+  "bottom",
+  "bottom-right",
+] as const;
+
+export type TotalsPosition = (typeof TOTALS_POSITIONS)[number];
+
 export interface Settings {
   /** Which face the dial wears — see `lib/dial.ts`. */
   clock: Clock;
@@ -55,6 +74,14 @@ export interface Settings {
   daylight: boolean;
   /** The hours the sun is down, in violet. */
   moonlight: boolean;
+  /**
+   * Whether the centre prints what the day is made of — booked against free.
+   * Off: the ring already draws the shape, and this is the sentence version
+   * of it, which not everybody wants under their agenda.
+   */
+  totals: boolean;
+  /** Where that line sits: nine places on the face, `center` under the card. */
+  totalsAt: TotalsPosition;
   /** Whether a fifteen-minute step of a drag on the dial clicks, and whether
    *  it taps. Two channels, because a device that can do both is not
    *  necessarily somewhere you want either. */
@@ -105,6 +132,11 @@ export const DEFAULT_SETTINGS: Settings = {
   // rendering fault rather than as a choice.
   daylight: true,
   moonlight: true,
+  // Off. The ring is already the picture of a day's load; the line under the
+  // card is the same fact in words, and words earn their place by being asked
+  // for.
+  totals: false,
+  totalsAt: "center",
   // On: the drag is the one gesture in the app with a granularity you cannot
   // see mid-move, and a detent you have to look at is not a detent. Both are
   // heard only as the result of a deliberate drag, and never on load.
@@ -193,9 +225,10 @@ function migrateSettings(stored: Partial<Settings> & { night?: boolean }): Parti
 export const LIFE_EXPECTANCY_RANGE = { min: 1, max: 150 } as const;
 
 /**
- * The two stored values that can be wrong rather than merely absent: a place
- * with no zone cannot be shown in its own picker, and a life span has to be a
- * date and a number of years the grid can actually draw.
+ * The stored values that can be wrong rather than merely absent: a place with
+ * no zone cannot be shown in its own picker, a life span has to be a date and
+ * a number of years the grid can actually draw, and a position has to be one
+ * of the nine the panel knows how to place.
  */
 function sane(settings: Settings): Settings {
   const years = Math.round(settings.lifeExpectancy);
@@ -206,6 +239,9 @@ function sane(settings: Settings): Settings {
     lifeExpectancy: Number.isFinite(years)
       ? Math.min(LIFE_EXPECTANCY_RANGE.max, Math.max(LIFE_EXPECTANCY_RANGE.min, years))
       : DEFAULT_SETTINGS.lifeExpectancy,
+    totalsAt: TOTALS_POSITIONS.includes(settings.totalsAt)
+      ? settings.totalsAt
+      : DEFAULT_SETTINGS.totalsAt,
   };
 }
 
@@ -403,6 +439,11 @@ export const store = {
     commit({ ...base, settings: { ...base.settings, clock } }, false);
   },
 
+  setTotalsAt(totalsAt: TotalsPosition) {
+    const base = fresh();
+    commit({ ...base, settings: { ...base.settings, totalsAt } }, false);
+  },
+
   /** `""` turns the second ring off. */
   setSecondZone(secondZone: string) {
     const base = fresh();
@@ -560,7 +601,14 @@ export const store = {
   },
 };
 
-/** A blank event on `day`, used by ⌘N and by drag-to-create on the dial. */
+/**
+ * A blank event on `day`, used by ⌘N and by drag-to-create on the dial.
+ *
+ * A span that covers the whole revolution is an all-day event, not a
+ * twenty-four-hour appointment: a ring drawn from midnight back round to
+ * midnight is the gesture for "this day", and an arc that is the entire face
+ * says nothing an all-day event does not say better.
+ */
 export function draftEvent(
   day: Date,
   startMin: number,
@@ -569,12 +617,13 @@ export function draftEvent(
   repeat: Repeat = "never",
 ): Omit<CalEvent, "id"> {
   const base = startOfDay(day).getTime();
+  const allDay = endMin - startMin >= MINUTES_PER_DAY;
   return {
     title: "",
     calendarId,
-    start: base + startMin * 60_000,
-    end: base + endMin * 60_000,
-    allDay: false,
+    start: allDay ? base : base + startMin * 60_000,
+    end: base + (allDay ? MINUTES_PER_DAY : endMin) * 60_000,
+    allDay,
     location: "",
     url: "",
     notes: "",

@@ -193,6 +193,14 @@ export interface Gap {
 }
 
 /**
+ * The hours a day is actually booked in. Free time is counted against these
+ * rather than against the whole revolution: nobody reads "nineteen hours
+ * free" as an offer, and both the palette's slot search and the dial's
+ * totals mean the same thing by the word.
+ */
+export const WAKING = { from: 8 * 60, to: 22 * 60 };
+
+/**
  * The holes in a day, at least `minMinutes` wide, inside `[from, to]`.
  *
  * The dial already makes gaps the most legible thing on the face; this only

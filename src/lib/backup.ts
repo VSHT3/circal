@@ -96,6 +96,13 @@ function readSettings(value: unknown): Settings {
     daylight: value.daylight !== false,
     // `night` is what the dark half was called before it was split off.
     moonlight: value.moonlight !== undefined ? value.moonlight !== false : value.night !== false,
+    // Off unless the backup says otherwise: absent means it was written
+    // before the line existed, and it is not a line to arrive unasked.
+    // `sane()` is what pins the position to one the panel can place.
+    totals: value.totals === true,
+    totalsAt: (typeof value.totalsAt === "string"
+      ? value.totalsAt
+      : DEFAULT_SETTINGS.totalsAt) as Settings["totalsAt"],
     // Same reading as the dial switches: a backup from before the detents
     // existed came from a build where every step was silent by omission, not
     // by choice, and the default is on.

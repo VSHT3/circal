@@ -508,6 +508,8 @@ export default function App() {
                   place={settings.place}
                   daylight={settings.daylight}
                   moonlight={settings.moonlight}
+                  totals={settings.totals}
+                  totalsAt={settings.totalsAt}
                   secondZone={settings.secondZone}
                   showZoneName={settings.showZoneName}
                   showZoneOffset={settings.showZoneOffset}
@@ -581,6 +583,8 @@ export default function App() {
         place={settings.place}
         daylight={settings.daylight}
         moonlight={settings.moonlight}
+        totals={settings.totals}
+        totalsAt={settings.totalsAt}
         tickSound={settings.tickSound}
         tickHaptics={settings.tickHaptics}
         birth={settings.birth}

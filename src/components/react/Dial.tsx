@@ -33,7 +33,8 @@ import {
   zoneOffset,
   type Clock,
 } from "@/lib/time";
-import { useElementSize } from "./hooks";
+import type { TotalsPosition } from "@/lib/store";
+import { useElementSize, useHotkeys } from "./hooks";
 import CenterPanel from "./CenterPanel";
 
 export interface DialProps {
@@ -56,6 +57,9 @@ export interface DialProps {
   zonePlace: Place | null;
   zoneDaylight: boolean;
   zoneMoonlight: boolean;
+  /** Whether the centre prints the day's totals, and where on the stage. */
+  totals: boolean;
+  totalsAt: TotalsPosition;
   /** Whether each fifteen-minute step of a drag clicks, and whether it taps. */
   tickSound: boolean;
   tickHaptics: boolean;
@@ -111,12 +115,29 @@ function wrapDelta(from: number, to: number): number {
   return forward <= MINUTES_PER_DAY / 2 ? forward : forward - MINUTES_PER_DAY;
 }
 
+/**
+ * A drag-to-create in progress: where it was grabbed, where the pointer was
+ * last seen, and how far round the face it has swept since.
+ *
+ * The sweep is *accumulated* per pointer event, exactly as an arc's drag is,
+ * and for the same reason: two ring positions do not say which way round the
+ * circle the pointer went, so a range measured from the grab can never be
+ * longer than twelve hours — past that, `wrapDelta` takes the short way and
+ * the range turns inside out under the pointer. Summing short hops instead
+ * lets a drag run the whole revolution.
+ */
+interface Draw {
+  /** Where the press landed, snapped. */
+  from: number;
+  /** Ring position the pointer was last seen at, snapped. */
+  at: number;
+  /** Signed minutes swept since the grab: clockwise positive. */
+  sweep: number;
+}
+
 /** The two ends of a drag-to-create, in the order the day has them. */
-function resolveDrag(from: number, to: number): { start: number; end: number } {
-  const span = wrapDelta(from, to);
-  const start = span >= 0 ? from : from + span;
-  const end = span >= 0 ? from + span : from;
-  return { start: clamp(start, 0, MINUTES_PER_DAY - STEP), end: clamp(end, STEP, MINUTES_PER_DAY) };
+function resolveDraw({ from, sweep }: Draw): { start: number; end: number } {
+  return { start: sweep >= 0 ? from : from + sweep, end: sweep >= 0 ? from + sweep : from };
 }
 
 /**
@@ -176,6 +197,8 @@ export default function Dial({
   zonePlace,
   zoneDaylight,
   zoneMoonlight,
+  totals,
+  totalsAt,
   tickSound,
   tickHaptics,
   onOpen,
@@ -184,7 +207,7 @@ export default function Dial({
 }: DialProps) {
   const [stageRef, width, height] = useElementSize<HTMLDivElement>();
   const [hovered, setHovered] = useState<string | null>(null);
-  const [drag, setDrag] = useState<{ from: number; to: number } | null>(null);
+  const [draw, setDraw] = useState<Draw | null>(null);
   const [adjust, setAdjust] = useState<Adjust | null>(null);
 
   const u = Math.min(width, height) / VIEW_SIZE;
@@ -203,6 +226,22 @@ export default function Dial({
   /** A band is drawn only while it has a half left to draw. */
   const band = place && (daylight || moonlight) ? place : null;
   const zoneBand = zonePlace && (zoneDaylight || zoneMoonlight) ? zonePlace : null;
+
+  /**
+   * Escape abandons a gesture in flight. A drag is the one thing in the app
+   * you can start by accident and cannot otherwise stop — letting go always
+   * committed it, either as an editor full of a range you did not mean or as
+   * an event moved to a time you did not choose.
+   *
+   * The pointer stays captured; both handlers already bail on no gesture, so
+   * the release that follows does nothing.
+   */
+  useHotkeys({
+    escape: () => {
+      setDraw(null);
+      setAdjust(null);
+    },
+  });
 
   /**
    * SVG has no conic gradient, so the elapsed ring is drawn as a chain of
@@ -239,7 +278,7 @@ export default function Dial({
     });
   }, [band, elapsed, clock]);
 
-  const ghost = drag ? resolveDrag(drag.from, drag.to) : null;
+  const ghost = draw ? resolveDraw(draw) : null;
 
   /* ------------------------------ pointer ------------------------------ */
 
@@ -269,30 +308,39 @@ export default function Dial({
     const m = minutesAt(e);
     if (m === null) return;
     e.currentTarget.setPointerCapture(e.pointerId);
-    setDrag({ from: m, to: m });
+    setDraw({ from: m, at: m, sweep: 0 });
     say("step");
   }
 
   function onRingMove(e: ReactPointerEvent<SVGCircleElement>) {
-    if (!drag) return;
-    const to = minutesAt(e);
+    if (!draw) return;
+    const at = minutesAt(e);
     // Pointermove fires far more often than the ghost changes shape. Bailing
     // on an unchanged step is what makes the clicks countable, and it saves
     // the re-render the drag would otherwise do per event.
-    if (to === null || to === drag.to) return;
-    setDrag({ ...drag, to });
-    say("step");
+    if (at === null || at === draw.at) return;
+    // The sweep is clamped, the pointer is not: a range that has run to
+    // midnight stops there and starts following back the instant the pointer
+    // turns, rather than unwinding however far it ran past the end of the day.
+    const sweep = clamp(
+      draw.sweep + wrapDelta(draw.at, at),
+      -draw.from,
+      MINUTES_PER_DAY - draw.from,
+    );
+    const moved = sweep !== draw.sweep;
+    setDraw({ ...draw, at, sweep });
+    if (moved) say("step");
   }
 
   function onRingUp() {
-    if (!drag) return;
-    const { start, end } = resolveDrag(drag.from, drag.to);
-    setDrag(null);
+    if (!draw) return;
+    const { start, end } = resolveDraw(draw);
+    setDraw(null);
     // The release: the range stops being something you are drawing and starts
     // being a draft in a modal, and the knock-and-tick is that handover.
     say("opened");
     if (end - start < STEP) {
-      const from = Math.min(drag.from, MINUTES_PER_DAY - CLICK_DURATION);
+      const from = Math.min(draw.from, MINUTES_PER_DAY - CLICK_DURATION);
       onCreate(from, from + CLICK_DURATION);
     } else {
       onCreate(start, end);
@@ -420,7 +468,7 @@ export default function Dial({
           onPointerDown={onRingDown}
           onPointerMove={onRingMove}
           onPointerUp={onRingUp}
-          onPointerCancel={() => setDrag(null)}
+          onPointerCancel={() => setDraw(null)}
         />
 
         {occurrences.map((occ) => (
@@ -447,7 +495,7 @@ export default function Dial({
         )}
 
         {today && (
-          <NowHand minutes={nowMin} clock={clock} dimmed={drag !== null || adjust !== null} />
+          <NowHand minutes={nowMin} clock={clock} dimmed={draw !== null || adjust !== null} />
         )}
       </svg>
 
@@ -458,6 +506,8 @@ export default function Dial({
         calendars={calendars}
         u={u}
         clock={clock}
+        totals={totals}
+        totalsAt={totalsAt}
         drag={ghost && ghost.end > ghost.start ? ghost : adjust ? adjusted(adjust) : null}
         hovered={hovered}
         onHover={setHovered}
@@ -815,8 +865,11 @@ function EventArc({
   // Sub-cap-length events collapse to their own round cap: a dot on the ring
   // at the right minute, rather than an arc that lies about its duration.
   const dot = to - from <= inset * 2;
-  const head = from + inset;
-  const tail = to - inset;
+  // A whole revolution closes instead: the inset that keeps a short arc honest
+  // would leave a notch at midnight once the two ends meet.
+  const closed = to - from >= 360;
+  const head = closed ? from : from + inset;
+  const tail = closed ? to : to - inset;
   const d = dot ? arcPath(r, (from + to) / 2, (from + to) / 2 + 0.001) : arcPath(r, head, tail);
 
   /**
@@ -909,22 +962,31 @@ function EventArc({
   );
 }
 
-/** The range being dragged, on the outermost lane. */
+/**
+ * The range being dragged, on the outermost lane.
+ *
+ * A whole revolution is a closed ring rather than an arc: the cap inset that
+ * makes a short arc tell the truth about its length leaves a gap at midnight
+ * once the two ends meet, and a circle drawn with a notch in it reads as a
+ * rendering fault rather than as a day.
+ */
 function GhostArc({ clock, start, end }: { clock: Clock; start: number; end: number }) {
+  const stroke = {
+    fill: "none",
+    stroke: "#fff",
+    strokeOpacity: 0.45,
+    strokeWidth: DIAL.ARC_WIDTH,
+    pointerEvents: "none",
+  } as const;
+
+  if (end - start >= MINUTES_PER_DAY) {
+    return <circle cx={DIAL.C} cy={DIAL.C} r={DIAL.LANE} {...stroke} />;
+  }
+
   const inset = capInset(DIAL.LANE);
   const from = angleAt(start, clock) + inset;
   const to = Math.max(from, angleAt(end, clock) - inset);
-  return (
-    <path
-      d={arcPath(DIAL.LANE, from, to)}
-      fill="none"
-      stroke="#fff"
-      strokeOpacity={0.45}
-      strokeWidth={DIAL.ARC_WIDTH}
-      strokeLinecap="round"
-      pointerEvents="none"
-    />
-  );
+  return <path d={arcPath(DIAL.LANE, from, to)} strokeLinecap="round" {...stroke} />;
 }
 
 /**

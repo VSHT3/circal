@@ -5,6 +5,7 @@ import type { Clock } from "@/lib/time";
 import type { CalEvent, Calendar, Occurrence } from "@/lib/events";
 import type { LifeStage } from "@/lib/life";
 import type { PickedPlace } from "@/lib/places";
+import type { TotalsPosition } from "@/lib/store";
 
 export type ViewMode = "day" | "year" | "life";
 
@@ -144,6 +145,9 @@ export interface SettingsPanelProps {
   place: PickedPlace | null;
   daylight: boolean;
   moonlight: boolean;
+  /** Whether the centre prints the day's totals, and where on the stage. */
+  totals: boolean;
+  totalsAt: TotalsPosition;
   tickSound: boolean;
   tickHaptics: boolean;
   /** The life span, as stored: `""` = never asked for. */

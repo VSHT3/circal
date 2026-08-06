@@ -27,7 +27,7 @@ import {
 } from "lucide-react";
 import { Kbd } from "@/components/react/ui/primitives";
 import type { CommandPaletteProps } from "@/components/react/types";
-import { colorOf, freeGaps, type CalEvent } from "@/lib/events";
+import { colorOf, freeGaps, WAKING, type CalEvent } from "@/lib/events";
 import {
   MINUTES_PER_DAY,
   addDays,
@@ -49,8 +49,6 @@ const EASE = [0.32, 0.72, 0, 1] as const;
 const WEEKDAYS_LOWER = WEEKDAYS.map((w) => w.toLowerCase());
 const MONTHS_LOWER = MONTHS.map((m) => m.toLowerCase());
 
-/** The hours a free slot is offered in before the search widens to the day. */
-const WAKING = { from: 8 * 60, to: 22 * 60 };
 /** What a bare "free" means. */
 const DEFAULT_SLOT = 30;
 

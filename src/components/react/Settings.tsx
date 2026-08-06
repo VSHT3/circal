@@ -17,7 +17,7 @@ import { Download, RefreshCw, Trash2, Upload } from "lucide-react";
 import { refreshFeed } from "@/lib/feeds";
 import { canVibrate } from "@/lib/feedback";
 import { formatCount, formatLifeDate, lifeSpan } from "@/lib/life";
-import { LIFE_EXPECTANCY_RANGE, hostLabel, store } from "@/lib/store";
+import { LIFE_EXPECTANCY_RANGE, TOTALS_POSITIONS, hostLabel, store } from "@/lib/store";
 import { PLACE_OPTIONS, placeForZone } from "@/lib/places";
 import { sunTimes } from "@/lib/sun";
 import {
@@ -37,6 +37,7 @@ import {
   FieldRow,
   IconButton,
   NumberField,
+  PositionField,
   Segmented,
   Select,
   Toggle,
@@ -56,6 +57,21 @@ const ZONE_OPTIONS = [
 ];
 
 const LIGHTCYCLE_OPTIONS = [OFF, ...PLACE_OPTIONS];
+
+/** The nine cells of the totals picker, row-major, each named for a reader
+ *  who cannot see which cell it is. */
+const TOTALS_LABELS = [
+  "Top left",
+  "Top",
+  "Top right",
+  "Left",
+  "Centre",
+  "Right",
+  "Bottom left",
+  "Bottom",
+  "Bottom right",
+];
+const TOTALS_OPTIONS = TOTALS_POSITIONS.map((value, i) => ({ value, label: TOTALS_LABELS[i] }));
 
 function relativeAge(at: number): string {
   if (!at) return "never pulled";
@@ -78,6 +94,8 @@ export default function Settings({
   place,
   daylight,
   moonlight,
+  totals,
+  totalsAt,
   tickSound,
   tickHaptics,
   birth,
@@ -155,15 +173,37 @@ export default function Settings({
             </div>
 
             <div className="no-scrollbar flex-1 overflow-y-auto [--field-label:88px]">
-              <FieldRow label="Dial">
-                <Segmented
-                  value={clock}
-                  onChange={actions.setClock}
-                  options={[
-                    { id: "12h" as const, label: "12 h" },
-                    { id: "24h" as const, label: "24 h" },
-                  ]}
-                />
+              <FieldRow label="Dial" align={totals ? "top" : "center"}>
+                <div className="flex items-center gap-2.5">
+                  <Segmented
+                    value={clock}
+                    onChange={actions.setClock}
+                    options={[
+                      { id: "12h" as const, label: "12 h" },
+                      { id: "24h" as const, label: "24 h" },
+                    ]}
+                  />
+                  {/* The face's other word: how the day is spent. Off by
+                      default, so it sits beside the face it annotates rather
+                      than in a row of its own. */}
+                  <Toggle
+                    label="Totals"
+                    name="Day totals"
+                    checked={totals}
+                    onChange={(on) => store.setToggle("totals", on)}
+                  />
+                </div>
+                {totals && (
+                  <div className="flex items-center gap-2.5">
+                    <PositionField
+                      value={totalsAt}
+                      onChange={store.setTotalsAt}
+                      options={TOTALS_OPTIONS}
+                      label="Where the totals sit"
+                    />
+                    <span className="label text-ink-3">Where it sits on the face</span>
+                  </div>
+                )}
               </FieldRow>
 
               <FieldRow label="2nd ring" align={secondZone ? "top" : "center"}>
