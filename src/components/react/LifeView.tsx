@@ -101,15 +101,21 @@ const FEATHER = 0.16;
  * are weeks — it is this instead, and the band drifting along the row is the
  * honest shape of the thing.
  *
+ * Solid past, faint future. The lived half is the part you own and the part
+ * that carries events, and every reader arrives expecting the filled portion
+ * of a progress figure to be the spent one. Neither state may go to near-black
+ * though: the argument of this view is the whole span in one viewport, and a
+ * half you cannot see is a half that is not there.
+ *
  * Opaque greys rather than translucent white, for the reason the dial's
  * elapsed ring is: on true black the two are the same colour, and only one of
  * them can be composited wrong.
  */
 const TONE = {
-  past: [dim("#ffffff", 0.19), dim("#ffffff", 0.14)],
-  future: [dim("#ffffff", 0.48), dim("#ffffff", 0.35)],
-  /** How far an event's colour is dimmed once the day is behind you. */
-  eventPast: 0.42,
+  past: [dim("#ffffff", 0.58), dim("#ffffff", 0.45)],
+  future: [dim("#ffffff", 0.23), dim("#ffffff", 0.17)],
+  /** How far an event's colour is dimmed while its day is still ahead of you. */
+  eventFuture: 0.45,
 } as const;
 
 /** The accent, as the canvas needs it — a token cannot be read by `fillStyle`. */
@@ -186,8 +192,8 @@ function drawField(
       plot(
         event
           ? past
-            ? dim(event, TONE.eventPast)
-            : event
+            ? event
+            : dim(event, TONE.eventFuture)
           : (past ? TONE.past : TONE.future)[cursor.getMonth() % 2],
         x,
         y,
