@@ -43,7 +43,7 @@ src/pages/index.astro   static HTML shell
 
 | Path                                     | Purpose                                                                                                                                               |
 | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/lib/dial.ts`                        | Polar geometry: `DIAL` radius table, `angleAt` / `polar` / `arcPath` / `minutesAtPoint` / `capInset`                                                  |
+| `src/lib/dial.ts`                        | Polar geometry: `DIAL` radius table, `angleAt` / `polar` / `arcPath` / `minutesAtPoint` / `capInset` / `arcLabel`                                     |
 | `src/lib/life.ts`                        | Life grid: `lifeSpan` / `lifeCellAt` / `lifeDensity` / `lifeStats`, `dim` (`lifeLayout` / `lifeCell` internal)                                        |
 | `src/lib/time.ts`                        | `Clock` type, day arithmetic, formatting voice (`formatTime`, `parseClock`, `dayKey`), zone maths (`zonedToUtc`)                                      |
 | `src/lib/recur.ts`                       | RFC 5545 recurrence: `Recurrence`, `startsBetween`, `countedUntil`, `instantKey`. The whole BY\* cascade                                              |
@@ -64,7 +64,7 @@ src/pages/index.astro   static HTML shell
 | `src/components/react/ui/primitives.tsx` | Ten shared controls all chrome built from                                                                                                             |
 | `src/components/react/types.ts`          | **Every panel prop interface.** Edit shapes here                                                                                                      |
 | `src/styles/global.css`                  | Design tokens, `@theme inline` colour mappings, five component classes                                                                                |
-| `tests/`                                 | **The suite — 571 cases.** `helpers.ts` = fixtures + matchers; one `*.test.ts` per module; `west/` = TZ re-runs                                       |
+| `tests/`                                 | **The suite — 602 cases.** `helpers.ts` = fixtures + matchers; one `*.test.ts` per module; `west/` = TZ re-runs                                       |
 
 ## Development Commands
 
@@ -143,18 +143,18 @@ if (seeded !== day) {
 
 ## Important Files
 
-| File                                | Why it matters                                                                                                                                                                |
-| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/pages/index.astro`             | Only route. Mounts `<App client:only="react" />` — `client:only` because live clock plus `localStorage` makes any SSR markup wrong on hydrate                                 |
-| `src/components/react/App.tsx`      | Island root; owns view state and URL, builds `actions`, registers global hotkeys                                                                                              |
-| `src/components/react/Dial.tsx`     | Instrument. Draw order: glow → your lightcycle band → second zone's band → zone numerals → elapsed ring → ticks → numerals → drag annulus → event arcs → ghost arc → now-hand |
-| `src/components/react/LifeView.tsx` | Life grid. Offscreen canvas for field, masked one for reveal, SVG overlay for everything following pointer, birth prompt as own empty state                                   |
-| `src/components/react/types.ts`     | All panel prop contracts (`DialProps` and `CenterPanelProps` = two deliberate exceptions, declared locally)                                                                   |
-| `astro.config.mjs`                  | `devToolbar: false` (floats over dial), `trailingSlash: "always"`                                                                                                             |
-| `eslint.config.js`                  | Flat config; `jsx-a11y/no-autofocus` off for exactly `CommandPalette.tsx` and `EventEditor.tsx` (modals must take focus)                                                      |
-| `wrangler.jsonc`                    | `main` + `assets.binding` — Worker exists for `/api/feed` and nothing else                                                                                                    |
-| `vitest.config.ts`                  | Two projects, `local` and `west`, each with its own pinned `TZ`. The pinning is not optional — see Testing                                                                    |
-| `tests/helpers.ts`                  | **Fixtures and the three instant matchers.** Read before writing any test; extend here rather than re-declaring builders in a test file                                       |
+| File                                | Why it matters                                                                                                                                                                                           |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/pages/index.astro`             | Only route. Mounts `<App client:only="react" />` — `client:only` because live clock plus `localStorage` makes any SSR markup wrong on hydrate                                                            |
+| `src/components/react/App.tsx`      | Island root; owns view state and URL, builds `actions`, registers global hotkeys                                                                                                                         |
+| `src/components/react/Dial.tsx`     | Instrument. Draw order: glow → your lightcycle band → second zone's band → zone numerals → elapsed ring → ticks → numerals → drag annulus → event arcs (body → label → hit zones) → ghost arc → now-hand |
+| `src/components/react/LifeView.tsx` | Life grid. Offscreen canvas for field, masked one for reveal, SVG overlay for everything following pointer, birth prompt as own empty state                                                              |
+| `src/components/react/types.ts`     | All panel prop contracts (`DialProps` and `CenterPanelProps` = two deliberate exceptions, declared locally)                                                                                              |
+| `astro.config.mjs`                  | `devToolbar: false` (floats over dial), `trailingSlash: "always"`                                                                                                                                        |
+| `eslint.config.js`                  | Flat config; `jsx-a11y/no-autofocus` off for exactly `CommandPalette.tsx` and `EventEditor.tsx` (modals must take focus)                                                                                 |
+| `wrangler.jsonc`                    | `main` + `assets.binding` — Worker exists for `/api/feed` and nothing else                                                                                                                               |
+| `vitest.config.ts`                  | Two projects, `local` and `west`, each with its own pinned `TZ`. The pinning is not optional — see Testing                                                                                               |
+| `tests/helpers.ts`                  | **Fixtures and the three instant matchers.** Read before writing any test; extend here rather than re-declaring builders in a test file                                                                  |
 
 ## Runtime/Tooling Preferences
 
@@ -167,24 +167,24 @@ if (seeded !== day) {
 
 ## Testing & QA
 
-**There IS a suite. Read it before writing one.** Vitest, `tests/`, 571 cases, ~450 ms, wired into `verify`. Adding coverage = adding cases to the file below that already owns the module. Never scaffold a second harness, never a second fixture style, never a `*.spec.ts`.
+**There IS a suite. Read it before writing one.** Vitest, `tests/`, 602 cases, ~450 ms, wired into `verify`. Adding coverage = adding cases to the file below that already owns the module. Never scaffold a second harness, never a second fixture style, never a `*.spec.ts`.
 
-| test file                    | covers                                                            |
-| ---------------------------- | ----------------------------------------------------------------- |
-| `tests/helpers.ts`           | **not a test** — fixtures, builders, matchers. Extend, never fork |
-| `tests/time.test.ts`         | `time.ts` — day arithmetic, DST, `parseClock`, `zonedToUtc`       |
-| `tests/dial.test.ts`         | `dial.ts` — `angleAt` ↔ `minutesAtPoint`, `arcPath`, `capInset`   |
-| `tests/recur.test.ts`        | `recur.ts` — RFC 5545 §3.8.5.3 worked examples, BY\* , BYSETPOS   |
-| `tests/events.test.ts`       | `events.ts` — clipping, lanes, overrides, `freeGaps`, `colorOf`   |
-| `tests/ics.test.ts`          | `ics.ts` — round-trip, folding, escaping, malformed feeds         |
-| `tests/store.test.ts`        | `store.ts` — write/delete/move, undo, cross-tab, `sane`, seeding  |
-| `tests/backup.test.ts`       | `backup.ts` — hostile input, orphan reparenting                   |
-| `tests/feeds.test.ts`        | `feeds.ts` — id stability, errors, cross-tab undo                 |
-| `tests/life.test.ts`         | `life.ts` — `lifeCellAt` inverse, splits, density policy          |
-| `tests/sun.test.ts`          | `sun.ts` — NOAA references, polar cases, no clipping              |
-| `tests/worker.test.ts`       | `ssrfBlockReason` — the hostname table                            |
-| `tests/worker-proxy.test.ts` | `/api/feed` — routing, redirect chain, caps                       |
-| `tests/west/*.test.ts`       | zone-sensitive invariants, re-run west of UTC                     |
+| test file                    | covers                                                                      |
+| ---------------------------- | --------------------------------------------------------------------------- |
+| `tests/helpers.ts`           | **not a test** — fixtures, builders, matchers. Extend, never fork           |
+| `tests/time.test.ts`         | `time.ts` — day arithmetic, DST, `parseClock`, `zonedToUtc`                 |
+| `tests/dial.test.ts`         | `dial.ts` — `angleAt` ↔ `minutesAtPoint`, `arcPath`, `capInset`, `arcLabel` |
+| `tests/recur.test.ts`        | `recur.ts` — RFC 5545 §3.8.5.3 worked examples, BY\* , BYSETPOS             |
+| `tests/events.test.ts`       | `events.ts` — clipping, lanes, overrides, `freeGaps`, `colorOf`, `inkOn`    |
+| `tests/ics.test.ts`          | `ics.ts` — round-trip, folding, escaping, malformed feeds                   |
+| `tests/store.test.ts`        | `store.ts` — write/delete/move, undo, cross-tab, `sane`, seeding            |
+| `tests/backup.test.ts`       | `backup.ts` — hostile input, orphan reparenting                             |
+| `tests/feeds.test.ts`        | `feeds.ts` — id stability, errors, cross-tab undo                           |
+| `tests/life.test.ts`         | `life.ts` — `lifeCellAt` inverse, splits, density policy                    |
+| `tests/sun.test.ts`          | `sun.ts` — NOAA references, polar cases, no clipping                        |
+| `tests/worker.test.ts`       | `ssrfBlockReason` — the hostname table                                      |
+| `tests/worker-proxy.test.ts` | `/api/feed` — routing, redirect chain, caps                                 |
+| `tests/west/*.test.ts`       | zone-sensitive invariants, re-run west of UTC                               |
 
 **Two projects, and the split is load-bearing.** `local` runs `tests/**` at `TZ=Europe/Berlin`; `west` runs `tests/west/**` at `TZ=America/Los_Angeles`, own process. Nearly every date function here deliberately local-time, so unpinned suite passes in one zone and fails in other. Own process because TZ change after Node started not reliably observed. **Touching `dayKey`, `zonedToUtc`, `startOfDay`, `addDays` or anything day-keyed? Add the case to `tests/west/` too.**
 
@@ -230,6 +230,10 @@ expect(occ.start).toBeSameInstantAs("2026-03-08 09:00");
 - **Ring drag accumulates sweep; never measures from grab.** `Draw` holds `{ from, at, sweep }` and `onRingMove` sums `wrapDelta` per pointer event, exactly as arc's drag does. Measuring from grab caps new event at twelve hours and turns range inside out past that, because `wrapDelta` takes short way. Sweep clamped to `[-from, 1440 - from]` — clamping _sweep_ rather than resulting instant makes range stop dead at midnight and follow pointer back moment it turns, instead of unwinding overshoot first (same reason as `clampDelta`).
 - **Full revolution = all-day event, `draftEvent` decides that.** Any span of `MINUTES_PER_DAY` or more becomes `allDay` with instants snapped to day's two midnights, so ⌘N, palette, ring gesture all agree. `CenterPanel` prints `All day` in readout while such drag live, because gesture should say what it about to make — note arc vanishes on release, since `EventArc` draws nothing for all-day event.
 - **Whole turn drawn closed — second rule from same fact.** `capInset` shortens arc by half a stroke at each end so painted length = duration — but once two ends meet, that inset = notch at midnight, and circle with notch reads as rendering fault. `GhostArc` returns `<circle>` for full-day range, `EventArc` drops inset at `to - from >= 360` (timed event running through whole day = any multi-day event's middle).
+- **Arc labels live _inside_ the stroke, and that is geometry, not taste.** `LANE_STEP - ARC_WIDTH` = 13 units of black between two lanes, and the hour numerals come down to 333 just outside the first, so a label _beside_ an arc works on the outermost lane and nowhere else. Inside the 14-unit stroke it is 11px of mono with 3.1 units of arc either side of it, identically on every lane, and it costs no radius — which is the "do not add a ring" rule again. It is also `inkOn(color)`, black on the event's own pastel at ~10:1, the strongest pairing this face has; grey on black beside the arc would be the weakest.
+- **The label's budget is glyphs measured against the _paint_, never minutes and never the centre line.** `arcLabel` takes the arc's painted ends — the span less any seam a neighbour claimed — because the round caps put half a stroke back past `head`/`tail`, and a label handed the `capInset`-shortened span forfeits 14 units on every arc, which is every half-hour event on the face going anonymous (it did). Mono means the width is arithmetic: no `getComputedTextLength`, so no layout read per arc per frame of a drag. Where the gate lands in minutes is a _consequence_ — a word from about 45 minutes, a stub from about 30 out at the rim, nothing on the inner lanes — so a duration threshold would label an event at the rim and crop the same event two lanes in.
+- **A glyph takes its up-vector from the path's direction, so the bottom half is drawn backwards.** `arcPath` grew a `back` flag: the same arc traced anticlockwise from `to` to `from`, which is invisible on a stroke and the whole difference between a readable label and an upside-down one. `arcLabel` reverses whenever the arc's midpoint is between 90° and 270°; the flip has to land somewhere and at three and nine o'clock the text is vertical either way. Derived from the _drawn_ angle, so both faces get it for free.
+- **The label keeps full alpha on a dimmed arc.** Ink here is the _absence_ of light, so dimming it alongside the body takes both towards the black behind them and the name disappears at ~1.5:1. Left alone it softens from about 10:1 to 4.8:1 as the arc recedes, which is the hierarchy the dimming was asking for. In `hover` mode it is mounted at `opacity: 0` rather than mounted on hover: it arrives in the same beat the stroke grows by 3, and text popping in on a growing arc reads as a wobble.
 - **`Escape` abandons gesture in flight**, from `useHotkeys` inside `Dial` rather than shell's: `setDraw(null)` and `setAdjust(null)`. Drag = one thing here you can start by accident, and before this only way out was to let go, which committed it. Pointer stays captured on purpose — both move and up handlers bail on missing gesture, so release that follows does nothing, no cue because nothing happened.
 - **Lane packing face-independent.** `dayAgenda` takes no `Clock`: both faces put one day on one revolution, so two events collide on screen exactly when they collide in time.
 - **`CalEvent.color` = override, not the colour.** Empty string means "follow the calendar", default every event should stay on, so recolouring calendar still moves them. Only `colorOf` knows precedence.

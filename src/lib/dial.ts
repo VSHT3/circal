@@ -115,24 +115,32 @@ export function polar(r: number, deg: number): { x: number; y: number } {
 }
 
 /**
- * Clockwise arc on radius `r`. A sweep of a full turn is drawn as two
- * half-turns because a single elliptical arc whose endpoints coincide renders
- * as nothing.
+ * Clockwise arc on radius `r` — or the same arc traced anticlockwise, from
+ * `to` back to `from`, when `back` is set. A sweep of a full turn is drawn as
+ * two half-turns because a single elliptical arc whose endpoints coincide
+ * renders as nothing.
+ *
+ * The direction is invisible on a stroke and decisive for text: a glyph on a
+ * path takes its up-vector from the way the path is going, so a label on a
+ * clockwise arc reads upright at the top of the face and upside down at the
+ * bottom. See `arcLabel`.
  */
-export function arcPath(r: number, from: number, to: number): string {
+export function arcPath(r: number, from: number, to: number, back = false): string {
   const sweep = to - from;
+  const flag = back ? 0 : 1;
+  const head = back ? to : from;
   if (sweep >= 359.999) {
-    const half = polar(r, from + 180);
-    const start = polar(r, from);
+    const start = polar(r, head);
+    const half = polar(r, back ? head - 180 : head + 180);
     return [
       `M ${start.x} ${start.y}`,
-      `A ${r} ${r} 0 1 1 ${half.x} ${half.y}`,
-      `A ${r} ${r} 0 1 1 ${start.x} ${start.y}`,
+      `A ${r} ${r} 0 1 ${flag} ${half.x} ${half.y}`,
+      `A ${r} ${r} 0 1 ${flag} ${start.x} ${start.y}`,
     ].join(" ");
   }
-  const a = polar(r, from);
-  const b = polar(r, to);
-  return `M ${a.x} ${a.y} A ${r} ${r} 0 ${sweep > 180 ? 1 : 0} 1 ${b.x} ${b.y}`;
+  const a = polar(r, head);
+  const b = polar(r, back ? from : to);
+  return `M ${a.x} ${a.y} A ${r} ${r} 0 ${sweep > 180 ? 1 : 0} ${flag} ${b.x} ${b.y}`;
 }
 
 /**
@@ -173,4 +181,77 @@ export function capInset(r: number): number {
 export function seamTrim(r: number, gap: number): number {
   const seam = ((DIAL.SEAM / r) * 180) / Math.PI;
   return Math.max(0, (seam - gap * DEG_PER_MINUTE) / 2);
+}
+
+/* --------------------------------- labels ---------------------------------- */
+
+/**
+ * The arc-label voice, in user units.
+ *
+ * 11 on a 14-unit stroke, because the label sits *inside* the stroke: a mono
+ * cap is about 0.7 of the size, so 7.7 of ink with 3.1 of arc left either
+ * side of it, identically on every lane. Beside an arc it could only ever
+ * work on one — `LANE_STEP - ARC_WIDTH` leaves 13 units of black between two
+ * lanes, and the hour numerals come down to 333 just outside the first.
+ */
+export const ARC_LABEL_SIZE = 11;
+/** Advance of one mono glyph at that size, so a string's width is arithmetic.
+ *  `getComputedTextLength` is a layout read, and there is one label per arc
+ *  per frame of a drag. */
+const ARC_LABEL_ADVANCE = ARC_LABEL_SIZE * 0.6;
+/**
+ * Clear air kept inside each of the arc's painted tips.
+ *
+ * Two units, because a tip is a round cap: five units in from its extreme
+ * point the cap still stands 4.9 either side of the centre line, and an
+ * 11-unit glyph needs 3.85. Any more comes straight off the budget, and the
+ * budget is what decides whether a half-hour arc gets a name at all.
+ */
+const ARC_LABEL_PAD = 2;
+/**
+ * Fewest glyphs worth printing, the ellipsis counted.
+ *
+ * Where this lands, in minutes, is a fact about the geometry rather than a
+ * threshold anybody chose: an hour is 11 glyphs on the outer lane and 7 on
+ * the fifth, three quarters of an hour is 8 and 4, and half an hour is 5 out
+ * at the rim and nothing further in. So a word gets printed from about
+ * forty-five minutes, a stub from about half an hour, and the arcs below that
+ * stay the honest dots they already were.
+ */
+const ARC_LABEL_MIN = 5;
+
+export interface ArcLabel {
+  /** Path to set the text on, turned so the glyphs read upright. */
+  d: string;
+  /** The title, cut to what the sweep can hold. */
+  text: string;
+}
+
+/**
+ * An event's name along its own arc, or `null` when there is no room for one.
+ *
+ * `from` and `to` are the arc's *painted* ends — an event's own span, less
+ * whatever a neighbouring event's seam claimed, and not the centre line that
+ * `capInset` shortens. Half a stroke of paint sits past each end of that
+ * centre line, and a label that ignored it would forfeit 14 units on every
+ * arc: enough to leave every half-hour event on the face anonymous.
+ *
+ * The budget is in *glyphs*, never in minutes: the same hour is 73 units of
+ * paint on the outer lane and 48 on the fifth, so a duration threshold would
+ * label an event at the rim and crop the same event two lanes in.
+ */
+export function arcLabel(r: number, from: number, to: number, title: string): ArcLabel | null {
+  const text = title.trim();
+  if (!text) return null;
+  const room = (((to - from) * Math.PI) / 180) * r - 2 * ARC_LABEL_PAD;
+  const budget = Math.floor(room / ARC_LABEL_ADVANCE);
+  if (budget < ARC_LABEL_MIN) return null;
+  // The ellipsis is a glyph of the same advance, so a cut title fills the
+  // budget exactly: `budget - 1` characters and the stub.
+  const cut = text.length <= budget ? text : `${text.slice(0, budget - 1).trimEnd()}…`;
+  // Anticlockwise through the bottom half of the face, where a clockwise path
+  // hangs every glyph upside down. The flip has to land somewhere, and at the
+  // three and nine o'clock boundaries the text is vertical either way.
+  const mid = ((((from + to) / 2) % 360) + 360) % 360;
+  return { d: arcPath(r, from, to, mid > 90 && mid < 270), text: cut };
 }

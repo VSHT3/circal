@@ -286,6 +286,37 @@ export function colorOf(event: CalEvent, calendars: Calendar[]): string {
   return calendars.find((c) => c.id === event.calendarId)?.color ?? ORPHAN_COLOR;
 }
 
+/**
+ * Relative luminance of a `#rgb` / `#rrggbb` colour, or `null` for anything
+ * this does not spell — sRGB, linearised, per WCAG.
+ */
+function luminance(color: string): number | null {
+  const hex = color.trim().replace(/^#/, "");
+  const full = hex.length === 3 ? hex.replace(/./g, (c) => c + c) : hex;
+  if (!/^[0-9a-f]{6}$/i.test(full)) return null;
+  const channel = (at: number) => {
+    const v = parseInt(full.slice(at, at + 2), 16) / 255;
+    return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * channel(0) + 0.7152 * channel(2) + 0.0722 * channel(4);
+}
+
+/**
+ * Ink for text drawn *on* a colour — an arc's label sits inside the stroke, so
+ * it is set in the arc's own darkness rather than in the app's greys.
+ *
+ * Every `PALETTE` entry is a high-value pastel and takes black at around 10:1,
+ * which is the strongest pairing available on this face. But `event.color` is
+ * a free string and only `backup.ts` ever looks at an imported one's *type*,
+ * so a hand-edited blob can carry `#101010`; the choice is made from the
+ * colour itself. Unreadable spellings take black, which is what the ten
+ * presets and every other light colour want.
+ */
+export function inkOn(color: string): string {
+  const l = luminance(color);
+  return l !== null && l < 0.4 ? "#ffffff" : "#000000";
+}
+
 /** Where an occurrence sits relative to `now`: before it, inside it, after it. */
 export function statusOf(occ: Occurrence, now: Date): "past" | "now" | "upcoming" {
   if (now >= occ.end) return "past";

@@ -312,6 +312,17 @@ describe("readSettings", () => {
       });
     },
   );
+
+  // Only the type is checked here; `sane()` is what pins the value to a mode
+  // the panel can show — same division as `totalsAt`.
+  it.each([
+    { name: "absent, so the label default stands", value: {}, expected: "always" },
+    { name: "a mode it names", value: { arcLabels: "hover" }, expected: "hover" },
+    { name: "off, which is a choice", value: { arcLabels: "off" }, expected: "off" },
+    { name: "a non-string", value: { arcLabels: 1 }, expected: "always" },
+  ])("arcLabels reads $name", ({ value, expected }) => {
+    expect(readSettings(value).arcLabels).toBe(expected);
+  });
 });
 
 /* --------------------------------- readCalendar ---------------------------- */

@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vitest";
 import "./helpers";
-import { angleAt, arcPath, capInset, DIAL, minutesAtPoint, polar, seamTrim } from "@/lib/dial";
+import {
+  ARC_LABEL_SIZE,
+  DIAL,
+  angleAt,
+  arcLabel,
+  arcPath,
+  capInset,
+  minutesAtPoint,
+  polar,
+  seamTrim,
+} from "@/lib/dial";
 import { MINUTES_PER_DAY } from "@/lib/time";
 
 /* -------------------------- angleAt / minutesAtPoint ------------------------- */
@@ -106,5 +116,101 @@ describe("seamTrim", () => {
 
   it("floors at zero once the neighbouring gap already exceeds the seam", () => {
     expect(seamTrim(DIAL.TRACK, 1000)).toBe(0);
+  });
+});
+
+/* --------------------------------- arcLabel ---------------------------------- */
+
+/** The glyph budget the label maths gives an arc, from the outside in. */
+function budget(r: number, sweepDeg: number): number {
+  const label = arcLabel(r, 0, sweepDeg, "x".repeat(80));
+  return label ? label.text.length : 0;
+}
+
+describe("arcLabel decides by glyphs, not by minutes", () => {
+  // The whole reason the gate is not a duration: the same hour is a different
+  // amount of paint on every lane, so a minute threshold would label an event
+  // at the rim and crop the same event two lanes in.
+  it("gives the same duration a smaller budget on an inner lane", () => {
+    const hour = angleAt(60) - angleAt(0);
+    const outer = budget(DIAL.LANE, hour);
+    const inner = budget(DIAL.LANE - 4 * DIAL.LANE_STEP, hour);
+    expect.soft(outer).toBeGreaterThan(inner);
+    expect.soft(inner).toBeGreaterThan(0);
+  });
+
+  // Where the gate lands in minutes is a consequence, not a setting: half an
+  // hour is five glyphs at the rim and under the floor two lanes in.
+  it("labels a half hour on the outer lane and refuses it on an inner one", () => {
+    const half = angleAt(30) - angleAt(0);
+    expect.soft(arcLabel(DIAL.LANE, 0, half, "Standup")).not.toBeNull();
+    expect.soft(arcLabel(DIAL.LANE - 2 * DIAL.LANE_STEP, 0, half, "Standup")).toBeNull();
+  });
+
+  it("refuses an arc too short to hold five glyphs", () => {
+    // A fifteen-minute arc on the innermost lane: 3.75°, about 12 units of
+    // paint.
+    const quarter = angleAt(15) - angleAt(0);
+    expect(arcLabel(DIAL.LANE - 4 * DIAL.LANE_STEP, 0, quarter, "Standup")).toBeNull();
+  });
+
+  it("refuses an untitled event rather than printing an ellipsis", () => {
+    expect(arcLabel(DIAL.LANE, 0, 90, "   ")).toBeNull();
+  });
+
+  it("keeps a title that fits, whole", () => {
+    expect(arcLabel(DIAL.LANE, 0, 90, "Lunch")?.text).toBe("Lunch");
+  });
+
+  it("cuts a title to the budget, the ellipsis counted", () => {
+    const room = budget(DIAL.LANE, 30);
+    const label = arcLabel(DIAL.LANE, 0, 30, "Quarterly planning review");
+    expect.soft(label?.text).toHaveLength(room);
+    expect.soft(label?.text.endsWith("…")).toBe(true);
+  });
+
+  it("scales the budget with the sweep", () => {
+    expect(budget(DIAL.LANE, 90)).toBeGreaterThan(budget(DIAL.LANE, 45));
+  });
+
+  it("fits inside the stroke it is drawn in", () => {
+    // The label's whole claim: 11 units of type inside a 14-unit arc, so it
+    // costs no radius and reads the same on every lane.
+    expect(ARC_LABEL_SIZE * 0.7).toBeLessThan(DIAL.ARC_WIDTH);
+  });
+});
+
+describe("arcLabel turns its path through the bottom of the face", () => {
+  /** Sweep flag of the first arc command — 1 clockwise, 0 anticlockwise. */
+  function direction(d: string): string | undefined {
+    return /A [\d.]+ [\d.]+ 0 \d (\d)/.exec(d)?.[1];
+  }
+
+  it.each([
+    { name: "the top", from: -20, to: 20, flag: "1" },
+    { name: "just past three o'clock", from: 95, to: 130, flag: "0" },
+    { name: "the bottom", from: 170, to: 190, flag: "0" },
+    { name: "just past nine o'clock", from: 275, to: 310, flag: "1" },
+  ])("runs clockwise at $name only above the horizontal", ({ from, to, flag }) => {
+    const label = arcLabel(DIAL.LANE, from, to, "Meeting");
+    expect(direction(label?.d ?? "")).toBe(flag);
+  });
+
+  it("starts a reversed path at the arc's far end", () => {
+    const forward = arcPath(DIAL.LANE, 170, 190);
+    const back = arcPath(DIAL.LANE, 170, 190, true);
+    expect.soft(back).not.toBe(forward);
+    // Same two endpoints, swapped: a reversed path traces the same arc.
+    const ends = (d: string) => /^M ([\d.-]+) ([\d.-]+) A .* ([\d.-]+) ([\d.-]+)$/.exec(d);
+    const f = ends(forward);
+    const b = ends(back);
+    expect.soft(Number(b?.[1])).toBeCloseTo(Number(f?.[3]), 6);
+    expect.soft(Number(b?.[2])).toBeCloseTo(Number(f?.[4]), 6);
+    expect.soft(Number(b?.[3])).toBeCloseTo(Number(f?.[1]), 6);
+    expect.soft(Number(b?.[4])).toBeCloseTo(Number(f?.[2]), 6);
+  });
+
+  it("still draws a full turn as two segments when reversed", () => {
+    expect(arcPath(DIAL.TRACK, 0, 360, true).match(/A /g)).toHaveLength(2);
   });
 });

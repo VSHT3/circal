@@ -9,6 +9,7 @@
 
 import {
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -16,17 +17,19 @@ import {
 } from "react";
 import { animate, useReducedMotion } from "motion/react";
 import {
+  ARC_LABEL_SIZE,
   DIAL,
   VIEW_BOX,
   VIEW_SIZE,
   angleAt,
+  arcLabel,
   arcPath,
   capInset,
   minutesAtPoint,
   polar,
   seamTrim,
 } from "@/lib/dial";
-import { colorOf, statusOf, type Calendar, type Occurrence } from "@/lib/events";
+import { colorOf, inkOn, statusOf, type Calendar, type Occurrence } from "@/lib/events";
 import { cue, type Cue } from "@/lib/feedback";
 import { sunTimes, type Place } from "@/lib/sun";
 import {
@@ -43,7 +46,7 @@ import {
   zoneOffset,
   type Clock,
 } from "@/lib/time";
-import type { Settings } from "@/lib/store";
+import type { ArcLabelMode, Settings } from "@/lib/store";
 import { useElementSize, useHotkeys } from "./hooks";
 import CenterPanel from "./CenterPanel";
 
@@ -68,7 +71,7 @@ export interface DialProps {
   calendars: Calendar[];
   /**
    * The whole settings object rather than one prop per field. The dial reads
-   * thirteen of them and forwarded every one through this interface, `App.tsx`
+   * fourteen of them and forwarded every one through this interface, `App.tsx`
    * and its own destructure — three places to touch for a single switch.
    */
   settings: Settings;
@@ -290,6 +293,7 @@ export default function Dial({
     showZoneOffset,
     zoneDaylight,
     zoneMoonlight,
+    arcLabels,
     totals,
     totalsAt,
     tickSound,
@@ -665,6 +669,7 @@ export default function Dial({
             key={occ.key}
             occ={occ}
             clock={clock}
+            labels={arcLabels}
             color={colorOf(occ.event, calendars)}
             dimmed={today && statusOf(occ, now) === "past"}
             hovered={hovered === occ.key}
@@ -1050,6 +1055,7 @@ function useEasedRadius(target: number): number {
 function EventArc({
   occ,
   clock,
+  labels,
   color,
   dimmed,
   hovered,
@@ -1061,6 +1067,8 @@ function EventArc({
 }: {
   occ: Occurrence;
   clock: Clock;
+  /** When this arc prints its name along itself. See `arcLabel`. */
+  labels: ArcLabelMode;
   color: string;
   dimmed: boolean;
   hovered: boolean;
@@ -1078,6 +1086,10 @@ function EventArc({
   // Before the early return, so the hook order does not depend on the event: an
   // all-day occurrence draws nothing, but it still owns this component.
   const r = useEasedRadius(DIAL.LANE - occ.lane * DIAL.LANE_STEP);
+  // `<textPath>` takes a reference, not a path, so the label's own path needs
+  // an id. Not `occ.key`: a feed's occurrence carries its UID, and a UID is
+  // any text at all — including the `#` that would break the reference.
+  const labelId = `arc-label-${useId().replace(/[^a-zA-Z0-9-]/g, "")}`;
   if (occ.event.allDay) return null;
 
   const width = DIAL.ARC_WIDTH;
@@ -1093,9 +1105,24 @@ function EventArc({
   // Half a seam off each end that has a neighbour hard against it, so two
   // back-to-back events are two lozenges rather than one dented line. Not on a
   // dot: it is already shorter than the event it stands for.
-  const head = closed ? from : from + inset + (dot ? 0 : seamTrim(r, gap.before));
-  const tail = closed ? to : to - inset - (dot ? 0 : seamTrim(r, gap.after));
+  //
+  // The two spans are the *paint's* ends and the *centre line's*: a round cap
+  // puts half a stroke back past `head` and `tail`, which is exactly what
+  // `inset` took off, so what an event actually covers is its own span less
+  // whatever a neighbour's seam claimed.
+  const paintFrom = closed || dot ? from : from + seamTrim(r, gap.before);
+  const paintTo = closed || dot ? to : to - seamTrim(r, gap.after);
+  const head = closed ? from : paintFrom + inset;
+  const tail = closed ? to : paintTo - inset;
   const d = dot ? arcPath(r, (from + to) / 2, (from + to) / 2 + 0.001) : arcPath(r, head, tail);
+
+  // A label lives *inside* the stroke, so it costs no radius and reads the
+  // same on every lane. It is mounted whenever the sweep can hold one and
+  // hidden by opacity, because in `hover` mode it arrives at the same instant
+  // the stroke grows by 3 — and text popping in on a growing arc reads as a
+  // wobble where the crossfade should be.
+  const label = labels === "off" || dot ? null : arcLabel(r, paintFrom, paintTo, occ.event.title);
+  const labelShown = labels === "always" || hovered || dragging;
 
   /**
    * The grips own the *tips*, the body owns the middle — which is entirely a
@@ -1161,6 +1188,34 @@ function EventArc({
         pointerEvents="none"
         style={{ transition: "stroke-width 140ms var(--ease), opacity 140ms var(--ease)" }}
       />
+      {label && (
+        <>
+          <defs>
+            <path id={labelId} d={label.d} />
+          </defs>
+          <text
+            className="font-mono"
+            fill={inkOn(color)}
+            fontSize={ARC_LABEL_SIZE}
+            fontWeight={600}
+            letterSpacing="0.01em"
+            dominantBaseline="central"
+            // Full alpha even on a past arc. The ink is the *absence* of
+            // light, so dimming it with the body would take both towards the
+            // black behind them and the label would vanish at 1.5:1; left
+            // alone it softens from about 10:1 to 4.8:1 as the arc under it
+            // recedes, which is the hierarchy the dimming was asking for.
+            opacity={labelShown ? 1 : 0}
+            aria-hidden={!labelShown}
+            pointerEvents="none"
+            style={{ transition: "opacity 140ms var(--ease)" }}
+          >
+            <textPath href={`#${labelId}`} startOffset="50%" textAnchor="middle">
+              {label.text}
+            </textPath>
+          </text>
+        </>
+      )}
       {/* The ends are listed after the body, so where they overlap it they
           win the hit test — a stacking order, not a subtraction. */}
       {zones.map((zone) => (

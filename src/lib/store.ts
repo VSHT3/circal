@@ -31,13 +31,14 @@ const KEY = "circal.v1";
  * blob written before this bump would silently show the wrong dial. Events
  * survive the bump — only settings reset.
  *
- * Still 2: `secondZone`, `place`, `feeds`, `birth`, `lifeExpectancy`, the full
- * RFC 5545 recurrence fields (`interval`, `until`, `wkst`, the `byMonth` /
- * `byWeekNo` / `byYearDay` / `byMonthDay` / `byDay` / `byHour` / `byMinute` /
- * `bySecond` / `bySetPos` limits, `exdates`, `rdates`) and the series-override
- * pair (`seriesId`, `seriesKey`) are all new *fields*, and a blob without them
- * has them filled in on read. Nothing already stored changed meaning, so
- * there is no reason to throw away anyone's dial preference.
+ * Still 2: `secondZone`, `place`, `feeds`, `birth`, `lifeExpectancy`,
+ * `arcLabels`, the full RFC 5545 recurrence fields (`interval`, `until`,
+ * `wkst`, the `byMonth` / `byWeekNo` / `byYearDay` / `byMonthDay` / `byDay` /
+ * `byHour` / `byMinute` / `bySecond` / `bySetPos` limits, `exdates`,
+ * `rdates`) and the series-override pair (`seriesId`, `seriesKey`) are all new
+ * *fields*, and a blob without them has them filled in on read. Nothing
+ * already stored changed meaning, so there is no reason to throw away anyone's
+ * dial preference.
  */
 const SCHEMA = 2;
 
@@ -60,6 +61,17 @@ export const TOTALS_POSITIONS = [
 
 export type TotalsPosition = (typeof TOTALS_POSITIONS)[number];
 
+/**
+ * When an event's name is printed along its own arc. `hover` is the density
+ * escape hatch — a dozen names on one revolution is text where the shape
+ * should be — and it is the weakest of the three, since a hovered arc already
+ * thickens and the centre already prints what it is. On a touch device it is
+ * `off` by another name.
+ */
+export const ARC_LABEL_MODES = ["always", "hover", "off"] as const;
+
+export type ArcLabelMode = (typeof ARC_LABEL_MODES)[number];
+
 export interface Settings {
   /** Which face the dial wears — see `lib/dial.ts`. */
   clock: Clock;
@@ -77,6 +89,12 @@ export interface Settings {
   daylight: boolean;
   /** The hours the sun is down, in violet. */
   moonlight: boolean;
+  /**
+   * Whether an event's name is printed along its arc, and when. Unlike the
+   * totals line this is not the same fact twice: an unlabelled 30-minute arc
+   * is 7.5° of colour and says who it belongs to only once you point at it.
+   */
+  arcLabels: ArcLabelMode;
   /**
    * Whether the centre prints what the day is made of — booked against free.
    * Off: the ring already draws the shape, and this is the sentence version
@@ -135,6 +153,12 @@ export const DEFAULT_SETTINGS: Settings = {
   // rendering fault rather than as a choice.
   daylight: true,
   moonlight: true,
+  // Always, which is the one default here that a switch does not have to earn.
+  // The glyph budget means a label only appears where the sweep can hold one,
+  // so it cannot crowd the face — and the dial's own argument is legibility,
+  // which an unlabelled ring of four coloured ticks loses. Hiding the fix
+  // behind an off switch would concede the point.
+  arcLabels: "always",
   // Off. The ring is already the picture of a day's load; the line under the
   // card is the same fact in words, and words earn their place by being asked
   // for.
@@ -232,8 +256,8 @@ export const LIFE_EXPECTANCY_RANGE = { min: 1, max: 150 } as const;
 /**
  * The stored values that can be wrong rather than merely absent: a place with
  * no zone cannot be shown in its own picker, a life span has to be a date and
- * a number of years the grid can actually draw, and a position has to be one
- * of the nine the panel knows how to place.
+ * a number of years the grid can actually draw, and a position or a mode has
+ * to be one the panel knows how to show.
  */
 function sane(settings: Settings): Settings {
   const years = Math.round(settings.lifeExpectancy);
@@ -247,6 +271,9 @@ function sane(settings: Settings): Settings {
     totalsAt: TOTALS_POSITIONS.includes(settings.totalsAt)
       ? settings.totalsAt
       : DEFAULT_SETTINGS.totalsAt,
+    arcLabels: ARC_LABEL_MODES.includes(settings.arcLabels)
+      ? settings.arcLabels
+      : DEFAULT_SETTINGS.arcLabels,
   };
 }
 
@@ -585,6 +612,11 @@ export const store = {
   setTotalsAt(totalsAt: TotalsPosition) {
     const base = fresh();
     commit({ ...base, settings: { ...base.settings, totalsAt } }, false);
+  },
+
+  setArcLabels(arcLabels: ArcLabelMode) {
+    const base = fresh();
+    commit({ ...base, settings: { ...base.settings, arcLabels } }, false);
   },
 
   /** `""` turns the second ring off. */

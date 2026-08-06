@@ -542,6 +542,38 @@ describe("sane() via parsing a stored blob", () => {
     const s = await freshStore(storage);
     expect(s.store.snapshot().settings.place).toEqual(place);
   });
+
+  it.each([
+    { name: "a mode the panel cannot show", stored: "sometimes", want: "always" },
+    { name: "a non-string", stored: 3, want: "always" },
+    { name: "a mode it can", stored: "hover", want: "hover" },
+  ])("arcLabels: $name → $want", async ({ stored, want }) => {
+    const storage = new MemoryStorage();
+    storage.setItem(
+      KEY,
+      JSON.stringify({
+        schema: 2,
+        events: [],
+        calendars: [],
+        feeds: {},
+        settings: { arcLabels: stored },
+      }),
+    );
+    const s = await freshStore(storage);
+    expect(s.store.snapshot().settings.arcLabels).toBe(want);
+  });
+
+  // A blob written before the labels existed. Absent is not wrong, and the
+  // default is on: an unlabelled arc is not something anybody chose.
+  it("a blob with no arcLabels key gets the default", async () => {
+    const storage = new MemoryStorage();
+    storage.setItem(
+      KEY,
+      JSON.stringify({ schema: 2, events: [], calendars: [], feeds: {}, settings: {} }),
+    );
+    const s = await freshStore(storage);
+    expect(s.store.snapshot().settings.arcLabels).toBe("always");
+  });
 });
 
 describe("migrateSettings", () => {

@@ -21,6 +21,15 @@ Events take their colour from their calendar. Any one event can override that
 from the editor's **Color** row: ten digital pastels, or a picker for anything
 else.
 
+An event's name is printed along its own arc, inside the stroke — black on its
+own colour, which is the strongest pairing this face has and the only one that
+works on every lane. A name appears only where the arc can hold one: about
+forty-five minutes for a word, about half an hour out at the rim for a stub,
+and below that the arc stays the dot it already was. That is arithmetic rather
+than a threshold — the same half hour is 38 units of paint on the outer lane
+and 24 four lanes in. The **Arc names** setting takes `Always`, `Hover` — one
+at a time, for a crowded day — or `Off`.
+
 ## The middle of the face
 
 The ring says what shape the day is; the middle says the one sentence. It has
@@ -204,7 +213,7 @@ src/
     CommandPalette.tsx  Settings.tsx  Toast.tsx
 worker/index.ts  assets + the /api/feed proxy
 public/sw.js     offline cache
-tests/           571 cases over src/lib and the worker's guards
+tests/           602 cases over src/lib and the worker's guards
 ```
 
 Two overlapping events are pushed onto concentric rings by `packLanes`, so

@@ -104,6 +104,12 @@ export function readSettings(value: unknown): Settings {
     daylight: value.daylight !== false,
     // `night` is what the dark half was called before it was split off.
     moonlight: value.moonlight !== undefined ? value.moonlight !== false : value.night !== false,
+    // Absent means the backup predates the labels, and the label default is
+    // on: a dial whose arcs are anonymous is not what anybody chose. `sane()`
+    // is what pins the value to a mode the panel can show.
+    arcLabels: (typeof value.arcLabels === "string"
+      ? value.arcLabels
+      : DEFAULT_SETTINGS.arcLabels) as Settings["arcLabels"],
     // Off unless the backup says otherwise: absent means it was written
     // before the line existed, and it is not a line to arrive unasked.
     // `sane()` is what pins the position to one the panel can place.

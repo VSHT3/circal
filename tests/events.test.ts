@@ -7,6 +7,7 @@ import {
   dayAgenda,
   freeGaps,
   instantKey,
+  inkOn,
   occurrencesOn,
   statusOf,
   type Gap,
@@ -457,6 +458,30 @@ describe("colorOf", () => {
     const e = event({ color: eventColor, calendarId });
     expect(colorOf(e, calendars)).toBe(expected);
   });
+});
+
+describe("inkOn", () => {
+  // The claim the arc label rests on: every preset takes black, so a label
+  // inside the stroke is the strongest pairing on the face rather than a
+  // per-colour judgement call.
+  it("takes black on all ten presets", () => {
+    expect(PALETTE.map(inkOn)).toEqual(PALETTE.map(() => "#000000"));
+  });
+
+  it.each([
+    { name: "a near-black override, which only a hand-edited blob has", color: "#101010" },
+    { name: "a saturated mid-blue", color: "#0033aa" },
+    { name: "shorthand, expanded", color: "#036" },
+  ])("turns white on $name", ({ color }) => {
+    expect(inkOn(color)).toBe("#ffffff");
+  });
+
+  it.each(["", "not a colour", "#12", "rgb(1,2,3)", "#gggggg"])(
+    "falls back to black for %s, which is what every light colour wants",
+    (color) => {
+      expect(inkOn(color)).toBe("#000000");
+    },
+  );
 });
 
 /* --------------------------------- status --------------------------------- */

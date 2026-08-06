@@ -99,6 +99,7 @@ export default function Settings({
     place,
     daylight,
     moonlight,
+    arcLabels,
     totals,
     totalsAt,
     tickSound,
@@ -176,7 +177,7 @@ export default function Settings({
             </div>
 
             <div className="no-scrollbar flex-1 overflow-y-auto [--field-label:88px]">
-              <FieldRow label="Dial" align={totals ? "top" : "center"}>
+              <FieldRow label="Dial" align="top">
                 <div className="flex items-center gap-2.5">
                   <Segmented
                     value={clock}
@@ -207,6 +208,25 @@ export default function Settings({
                     <span className="label text-ink-3">Where it sits on the face</span>
                   </div>
                 )}
+                {/* Its own line: three segments will not sit beside the face
+                    and the totals switch inside 310px, and this is the one
+                    setting here that changes what an arc *is* rather than
+                    what the face is called. */}
+                <div className="flex items-center gap-2.5">
+                  <Segmented
+                    value={arcLabels}
+                    onChange={store.setArcLabels}
+                    options={[
+                      { id: "always" as const, label: "Always" },
+                      { id: "hover" as const, label: "Hover" },
+                      { id: "off" as const, label: "Off" },
+                    ]}
+                  />
+                  {/* Two words: "Names on arcs" wraps at this column width,
+                      and a caption on two lines beside a control on one reads
+                      as a row that has come apart. */}
+                  <span className="label text-ink-3">Arc names</span>
+                </div>
               </FieldRow>
 
               <FieldRow label="2nd ring" align={secondZone ? "top" : "center"}>

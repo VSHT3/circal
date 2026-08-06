@@ -1,9 +1,12 @@
 # todo
 
-Recurrence is real, the interior answers the day, and there is now a test suite —
-571 cases over the domain layer, `pnpm test`, in the gate.
+Recurrence is real, the interior answers the day, arcs carry their own names, and there is now a
+test suite — 602 cases over the domain layer, `pnpm test`, in the gate.
 
 ## the list, and what I think of it
+
+0. Moonpohases somewhere as an optional eyecandy
+   0.5. icons into dial list based on custom or default to calendar icon (which can be set too)
 
 **1. quotes page** — _you are a worm through time, you have no obligations to your former self, be
 the change you wish to see in the world._
@@ -65,7 +68,7 @@ have correct — see RRULE below.
 
 **7. ~~test import~~** — done, and bigger than import
 
-Vitest, `tests/`, wired into `verify`. **571 cases, 14 files, 447 ms.** Two projects: `local` under
+Vitest, `tests/`, wired into `verify`. **602 cases, 14 files, ~450 ms.** Two projects: `local` under
 `TZ=Europe/Berlin` and `west` under `TZ=America/Los_Angeles` in its own process, because nearly
 every date function here is deliberately local-time and an unpinned suite passes in one zone and
 fails in the other.
@@ -73,15 +76,15 @@ fails in the other.
 | module               | cases   | what it defends                                                                                                                                                                                                                                                                                                     |
 | -------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `recur.ts`           | 67      | every RFC 5545 §3.8.5.3 worked example, transcribed and cross-checked against independent date arithmetic rather than against the engine. WKST sensitivity, BYSETPOS, BYWEEKNO, BYYEARDAY across a leap year, Friday-the-13th, the `MAX_INSTANTS` cap, COUNT counting before EXDATE, DST on both Berlin transitions |
-| `backup.ts`          | 86      | hostile input, one row per thing a hand-edited backup can contain, plus `importBackup`'s orphan reparenting in both directions                                                                                                                                                                                      |
-| `store.ts`           | 63      | write / delete / **move** (day boundary, DST, a recurring series), undo depth and rebasing, the `fresh()` cross-tab path, `sane()`, `migrateSettings`, the quota notify, seeding through `subscribe`                                                                                                                |
+| `backup.ts`          | 90      | hostile input, one row per thing a hand-edited backup can contain, plus `importBackup`'s orphan reparenting in both directions                                                                                                                                                                                      |
+| `store.ts`           | 67      | write / delete / **move** (day boundary, DST, a recurring series), undo depth and rebasing, the `fresh()` cross-tab path, `sane()`, `migrateSettings`, the quota notify, seeding through `subscribe`                                                                                                                |
 | `time.ts`            | 88      | `dayKey` local-time, `parseClock`'s five forms, both faces, DST arithmetic, `zonedToUtc` in and out of a gap                                                                                                                                                                                                        |
 | `life.ts` + `sun.ts` | 61      | `lifeCellAt` as the exact inverse of `lifeDotX/Y` swept across five years, the density policy, NOAA reference sunrises, polar day and night                                                                                                                                                                         |
 | `ics.ts`             | 50      | round-trip for every value type, octet-counted folding around a 4-byte emoji, escaping, and a table of malformed feeds that must not throw                                                                                                                                                                          |
-| `events.ts`          | 45      | day-clipping, the exclusive end, override suppression, lane packing, `freeGaps`, `colorOf` precedence                                                                                                                                                                                                               |
+| `events.ts`          | 54      | day-clipping, the exclusive end, override suppression, lane packing, `freeGaps`, `colorOf` precedence, `inkOn` against all ten presets                                                                                                                                                                              |
 | `worker`             | 35 + 35 | the SSRF table in every IPv4 spelling, and the proxy's redirect chain hop by hop                                                                                                                                                                                                                                    |
 | `feeds.ts`           | 11      | id stability across pulls, error recording, and the cross-tab undo interaction                                                                                                                                                                                                                                      |
-| `dial.ts`            | 16      | `angleAt` ↔ `minutesAtPoint` swept over all 1440 minutes on both faces                                                                                                                                                                                                                                              |
+| `dial.ts`            | 33      | `angleAt` ↔ `minutesAtPoint` swept over all 1440 minutes on both faces, and `arcLabel`'s glyph budget, cut and turn                                                                                                                                                                                                 |
 
 Three custom matchers do the heavy lifting on readability — `toBeInstants`, `toOccurOn`,
 `toBeSameInstantAs` print an aligned actual/expected column with `(missing)` / `(unexpected)` /
@@ -163,13 +166,33 @@ The countdown makes the centre a per-second surface. `App` already re-renders ev
 (see the 1 Hz note below), so this costs nothing today — but when that is fixed, the countdown is
 part of whatever leaf keeps second resolution.
 
-### Give arcs identity
+### ~~Give arcs identity~~ — done
 
-A 30-minute event is 7.5° — in the day screenshot the whole afternoon is four coloured ticks and you
-cannot tell which is which. `<textPath>` along the arc's own path, mono ~11px, only above about a
-45-minute sweep; below that the dot-collapse at `Dial.tsx:817` is honest and should stay. This is
-the single change that moves the dial from beautiful to readable without hovering.
-**[high / medium]**
+`arcLabel` in `dial.ts`, set with `<textPath>` **inside** the stroke: 11px mono, `inkOn(color)` — black
+on the event's own pastel at about 10:1, which is the strongest pairing this face has. Inside rather
+than beside, because beside only ever works on the outermost lane: `LANE_STEP - ARC_WIDTH` leaves 13
+units of black between two lanes, and the numerals come down to 333 just outside the first. Inside
+costs no radius, so the "do not add a ring" rule survives the change.
+
+Three things fell out of building it that are worth keeping in mind:
+
+- **The budget is glyphs, not minutes**, and it is measured against the _paint_ — the span less any
+  seam a neighbour claimed, not the `capInset`-shortened centre line. Handing it the centre line
+  forfeits 14 units on every arc, which is every half-hour event on the face going anonymous; that
+  was the first cut, and the screenshot of it showed four unlabelled ticks. Where the gate lands in
+  minutes is a consequence: a word from about 45 minutes, a stub from about 30 out at the rim,
+  nothing on the inner lanes. Mono keeps the width arithmetic — no `getComputedTextLength`, so no
+  layout read per arc per frame of a drag.
+- **A glyph takes its up-vector from the path's direction**, so `arcPath` grew a `back` flag and
+  `arcLabel` reverses through the bottom half of the face. Derived from the drawn angle, so both
+  faces get it for nothing.
+- **The label keeps full alpha on a dimmed arc.** Ink is the absence of light: dim it with the body
+  and the name goes to 1.5:1. Left alone it softens from 10:1 to 4.8:1 as the arc recedes, which is
+  what the dimming meant.
+
+The setting is `arcLabels`: `always` (default) / `hover` / `off`, in the `Dial` row. `hover` is the
+density escape hatch and the weakest of the three — a hovered arc already thickens and the centre
+already prints what it is — and it is `off` by another name on a touch device.
 
 ### ~~Recurrence and ICS are where the product actually breaks~~ — done, in full
 
@@ -303,8 +326,8 @@ The old list is spent: ~~real RRULE in and out~~, ~~next event and countdown in 
 ~~a test suite~~ all shipped. What is left, in order:
 
 1. ~~**Invert the life grid's tone.**~~ Done — see Life view above.
-2. **Labels on arcs.** `[high / medium]` — the single change that moves the dial from beautiful to
-   readable without hovering.
+2. ~~**Labels on arcs.**~~ Done — see Give arcs identity above. `always` by default, because the
+   glyph budget means a label only lands where the sweep can hold one.
 3. **Quick-add in ⌘P.** `[high / small]` — every parser exists, the sentence does not. And the
    parsers it composes are now covered, which is what makes it safe to build on them.
 4. **Ambient mode.** `[high / trivial]` — one boolean from shipping the best desk clock on the web.
