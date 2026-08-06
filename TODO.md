@@ -232,10 +232,12 @@ idea at three scales", and it is still what blocks (2). Two honest paths:
 
 The strongest concept in the app, and the render is fighting it.
 
-- **Invert the tone.** Lived days are currently the dim ones, and the first eighteen years of the
-  screenshot are near-black. That is backwards emotionally _and_ informationally: the past is the
-  part you own and the part that carries events. Solid past, faint future is also the convention
-  every reader arrives with. **[high / trivial]**
+- **~~Invert the tone.~~** — done. Lived days were the dim ones and the first eighteen years were
+  near-black, which is backwards emotionally _and_ informationally. `TONE` in `LifeView.tsx` now
+  runs solid past (0.58 / 0.45, about `ink-2`) against a faint future (0.23 / 0.17, about `ink-4`),
+  and an event's colour is dimmed while its day is still _ahead_ of you rather than behind. The
+  ratio between the two states is the one it always had; the whole figure moved up, because neither
+  half may go to near-black — the argument of the view is the entire span in one viewport.
 - **The month banding reads as vertical striping**, not as months (`TONE`, `LifeView.tsx:100`). At
   this density, alternating tone per month across eighty rows is near-moiré. Tone by year-half, or
   drop it and keep the decade rules.
@@ -311,8 +313,7 @@ the honest boundary of what 571 pure-function tests buy you.
 The old list is spent: ~~real RRULE in and out~~, ~~next event and countdown in the interior~~ and
 ~~a test suite~~ all shipped. What is left, in order:
 
-1. **Invert the life grid's tone.** `[high / trivial]` — `dim()` already does the work, it is a sign
-   flip. Lived days are the dim ones today, which is backwards emotionally and informationally.
+1. ~~**Invert the life grid's tone.**~~ Done — see Life view above.
 2. **All-day events on the face**, and **stop making light and progress mutually exclusive.**
    `[high / small]` each, and they are one afternoon together. Both are the dial saying less than it
    knows: `EventArc` returns `null` for an all-day event, and switching on Lightcycle deletes the
