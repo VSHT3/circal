@@ -18,7 +18,9 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint .",
-    "verify": "pnpm format:check && pnpm lint && pnpm check && pnpm build"
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "verify": "pnpm format:check && pnpm lint && pnpm check && pnpm test && pnpm build"
   },
   "dependencies": {
     "@astrojs/react": "^6.0.2",
@@ -39,6 +41,7 @@
   "devDependencies": {
     "@astrojs/check": "^0.9.10",
     "@eslint/js": "^10.0.1",
+    "@types/node": "^26.1.2",
     "eslint": "^10.8.0",
     "eslint-plugin-astro": "^3.0.1",
     "eslint-plugin-jsx-a11y": "^6.10.2",
@@ -49,6 +52,7 @@
     "prettier-plugin-tailwindcss": "^0.8.1",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.65.0",
+    "vitest": "^4.1.10",
     "wrangler": "^4.118.0"
   }
 }
