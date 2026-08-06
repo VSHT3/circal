@@ -234,13 +234,17 @@ The strongest concept in the app, and the render is fighting it.
 
 - **~~Invert the tone.~~** — done. Lived days were the dim ones and the first eighteen years were
   near-black, which is backwards emotionally _and_ informationally. `TONE` in `LifeView.tsx` now
-  runs solid past (0.58 / 0.45, about `ink-2`) against a faint future (0.23 / 0.17, about `ink-4`),
-  and an event's colour is dimmed while its day is still _ahead_ of you rather than behind. The
-  ratio between the two states is the one it always had; the whole figure moved up, because neither
-  half may go to near-black — the argument of the view is the entire span in one viewport.
-- **The month banding reads as vertical striping**, not as months (`TONE`, `LifeView.tsx:100`). At
-  this density, alternating tone per month across eighty rows is near-moiré. Tone by year-half, or
-  drop it and keep the decade rules.
+  runs solid past (0.58 / 0.45, about `ink-2`) against a faint future (0.23 / 0.17, about `ink-4`).
+  The ratio between the two states is the one it always had; the whole figure moved up, because
+  neither half may go to near-black — the argument of the view is the entire span in one viewport.
+  The tone stops at the field: an event's colour is no longer dimmed by how far off it is (it used
+  to be, for the past). Grey carries time, which the row already says, and colour carries the only
+  data in the picture — dimming the days ahead that carry something quietened the half you can
+  still act on, in a calendar.
+- **The month banding reads as vertical striping**, not as months (`TONE`, `LifeView.tsx:99`). At
+  this density, alternating tone per month across eighty rows is near-moiré, and the brighter past
+  has made it louder than it was. Tone by year-half, or drop it and keep the decade rules. This is
+  the next thing in this view.
 - **Search the whole life.** Every event is already in hand and there is a per-day lookup: type in
   ⌘P and every matching day lights in the grid. "Every day I ran", as a thread down eighty years.
   Nobody else has this and it is mostly wiring. **[high / medium]**
