@@ -1,0 +1,487 @@
+import { describe, expect, it } from "vitest";
+import { at, calendar, day, event, ms } from "./helpers";
+import {
+  PALETTE,
+  WAKING,
+  colorOf,
+  dayAgenda,
+  freeGaps,
+  instantKey,
+  occurrencesOn,
+  statusOf,
+  type Gap,
+} from "@/lib/events";
+
+const cal = calendar();
+
+/* ------------------------------- occurrences ------------------------------ */
+
+describe("occurrencesOn: clipping to the day", () => {
+  const rows = [
+    {
+      name: "fully inside the day",
+      start: "2026-03-08 09:00",
+      end: "2026-03-08 10:30",
+      allDay: false,
+      startMin: 540,
+      endMin: 630,
+      continuesBefore: false,
+      continuesAfter: false,
+    },
+    {
+      name: "starts before midnight, ends during the day",
+      start: "2026-03-07 22:00",
+      end: "2026-03-08 03:00",
+      allDay: false,
+      startMin: 0,
+      endMin: 180,
+      continuesBefore: true,
+      continuesAfter: false,
+    },
+    {
+      name: "starts during the day, runs past midnight",
+      start: "2026-03-08 23:00",
+      end: "2026-03-09 02:00",
+      allDay: false,
+      startMin: 1380,
+      endMin: 1440,
+      continuesBefore: false,
+      continuesAfter: true,
+    },
+    {
+      name: "spans the whole day from both directions",
+      start: "2026-03-07 20:00",
+      end: "2026-03-09 04:00",
+      allDay: false,
+      startMin: 0,
+      endMin: 1440,
+      continuesBefore: true,
+      continuesAfter: true,
+    },
+    {
+      name: "an all-day event covering exactly this day",
+      start: day("2026-03-08").getTime(),
+      end: day("2026-03-09").getTime(),
+      allDay: true,
+      startMin: 0,
+      endMin: 1440,
+      continuesBefore: false,
+      continuesAfter: false,
+    },
+  ] as const;
+
+  it.each(rows)(
+    "$name",
+    ({ start, end, allDay, startMin, endMin, continuesBefore, continuesAfter }) => {
+      const e = event({ start, end, allDay });
+      const [occ] = occurrencesOn([e], [cal], day("2026-03-08"));
+      expect.soft(occ).toBeDefined();
+      expect.soft(occ?.startMin).toBe(startMin);
+      expect.soft(occ?.endMin).toBe(endMin);
+      expect.soft(occ?.continuesBefore).toBe(continuesBefore);
+      expect.soft(occ?.continuesAfter).toBe(continuesAfter);
+      // The dial can only draw within one revolution.
+      expect.soft(occ?.startMin).toBeGreaterThanOrEqual(0);
+      expect.soft(occ?.startMin).toBeLessThanOrEqual(1440);
+      expect.soft(occ?.endMin).toBeGreaterThanOrEqual(0);
+      expect.soft(occ?.endMin).toBeLessThanOrEqual(1440);
+    },
+  );
+});
+
+describe("occurrencesOn: the exclusive end at midnight", () => {
+  // Regression for the commit that made a midnight-ending occurrence end at
+  // 1440 on the day it started rather than 0 on the day after.
+  const e = event({ start: "2026-03-08 22:00", end: "2026-03-09 00:00" });
+
+  it("ends the day it started at 1440, not the next day at 0", () => {
+    const [occ] = occurrencesOn([e], [cal], day("2026-03-08"));
+    expect(occ?.endMin).toBe(1440);
+    expect(occ?.continuesAfter).toBe(false);
+  });
+
+  it("does not also appear on the day it would naively roll onto", () => {
+    expect(occurrencesOn([e], [cal], day("2026-03-09"))).toHaveLength(0);
+  });
+});
+
+describe("occurrencesOn: hidden calendars", () => {
+  it("excludes events on a calendar marked invisible", () => {
+    const hidden = calendar({ visible: false });
+    const e = event({ calendarId: hidden.id, start: "2026-03-08 09:00" });
+    expect(occurrencesOn([e], [hidden], day("2026-03-08"))).toHaveLength(0);
+  });
+
+  it("shows events whose calendar is absent from the list entirely", () => {
+    // Only a calendar explicitly marked `visible: false` is hidden — one that
+    // simply isn't in the array is not the same thing as one that opted out.
+    const e = event({ calendarId: "cal-ghost", start: "2026-03-08 09:00" });
+    expect(occurrencesOn([e], [cal], day("2026-03-08"))).toHaveLength(1);
+  });
+});
+
+describe("occurrencesOn: recurrence expansion", () => {
+  describe("a weekly MO/WE/FR rule", () => {
+    const e = event({
+      start: "2026-03-02 09:00",
+      end: "2026-03-02 09:30",
+      repeat: "weekly",
+      byDay: [
+        { day: 1, nth: 0 },
+        { day: 3, nth: 0 },
+        { day: 5, nth: 0 },
+      ],
+    });
+
+    it.each([
+      { stamp: "2026-03-02", weekday: "Mon", expected: true },
+      { stamp: "2026-03-03", weekday: "Tue", expected: false },
+      { stamp: "2026-03-04", weekday: "Wed", expected: true },
+      { stamp: "2026-03-06", weekday: "Fri", expected: true },
+      { stamp: "2026-03-08", weekday: "Sun", expected: false },
+    ])("lands on $weekday: $expected", ({ stamp, expected }) => {
+      expect(occurrencesOn([e], [cal], day(stamp))).toHaveLength(expected ? 1 : 0);
+    });
+  });
+
+  describe("a monthly BYMONTHDAY=31 rule crossing a short month", () => {
+    const e = event({
+      start: "2026-01-31 10:00",
+      end: "2026-01-31 10:30",
+      repeat: "monthly",
+      byMonthDay: [31],
+    });
+
+    it.each([
+      { stamp: "2026-01-31", name: "the seed month, which has a 31st", expected: true },
+      { stamp: "2026-02-28", name: "February, which never has a 31st", expected: false },
+      { stamp: "2026-03-31", name: "March, the next month that has one", expected: true },
+    ])("$name", ({ stamp, expected }) => {
+      expect(occurrencesOn([e], [cal], day(stamp))).toHaveLength(expected ? 1 : 0);
+    });
+  });
+});
+
+describe("occurrencesOn: RECURRENCE-ID overrides", () => {
+  const parent = event({
+    id: "series",
+    title: "Standup",
+    start: "2026-03-02 09:00",
+    end: "2026-03-02 09:30",
+    repeat: "weekly",
+    byDay: [{ day: 1, nth: 0 }],
+  });
+
+  it("the parent renders normally on a non-overridden Monday", () => {
+    const occs = occurrencesOn([parent], [cal], day("2026-03-09"));
+    expect(occs).toHaveLength(1);
+    expect(occs[0]?.event.id).toBe("series");
+    expect(occs[0]?.start).toBeSameInstantAs("2026-03-09 09:00");
+  });
+
+  it("an override on the same day suppresses the parent, so the meeting renders once", () => {
+    const override = event({
+      id: "series-moved",
+      title: "Standup (moved later)",
+      seriesId: "series",
+      seriesKey: instantKey(at("2026-03-16 09:00")),
+      start: "2026-03-16 14:00",
+      end: "2026-03-16 14:30",
+    });
+    const occs = occurrencesOn([parent, override], [cal], day("2026-03-16"));
+    expect(occs).toHaveLength(1);
+    expect(occs[0]?.event.id).toBe("series-moved");
+    expect(occs[0]?.start).toBeSameInstantAs("2026-03-16 14:00");
+  });
+
+  it("an override moved to a different day vacates the original day and lands on the new one", () => {
+    const override = event({
+      id: "series-relocated",
+      title: "Standup (moved to Wednesday)",
+      seriesId: "series",
+      seriesKey: instantKey(at("2026-03-23 09:00")),
+      start: "2026-03-25 11:00",
+      end: "2026-03-25 11:30",
+    });
+    const events = [parent, override];
+    expect(occurrencesOn(events, [cal], day("2026-03-23"))).toHaveLength(0);
+    const onNewDay = occurrencesOn(events, [cal], day("2026-03-25"));
+    expect(onNewDay).toHaveLength(1);
+    expect(onNewDay[0]?.event.id).toBe("series-relocated");
+  });
+});
+
+describe("occurrencesOn: Occurrence.key", () => {
+  const e = event({
+    id: "standup",
+    start: "2026-03-08 09:00",
+    end: "2026-03-08 09:15",
+    repeat: "daily",
+    byHour: [9, 13, 17],
+  });
+  const occs = occurrencesOn([e], [cal], day("2026-03-08"));
+
+  it("produces one occurrence per BYHOUR entry, all on the same day", () => {
+    expect(occs.map((o) => o.start)).toBeInstants([
+      "2026-03-08 09:00",
+      "2026-03-08 13:00",
+      "2026-03-08 17:00",
+    ]);
+  });
+
+  it("gives each same-day occurrence a distinct key keyed by its start instant, not the day", () => {
+    expect(new Set(occs.map((o) => o.key)).size).toBe(3);
+    expect(occs.map((o) => o.key)).toEqual([
+      `standup@${instantKey(ms("2026-03-08 09:00"))}`,
+      `standup@${instantKey(ms("2026-03-08 13:00"))}`,
+      `standup@${instantKey(ms("2026-03-08 17:00"))}`,
+    ]);
+  });
+});
+
+/* ---------------------------------- packing -------------------------------- */
+
+describe("dayAgenda: lane packing", () => {
+  const rows = [
+    {
+      name: "two non-overlapping events share lane 0",
+      events: [
+        { start: "2026-03-08 09:00", end: "2026-03-08 10:00" },
+        { start: "2026-03-08 10:30", end: "2026-03-08 11:30" },
+      ],
+      lanes: [0, 0],
+    },
+    {
+      name: "events that merely touch (end === next start) also share a lane",
+      events: [
+        { start: "2026-03-08 10:00", end: "2026-03-08 11:00" },
+        { start: "2026-03-08 11:00", end: "2026-03-08 12:00" },
+      ],
+      lanes: [0, 0],
+    },
+    {
+      name: "two overlapping events get separate lanes",
+      events: [
+        { start: "2026-03-08 09:00", end: "2026-03-08 10:00" },
+        { start: "2026-03-08 09:30", end: "2026-03-08 10:30" },
+      ],
+      lanes: [0, 1],
+    },
+    {
+      name: "three mutually overlapping events use three lanes",
+      events: [
+        { start: "2026-03-08 09:00", end: "2026-03-08 11:00" },
+        { start: "2026-03-08 09:15", end: "2026-03-08 10:45" },
+        { start: "2026-03-08 09:30", end: "2026-03-08 10:30" },
+      ],
+      lanes: [0, 1, 2],
+    },
+    {
+      name: "an event that outlives lane 1's occupant reuses it, even while lane 0 is still busy",
+      events: [
+        { start: "2026-03-08 09:00", end: "2026-03-08 10:00" }, // lane 0, busy until 10:00
+        { start: "2026-03-08 09:30", end: "2026-03-08 09:45" }, // lane 1, frees at 09:45
+        { start: "2026-03-08 09:50", end: "2026-03-08 10:30" }, // overlaps lane 0's occupant, reuses lane 1
+      ],
+      lanes: [0, 1, 1],
+    },
+  ] as const;
+
+  it.each(rows)("$name", ({ events, lanes }) => {
+    const built = events.map((spec) => event(spec));
+    const { timed } = dayAgenda(built, [cal], day("2026-03-08"));
+    expect(timed.map((o) => o.lane)).toEqual([...lanes]);
+  });
+
+  it("skips all-day events entirely, keeping timed lanes as if they weren't there", () => {
+    const allDay = event({
+      allDay: true,
+      start: day("2026-03-08").getTime(),
+      end: day("2026-03-09").getTime(),
+    });
+    const a = event({ start: "2026-03-08 09:00", end: "2026-03-08 10:00" });
+    const b = event({ start: "2026-03-08 09:30", end: "2026-03-08 10:30" });
+    const agenda = dayAgenda([allDay, a, b], [cal], day("2026-03-08"));
+
+    expect(agenda.allDay).toHaveLength(1);
+    expect(agenda.timed.map((o) => o.lane)).toEqual([0, 1]);
+    expect(agenda.all).toHaveLength(3);
+  });
+});
+
+describe("dayAgenda: ordering", () => {
+  it("breaks a tied start by the earlier end", () => {
+    const long = event({ id: "long", start: "2026-03-08 09:00", end: "2026-03-08 10:00" });
+    const short = event({ id: "short", start: "2026-03-08 09:00", end: "2026-03-08 09:30" });
+    const { timed } = dayAgenda([long, short], [cal], day("2026-03-08"));
+    expect(timed.map((o) => o.event.id)).toEqual(["short", "long"]);
+  });
+
+  it("is stable for two events with identical start and end", () => {
+    const a = event({ id: "a", start: "2026-03-08 09:00", end: "2026-03-08 10:00" });
+    const b = event({ id: "b", start: "2026-03-08 09:00", end: "2026-03-08 10:00" });
+    expect(dayAgenda([a, b], [cal], day("2026-03-08")).timed.map((o) => o.event.id)).toEqual([
+      "a",
+      "b",
+    ]);
+    expect(dayAgenda([b, a], [cal], day("2026-03-08")).timed.map((o) => o.event.id)).toEqual([
+      "b",
+      "a",
+    ]);
+  });
+
+  it("groups every all-day occurrence ahead of timed ones, even when a timed occurrence starts earlier in wall-clock time", () => {
+    // `nightshift` started the previous evening, so its real `start` instant
+    // precedes the all-day event's midnight start — a naive chronological
+    // merge would put it first. `dayAgenda` groups by kind instead.
+    const holiday = event({
+      id: "holiday",
+      allDay: true,
+      start: day("2026-03-08").getTime(),
+      end: day("2026-03-09").getTime(),
+    });
+    const nightshift = event({
+      id: "nightshift",
+      start: "2026-03-07 22:00",
+      end: "2026-03-08 02:00",
+    });
+
+    const raw = occurrencesOn([nightshift, holiday], [cal], day("2026-03-08"));
+    expect(raw.map((o) => o.event.id)).toEqual(["nightshift", "holiday"]);
+
+    const { all } = dayAgenda([nightshift, holiday], [cal], day("2026-03-08"));
+    expect(all.map((o) => o.event.id)).toEqual(["holiday", "nightshift"]);
+  });
+});
+
+/* -------------------------------- free time -------------------------------- */
+
+describe("freeGaps", () => {
+  type Spec = { start: string; end: string; allDay?: boolean };
+  const build = (specs: Spec[]) =>
+    occurrencesOn(
+      specs.map((s) => event(s)),
+      [cal],
+      day("2026-03-08"),
+    );
+
+  const rows: Array<{ name: string; events: Spec[]; min: number; expected: Gap[] }> = [
+    {
+      name: "an empty day is one gap spanning the whole waking window",
+      events: [],
+      min: 30,
+      expected: [{ start: WAKING.from, end: WAKING.to }],
+    },
+    {
+      name: "a day booked exactly across the window has no gaps",
+      events: [{ start: "2026-03-08 08:00", end: "2026-03-08 22:00" }],
+      min: 30,
+      expected: [],
+    },
+    {
+      name: "adjacent events leave no gap between them",
+      events: [
+        { start: "2026-03-08 09:00", end: "2026-03-08 10:00" },
+        { start: "2026-03-08 10:00", end: "2026-03-08 11:00" },
+      ],
+      min: 30,
+      expected: [
+        { start: WAKING.from, end: 540 },
+        { start: 660, end: WAKING.to },
+      ],
+    },
+    {
+      name: "an event starting before the window clips to it",
+      events: [{ start: "2026-03-08 07:00", end: "2026-03-08 09:00" }],
+      min: 30,
+      expected: [{ start: 540, end: WAKING.to }],
+    },
+    {
+      name: "an event ending after the window clips to it",
+      events: [{ start: "2026-03-08 21:00", end: "2026-03-08 23:00" }],
+      min: 30,
+      expected: [{ start: WAKING.from, end: 1260 }],
+    },
+    {
+      name: "a gap narrower than minMinutes is dropped",
+      events: [
+        { start: "2026-03-08 09:00", end: "2026-03-08 10:00" },
+        { start: "2026-03-08 10:10", end: "2026-03-08 11:00" },
+      ],
+      min: 30,
+      expected: [
+        { start: WAKING.from, end: 540 },
+        { start: 660, end: WAKING.to },
+      ],
+    },
+    {
+      name: "an all-day event does not occupy a gap",
+      events: [{ start: "2026-03-08 00:00", end: "2026-03-09 00:00", allDay: true }],
+      min: 30,
+      expected: [{ start: WAKING.from, end: WAKING.to }],
+    },
+  ];
+
+  it.each(rows)("$name", ({ events, min, expected }) => {
+    const gaps = freeGaps(build(events), min, WAKING.from, WAKING.to);
+    expect(gaps).toEqual(expected);
+  });
+});
+
+/* --------------------------------- colour --------------------------------- */
+
+describe("colorOf", () => {
+  it.each([
+    {
+      name: "the event's own colour wins over the calendar's",
+      eventColor: "#123456",
+      calendarId: "cal-work",
+      calendars: [calendar({ id: "cal-work", color: "#a3d9e4" })],
+      expected: "#123456",
+    },
+    {
+      name: "an empty colour falls back to the calendar's",
+      eventColor: "",
+      calendarId: "cal-work",
+      calendars: [calendar({ id: "cal-work", color: "#a3d9e4" })],
+      expected: "#a3d9e4",
+    },
+    {
+      name: "an event pointing at a calendar that no longer exists gets the orphan fallback",
+      eventColor: "",
+      calendarId: "cal-deleted",
+      calendars: [calendar({ id: "cal-work", color: "#a3d9e4" })],
+      expected: PALETTE[0],
+    },
+  ])("$name", ({ eventColor, calendarId, calendars, expected }) => {
+    const e = event({ color: eventColor, calendarId });
+    expect(colorOf(e, calendars)).toBe(expected);
+  });
+});
+
+/* --------------------------------- status --------------------------------- */
+
+describe("statusOf", () => {
+  const [occ] = occurrencesOn(
+    [event({ start: "2026-03-08 09:00", end: "2026-03-08 10:00" })],
+    [cal],
+    day("2026-03-08"),
+  );
+
+  it.each([
+    { name: "exactly at the start", now: () => occ!.start, expected: "now" },
+    { name: "exactly at the end", now: () => occ!.end, expected: "past" },
+    {
+      name: "one millisecond before the end",
+      now: () => new Date(occ!.end.getTime() - 1),
+      expected: "now",
+    },
+    {
+      name: "one millisecond before the start",
+      now: () => new Date(occ!.start.getTime() - 1),
+      expected: "upcoming",
+    },
+  ])("$name is $expected", ({ now, expected }) => {
+    expect(statusOf(occ!, now())).toBe(expected);
+  });
+});

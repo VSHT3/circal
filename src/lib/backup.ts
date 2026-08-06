@@ -84,7 +84,7 @@ export function exportBackup(snapshot: Snapshot) {
 
 /* --------------------------------- import --------------------------------- */
 
-function readSettings(value: unknown): Settings {
+export function readSettings(value: unknown): Settings {
   if (!isRecord(value)) return DEFAULT_SETTINGS;
   const place = value.place;
   return {
@@ -229,7 +229,7 @@ function readRecurrence(value: Record<string, unknown>): Recurrence {
  * and anything unreadable is dropped rather than allowed to become an event
  * with a `NaN` start, which renders as an arc of the whole day.
  */
-function readEvent(value: unknown): CalEvent | null {
+export function readEvent(value: unknown): CalEvent | null {
   if (!isRecord(value)) return null;
   const { id, title, calendarId, start, end } = value;
   if (typeof start !== "number" || typeof end !== "number") return null;
@@ -251,7 +251,7 @@ function readEvent(value: unknown): CalEvent | null {
   };
 }
 
-function readCalendar(value: unknown): Calendar | null {
+export function readCalendar(value: unknown): Calendar | null {
   if (!isRecord(value)) return null;
   const { id, name, color } = value;
   if (typeof id !== "string" || !id) return null;
@@ -265,7 +265,7 @@ function readCalendar(value: unknown): Calendar | null {
   };
 }
 
-function importBackup(text: string) {
+export function importBackup(text: string) {
   const parsed: unknown = JSON.parse(text);
   if (!isRecord(parsed) || parsed.app !== "circal") {
     notify("Not a circal backup", "error");

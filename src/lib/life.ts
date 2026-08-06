@@ -505,7 +505,7 @@ export function formatAge(age: LifeStats["age"]): string {
 }
 
 /**
- * `12 MAR 1990` — a date at life scale. `formatDayHeader` leads with the
+ * `12 Mar 1990` — a date at life scale. `formatDayHeader` leads with the
  * weekday and drops the year, which is exactly the wrong half of a date once
  * the span is eighty years wide.
  */
@@ -513,7 +513,7 @@ export function formatLifeDate(date: Date): string {
   return `${date.getDate()} ${MONTHS[date.getMonth()].slice(0, 3)} ${date.getFullYear()}`;
 }
 
-/** `12 927` — grouped, because five digits of days is otherwise unreadable. */
+/** `12,927` — grouped, because five digits of days is otherwise unreadable. */
 export function formatCount(n: number): string {
   return n.toLocaleString("en-US");
 }
