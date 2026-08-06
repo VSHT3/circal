@@ -31,7 +31,7 @@ src/pages/index.astro   static HTML shell
   Settings travel as one `settings: Settings` prop, never field by field.
 ```
 
-- **`src/lib/` = domain layer**, mostly pure. Dependency direction one-way: `time.ts` (base, imports nothing) ← `dial.ts`, `events.ts`, `sun.ts`, `ics.ts` ← `life.ts`, `store.ts` ← `feeds.ts`, `backup.ts`. Components import via `@/lib/*`, never reimplement geometry or date maths locally.
+- **`src/lib/` = domain layer**, mostly pure. Dependency direction one-way: `time.ts` (base, imports nothing) ← `dial.ts`, `events.ts`, `sun.ts`, `ics.ts` ← `life.ts`, `store.ts` ← `feeds.ts`, `backup.ts`. Components import via `@/lib/*`, never reimplement geometry or date maths locally. **Every module here already has a test file** — `tests/<module>.test.ts`; change one, add the case there.
 - **Store = only source of truth for persisted data.** `App.tsx` holds _view_ state only. Mutations go through `store.*` — never `setState` copy of event. Settings-only mutations (`setSecondZone`, `setPlace`, `addFeed`, `removeCalendar`) called straight from `Settings.tsx`, not routed through `ShellActions`, because shell has nothing to update for them.
 - **Two event lists.** `snapshot.events` = what user wrote; `snapshot.feeds[calendarId]` = what subscription mirrored. `App.tsx` concatenates into `visible` for rendering, and _only_ that. Nothing writes to `feeds` except `lib/feeds.ts`, nothing exports it, event whose calendar has `feed` opens read-only.
 - **`dayAgenda(events, calendars, day)`** = single read path onto a day: expands recurrence, clips to day, packs overlapping events onto concentric lanes. `Dial`, `CenterPanel`, `Sidebar` all render from its output.
@@ -41,29 +41,30 @@ src/pages/index.astro   static HTML shell
 
 ## Key Directories
 
-| Path                                     | Purpose                                                                                                          |
-| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `src/lib/dial.ts`                        | Polar geometry: `DIAL` radius table, `angleAt` / `polar` / `arcPath` / `minutesAtPoint` / `capInset`             |
-| `src/lib/life.ts`                        | Life grid: `lifeSpan` / `lifeCellAt` / `lifeDensity` / `lifeStats`, `dim` (`lifeLayout` / `lifeCell` internal)   |
-| `src/lib/time.ts`                        | `Clock` type, day arithmetic, formatting voice (`formatTime`, `parseClock`, `dayKey`), zone maths (`zonedToUtc`) |
-| `src/lib/recur.ts`                       | RFC 5545 recurrence: `Recurrence`, `startsBetween`, `countedUntil`, `instantKey`. The whole BY\* cascade         |
-| `src/lib/events.ts`                      | `CalEvent` / `Calendar` / `Occurrence`, `occurrencesOn`, `dayAgenda`, `freeGaps` (`packLanes` internal)          |
-| `src/lib/sun.ts`                         | `Place`, `sunTimes` — NOAA solar position, minutes since local midnight                                          |
-| `src/lib/places.ts`                      | `PickedPlace`, `placeForZone`, `PLACE_OPTIONS` — IANA `zone.tab` coordinate table                                |
-| `src/lib/ics.ts`                         | `toIcs` / `fromIcs`. RFC 5545 incl. full RRULE, EXDATE, RDATE, RECURRENCE-ID. Hand-rolled, no dependency         |
-| `src/lib/store.ts`                       | `useSyncExternalStore` over `localStorage`, `draftEvent`, seed data, undo history, `SCHEMA` version              |
-| `src/lib/feeds.ts`                       | Subscription pulls, through `/api/feed` then direct                                                              |
-| `src/lib/backup.ts`                      | Export/import, only place validating external input                                                              |
-| `src/lib/notify.ts`                      | Toast channel. Own store on purpose — four-second message not persisted state                                    |
-| `src/lib/feedback.ts`                    | Dial's five cues: 3 ms noise impulse through bandpass resonators. Owns shared `AudioContext`                     |
-| `src/lib/keys.ts`                        | Keyboard: every key a sum of damped sinusoids. No asset, no fetch                                                |
-| `worker/index.ts`                        | Assets + `/api/feed` proxy and its SSRF guards                                                                   |
-| `public/sw.js`                           | Offline cache. Runtime-only: Astro content-hashes filenames, so nothing to precache                              |
-| `public/favicon.svg`                     | Mark: black disc, one thin white circumference. `icon.svg` = same ring full-bleed for maskable crop              |
-| `src/components/react/`                  | Island. `App.tsx` shell, `Dial.tsx` instrument, panels                                                           |
-| `src/components/react/ui/primitives.tsx` | Ten shared controls all chrome built from                                                                        |
-| `src/components/react/types.ts`          | **Every panel prop interface.** Edit shapes here                                                                 |
-| `src/styles/global.css`                  | Design tokens, `@theme inline` colour mappings, five component classes                                           |
+| Path                                     | Purpose                                                                                                                                               |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/lib/dial.ts`                        | Polar geometry: `DIAL` radius table, `angleAt` / `polar` / `arcPath` / `minutesAtPoint` / `capInset`                                                  |
+| `src/lib/life.ts`                        | Life grid: `lifeSpan` / `lifeCellAt` / `lifeDensity` / `lifeStats`, `dim` (`lifeLayout` / `lifeCell` internal)                                        |
+| `src/lib/time.ts`                        | `Clock` type, day arithmetic, formatting voice (`formatTime`, `parseClock`, `dayKey`), zone maths (`zonedToUtc`)                                      |
+| `src/lib/recur.ts`                       | RFC 5545 recurrence: `Recurrence`, `startsBetween`, `countedUntil`, `instantKey`. The whole BY\* cascade                                              |
+| `src/lib/events.ts`                      | `CalEvent` / `Calendar` / `Occurrence`, `occurrencesOn`, `dayAgenda`, `freeGaps` (`packLanes` internal)                                               |
+| `src/lib/sun.ts`                         | `Place`, `sunTimes` — NOAA solar position, minutes since local midnight                                                                               |
+| `src/lib/places.ts`                      | `PickedPlace`, `placeForZone`, `PLACE_OPTIONS` — IANA `zone.tab` coordinate table                                                                     |
+| `src/lib/ics.ts`                         | `toIcs` / `fromIcs`. RFC 5545 incl. full RRULE, EXDATE, RDATE, RECURRENCE-ID. Hand-rolled, no dependency                                              |
+| `src/lib/store.ts`                       | `useSyncExternalStore` over `localStorage`, `draftEvent`, seed data, undo history, `SCHEMA` version                                                   |
+| `src/lib/feeds.ts`                       | Subscription pulls, through `/api/feed` then direct                                                                                                   |
+| `src/lib/backup.ts`                      | Export/import, only place validating external input. `readEvent`/`readSettings`/`readCalendar`/`importBackup` exported so the validators are testable |
+| `src/lib/notify.ts`                      | Toast channel. Own store on purpose — four-second message not persisted state                                                                         |
+| `src/lib/feedback.ts`                    | Dial's five cues: 3 ms noise impulse through bandpass resonators. Owns shared `AudioContext`                                                          |
+| `src/lib/keys.ts`                        | Keyboard: every key a sum of damped sinusoids. No asset, no fetch                                                                                     |
+| `worker/index.ts`                        | Assets + `/api/feed` proxy. `followChecked` re-runs the SSRF guard on every redirect hop; `ssrfBlockReason` exported for its table                    |
+| `public/sw.js`                           | Offline cache. Runtime-only: Astro content-hashes filenames, so nothing to precache                                                                   |
+| `public/favicon.svg`                     | Mark: black disc, one thin white circumference. `icon.svg` = same ring full-bleed for maskable crop                                                   |
+| `src/components/react/`                  | Island. `App.tsx` shell, `Dial.tsx` instrument, panels                                                                                                |
+| `src/components/react/ui/primitives.tsx` | Ten shared controls all chrome built from                                                                                                             |
+| `src/components/react/types.ts`          | **Every panel prop interface.** Edit shapes here                                                                                                      |
+| `src/styles/global.css`                  | Design tokens, `@theme inline` colour mappings, five component classes                                                                                |
+| `tests/`                                 | **The suite — 571 cases.** `helpers.ts` = fixtures + matchers; one `*.test.ts` per module; `west/` = TZ re-runs                                       |
 
 ## Development Commands
 
@@ -152,6 +153,8 @@ if (seeded !== day) {
 | `astro.config.mjs`                  | `devToolbar: false` (floats over dial), `trailingSlash: "always"`                                                                                                             |
 | `eslint.config.js`                  | Flat config; `jsx-a11y/no-autofocus` off for exactly `CommandPalette.tsx` and `EventEditor.tsx` (modals must take focus)                                                      |
 | `wrangler.jsonc`                    | `main` + `assets.binding` — Worker exists for `/api/feed` and nothing else                                                                                                    |
+| `vitest.config.ts`                  | Two projects, `local` and `west`, each with its own pinned `TZ`. The pinning is not optional — see Testing                                                                    |
+| `tests/helpers.ts`                  | **Fixtures and the three instant matchers.** Read before writing any test; extend here rather than re-declaring builders in a test file                                       |
 
 ## Runtime/Tooling Preferences
 
@@ -164,45 +167,53 @@ if (seeded !== day) {
 
 ## Testing & QA
 
-**Vitest, `tests/`, wired into `verify`.** `pnpm test` (run once), `pnpm test:watch`. Gate is
-`format:check && lint && check && test && build` — test before build so it fails in seconds.
+**There IS a suite. Read it before writing one.** Vitest, `tests/`, 571 cases, ~450 ms, wired into `verify`. Adding coverage = adding cases to the file below that already owns the module. Never scaffold a second harness, never a second fixture style, never a `*.spec.ts`.
 
-**Two projects, and the split is load-bearing.** `local` runs `tests/**` under `TZ=Europe/Berlin`;
-`west` runs `tests/west/**` under `TZ=America/Los_Angeles`, in its own process. Nearly every date
-function here is deliberately local-time, so an unpinned suite passes in one zone and fails in
-another. Zone-sensitive invariants get re-asserted in `tests/west/`. Own process because a TZ change
-after Node has started is not reliably observed.
+| test file                    | covers                                                            |
+| ---------------------------- | ----------------------------------------------------------------- |
+| `tests/helpers.ts`           | **not a test** — fixtures, builders, matchers. Extend, never fork |
+| `tests/time.test.ts`         | `time.ts` — day arithmetic, DST, `parseClock`, `zonedToUtc`       |
+| `tests/dial.test.ts`         | `dial.ts` — `angleAt` ↔ `minutesAtPoint`, `arcPath`, `capInset`   |
+| `tests/recur.test.ts`        | `recur.ts` — RFC 5545 §3.8.5.3 worked examples, BY\* , BYSETPOS   |
+| `tests/events.test.ts`       | `events.ts` — clipping, lanes, overrides, `freeGaps`, `colorOf`   |
+| `tests/ics.test.ts`          | `ics.ts` — round-trip, folding, escaping, malformed feeds         |
+| `tests/store.test.ts`        | `store.ts` — write/delete/move, undo, cross-tab, `sane`, seeding  |
+| `tests/backup.test.ts`       | `backup.ts` — hostile input, orphan reparenting                   |
+| `tests/feeds.test.ts`        | `feeds.ts` — id stability, errors, cross-tab undo                 |
+| `tests/life.test.ts`         | `life.ts` — `lifeCellAt` inverse, splits, density policy          |
+| `tests/sun.test.ts`          | `sun.ts` — NOAA references, polar cases, no clipping              |
+| `tests/worker.test.ts`       | `ssrfBlockReason` — the hostname table                            |
+| `tests/worker-proxy.test.ts` | `/api/feed` — routing, redirect chain, caps                       |
+| `tests/west/*.test.ts`       | zone-sensitive invariants, re-run west of UTC                     |
 
-**`tests/helpers.ts` is the shared floor. Read it before writing a test; extend it rather than
-re-inventing it.** `at()`/`ms()`/`day()` build local instants (never `new Date("2026-01-01")` — that
-parses as UTC), `event()`/`calendar()`/`rule()`/`byDay()` build fixtures with every field defaulted,
-`MemoryStorage` stands in for `localStorage`, and `show()` prints an instant as
-`2026-03-08 09:30 Sun`.
+**Two projects, and the split is load-bearing.** `local` runs `tests/**` at `TZ=Europe/Berlin`; `west` runs `tests/west/**` at `TZ=America/Los_Angeles`, own process. Nearly every date function here deliberately local-time, so unpinned suite passes in one zone and fails in other. Own process because TZ change after Node started not reliably observed. **Touching `dayKey`, `zonedToUtc`, `startOfDay`, `addDays` or anything day-keyed? Add the case to `tests/west/` too.**
 
-**Three custom matchers, and instants must use them**: `toBeInstants`, `toOccurOn` (days only),
-`toBeSameInstantAs`. They print an aligned actual-vs-expected column with `(missing)` /
-`(unexpected)` / `(out of order)` markers — a 40-instance RRULE diff is unreadable as raw epoch
-integers, and that readability is the whole reason they exist.
+**`tests/helpers.ts` = the shared floor.** Import it in every test file — that import registers the matchers.
 
-**Scope: the domain layer only** — `src/lib/*` plus the Worker's pure guards. No DOM, no jsdom, no
-component tests. Snapshotting SVG path strings is a change-detector that fails on every legitimate
-geometry tweak; the dial is verified by eye. `feedback.ts`/`keys.ts` need a real `AudioContext` and
-are tuned by offline measurement, not asserted.
+| helper                                   | use                                                              |
+| ---------------------------------------- | ---------------------------------------------------------------- |
+| `at("2026-03-08 09:30")`                 | local `Date`. **Never `new Date("2026-01-01")`** — parses as UTC |
+| `ms(stamp)` / `day("2026-03-08")`        | epoch ms / local midnight                                        |
+| `event({ start: "…", title: "…" })`      | full `CalEvent`, all 16 recurrence fields defaulted              |
+| `calendar()` / `rule()` / `byDay("1FR")` | `Calendar` / `Recurrence` / `WeekdayRule[]`                      |
+| `MemoryStorage`                          | `Storage` stand-in; `.quota = 0` makes `setItem` throw           |
+| `show(dateOrMs)`                         | `2026-03-08 09:30 Sun` — the one way an instant is printed       |
 
-**Store tests need `vi.resetModules()` + `await import(...)`** — `snapshot`, `lastRaw`, `hydrated`,
-`past` and `future` are module-level and deliberately survive a page reload, which is exactly what a
-static import would share between tests. That dynamic import is the sanctioned exception to the
-static-import rule.
+**Three matchers, and instants MUST use them** — they print aligned actual/expected columns with `(missing)` / `(unexpected)` / `(out of order)`, because a 40-instance RRULE diff as raw epoch integers is not a diff:
 
-Tests defend observable contracts and must be able to fail on a plausible bug. A non-obvious line in
-`src/lib/` usually carries a `why` comment; that comment names the invariant worth pinning. Prefer
-`it.each` with `$name` templating and `expect.soft` in table blocks so a failure names the case and
-reports every row.
+```ts
+expect(instants).toBeInstants(["2026-03-08 09:00", "2026-03-15 09:00"]);
+expect(instants).toOccurOn(["2026-03-08", "2026-03-15"]); // days only
+expect(occ.start).toBeSameInstantAs("2026-03-08 09:00");
+```
 
-`pnpm verify` still proves nothing about how it _looks_. A visual change is verified by driving it:
-`pnpm dev`, exercise the path (create event, drag ring, ⌘P, switch face, step days), screenshot.
-Anything touching `/api/feed`, the service worker or the manifest needs `pnpm dev:worker` — `astro
-dev` serves neither the Worker route nor a PROD build.
+**Scope = domain layer only** — `src/lib/*` plus worker's pure guards. No DOM, no jsdom, no component tests. Snapshot of SVG path = change-detector failing on every legitimate geometry tweak; dial verified by eye. `feedback.ts` / `keys.ts` need real `AudioContext`, tuned by offline measurement, not asserted. Four open items in `TODO.md`'s correctness table are DOM-shaped for exactly this reason.
+
+**Store and feeds tests need `vi.resetModules()` + `await import(…)`.** `snapshot`, `lastRaw`, `hydrated`, `past`, `future` are module-level and deliberately survive a page reload — which is what a static import would share between tests. That dynamic import = sanctioned exception to static-import rule; `tests/store.test.ts`'s `freshStore()` is the pattern, copy it. `store.subscribe` is exported so the cross-tab and seeding paths can run without React; `withWindow()` there stubs the one `addEventListener` it needs.
+
+**Test the invariant a `why` comment already names.** Most non-obvious lines in `src/lib/` carry one; that comment is the contract worth pinning. Every test must be able to fail on a plausible bug — never plumbing, source text, or a default equalling itself. Table-driven: `it.each` with `$name` templating so a failure names the case, `expect.soft` so every row reports.
+
+**`pnpm verify` still proves nothing about how it _looks_.** Visual change verified by driving it: `pnpm dev`, exercise the path (create event, drag ring, ⌘P, switch face, step days), screenshot. Anything touching `/api/feed`, service worker, or manifest needs `pnpm dev:worker` — `astro dev` serves neither Worker route nor PROD build.
 
 ## Gotchas
 

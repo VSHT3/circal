@@ -204,6 +204,7 @@ src/
     CommandPalette.tsx  Settings.tsx  Toast.tsx
 worker/index.ts  assets + the /api/feed proxy
 public/sw.js     offline cache
+tests/           571 cases over src/lib and the worker's guards
 ```
 
 Two overlapping events are pushed onto concentric rings by `packLanes`, so
@@ -215,6 +216,12 @@ neither is hidden — that is why the afternoon reads as two arcs, not one.
 pnpm install
 pnpm dev        # localhost:4321
 pnpm dev:worker # build + wrangler dev — the only way to exercise /api/feed
-pnpm verify     # format:check + lint + astro check + build
+pnpm test       # vitest, two TZ-pinned projects
+pnpm verify     # format:check + lint + astro check + test + build
 pnpm deploy     # build + wrangler deploy
 ```
+
+The suite covers the domain layer — recurrence against the RFC 5545 worked
+examples, ICS round-trips, the store's write/delete/move paths, and the
+worker's SSRF guard. Not the dial: that is a visual instrument and is verified
+by looking at it.
