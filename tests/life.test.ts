@@ -9,6 +9,8 @@ import {
   lifeDot,
   lifeDotX,
   lifeDotY,
+  lifeFraction,
+  lifeMilestones,
   lifeRowTop,
   lifeSpan,
   lifeStage,
@@ -402,5 +404,113 @@ describe("dim", () => {
   ])("falls back to white for $name, at any level", ({ hex }) => {
     expect(dim(hex, 1)).toBe("rgb(255 255 255)");
     expect(dim(hex, 0.5)).toBe("rgb(128 128 128)");
+  });
+});
+
+/* ------------------------------ lifeMilestones ------------------------------ */
+
+describe("lifeMilestones", () => {
+  const eighty = lifeSpan(day("1990-03-12"), 80);
+
+  it("names the round days a normal span reaches, in day order", () => {
+    expect(lifeMilestones(eighty).map((m) => m.title)).toEqual([
+      "Day 10,000",
+      "Halfway",
+      "Day 20,000",
+    ]);
+  });
+
+  it("puts a mark on the dot its day number names, counting the birthday as day 1", () => {
+    const ten = lifeMilestones(eighty).find((m) => m.key === "d10000")!;
+    expect(ten.day).toBe(10_000);
+    // Day 1 is the birthday itself, so day 10,000 is 9,999 days after it.
+    expect(ten.date.getTime()).toBe(addDays(eighty.birth, 9_999).getTime());
+  });
+
+  it("drops the round days that fall past the last dot", () => {
+    // Twenty years is about 7,305 days: no round day is reachable, so the
+    // midpoint is the only mark left.
+    expect(lifeMilestones(lifeSpan(day("1990-03-12"), 20)).map((m) => m.key)).toEqual(["half"]);
+  });
+
+  it("puts the midpoint where the half you can still spend starts shrinking", () => {
+    for (const years of [20, 40, 79, 80, 100]) {
+      const span = lifeSpan(day("1990-03-12"), years);
+      const half = lifeMilestones(span).find((m) => m.key === "half")!;
+      const behind = half.day - 1;
+      const ahead = span.days - half.day;
+      // Either side of the mark within one dot, and never with more ahead
+      // than behind after it: that is the claim the card's prose makes.
+      expect(Math.abs(ahead - behind)).toBeLessThanOrEqual(1);
+      expect(ahead).toBeLessThanOrEqual(behind);
+    }
+  });
+
+  it("reaches thirty thousand only on a span long enough to hold it", () => {
+    // 30,000 days is a shade over 82 years, so an 82-year life misses it and
+    // an 83-year one does not.
+    expect(lifeMilestones(lifeSpan(day("1990-03-12"), 82)).some((m) => m.key === "d30000")).toBe(
+      false,
+    );
+    expect(lifeMilestones(lifeSpan(day("1990-03-12"), 83)).some((m) => m.key === "d30000")).toBe(
+      true,
+    );
+  });
+
+  it("never puts two marks on one dot", () => {
+    // A span whose midpoint lands exactly on a round day: 19,999 days either
+    // side of day 10,000 needs a life of 19,999 days, and the collision must
+    // cost the midpoint rather than produce an unclickable double mark.
+    for (let years = 1; years <= 150; years++) {
+      const marks = lifeMilestones(lifeSpan(day("1990-03-12"), years));
+      const days = marks.map((m) => m.day);
+      expect(new Set(days).size).toBe(days.length);
+    }
+  });
+
+  it("gives every mark prose and a stable key", () => {
+    for (const mark of lifeMilestones(lifeSpan(day("1990-03-12"), 150))) {
+      expect(mark.key).toMatch(/^(d\d+|half)$/);
+      expect(mark.note.length).toBeGreaterThan(0);
+      for (const paragraph of mark.note) {
+        expect(paragraph.trim()).not.toBe("");
+        // The house rule for this app's user-facing prose.
+        expect(paragraph).not.toContain("—");
+      }
+    }
+  });
+});
+
+/* ------------------------------- lifeFraction ------------------------------- */
+
+describe("lifeFraction", () => {
+  const span = lifeSpan(day("1990-03-12"), 80);
+
+  it("is 0 at the first instant of the birthday and 1 at the end of the last day", () => {
+    expect(lifeFraction(span, span.birth)).toBe(0);
+    expect(lifeFraction(span, addDays(span.death, 1))).toBe(1);
+  });
+
+  it("clamps outside the span rather than going negative or past one", () => {
+    expect(lifeFraction(span, addDays(span.birth, -500))).toBe(0);
+    expect(lifeFraction(span, addDays(span.death, 500))).toBe(1);
+  });
+
+  it("is what lifeStats reports, so the strip and the stats cannot disagree", () => {
+    const at = new Date(2026, 7, 8, 13, 47, 12);
+    expect(lifeFraction(span, at)).toBe(lifeStats(span, at).fraction);
+  });
+
+  it("turns its last printed digit inside a minute, which is why the leaf keeps a clock", () => {
+    // The whole justification for the life view's one-second clock after the
+    // shell went to a minute: at six decimals an eighty-year span advances
+    // roughly every twenty-five seconds, so a minute tick would step it two
+    // or three at a time.
+    const at = new Date(2026, 7, 8, 13, 47, 12);
+    const printed = (d: Date) => (lifeFraction(span, d) * 100).toFixed(6);
+    const digits = (d: Date) => Number(printed(d).replace(".", ""));
+    expect(printed(at)).toBe(printed(new Date(at.getTime() + 1_000)));
+    expect(printed(at)).not.toBe(printed(new Date(at.getTime() + 60_000)));
+    expect(digits(new Date(at.getTime() + 60_000)) - digits(at)).toBeGreaterThan(1);
   });
 });

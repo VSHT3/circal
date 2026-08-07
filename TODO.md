@@ -2,8 +2,8 @@
 
 Recurrence is real, the interior answers the day, arcs carry their own names, the dial has an
 ambient mode, ⌘P writes an event in one line and ranks what it finds, the year is a revolution and
-unrolls into the life grid, and there is a test suite — 868 cases over the domain layer,
-`pnpm test`, in the gate.
+unrolls into the life grid, the life grid names its round days, and there is a test suite — 898
+cases over the domain layer, `pnpm test`, in the gate.
 
 Done work is not recorded here. The rationale that outlived it lives in `AGENTS.md`, next to the
 code it constrains.
@@ -119,7 +119,7 @@ manifest, and the worm-through-time line from (1) lives on it. One page, not two
 The thesis is intact and the instrument is finished. The calendar underneath it is now real —
 RFC 5545 in and out, the interior answering the day, and one typed line making an event. All three
 screens now make the same argument, and the moves between them are geometry. What is left is one
-panel that is hard to read and two DOM-shaped bugs.
+panel that is hard to read and one DOM-shaped bug.
 
 ### The year view — settled
 
@@ -134,20 +134,24 @@ behind a switch, beside the dial's own lightcycle, not as the face's furniture.
 
 What it still could use, in order:
 
-- **A year-scale sentence in the middle.** The dial's centre prints what the day is made of; the
-  year's prints `2026` and a date. Busiest month, longest run of empty days, events this year — one
-  line, the same voice as `totals`. **[medium / small]**
 - **Drag an arc of the ring** to select a range of days, the way a drag on the dial selects a range
   of minutes. The maths is `dayAtPoint` twice and the readout already knows how to print a span.
+
+The middle now carries a line, and it is not the sentence this list used to ask for. A year-scale
+summary — busiest month, longest empty run — is the obvious thing to compute and the wrong thing to
+print: the dial's interior answers a day because you are living in it, and nobody opens a year to
+be told which month was busy. `settings.yearQuote` is a line the user writes, shown only at rest.
 
 ### Life view
 
 The strongest concept in the app, and searching it is now the thing no other calendar can do —
-⌘P lights every matching day and the thread stays lit after the palette closes.
+⌘P lights every matching day and the thread stays lit after the palette closes. Milestones landed:
+day 10,000, the midpoint, day 20,000, each a ring on its dot and a card of prose behind it, and the
+three buttons are also the first focus path the grid has ever had.
 
-- **Milestones.** You know the birth date: day 10,000, the halfway dot, each decade. Cheap, on
-  thesis, high delight. **[medium / small]**
 - **Drag a range** → "4,182 days". The distance maths already exists (`formatDistance`).
+- **The card's `Go to this day` is load-bearing**, because the hit areas cost those three days their
+  click on the field. If milestones ever grow past four marks, that trade stops being cheap.
 
 ### Input: what the palette still cannot do
 
@@ -168,17 +172,16 @@ And the honest omission: **there are no reminders.** A calendar that never tells
 viewer. While the tab is open, `Notification` is enough; closed, it needs a server, and a server is
 off-thesis. Say so in the UI rather than leaving the absence unexplained.
 
-### Correctness — two open
+### Correctness — one open
 
-| what                             | where and why                                                                                                                                                                                                                                                                                                                                          |
-| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **1 Hz whole-tree re-render**    | `useNow` ticks every second and `App` hands `now` to Dial, Sidebar, CenterPanel, YearView and LifeView, but only the readout and the hand move. Ambient takes the period to a minute, which is the right answer for a mode left running and no answer at all for the other 23 hours. Push second-resolution into a leaf and keep the rest on minutes.  |
-| **Life grid is invisible to AT** | `role="img"`, one label, 30,000 dots, no focus path. The year ring now does it right — one `sr-only` listbox, arrows for a cursor, labels that say whether the day carries anything — and the same shape is what the grid wants: it is the same question at another scale, and 30,000 options is not it. A row-and-column cursor, or a year at a time. |
+| what                             | where and why                                                                                                                                                                                                                                                                                                                                                                                               |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Life grid is invisible to AT** | The milestone buttons gave it three tab stops, which is three more than it had and nowhere near an answer: `role="img"`, one label, 30,000 dots, no cursor. The year ring does it right — one `sr-only` listbox, arrows for a cursor, labels that say whether the day carries anything — and the same shape is what the grid wants. 30,000 options is not it. A row-and-column cursor, or a year at a time. |
 
-Both are DOM-shaped, which is exactly the surface the suite does not cover: no DOM, no jsdom, no
-component tests, on purpose — a snapshot of an SVG path is a change-detector that fails on every
-legitimate geometry tweak. That is the honest boundary of what 881 pure-function tests buy you, and
-the faces stay eye-verified.
+DOM-shaped, which is exactly the surface the suite does not cover: no DOM, no jsdom, no component
+tests, on purpose — a snapshot of an SVG path is a change-detector that fails on every legitimate
+geometry tweak. That is the honest boundary of what 898 pure-function tests buy you, and the faces
+stay eye-verified.
 
 ### What not to do
 
@@ -192,16 +195,15 @@ the faces stay eye-verified.
 
 ### If it were three things
 
-The old five are spent, and so are the month banding, the life search and the year view. What is
-left, in order:
+The old five are spent, and so are the month banding, the life search, the year view, the shell's
+clock and the milestones. What is left, in order:
 
-1. **The 1 Hz whole-tree re-render**, then **a focus path into the life grid** — the two DOM-shaped
-   bugs left, and the suite covers neither. The year ring's listbox is the pattern for the second.
-   `[medium / small]`
-2. **Milestones in the life grid** — day 10,000, the halfway dot. Cheap, on thesis, high delight.
-   `[medium / small]`
-3. **A year-scale sentence in the middle of the year ring.** The one thing the new face is missing
-   against the dial it is a copy of. `[medium / small]`
+1. **A focus path into the life grid** — the last DOM-shaped bug, and the suite covers none of that
+   surface. The year ring's listbox is the pattern. `[medium / small]`
+2. **Hear the hour** — every fourth detent a different resonance, so a drag can be counted by ear.
+   `SOUNDS` is already parameterised for it. `[medium / small]`
+3. **Drag an arc of the year ring** to select a range of days. `dayAtPoint` twice, and the readout
+   already knows how to print a span. `[medium / small]`
 
 And the one big thing, which is not in that list because it is not small: **the week view** (4), and
 before it the `<Face>` extraction it needs. Everything above is an afternoon; that is a week, and it

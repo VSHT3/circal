@@ -7,10 +7,12 @@ import { keyDown, keyUp } from "@/lib/keys";
  * flips when the system clock does rather than at a random offset after
  * mount. Returns a new `Date` only when the displayed instant changes.
  *
- * The period is a second because the readout counts one down in its last
- * minute. Ambient asks for a minute instead: nothing on that face is finer
- * than the hand, and a desk clock left on all evening should not wake the
- * whole tree sixty times a minute to redraw the same pixels.
+ * The shell asks for a minute. Nothing in the app prints a second, and the
+ * alignment is what makes that free rather than a compromise: a 60,000ms tick
+ * fires at `:00`, which is the instant every `HH:MM` and every rounded
+ * countdown in circal changes. A caller that genuinely needs a finer clock
+ * asks for one in the leaf that prints it, so the rest of the tree stays
+ * still.
  */
 export function useNow(periodMs = 1000): Date {
   const [now, setNow] = useState(() => new Date());

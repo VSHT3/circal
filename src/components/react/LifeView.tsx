@@ -57,6 +57,8 @@ import {
   lifeDot,
   lifeDotX,
   lifeDotY,
+  lifeFraction,
+  lifeMilestones,
   lifeRowTop,
   lifeStats,
   lifeYearRange,
@@ -66,11 +68,13 @@ import {
   type LifePoint,
   type LifeSpan,
   type LifeStage,
+  type Milestone,
 } from "@/lib/life";
 import { LIFE_EXPECTANCY_RANGE, store } from "@/lib/store";
 import { WEEKDAYS, dayKey, fromDayKey, isSameDay, startOfDay } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import type { LifeViewProps, ViewFlow } from "@/components/react/types";
+import { useHotkeys, useNow } from "@/components/react/hooks";
 import { DateField, IconButton, NumberField } from "@/components/react/ui/primitives";
 
 const EASE = [0.32, 0.72, 0, 1] as const;
@@ -349,6 +353,7 @@ export default function LifeView({
   birth,
   expectancy,
   now,
+  milestones,
   selected,
   events,
   calendars,
@@ -357,9 +362,11 @@ export default function LifeView({
   onSelectDay,
 }: LifeViewProps) {
   /**
-   * The *day*, not the instant: `now` ticks every second, and the field would
-   * be redrawn sixty times a minute for a grid that changes once at midnight.
-   * Only the percentage in the strip reads the instant.
+   * The *day*, not the instant. The shell's clock ticks once a minute and the
+   * grid changes once at midnight, so everything here is derived from the day
+   * key: `today` is stable between midnights and the field is not rebuilt for
+   * a clock that moved. The one number finer than a day is the percentage,
+   * and it has its own clock in `LifePercent`.
    */
   const todayKey = dayKey(now);
   const today = useMemo(() => fromDayKey(todayKey), [todayKey]);
@@ -403,10 +410,7 @@ export default function LifeView({
             <span className="label ml-auto truncate text-[10px] text-ink-3">
               <span className="text-ink-2">{formatCount(stats.daysLived)}</span> lived{" "}
               <span className="text-ink-4">·</span> {formatCount(stats.daysLeft)} left{" "}
-              <span className="text-ink-4">·</span>{" "}
-              {/* Six decimals, so it visibly moves: a life is long enough that
-                  two would sit still for seven hours at a time. */}
-              <span className="text-accent tabular-nums">{(stats.fraction * 100).toFixed(6)}%</span>
+              <span className="text-ink-4">·</span> <LifePercent span={stage.span} />
               <span className="hidden lg:inline">
                 {" "}
                 <span className="text-ink-4">·</span> until {formatLifeDate(stage.span.death)}
@@ -426,6 +430,7 @@ export default function LifeView({
             events={events}
             calendars={calendars}
             found={found}
+            milestones={milestones}
             onSelectDay={onSelectDay}
           />
         ) : (
@@ -433,6 +438,22 @@ export default function LifeView({
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * The percentage, and the only thing in the app that needs a clock faster
+ * than a minute. Its last digit turns about every twenty-five seconds on an
+ * eighty-year span, so on the shell's minute it would jump two or three at a
+ * time at an instant unrelated to when it actually changed. Every other
+ * printed instant in circal is `HH:MM` or coarser, which is why this is a
+ * leaf: one text node re-rendering each second, and the rest of the tree
+ * still.
+ */
+function LifePercent({ span }: { span: LifeSpan }) {
+  const now = useNow(1000);
+  return (
+    <span className="text-accent tabular-nums">{(lifeFraction(span, now) * 100).toFixed(6)}%</span>
   );
 }
 
@@ -479,6 +500,7 @@ function LifeGrid({
   events,
   calendars,
   found,
+  milestones,
   onSelectDay,
 }: {
   stage: LifeStage;
@@ -488,6 +510,7 @@ function LifeGrid({
   events: CalEvent[];
   calendars: Calendar[];
   found: Map<string, string> | null;
+  milestones: boolean;
   onSelectDay: (day: Date) => void;
 }) {
   const reducedMotion = useReducedMotion();
@@ -499,6 +522,25 @@ function LifeGrid({
   const [hover, setHover] = useState<Hover | null>(null);
 
   const density = useMemo(() => lifeDensity(events, calendars, span), [events, calendars, span]);
+
+  /**
+   * The named days, and which one is open. The open mark is held by key and
+   * resolved against the current list every render, so a span edited while a
+   * card is up simply closes it instead of needing the key synced.
+   */
+  const marks = useMemo(
+    () =>
+      milestones
+        ? lifeMilestones(span)
+            .map((mark) => ({ mark, at: lifeDot(layout, span, mark.date) }))
+            .filter((placed): placed is { mark: Milestone; at: LifePoint } => placed.at !== null)
+        : [],
+    [milestones, span, layout],
+  );
+  const [openKey, setOpenKey] = useState<string | null>(null);
+  const open = marks.find((placed) => placed.mark.key === openKey) ?? null;
+
+  useHotkeys({ escape: () => setOpenKey(null) }, open !== null);
 
   /**
    * Where the wave starts, and where the dial lands: the dot of the day the
@@ -663,7 +705,11 @@ function LifeGrid({
         // pointer gesture and a click is one that did not move.
         onPointerUp={(e) => {
           const hit = locate(e);
-          if (hit) onSelectDay(hit.date);
+          if (!hit) return;
+          // A press on the field is also how a milestone card is dismissed:
+          // the card is the only thing here that outlives the pointer.
+          setOpenKey(null);
+          onSelectDay(hit.date);
         }}
       />
 
@@ -717,6 +763,20 @@ function LifeGrid({
           className="absolute inset-0 h-full w-full"
           viewBox={`0 0 ${Math.max(1, box.width)} ${Math.max(1, box.height)}`}
         >
+          {/* The named days, under everything that follows the pointer: a
+              milestone is a property of the grid, and today, the selection and
+              the hover are all about where you are in it right now. */}
+          {marks.map(({ mark, at }) => (
+            <circle
+              key={mark.key}
+              cx={at.x}
+              cy={at.y}
+              r={Math.max(layout.radius * 2.9, 4)}
+              fill="none"
+              stroke={mark.key === openKey ? "var(--ink)" : "var(--ink-3)"}
+              strokeWidth={1}
+            />
+          ))}
           {selectedDot && (
             <circle
               cx={selectedDot.x}
@@ -752,10 +812,122 @@ function LifeGrid({
         </svg>
       </motion.div>
 
+      {/* Hit areas, and the grid's only focus path. Real buttons rather than
+          pointer handling on the canvas: four of them is a tab order somebody
+          can actually use, where thirty thousand dots is not. The ring itself
+          is drawn in the overlay above, so the button is a target and nothing
+          else. */}
+      {marks.map(({ mark, at }) => (
+        <button
+          key={mark.key}
+          type="button"
+          aria-expanded={mark.key === openKey}
+          title={`${mark.title} · ${formatLifeDate(mark.date)}`}
+          aria-label={`${mark.title}, ${formatLifeDate(mark.date)}`}
+          onPointerEnter={() => setHover(null)}
+          onClick={() => setOpenKey(mark.key === openKey ? null : mark.key)}
+          className="absolute z-10 size-5 -translate-x-1/2 -translate-y-1/2 rounded-full outline-offset-1 focus-visible:outline focus-visible:outline-ink"
+          style={{ left: at.x, top: at.y }}
+        />
+      ))}
+
+      {open && (
+        <MilestoneCard
+          mark={open.mark}
+          at={open.at}
+          today={today}
+          box={box}
+          onGo={() => {
+            setOpenKey(null);
+            onSelectDay(open.mark.date);
+          }}
+          onClose={() => setOpenKey(null)}
+        />
+      )}
+
       {hover && (
         <DayTip hover={hover} today={today} events={events} calendars={calendars} box={box} />
       )}
     </>
+  );
+}
+
+/* ------------------------------- milestones ------------------------------- */
+
+/**
+ * What a named day has to say.
+ *
+ * It takes the pointer, unlike the hover tip: the prose is there to be read
+ * and the row at the bottom is there to be clicked, so this is a small popover
+ * rather than a label. Dismissed by Escape, by pressing the field, or by the
+ * mark that opened it.
+ *
+ * `Go to this day` is not a courtesy. The button that opens this card sits on
+ * top of its own dot, so those three or four days cannot be selected by
+ * clicking them any more, and this is where the click goes instead.
+ */
+function MilestoneCard({
+  mark,
+  at,
+  today,
+  box,
+  onGo,
+  onClose,
+}: {
+  mark: Milestone;
+  at: LifePoint;
+  today: Date;
+  box: Box;
+  onGo: () => void;
+  onClose: () => void;
+}) {
+  const reducedMotion = useReducedMotion();
+  // Same flip as the tip, for the same reason: a card clamped at the edge
+  // covers the dot it is about.
+  const flip = at.x > box.width * 0.55;
+  const lift = at.y > box.height * 0.55;
+
+  return (
+    <motion.div
+      role="dialog"
+      aria-label={mark.title}
+      initial={reducedMotion ? false : { opacity: 0, scale: 0.97 }}
+      animate={{ opacity: 1, scale: 1 }}
+      transition={{ duration: 0.16, ease: EASE }}
+      className={cn(
+        "absolute z-20 w-[300px] max-w-[calc(100%-16px)] rounded-[12px] border border-hairline bg-surface p-3.5 shadow-[0_24px_56px_-20px_rgba(0,0,0,0.95)]",
+        flip && "-translate-x-full",
+        lift && "-translate-y-full",
+      )}
+      style={{ left: at.x + (flip ? -14 : 14), top: at.y + (lift ? -14 : 14) }}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <div className="label text-[11px] text-ink">{mark.title}</div>
+          <div className="label mt-1 text-[10px] text-ink-3">
+            {formatLifeDate(mark.date)} <span className="text-ink-4">·</span>{" "}
+            {formatDistance(mark.date, today)}
+          </div>
+        </div>
+        <IconButton label={`Close ${mark.title}`} onClick={onClose}>
+          <X size={14} strokeWidth={1.75} />
+        </IconButton>
+      </div>
+
+      {mark.note.map((paragraph) => (
+        <p key={paragraph.slice(0, 24)} className="mt-2.5 text-[12.5px] leading-relaxed text-ink-2">
+          {paragraph}
+        </p>
+      ))}
+
+      <button
+        type="button"
+        onClick={onGo}
+        className="mt-3.5 h-8 w-full rounded-[8px] bg-surface-2 text-[12.5px] text-ink-2 transition-colors hover:bg-white/10 hover:text-ink"
+      >
+        Go to this day
+      </button>
+    </motion.div>
   );
 }
 

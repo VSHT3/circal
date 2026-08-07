@@ -243,10 +243,21 @@ export default function App() {
    */
   const [ambient, setAmbient] = useState<AmbientMode>("off");
   const inAmbient = ambient !== "off";
-  // Nothing on the ambient face is finer than the hand, and the mode is meant
-  // to be left running: a minute is the honest resolution for it, and it takes
-  // the shell's whole-tree tick down with it from 3,600 an hour to 60.
-  const now = useNow(inAmbient ? 60_000 : 1000);
+  /**
+   * One tick a minute, for the whole tree.
+   *
+   * Nothing in circal prints a second: `splitTime` is `HH:MM`, `untilText` and
+   * `formatDuration` round to the minute, and the hand is `minutesOfDay`. A
+   * one-second clock therefore woke Dial, Sidebar, CenterPanel, YearView and
+   * LifeView 3,600 times an hour to redraw pixels that were already right.
+   *
+   * Nothing lands late either, because `useNow` aligns to its own period: a
+   * 60,000ms tick fires at `:00` of each minute, which is exactly the instant
+   * every one of those strings changes. The single number finer than this is
+   * the life view's percentage, and it carries its own clock in the leaf that
+   * prints it.
+   */
+  const now = useNow(60_000);
   const reducedMotion = useReducedMotion();
 
   const [location, setLocation] = useState<ViewLocation>(() => readLocation());
@@ -827,6 +838,7 @@ export default function App() {
                   birth={settings.birth}
                   expectancy={settings.lifeExpectancy}
                   now={now}
+                  milestones={settings.milestones}
                   selected={day}
                   events={visible}
                   calendars={calendars}

@@ -165,6 +165,20 @@ export interface Settings {
    *  owns — no actuarial table is going to know better. */
   lifeExpectancy: number;
   /**
+   * Whether the life grid marks its round numbers: the ten-thousandth day,
+   * the twenty-thousandth, the midpoint of the estimate. On, because the
+   * problem they solve is the view's own — thirty thousand identical dots and
+   * nothing for the eye to land on between the decade rules. A switch, because
+   * a life measured in round numbers is not everybody's idea of a good time.
+   */
+  milestones: boolean;
+  /**
+   * The line under the year ring's centre. The dial's interior answers the
+   * day; a year has no equivalent answer worth printing, so this is a
+   * standing one instead, and it is the user's to write. `""` prints nothing.
+   */
+  yearQuote: string;
+  /**
    * Ambient is a display mode, so what it shows is its own question. These
    * six are what the face is allowed to differ on — everything else (the
    * geometry, the events, the hand) is the same dial, because it *is* the same
@@ -258,6 +272,14 @@ export const DEFAULT_SETTINGS: Settings = {
   // Eighty. High enough to be a life rather than a countdown, round enough to
   // read as the estimate it is.
   lifeExpectancy: 80,
+  // On. Three or four marks on thirty thousand dots is a constellation rather
+  // than furniture, and the alternative is a field with no landmarks in it at
+  // all: the decade rules name the rows, and nothing names a day.
+  milestones: true,
+  // The default is an instruction rather than an observation, which is what
+  // saves it from being a fortune cookie: a ring returns you to the same
+  // angle, and this is the one thing to do about that.
+  yearQuote: "don't end up in the same place",
   // Never, until asked for. Everything else in this file appears because the
   // user did something; a mode that arrives on a timer is the one thing that
   // could appear because they did not.
@@ -356,6 +378,14 @@ function migrateSettings(stored: Partial<Settings> & { night?: boolean }): Parti
 export const LIFE_EXPECTANCY_RANGE = { min: 1, max: 150 } as const;
 
 /**
+ * How long the year ring's line is allowed to be. The centre is a circle
+ * roughly 300 units across at the readout's height, and a quote past this
+ * either wraps into the ring or shrinks the year above it. Enforced here
+ * rather than only on the input, because a backup can carry any string.
+ */
+export const YEAR_QUOTE_MAX = 72;
+
+/**
  * The stored values that can be wrong rather than merely absent: a place with
  * no zone cannot be shown in its own picker, a life span has to be a date and
  * a number of years the grid can actually draw, and a position or a mode has
@@ -370,6 +400,12 @@ function sane(settings: Settings): Settings {
     lifeExpectancy: Number.isFinite(years)
       ? Math.min(LIFE_EXPECTANCY_RANGE.max, Math.max(LIFE_EXPECTANCY_RANGE.min, years))
       : DEFAULT_SETTINGS.lifeExpectancy,
+    // Trimmed and capped, never rejected: a line the user typed is theirs,
+    // and the only thing the face cannot survive is an unbounded one.
+    yearQuote:
+      typeof settings.yearQuote === "string"
+        ? settings.yearQuote.trim().slice(0, YEAR_QUOTE_MAX)
+        : DEFAULT_SETTINGS.yearQuote,
     totalsAt: TOTALS_POSITIONS.includes(settings.totalsAt)
       ? settings.totalsAt
       : DEFAULT_SETTINGS.totalsAt,
@@ -961,6 +997,19 @@ export const store = {
   setPlace(place: PickedPlace | null) {
     const base = fresh();
     commit({ ...base, settings: { ...base.settings, place } }, false);
+  },
+
+  /**
+   * The year ring's standing line. Capped but deliberately not trimmed: this
+   * runs on every keystroke, and a `trim()` here eats the space between two
+   * words the moment it is typed.
+   */
+  setYearQuote(yearQuote: string) {
+    const base = fresh();
+    commit(
+      { ...base, settings: { ...base.settings, yearQuote: yearQuote.slice(0, YEAR_QUOTE_MAX) } },
+      false,
+    );
   },
 
   /**

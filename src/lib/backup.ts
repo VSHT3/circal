@@ -132,6 +132,14 @@ export function readSettings(value: unknown): Settings {
       typeof value.lifeExpectancy === "number" && Number.isFinite(value.lifeExpectancy)
         ? value.lifeExpectancy
         : DEFAULT_SETTINGS.lifeExpectancy,
+    // Marks on the grid, read absent-as-on like the dial switches: a backup
+    // written before they existed came from a build where every life was
+    // unmarked by omission rather than by choice.
+    milestones: value.milestones !== false,
+    // A line the user wrote, so an absent one is the default rather than
+    // silence — a blank centre is a thing to choose, not to inherit from a
+    // file. `sane()` trims it and pins the length.
+    yearQuote: typeof value.yearQuote === "string" ? value.yearQuote : DEFAULT_SETTINGS.yearQuote,
     // Ambient. A backup from before the mode came from a build with no mode,
     // so every one of these reads as the default rather than as a choice —
     // and the one that could act on its own, the timer, defaults to never.

@@ -157,8 +157,11 @@ export interface LifeViewProps {
   birth: string;
   /** Years the grid runs for, from the birthday. */
   expectancy: number;
-  /** Ticking: the readout is a live percentage of a life. */
+  /** Ticking on the minute. The percentage in the strip runs its own second
+   *  clock; everything else here changes at midnight or not at all. */
   now: Date;
+  /** Whether the grid names its round days. */
+  milestones: boolean;
   selected: Date;
   events: CalEvent[];
   calendars: Calendar[];

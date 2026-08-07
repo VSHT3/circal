@@ -67,7 +67,7 @@ src/pages/index.astro   static HTML shell
 | `src/components/react/ui/primitives.tsx` | Ten shared controls all chrome built from                                                                                                                                                                      |
 | `src/components/react/types.ts`          | **Every panel prop interface.** Edit shapes here                                                                                                                                                               |
 | `src/styles/global.css`                  | Design tokens, `@theme inline` colour mappings, five component classes                                                                                                                                         |
-| `tests/`                                 | **The suite — 881 cases.** `helpers.ts` = fixtures + matchers; one `*.test.ts` per module; `west/` = TZ re-runs                                                                                                |
+| `tests/`                                 | **The suite — 898 cases.** `helpers.ts` = fixtures + matchers; one `*.test.ts` per module; `west/` = TZ re-runs                                                                                                |
 
 ## Development Commands
 
@@ -173,27 +173,27 @@ if (seeded !== day) {
 
 ## Testing & QA
 
-**There IS a suite. Read it before writing one.** Vitest, `tests/`, 881 cases, ~550 ms, wired into `verify`. Adding coverage = adding cases to the file below that already owns the module. Never scaffold a second harness, never a second fixture style, never a `*.spec.ts`.
+**There IS a suite. Read it before writing one.** Vitest, `tests/`, 898 cases, ~550 ms, wired into `verify`. Adding coverage = adding cases to the file below that already owns the module. Never scaffold a second harness, never a second fixture style, never a `*.spec.ts`.
 
-| test file                    | covers                                                                      |
-| ---------------------------- | --------------------------------------------------------------------------- |
-| `tests/helpers.ts`           | **not a test** — fixtures, builders, matchers. Extend, never fork           |
-| `tests/time.test.ts`         | `time.ts` — day arithmetic, DST, `parseClock`, `zonedToUtc`                 |
-| `tests/quickadd.test.ts`     | `quickadd.ts` — every date form, the scanner, repeats, ambiguous pairs      |
-| `tests/fuzzy.test.ts`        | `fuzzy.ts` — matching, the forgiven typo, and the ranking order             |
-| `tests/dial.test.ts`         | `dial.ts` — `angleAt` ↔ `minutesAtPoint`, `arcPath`, `capInset`, `arcLabel` |
-| `tests/recur.test.ts`        | `recur.ts` — RFC 5545 §3.8.5.3 worked examples, BY\* , BYSETPOS             |
-| `tests/events.test.ts`       | `events.ts` — clipping, lanes, overrides, `freeGaps`, `colorOf`, `inkOn`    |
-| `tests/ics.test.ts`          | `ics.ts` — round-trip, folding, escaping, malformed feeds                   |
-| `tests/store.test.ts`        | `store.ts` — write/delete/move, undo, cross-tab, `sane`, seeding            |
-| `tests/backup.test.ts`       | `backup.ts` — hostile input, orphan reparenting                             |
-| `tests/feeds.test.ts`        | `feeds.ts` — id stability, errors, cross-tab undo                           |
-| `tests/life.test.ts`         | `life.ts` — `lifeCellAt` inverse, splits, density policy                    |
-| `tests/year.test.ts`         | `year.ts` — `dayAngle` ↔ `dayAtPoint`, month marks, `unroller`'s two ends   |
-| `tests/sun.test.ts`          | `sun.ts` — NOAA references, polar cases, no clipping                        |
-| `tests/worker.test.ts`       | `ssrfBlockReason` — the hostname table                                      |
-| `tests/worker-proxy.test.ts` | `/api/feed` — routing, redirect chain, caps                                 |
-| `tests/west/*.test.ts`       | zone-sensitive invariants, re-run west of UTC                               |
+| test file                    | covers                                                                               |
+| ---------------------------- | ------------------------------------------------------------------------------------ |
+| `tests/helpers.ts`           | **not a test** — fixtures, builders, matchers. Extend, never fork                    |
+| `tests/time.test.ts`         | `time.ts` — day arithmetic, DST, `parseClock`, `zonedToUtc`                          |
+| `tests/quickadd.test.ts`     | `quickadd.ts` — every date form, the scanner, repeats, ambiguous pairs               |
+| `tests/fuzzy.test.ts`        | `fuzzy.ts` — matching, the forgiven typo, and the ranking order                      |
+| `tests/dial.test.ts`         | `dial.ts` — `angleAt` ↔ `minutesAtPoint`, `arcPath`, `capInset`, `arcLabel`          |
+| `tests/recur.test.ts`        | `recur.ts` — RFC 5545 §3.8.5.3 worked examples, BY\* , BYSETPOS                      |
+| `tests/events.test.ts`       | `events.ts` — clipping, lanes, overrides, `freeGaps`, `colorOf`, `inkOn`             |
+| `tests/ics.test.ts`          | `ics.ts` — round-trip, folding, escaping, malformed feeds                            |
+| `tests/store.test.ts`        | `store.ts` — write/delete/move, undo, cross-tab, `sane`, seeding                     |
+| `tests/backup.test.ts`       | `backup.ts` — hostile input, orphan reparenting                                      |
+| `tests/feeds.test.ts`        | `feeds.ts` — id stability, errors, cross-tab undo                                    |
+| `tests/life.test.ts`         | `life.ts` — `lifeCellAt` inverse, splits, density policy, milestones, `lifeFraction` |
+| `tests/year.test.ts`         | `year.ts` — `dayAngle` ↔ `dayAtPoint`, month marks, `unroller`'s two ends            |
+| `tests/sun.test.ts`          | `sun.ts` — NOAA references, polar cases, no clipping                                 |
+| `tests/worker.test.ts`       | `ssrfBlockReason` — the hostname table                                               |
+| `tests/worker-proxy.test.ts` | `/api/feed` — routing, redirect chain, caps                                          |
+| `tests/west/*.test.ts`       | zone-sensitive invariants, re-run west of UTC                                        |
 
 **Two projects, and the split is load-bearing.** `local` runs `tests/**` at `TZ=Europe/Berlin`; `west` runs `tests/west/**` at `TZ=America/Los_Angeles`, own process. Nearly every date function here deliberately local-time, so unpinned suite passes in one zone and fails in other. Own process because TZ change after Node started not reliably observed. **Touching `dayKey`, `zonedToUtc`, `startOfDay`, `addDays` or anything day-keyed? Add the case to `tests/west/` too.**
 
@@ -353,3 +353,11 @@ expect(occ.start).toBeSameInstantAs("2026-03-08 09:00");
 - **The day-crossing tick cannot come from `setHover`.** React bails out of an identical value, so by the time state has settled a move inside one slot is indistinguishable from one that crossed into the next — and a cue per pointer event is not a tick, it is noise. `ticked` is a ref, written in the handler. It fires `slide`, the quieter of the two gated drag cues, on the same `tickSound` / `tickHaptics` channels: crossing a day is the same event as crossing a detent. A slow read is one tick per day and a fast sweep is a rip, which is what a finger along a comb does and is right for a ring of 365 teeth. The keyboard's cursor deliberately does **not** tick — `useTypingSound` already answers the arrow key.
 - **The year's interior held a daylight figure for one draft, and it is not coming back.** Radius inside the marks was time of day, and sunrise and sunset drawn round the year is the one picture a grid cannot make. Filled it was a coffee stain; as two hairlines it was quiet and still interesting — and interesting is the problem. It is never what you came to a calendar to find out, and the readout wants the room. The dial's rim band stays; that one annotates a day you are actually looking at.
 - **Life span = two settings, both can be stored wrong rather than merely missing.** `sane()` in `store.ts` = one clamp — `birth` not `YYYY-MM-DD` becomes `""` (shows prompt again) and `lifeExpectancy` pinned inside `LIFE_EXPECTANCY_RANGE` — and runs on `parse`, on `store.setLife`, and on `restore`, because `readSettings` in `backup.ts` only guarantees types.
+- **The shell's clock ticks once a minute, and that is free rather than a compromise.** Nothing in circal prints a second: `splitTime` is `HH:MM`, `untilText` and `formatDuration` round to the minute, the hand is `minutesOfDay`. `useNow` aligns to its own period boundary, so `useNow(60_000)` in `App.tsx` fires at `:00` — the exact instant every one of those strings changes. Verified in the browser: `01:17 → 01:18` landed at `01:18:00.09`. It used to tick at 1 Hz and wake Dial, Sidebar, CenterPanel, YearView and LifeView 3,600 times an hour to redraw pixels that were already right. **A surface that genuinely needs finer than a minute asks for its own clock in the leaf that prints it, never by raising the shell's rate.** There is exactly one: `LifePercent` in `LifeView.tsx`, because six decimals of an eighty-year span turn about every twenty-five seconds and on the minute would step two or three at a time.
+- **Milestones are three or four marks, and the count is the whole design.** `lifeMilestones` in `lib/life.ts` returns the round days inside the span (10,000 / 20,000 / 30,000) plus the midpoint — a default eighty-year life gets three. A thousand and five thousand are numbers that sound like milestones and are not: both land before anybody has a memory of the day, and both are already behind every user. Decades are **not** in the list; the rules and their labels already name them, and a dot on top of a rule is the same fact twice.
+- **The midpoint is `floor(days / 2) + 1`, not the rounder-looking `ceil(days / 2)`.** The card's second paragraph makes an arithmetic claim — past this dot the half you can still spend is the smaller one — and on an even span `ceil` leaves one more day ahead than behind, which makes the sentence false. `tests/life.test.ts` asserts the claim, not the formula. A midpoint colliding with a round day is dropped rather than drawn twice: two marks on one dot is one mark that cannot be clicked.
+- **The milestone ring is drawn in the SVG overlay; the hit area is a real `<button>` in its own layer.** Two layers, one `marks` array, because the ring has to sit under today's halo and the hover ring (a milestone is a property of the grid; those three are about where you are in it right now) while the target has to be above the canvas. The buttons are also **the grid's only focus path** — three tab stops is an order somebody can use, where thirty thousand dots is not. They cost those three days their click on the field, which is exactly what `Go to this day` in the card is for; it is not a courtesy.
+- **The milestone prose lives in `lib/life.ts` beside the function, and it has no em dashes.** House rule for this app's user-facing writing, asserted in `tests/life.test.ts` so a future paragraph cannot quietly reintroduce one. Code comments keep the repo's own voice; the ban is on what the user reads.
+- **`lifeMilestones` walks with `addDays`, so it has a `tests/west/` case.** A mark 10,000 days out crosses twenty US DST transitions; a millisecond walk would drift an hour off midnight and put the dot on the wrong day for every user west of UTC. Same rule as `dayKey` and `startOfDay`: touch a day-keyed function, add the western case.
+- **The year ring's centre prints a line the user wrote, not a figure the app computed.** A year-scale summary (busiest month, longest empty run) was the obvious thing to put there and it is the wrong thing: the dial's interior answers a day because you are living in it, and nobody opens a year to be told which month was busy. `settings.yearQuote` is the whole feature, capped at `YEAR_QUOTE_MAX` in `sane()` and shown **only at rest** — pointing at a day is a question and a quote is not an answer to it. It is `ink-3`, the same tone as the date above it: `ink-4` is the ticks and the disabled, and 12.5px of it on true black is a line you can see is there without being able to read it. What keeps it subordinate is the italic and the gap.
+- **`store.setYearQuote` caps but deliberately does not `trim()`.** It runs on every keystroke, and trimming there eats the space between two words the moment it is typed. `sane()` is the boundary that trims, because it runs on load and on restore where the value is already finished.

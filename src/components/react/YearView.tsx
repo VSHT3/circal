@@ -166,18 +166,25 @@ const CHROME_MS = 260;
  * selected day is already drawn — a readout repeating the white mark six
  * inches away is the same fact twice, which is the mistake the sidebar and
  * the centre panel spent a rewrite untangling.
+ *
+ * Under it, the standing line. The dial's interior answers what a day is made
+ * of; a year has no equivalent answer worth printing every time you open it,
+ * so the space goes to something the user wrote instead. It appears only at
+ * rest: pointing at a day is a question, and a quote is not an answer to it.
  */
 function Readout({
   year,
   date,
   tally,
   today,
+  quote,
   u,
 }: {
   year: number;
   date: Date | null;
   tally: Mark | null;
   today: Date;
+  quote: string;
   u: number;
 }) {
   if (!date) {
@@ -192,6 +199,28 @@ function Readout({
         <span className="label text-ink-3" style={{ fontSize: `${11 * u}px` }}>
           {year === today.getFullYear() ? formatLifeDate(today) : `${daysInYear(year)} days`}
         </span>
+        {quote && (
+          // The one place in the app where a line is allowed to wrap: it is
+          // the user's sentence and the ring is round, so the width is capped
+          // well inside the numerals rather than left to the viewport.
+          //
+          // `ink-3`, the same tone as the date above it. `ink-4` is the ticks
+          // and the disabled, and 12.5px of it on true black is a line you
+          // can see is there without being able to read it. What keeps this
+          // subordinate to the date is the italic and the gap, not the grey.
+          <span
+            className="text-ink-3 italic"
+            style={{
+              fontSize: `${12.5 * u}px`,
+              lineHeight: 1.45,
+              maxWidth: `${230 * u}px`,
+              marginTop: `${12 * u}px`,
+              whiteSpace: "normal",
+            }}
+          >
+            {quote}
+          </span>
+        )}
       </Centre>
     );
   }
@@ -623,6 +652,7 @@ export default function YearView({
           date={active === null ? null : dateOfYear(year, active)}
           tally={activeMark}
           today={today}
+          quote={settings.yearQuote}
           u={u}
         />
       </div>

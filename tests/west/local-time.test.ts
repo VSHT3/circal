@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { at, day } from "../helpers";
+import { lifeFraction, lifeMilestones, lifeSpan } from "@/lib/life";
 import { addDays, atMinutes, dayKey, fromDayKey, minutesOfDay, startOfDay } from "@/lib/time";
 
 /* ------------------------------------------------------------------ *
@@ -67,5 +68,37 @@ describe("atMinutes / minutesOfDay round-trip on a DST-transition day", () => {
     const d = atMinutes(transitionDay, 121); // nominally 02:01
     expect(d).toBeSameInstantAs("2026-03-08 03:01");
     expect(minutesOfDay(d)).toBe(181);
+  });
+});
+
+describe("life milestones land on local midnight west of UTC", () => {
+  // `lifeMilestones` walks the span with `addDays`, which is calendar-based
+  // rather than 86,400,000ms at a time — and a mark 10,000 days out crosses
+  // twenty US DST transitions on the way. A millisecond walk would drift an
+  // hour off midnight and put the dot on the wrong day for anyone west of
+  // UTC, which is exactly the class of bug this project exists to catch.
+  const span = lifeSpan(day("1990-03-12"), 80);
+
+  it.each([
+    { key: "d10000", on: "2017-07-27" },
+    { key: "half", on: "2030-03-12" },
+    { key: "d20000", on: "2044-12-12" },
+  ])("puts $key on local midnight of $on", ({ key, on }) => {
+    const mark = lifeMilestones(span).find((m) => m.key === key)!;
+    expect(mark.date).toBeSameInstantAs(day(on));
+    expect(dayKey(mark.date)).toBe(on);
+  });
+
+  it("counts whole local days from the birthday, DST transitions included", () => {
+    for (const mark of lifeMilestones(span)) {
+      expect(mark.date).toBeSameInstantAs(addDays(span.birth, mark.day - 1));
+      expect(minutesOfDay(mark.date)).toBe(0);
+    }
+  });
+
+  it("lifeFraction stays inside [0,1] at both ends of a span built west of UTC", () => {
+    expect(lifeFraction(span, span.birth)).toBe(0);
+    expect(lifeFraction(span, at("2070-03-12 23:59"))).toBeLessThanOrEqual(1);
+    expect(lifeFraction(span, addDays(span.death, 1))).toBe(1);
   });
 });

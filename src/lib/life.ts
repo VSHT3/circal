@@ -474,14 +474,26 @@ export interface LifeStats {
   age: { years: number; months: number; days: number };
 }
 
+/**
+ * How far through the span `now` is, as a fraction of the whole. Its own
+ * function because it is the only number in this file that moves faster than
+ * once a day: at the six decimals the strip prints, an eighty-year span
+ * advances its last digit about every twenty-five seconds. That is finer than
+ * the shell's minute and it is why the leaf that prints it keeps a clock of
+ * its own. Everything else in `LifeStats` is day-granular.
+ */
+export function lifeFraction(span: LifeSpan, now: Date): number {
+  const elapsed = now.getTime() - span.birth.getTime();
+  const whole = span.death.getTime() + DAY_MS - span.birth.getTime();
+  return Math.min(1, Math.max(0, elapsed / whole));
+}
+
 export function lifeStats(span: LifeSpan, now: Date): LifeStats {
   const lived = Math.max(
     0,
     Math.round((startOfDay(now).getTime() - span.birth.getTime()) / DAY_MS),
   );
   const total = span.days;
-  const elapsed = now.getTime() - span.birth.getTime();
-  const whole = span.death.getTime() + DAY_MS - span.birth.getTime();
 
   let years = now.getFullYear() - span.birth.getFullYear();
   let months = now.getMonth() - span.birth.getMonth();
@@ -499,9 +511,98 @@ export function lifeStats(span: LifeSpan, now: Date): LifeStats {
     daysLived: Math.min(lived, total),
     daysLeft: Math.max(0, total - lived),
     total,
-    fraction: Math.min(1, Math.max(0, elapsed / whole)),
+    fraction: lifeFraction(span, now),
     age: { years: Math.max(0, years), months: Math.max(0, months), days: Math.max(0, days) },
   };
+}
+
+/* ------------------------------- milestones ------------------------------- */
+
+/**
+ * A day the grid names. Thirty thousand identical dots give the eye nothing
+ * to land on between one decade rule and the next, and a landmark is what
+ * turns a field into a picture you can navigate.
+ *
+ * `note` is paragraphs rather than one string so the popup never has to split
+ * prose on a delimiter.
+ */
+export interface Milestone {
+  key: string;
+  /** Local midnight of the day it falls on. */
+  date: Date;
+  /** Which day of the life it is, counting the birthday as day 1. */
+  day: number;
+  title: string;
+  note: string[];
+}
+
+/**
+ * The round days. Ten thousand is about twenty-seven, twenty thousand about
+ * fifty-five, thirty thousand about eighty-two, so a default span gets two of
+ * them and a generous one gets three. A thousand and five thousand are on the
+ * list of numbers that sound like milestones and are not: both land before
+ * anybody has a memory of the day, and both are already behind every user.
+ */
+const ROUND_DAYS = [10_000, 20_000, 30_000] as const;
+
+const ROUND_NOTES: Record<number, string[]> = {
+  10_000: [
+    "Ten thousand days, which is twenty-seven years and change. Round numbers are an accident of having ten fingers, and this one still tells you more than a birthday does.",
+    "A birthday counts the loops. This counts the days, and the day is the unit you actually spend.",
+  ],
+  20_000: [
+    "Twenty thousand. The stretch between here and the last mark was exactly as long as everything before it, and it did not feel that way.",
+    "Nobody gets warned that the second ten thousand goes quicker. Consider this the warning.",
+  ],
+  30_000: [
+    "Thirty thousand days is eighty-two years and a month, which sits past the number most people quietly use as the far edge of a life.",
+    "The grid draws it because you asked for the span. Whether the day arrives is a separate question, and this view has never claimed to know.",
+  ],
+};
+
+const HALFWAY_NOTE = [
+  "The midpoint of the estimate. Behind it is a life you can remember, and ahead of it is roughly the same number of dots with nothing on them yet.",
+  "The years are a guess, so the dot inherits the guess. What it is good for is the direction: past this one, the half you can still spend is the smaller half.",
+];
+
+/**
+ * The marks, in day order, and only the ones that land inside the span: a
+ * twenty-year expectancy gets the midpoint and nothing else, and a mark drawn
+ * past the last dot would sit on black.
+ *
+ * The midpoint is `floor(days / 2) + 1` rather than the rounder-looking
+ * `ceil(days / 2)`, because the card's second paragraph makes an arithmetic
+ * claim: past this dot the half you can still spend is the smaller one. On an
+ * even span `ceil` leaves one more day ahead than behind and the sentence is
+ * false. It is dropped when it collides with a round day — two marks on one
+ * dot is one mark that cannot be clicked.
+ */
+export function lifeMilestones(span: LifeSpan): Milestone[] {
+  const marks: Milestone[] = [];
+
+  for (const day of ROUND_DAYS) {
+    if (day > span.days) break;
+    marks.push({
+      key: `d${day}`,
+      date: addDays(span.birth, day - 1),
+      day,
+      title: `Day ${formatCount(day)}`,
+      note: ROUND_NOTES[day],
+    });
+  }
+
+  const middle = Math.floor(span.days / 2) + 1;
+  if (!marks.some((mark) => mark.day === middle)) {
+    marks.push({
+      key: "half",
+      date: addDays(span.birth, middle - 1),
+      day: middle,
+      title: "Halfway",
+      note: HALFWAY_NOTE,
+    });
+  }
+
+  return marks.sort((a, b) => a.day - b.day);
 }
 
 /** `35y 4m 22d` — the life view's own voice for a duration this long. */

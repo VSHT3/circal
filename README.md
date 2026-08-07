@@ -120,6 +120,12 @@ There is no daylight curve in the middle of it. There was, for a while, and it
 was the one picture a grid cannot draw — and it was never what anyone came to
 a calendar to find out.
 
+Under the year it prints a line of your own. The dial's centre can answer a
+day because you are living in it; a year has no answer worth printing every
+time you open one, so the space goes to something you wrote instead. It shows
+only at rest, and it is yours to change in **Settings** — or to empty, which
+leaves the middle bare.
+
 ## Your life, in days
 
 `⌘L` pulls all the way back. One dot is one day and the whole life is one
@@ -138,6 +144,11 @@ The strip above the field counts: days lived, days left, and how much of the
 whole is spent to six decimals, which is enough to watch it move. Hover a dot
 for its date, how far off it is and what is on it; click one to open that day
 on the dial.
+
+A few days are named. The ten-thousandth, the twenty-thousandth, the midpoint
+of the estimate: each one takes a thin ring, and clicking it says what the
+number is for. Three marks on thirty thousand dots, which is a constellation
+rather than furniture, and the switch for them is in **Settings**.
 
 And it is the one view you can ask a question of. Open `⌘P` while the grid is
 up and every day carrying a matching event lights, in its own colour, with the
@@ -353,7 +364,7 @@ src/
     CommandPalette.tsx  Settings.tsx  Toast.tsx
 worker/index.ts  assets + the /api/feed proxy
 public/sw.js     offline cache
-tests/           881 cases over src/lib and the worker's guards
+tests/           898 cases over src/lib and the worker's guards
 ```
 
 Two overlapping events are pushed onto concentric rings by `packLanes`, so

@@ -27,6 +27,7 @@ import {
   AMBIENT_DELAYS,
   LIFE_EXPECTANCY_RANGE,
   TOTALS_POSITIONS,
+  YEAR_QUOTE_MAX,
   hostLabel,
   store,
 } from "@/lib/store";
@@ -147,6 +148,8 @@ export default function Settings({
     tickHaptics,
     birth,
     lifeExpectancy,
+    milestones,
+    yearQuote,
   } = settings;
   const reducedMotion = useReducedMotion();
   const [feedUrl, setFeedUrl] = useState("");
@@ -435,8 +438,25 @@ export default function Settings({
                 </FieldRow>
               </Section>
 
+              <Section title="Year">
+                <FieldRow label="Quote" align="top" last>
+                  <input
+                    type="text"
+                    value={yearQuote}
+                    onChange={(e) => store.setYearQuote(e.target.value)}
+                    maxLength={YEAR_QUOTE_MAX}
+                    placeholder="Say something"
+                    aria-label="The line under the year ring"
+                    className="h-8 w-full min-w-0 rounded-[8px] bg-surface-2 px-2 text-[13px] text-ink placeholder:text-ink-3"
+                  />
+                  <span className="caption">
+                    Printed in the middle of the ring, under the year. Empty leaves it bare
+                  </span>
+                </FieldRow>
+              </Section>
+
               <Section title="Life">
-                <FieldRow label="Span" align="top" last>
+                <FieldRow label="Span" align="top">
                   <div className="flex flex-wrap items-center gap-2">
                     <DateField
                       label="Date of birth"
@@ -463,6 +483,17 @@ export default function Settings({
                     {span
                       ? `${formatCount(span.days)} days — one dot each, ending around ${formatLifeDate(span.death)}`
                       : "One dot per day for a whole life. The date is asked for once and never leaves this browser"}
+                  </span>
+                </FieldRow>
+                <FieldRow label="Marks" align="top" last>
+                  <Toggle
+                    label="Milestones"
+                    checked={milestones}
+                    onChange={(on) => store.setToggle("milestones", on)}
+                  />
+                  <span className="caption">
+                    Rings the round days: the ten-thousandth, the twenty-thousandth, the midpoint.
+                    Click one for what it means
                   </span>
                 </FieldRow>
               </Section>
