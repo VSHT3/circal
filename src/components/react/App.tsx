@@ -453,6 +453,8 @@ export default function App() {
         store.create({
           ...draftEvent(spec.day, spec.startMin, spec.endMin, defaultCalendar),
           title: spec.title,
+          // `null` for the lines that named no rule, which is most of them.
+          ...spec.repeat,
         });
         setPaletteOpen(false);
         // Land on the day it went to. An event created off-screen is a claim

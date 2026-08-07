@@ -6,7 +6,9 @@ import {
   parseDate,
   parseDurationToken,
   parseQuickAdd,
+  parseRepeat,
   parseSlot,
+  repeatPhrase,
 } from "@/lib/quickadd";
 import { MINUTES_PER_DAY, dayKey } from "@/lib/time";
 
@@ -331,5 +333,153 @@ describe("parseQuickAdd on the ambiguous forms", () => {
       day: "2026-03-29",
       startMin: 150,
     });
+  });
+});
+
+/* ------------------------------- repetition -------------------------------- */
+
+/** BYDAY as plain weekday numbers, which is all this parser ever produces. */
+const days = (spec: { byDay: { day: number; nth: number }[] } | null) =>
+  spec?.byDay.map((w) => w.day) ?? null;
+
+describe("parseRepeat", () => {
+  it.each([
+    { query: "daily", repeat: "daily", interval: 1 },
+    { query: "every day", repeat: "daily", interval: 1 },
+    { query: "weekly", repeat: "weekly", interval: 1 },
+    { query: "every week", repeat: "weekly", interval: 1 },
+    { query: "monthly", repeat: "monthly", interval: 1 },
+    { query: "every month", repeat: "monthly", interval: 1 },
+    { query: "yearly", repeat: "yearly", interval: 1 },
+    { query: "annually", repeat: "yearly", interval: 1 },
+    { query: "hourly", repeat: "hourly", interval: 1 },
+    { query: "fortnightly", repeat: "weekly", interval: 2 },
+    { query: "biweekly", repeat: "weekly", interval: 2 },
+    { query: "every 2 weeks", repeat: "weekly", interval: 2 },
+    { query: "every 3 days", repeat: "daily", interval: 3 },
+    { query: "every other week", repeat: "weekly", interval: 2 },
+    { query: "every other month", repeat: "monthly", interval: 2 },
+    { query: "EVERY 2 WEEKS", repeat: "weekly", interval: 2 },
+  ])("reads $query as $repeat every $interval", ({ query, repeat, interval }) => {
+    expect(parseRepeat(query)).toMatchObject({ repeat, interval, byDay: [] });
+  });
+
+  it.each([
+    { query: "weekdays", expected: [1, 2, 3, 4, 5] },
+    { query: "every weekday", expected: [1, 2, 3, 4, 5] },
+    { query: "weekends", expected: [6, 0] },
+    { query: "every monday", expected: [1] },
+    { query: "every mon", expected: [1] },
+    { query: "every mon/wed/fri", expected: [1, 3, 5] },
+    { query: "every mon,thu", expected: [1, 4] },
+  ])("reads $query as a weekly rule on $expected", ({ query, expected }) => {
+    const spec = parseRepeat(query);
+    expect(spec).toMatchObject({ repeat: "weekly", interval: 1 });
+    expect(days(spec)).toEqual(expected);
+  });
+
+  it("takes a weekday with an interval", () => {
+    const spec = parseRepeat("every other friday");
+    expect(spec).toMatchObject({ repeat: "weekly", interval: 2 });
+    expect(days(spec)).toEqual([5]);
+  });
+
+  // A rule always carries a word of its own. A bare weekday is a date, and
+  // reading `party friday` as fifty-two parties is the worst mistake here.
+  it.each(["", "friday", "fri", "tomorrow", "every", "every fortnight", "every 0 weeks", "45m"])(
+    "refuses %o",
+    (query) => {
+      expect(parseRepeat(query)).toBeNull();
+    },
+  );
+});
+
+describe("repeatPhrase", () => {
+  it.each([
+    { query: "daily", expected: "Daily" },
+    { query: "weekly", expected: "Weekly" },
+    { query: "every 2 weeks", expected: "Every 2 weeks" },
+    { query: "every 3 days", expected: "Every 3 days" },
+    { query: "weekdays", expected: "Weekdays" },
+    { query: "weekends", expected: "Weekends" },
+    { query: "every mon/wed", expected: "Every Mon, Wed" },
+    { query: "every other friday", expected: "Every 2 weeks on Fri" },
+  ])("prints $query as $expected", ({ query, expected }) => {
+    const spec = parseRepeat(query);
+    expect(spec && repeatPhrase(spec)).toBe(expected);
+  });
+});
+
+describe("parseQuickAdd reads a rule out of the sentence", () => {
+  const rule = (input: string, reference = REFERENCE) =>
+    parseQuickAdd(input, reference, NOW)?.repeat ?? null;
+
+  it("reads the whole sentence with a rule in it", () => {
+    expect(shape("morning run 8am 45m daily")).toEqual({
+      title: "morning run",
+      day: "2026-08-05",
+      startMin: 8 * 60,
+      endMin: 8 * 60 + 45,
+      allDay: false,
+    });
+    expect(rule("morning run 8am 45m daily")).toMatchObject({
+      repeat: "daily",
+      interval: 1,
+      byDay: [],
+    });
+  });
+
+  it.each(["morning run 8am 45m daily", "morning run daily 8am 45m", "morning run 45m daily 8am"])(
+    "takes the rule wherever it sits in %o",
+    (input) => {
+      expect(shape(input)).toEqual(shape("morning run 8am 45m daily"));
+      expect(rule(input)).toEqual(rule("morning run 8am 45m daily"));
+    },
+  );
+
+  it("leaves most lines without one", () => {
+    expect(rule("lunch tomorrow 1pm 45m")).toBeNull();
+  });
+
+  // `every friday` ends in a weekday, so the date matcher would take it for one
+  // — leaving `every` in the title and an event that happens once.
+  it("does not let the date matcher eat a rule", () => {
+    expect(shape("gym every friday 7am")).toMatchObject({ title: "gym" });
+    expect(rule("gym every friday 7am")).toMatchObject({ repeat: "weekly" });
+  });
+
+  it("keeps a bare weekday as the date it is", () => {
+    expect(rule("party friday 21:00")).toBeNull();
+    expect(shape("party friday 21:00")).toMatchObject({ day: "2026-08-07" });
+  });
+
+  // An event whose own rule skips the day it was created on would vanish off
+  // the face as it was saved.
+  it("moves the first instance onto a day the rule generates", () => {
+    // Wednesday → the next Monday.
+    expect(shape("gym every monday 7am")).toMatchObject({ day: "2026-08-10" });
+    // Already a weekday, so a weekdays rule does not move it at all.
+    expect(shape("standup every weekday 9:15")).toMatchObject({ day: "2026-08-05" });
+    // Saturday and Sunday are the next two days from a Friday.
+    expect(shape("brunch weekends 11:00", day("2026-08-07"))).toMatchObject({ day: "2026-08-08" });
+  });
+
+  it("leaves an explicit date alone even when the rule names weekdays", () => {
+    expect(shape("gym 2026-09-14 every monday 7am")).toMatchObject({ day: "2026-09-14" });
+  });
+
+  it("makes a rule enough on its own to be an event", () => {
+    expect(shape("bins weekly")).toEqual({
+      title: "bins",
+      day: "2026-08-05",
+      startMin: 0,
+      endMin: MINUTES_PER_DAY,
+      allDay: true,
+    });
+  });
+
+  it("is still not an event without a title", () => {
+    expect(parseQuickAdd("daily", REFERENCE, NOW)).toBeNull();
+    expect(parseQuickAdd("every 2 weeks 9am", REFERENCE, NOW)).toBeNull();
   });
 });

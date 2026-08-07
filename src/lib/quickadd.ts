@@ -16,6 +16,7 @@
  * user is looking at.
  * ------------------------------------------------------------------ */
 
+import { REPEAT_LABELS, repeatUnit, type Repeat, type WeekdayRule } from "@/lib/recur";
 import {
   MINUTES_PER_DAY,
   MONTHS,
@@ -44,6 +45,9 @@ export const DEFAULT_DURATION = 60;
 
 /** The longest a date phrase gets: `in 3 days`. */
 const DATE_WORDS = 3;
+
+/** The longest a repeat phrase gets: `every other week`, `every 2 weeks`. */
+const REPEAT_WORDS = 3;
 
 /**
  * A preposition left dangling by the token it introduced — `lunch at 1pm`,
@@ -199,6 +203,135 @@ function parseSpan(token: string): Span | null {
   return at === null ? null : { startMin: at, endMin: null };
 }
 
+/* -------------------------------- repetition ------------------------------- */
+
+/**
+ * The recurrence a sentence can name. Frequency, interval and weekdays only —
+ * everything the editor's own controls can spell, and nothing it cannot, so a
+ * rule typed here is a rule you can still edit afterwards. An end date is
+ * deliberately absent: `until` would have to eat a second date out of the same
+ * line, and one line cannot say which of the two dates it names is the last.
+ */
+export interface RepeatSpec {
+  repeat: Repeat;
+  interval: number;
+  byDay: WeekdayRule[];
+}
+
+/** Both spellings of every weekday, as `Date.getDay()` numbers. */
+const WEEKDAY_NUMBERS = new Map<string, number>(
+  WEEKDAYS_LOWER.flatMap((name, index) => [
+    [name, index] as const,
+    [name.slice(0, 3), index] as const,
+  ]),
+);
+
+/** A frequency named on its own. `fortnightly` is a weekly with an interval. */
+const FREQUENCY_WORDS: Record<string, RepeatSpec> = {
+  hourly: { repeat: "hourly", interval: 1, byDay: [] },
+  daily: { repeat: "daily", interval: 1, byDay: [] },
+  weekly: { repeat: "weekly", interval: 1, byDay: [] },
+  biweekly: { repeat: "weekly", interval: 2, byDay: [] },
+  fortnightly: { repeat: "weekly", interval: 2, byDay: [] },
+  monthly: { repeat: "monthly", interval: 1, byDay: [] },
+  yearly: { repeat: "yearly", interval: 1, byDay: [] },
+  annually: { repeat: "yearly", interval: 1, byDay: [] },
+};
+
+/** The unit `every …` counts in. */
+const UNIT_WORDS: Record<string, Repeat> = {
+  hour: "hourly",
+  hours: "hourly",
+  day: "daily",
+  days: "daily",
+  week: "weekly",
+  weeks: "weekly",
+  month: "monthly",
+  months: "monthly",
+  year: "yearly",
+  years: "yearly",
+};
+
+const WORKING_WEEK = [1, 2, 3, 4, 5];
+const WEEKEND = [6, 0];
+
+const weekdays = (days: number[], interval = 1): RepeatSpec => ({
+  repeat: "weekly",
+  interval,
+  byDay: days.map((day) => ({ day, nth: 0 })),
+});
+
+/**
+ * `daily`, `every 2 weeks`, `every other friday`, `weekdays`, `every mon/wed`.
+ *
+ * A repeat always carries a word of its own — `daily`, or `every` in front of
+ * the unit. A bare weekday stays a *date*, because `party friday` is one party
+ * and reading it as fifty-two would be the worst mistake this parser could
+ * make.
+ */
+export function parseRepeat(raw: string): RepeatSpec | null {
+  const query = raw.trim().toLowerCase();
+  if (!query) return null;
+
+  const named = FREQUENCY_WORDS[query];
+  if (named) return named;
+  if (query === "weekdays") return weekdays(WORKING_WEEK);
+  if (query === "weekends") return weekdays(WEEKEND);
+
+  const every = /^every\s+(.+)$/.exec(query);
+  if (!every) return null;
+  const rest = every[1];
+
+  if (rest === "weekday" || rest === "weekdays") return weekdays(WORKING_WEEK);
+  if (rest === "weekend" || rest === "weekends") return weekdays(WEEKEND);
+
+  // `every other week` and `every 2 weeks` are the same rule twice over, and
+  // both also take a weekday: `every other friday`.
+  const repeated = /^(other|\d{1,2})\s+(.+)$/.exec(rest);
+  if (repeated) {
+    const interval = repeated[1] === "other" ? 2 : Number(repeated[1]);
+    if (interval < 1) return null;
+    const unit = UNIT_WORDS[repeated[2]];
+    if (unit) return { repeat: unit, interval, byDay: [] };
+    const day = WEEKDAY_NUMBERS.get(repeated[2]);
+    return day === undefined ? null : weekdays([day], interval);
+  }
+
+  const unit = UNIT_WORDS[rest];
+  if (unit) return { repeat: unit, interval: 1, byDay: [] };
+
+  // `every mon`, `every mon/wed/fri`, `every mon, wed`.
+  const days: number[] = [];
+  for (const name of rest.split(/[,/]/)) {
+    const day = WEEKDAY_NUMBERS.get(name.trim());
+    if (day === undefined) return null;
+    days.push(day);
+  }
+  return days.length > 0 ? weekdays(days) : null;
+}
+
+/** A rule as one short phrase, for the row that offers to create it. */
+export function repeatPhrase(spec: RepeatSpec): string {
+  const days = spec.byDay.map((w) => w.day);
+
+  if (days.length > 0) {
+    const same = (set: number[]) =>
+      days.length === set.length && set.every((day) => days.includes(day));
+    const short = days.map((day) => WEEKDAYS[day].slice(0, 3)).join(", ");
+    // "Every 2 weeks on Fri" rather than "Every 2 Fri": the interval counts
+    // weeks whatever the weekday list says.
+    if (spec.interval > 1) return `Every ${spec.interval} weeks on ${short}`;
+    // The two sets have names of their own, and "Every weekdays" is not English.
+    if (same(WORKING_WEEK)) return "Weekdays";
+    if (same(WEEKEND)) return "Weekends";
+    return `Every ${short}`;
+  }
+
+  return spec.interval === 1
+    ? REPEAT_LABELS[spec.repeat]
+    : `Every ${spec.interval} ${repeatUnit(spec.repeat, spec.interval)}`;
+}
+
 /**
  * The hour a draft opens on when nothing said one: the next quarter hour on
  * today, a plausible working hour on any other day — a draft that opens at
@@ -223,6 +356,8 @@ export interface QuickAdd {
   endMin: number;
   /** The rule `draftEvent` will apply, resolved early so the row can say so. */
   allDay: boolean;
+  /** `null` when the line named no repetition — most lines do not. */
+  repeat: RepeatSpec | null;
 }
 
 /**
@@ -236,6 +371,9 @@ export interface QuickAdd {
  * - **Nothing is invented.** A day with no time is an all-day event, because
  *   that is what was said. A duration names a length but not a start, and
  *   there `defaultStart` already has the app's answer.
+ * - **A rule moves the first instance onto a day it generates.** `gym every
+ *   monday` created on a Wednesday must not be an event whose own rule skips
+ *   the day it was made on — it would vanish off the face as you saved it.
  */
 export function parseQuickAdd(input: string, reference: Date, now = new Date()): QuickAdd | null {
   // A hyphen is joined only between two digits, so `13:15 - 14:00` is one
@@ -271,8 +409,19 @@ export function parseQuickAdd(input: string, reference: Date, now = new Date()):
   let dated = false;
   let span: Span | null = null;
   let duration: number | null = null;
+  let repeat: RepeatSpec | null = null;
 
   while (end > 0) {
+    // Repetition before the date, because `every friday` ends in a weekday and
+    // a date matcher would take it for one — leaving `every` in the title and
+    // an event that happens once.
+    if (repeat === null) {
+      const value = claim(REPEAT_WORDS, parseRepeat);
+      if (value !== null) {
+        repeat = value;
+        continue;
+      }
+    }
     // Duration before time: `1h30` is ninety minutes, and `130` is half past
     // one — the same digits, and only the unit tells them apart.
     if (duration === null) {
@@ -308,7 +457,12 @@ export function parseQuickAdd(input: string, reference: Date, now = new Date()):
 
   const title = phrase(0, end).trim();
   if (!title) return null;
-  if (!dated && span === null && duration === null) return null;
+  if (!dated && span === null && duration === null && repeat === null) return null;
+
+  if (!dated && repeat && repeat.byDay.length > 0) {
+    const wanted = new Set(repeat.byDay.map((w) => w.day));
+    for (let step = 0; step < 7 && !wanted.has(day.getDay()); step++) day = addDays(day, 1);
+  }
 
   let startMin: number;
   let endMin: number;
@@ -325,5 +479,12 @@ export function parseQuickAdd(input: string, reference: Date, now = new Date()):
     endMin = MINUTES_PER_DAY;
   }
 
-  return { title, day, startMin, endMin, allDay: endMin - startMin >= MINUTES_PER_DAY };
+  return {
+    title,
+    day,
+    startMin,
+    endMin,
+    allDay: endMin - startMin >= MINUTES_PER_DAY,
+    repeat,
+  };
 }
