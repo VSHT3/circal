@@ -61,36 +61,58 @@ export const YEAR = {
    * magnified one, and it is the only day whose count the readout is printing
    * in words at the same moment. Growing away from the centre is what reads
    * as the day coming up to meet you; growing towards it read as a smudge.
+   *
+   * The tip lands at `DAY_OUTER + GROW_OUT` = 418, four units inside the
+   * month ticks. Length is the one part of this that costs nothing — it
+   * grows into empty space — which is why it is the most generous of the
+   * three and why `FALLOFF.length` is the gentlest exponent on the bell.
    */
-  GROW_OUT: 28,
-  /** …and half as much again as wide, which is what the pushing is for. */
-  GROW_WIDTH: 1.25,
+  GROW_OUT: 32,
+  /**
+   * …and nearly three times as wide, which is what the pushing is for.
+   *
+   * This is the expensive one. The ring is 78% ink at rest — 4.4 units of
+   * stroke in a 5.6-unit slot — so every unit a mark gains has to be
+   * borrowed from the black beside it, and the neighbourhood only has about
+   * ten to lend before marks touch. 1.25 was what fitted when the bell was
+   * narrow; at 1.8 the hovered mark is 12.3 units against a resting 4.4 and
+   * the two either side are 8, and `PUSH` has to work much harder for it.
+   */
+  GROW_WIDTH: 1.8,
   /**
    * How far the neighbours give way, in *day slots*, at the peak of the push.
    *
-   * A slot is 6 units at this radius and a magnified mark is 5.5 units wider
-   * than a resting one, so a little under a slot each side is very nearly
-   * exactly the air the growth takes up: the ring keeps its rhythm instead of
-   * the hovered day eating its neighbours.
+   * A closed ring conserves its black — `spread` returns to zero at both
+   * ends, so the total gap is fixed — and all this decides is *where* the
+   * air comes from. At 0.9/1.15 it came almost entirely from the two slots
+   * either side of the hovered day: that opened a hole beside it and welded
+   * the marks two and three out into a bar. Pushing harder over a much wider
+   * neighbourhood moves the borrowing out to four days and beyond, where
+   * every mark is dark and at its resting width and a crowded pair reads as
+   * nothing at all.
    */
-  PUSH: 0.9,
-  /** Width of the bell, in days: `magnify(1)` is a half, which is the "and
-   *  its two neighbours, less so" the effect is made of. */
-  SIGMA: 1.2,
-  /** Where the push peaks, in days — just outside the hovered mark, where the
-   *  room is actually needed. */
-  SIGMA_PUSH: 1.15,
+  PUSH: 1.7,
+  /** Width of the bell, in days: `magnify(1)` is 0.78 and `magnify(2)` is
+   *  0.37, so the emphasis reaches two days each side and is visibly graded
+   *  across them. It was 1.2 — half at one day out, a sixteenth at two —
+   *  which made the hovered mark and one neighbour, and then a cliff. */
+  SIGMA: 2.0,
+  /** Where the push peaks, in days. Well outside the bulge, because the room
+   *  it is fetching has to come from where there is some. */
+  SIGMA_PUSH: 3.0,
   /**
    * Where both curves are cut, in days.
    *
    * It has to be far enough out that the value there is already invisible,
    * because the cut is a step and every step in these curves is a day that
-   * visibly snaps as the pointer crosses it. `magnify` is under a millionth
-   * here; `spread`, which has a long tail, is 0.3% of a push — three
-   * hundredths of a unit, which is nothing. It was 3.4 and `spread` was still
-   * 6% there.
+   * visibly snaps as the pointer crosses it. `magnify` is under `1e-13`
+   * here; `spread`, which has a long tail, is 0.4% of a push — four
+   * hundredths of a unit, which is nothing. It scales with the two sigmas
+   * and has to: at 4.5 against a `SIGMA_PUSH` of 3 the tail was still most
+   * of a slot when it was cut, and that step is a mark that jumps as the
+   * pointer passes five days away from it.
    */
-  REACH: 4.5,
+  REACH: 11.5,
 
   /** Today's pip, just inside the ring. A halo rather than a fill, for the
    *  reason the life grid's is: the day's own colour is its events', and

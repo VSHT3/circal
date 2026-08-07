@@ -209,12 +209,15 @@ describe("magnify", () => {
     expect(magnify(0)).toBe(1);
   });
 
-  it("gives each neighbour about half of it", () => {
-    // The shape of the effect, and the one number worth pinning: "and its two
-    // neighbours, less so" is what makes it read as a magnifier rather than
-    // as a single day switching size.
-    expect(magnify(1)).toBeCloseTo(0.5, 1);
-    expect(magnify(2)).toBeLessThan(0.1);
+  it("carries two neighbours each side, graded", () => {
+    // The shape of the effect, and the numbers worth pinning: "and the four
+    // days around it, less so" is what makes it read as a magnifier rather
+    // than as a single day switching size. Three days out is already gone,
+    // so the neighbourhood has an edge the eye can find.
+    expect(magnify(1)).toBeCloseTo(0.78, 2);
+    expect(magnify(2)).toBeCloseTo(0.37, 2);
+    expect(magnify(3)).toBeLessThan(0.15);
+    expect(magnify(4)).toBeLessThan(0.02);
   });
 
   it("is symmetric and never negative", () => {
@@ -263,14 +266,23 @@ describe("spread", () => {
     expect(Math.abs(spread(YEAR.REACH))).toBeLessThan(0.005);
   });
 
-  it("opens up about the air the growth takes", () => {
-    // Nearly a slot each side against 5.5 units of extra width: the two have
-    // to stay in step or the hovered day either eats its neighbours or floats
-    // in a gap of its own.
+  it("opens up more air than the hovered mark's own growth takes", () => {
+    // The bulge is five marks wide, so the hovered day's own 7.9 units are
+    // only about a third of what the neighbourhood has to absorb — the push
+    // has to fetch the rest from further out. Too little and the hovered day
+    // eats its neighbours; far too much and it floats in a hole of its own
+    // while the marks beyond it weld.
     const slot = (2 * Math.PI * YEAR.DAY_INNER) / 365;
-    const extra = YEAR.DAY_WIDTH * YEAR.GROW_WIDTH;
-    expect(2 * YEAR.PUSH * slot).toBeGreaterThan(extra);
-    expect(2 * YEAR.PUSH * slot).toBeLessThan(extra * 2.5);
+    const own = YEAR.DAY_WIDTH * YEAR.GROW_WIDTH;
+    expect(2 * YEAR.PUSH * slot).toBeGreaterThan(own * 1.5);
+    expect(2 * YEAR.PUSH * slot).toBeLessThan(own * 4);
+  });
+
+  it("has room to fetch it from: the tail reaches past the bulge", () => {
+    // `SIGMA_PUSH` outside `SIGMA` is the whole trick — the borrowing has to
+    // happen where the marks are still at their resting width, because that
+    // is the only place with black to lend.
+    expect(YEAR.SIGMA_PUSH).toBeGreaterThan(YEAR.SIGMA);
   });
 });
 

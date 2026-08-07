@@ -74,8 +74,12 @@ const ACCENT = "#a3d9e4";
 const EMPTY_MARK = "#3a3a3e";
 
 /**
- * How white the magnified day goes, over its own colour. Over, never instead
- * of: the mark keeps a trace of whose it is while it is lit.
+ * How white an *empty* day goes when it is the one being pointed at. Empty,
+ * and only empty: a day with events already says what it is with its colour,
+ * and washing that out to name it trades the one piece of information this
+ * face carries for a highlight the growth is already giving. So light is what
+ * a day with nothing on it gets instead of a colour, and the two never
+ * compete.
  */
 const LIT_HOVER = 0.95;
 
@@ -83,17 +87,18 @@ const LIT_HOVER = 0.95;
  * How the three parts of the magnifier are spread across the neighbourhood,
  * as exponents on `magnify`'s bell.
  *
- * The bell is the *shape* — a half at one day out, which is what makes it
- * read as a magnifier rather than as one day changing size — and these
- * decide how much of each part the middle keeps. Length is the gentlest, so
- * the neighbours visibly come along; width and light are steep, so the day
- * the readout is naming is unmistakably the one, instead of the emphasis
- * smearing across three.
+ * The bell is the *shape* — 0.78 at one day out and 0.37 at two, which is
+ * what makes it read as a magnifier over five marks rather than as one day
+ * changing size — and these decide how much of each part the middle keeps.
+ * Length is the gentlest, so the two neighbours either side visibly come
+ * along; width is steeper, because every unit of it has to be borrowed from
+ * the black between marks; light is the steepest, so the day the readout is
+ * naming is unmistakably the one.
  *
  * They are here and not in `YEAR` on purpose: the bell is geometry and is
  * tested, these are how hard the drawing leans on it.
  */
-const FALLOFF = { length: 1.5, width: 2.5, light: 3 } as const;
+const FALLOFF = { length: 1.4, width: 4, light: 3.5 } as const;
 
 /**
  * The bulge arriving and leaving. Stiff, because it answers a pointer and a
@@ -101,6 +106,15 @@ const FALLOFF = { length: 1.5, width: 2.5, light: 3 } as const;
  * the day pops rather than inflating.
  */
 const MAGNIFY_SPRING = { stiffness: 520, damping: 22, mass: 0.6 } as const;
+
+/**
+ * The bulge sliding from one slot to the next. Critically damped, unlike the
+ * one above: overshoot in *size* is a pop, and overshoot in *position* is the
+ * magnifier running past the day it is naming and coming back. Fast enough
+ * that a slow read still feels attached to the pointer, and slow enough that
+ * a sweep of the ring is a wave rather than 365 jumps.
+ */
+const SLIDE_SPRING = { stiffness: 700, damping: 44, mass: 0.7 } as const;
 
 interface Mark {
   angle: number;
@@ -279,22 +293,51 @@ export default function YearView({
   }, [year, days, events, calendars]);
 
   /**
-   * Where the pointer is in the year, as a fraction of a day, and how much of
-   * the bulge is up.
+   * Which slot the bulge is centred on, and how much of it is up.
    *
-   * Motion values rather than state: the position changes on every
-   * `pointermove` and the amount is a spring, and neither may cost a React
-   * render — 365 marks re-diffed at 60 Hz is what the canvas exists to avoid.
-   * The *day* is state, because the readout and the listbox name it and it
-   * only changes once per slot crossed.
+   * Motion values rather than state: both change every frame while the
+   * pointer moves, and neither may cost a React render — 365 marks re-diffed
+   * at 60 Hz is what the canvas exists to avoid. The *day* is state, because
+   * the readout and the listbox name it and it only changes once per slot
+   * crossed.
+   *
+   * The position is a spring on the slot's *centre*, not the pointer's exact
+   * place in the year. Following the pointer continuously was the first
+   * draft, and it meant the bulge only ever landed wholly on one mark when
+   * the pointer happened to be at that mark's midpoint: anywhere else the
+   * two marks either side of the pointer split it between them and neither
+   * reached full size, so the day the readout was naming looked no different
+   * from its neighbour. Snapping to the slot fixes which mark is the
+   * subject; the spring is what stops the snap being a lurch, which is the
+   * one thing a magnifier must not do.
    */
-  const pointerAt = useMotionValue(0);
+  const pointerAt = useSpring(0, reducedMotion ? { duration: 0 } : SLIDE_SPRING);
   const amount = useSpring(0, reducedMotion ? { duration: 0 } : MAGNIFY_SPRING);
+
+  /**
+   * Move the bulge to a day, the short way round: the spring's value is a
+   * position on a ring, so a slide from 31 December to 1 January must travel
+   * one slot forwards and not 364 slots back through the year.
+   *
+   * `jump` for the first day of a hover, and for the keyboard picking the
+   * ring up cold. There is nothing on screen to be continuous with at that
+   * moment — the bulge is down — and sliding to it would sweep a swell
+   * across two months of a ring nobody was pointing at.
+   */
+  const slideTo = useCallback(
+    (day: number, jump = false) => {
+      const at = pointerAt.get();
+      const to = at + ringDelta(day + 0.5, at, days);
+      if (jump) pointerAt.jump(to);
+      else pointerAt.set(to);
+    },
+    [pointerAt, days],
+  );
 
   /**
    * The keyboard drives the same bulge the pointer does, so the cursor and
    * the hover are one thing seen twice — and the pointer wins while it is on
-   * the ring, where `onMove` has already set the exact position.
+   * the ring, where `onMove` has already placed it.
    *
    * One effect, not two: a second one setting `amount` would run after this
    * and put it back to zero every time the keyboard was the only thing on.
@@ -309,9 +352,9 @@ export default function YearView({
       amount.set(0);
       return;
     }
-    pointerAt.set(cursor + 0.5);
+    slideTo(cursor, amount.get() < 0.01);
     amount.set(1);
-  }, [hover, cursor, pointerAt, amount]);
+  }, [hover, cursor, slideTo, amount]);
 
   const months = useMemo(() => monthMarks(year), [year]);
 
@@ -321,19 +364,18 @@ export default function YearView({
   /* ------------------------------ interaction ----------------------------- */
 
   /**
-   * Where a pointer event lands on the ring: its exact place in the year, and
-   * the day whose slot that is. `null` off the ring — the corners of a square
-   * panel are not pointing at December, and neither is the empty middle.
+   * Which day a pointer event lands on. `null` off the ring — the corners of
+   * a square panel are not pointing at December, and neither is the empty
+   * middle.
    */
   const locate = useCallback(
-    (e: ReactPointerEvent<SVGSVGElement>): { exact: number; day: number } | null => {
+    (e: ReactPointerEvent<SVGSVGElement>): number | null => {
       const ctm = e.currentTarget.getScreenCTM();
       if (!ctm) return null;
       const { x, y } = new DOMPoint(e.clientX, e.clientY).matrixTransform(ctm.inverse());
       const r = Math.hypot(x - DIAL.C, y - DIAL.C);
       if (r < YEAR.TODAY_RING - 30 || r > YEAR.MONTH) return null;
-      const exact = yearAtPoint(x, y, days);
-      return { exact, day: dayOfYearAt(exact, days) };
+      return dayOfYearAt(yearAtPoint(x, y, days), days);
     },
     [days],
   );
@@ -349,16 +391,17 @@ export default function YearView({
   const ticked = useRef<number | null>(null);
 
   const onMove = (e: ReactPointerEvent<SVGSVGElement>) => {
-    const hit = locate(e);
-    if (!hit) {
+    const day = locate(e);
+    if (day === null) {
       setHover(null);
       ticked.current = null;
       return;
     }
-    pointerAt.set(hit.exact);
-    setHover(hit.day);
-    if (hit.day !== ticked.current) {
-      ticked.current = hit.day;
+    setHover(day);
+    if (day !== ticked.current) {
+      const arriving = ticked.current === null;
+      ticked.current = day;
+      slideTo(day, arriving);
       // The quieter of the two drag cues, and gated like them: crossing a day
       // is the same event as crossing a detent. A slow read is one tick per
       // day; a fast sweep is a rip, which is what running a finger along a
@@ -474,13 +517,13 @@ export default function YearView({
           ticked.current = null;
         }}
         onPointerDown={(e) => {
-          const hit = locate(e);
-          if (!hit) return;
+          const day = locate(e);
+          if (day === null) return;
           // Focus moves to the list so the arrows carry on from where the
           // pointer stopped, rather than starting again at the selection.
-          setCursor(hit.day);
+          setCursor(day);
           listRef.current?.focus();
-          onSelectDay(dateOfYear(year, hit.day));
+          onSelectDay(dateOfYear(year, day));
         }}
       >
         <defs>
@@ -677,10 +720,14 @@ function Ring({
       ctx.strokeStyle = mark.color;
       ctx.stroke();
 
-      // White over the day's own colour, never instead of it. The selection
-      // is full white because it is where the dial will land and where the
-      // unroll leaves from.
-      const white = i === selected ? 1 : LIT_HOVER * lift ** FALLOFF.light;
+      // Light instead of a colour, never over one. An empty day has nothing
+      // to say with its fill, so the magnifier lights it; a day with events
+      // is already saying it, and washing that to white to announce a hover
+      // spends the only information this face carries on a highlight the
+      // growth has already given. The selection is the exception and is full
+      // white whatever it carries: it is not a hover, it is where the dial
+      // will land and where the unroll leaves from.
+      const white = i === selected ? 1 : mark.count > 0 ? 0 : LIT_HOVER * lift ** FALLOFF.light;
       if (white > 0.004) {
         ctx.globalAlpha = white;
         ctx.strokeStyle = "#fff";
