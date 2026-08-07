@@ -326,7 +326,7 @@ when it says nothing, and every stored blob says one or the other out loud.
 **Two beats and two curves, in `lib/motion.ts`.** The whole reason the first attempt read as
 "blocky": arriving in ambient ran the centre at 140 ms and the chrome at 240, so what you saw was a
 snap followed by a crawl. Now `MOOD_MS` (260) is a pointer being answered — an arc thickening, the
-readout shrinking into its span, a lane repacking — and `MODE_MS` (460) is a mode changing, which
+readout shrinking into its span, a lane repacking — and `MODE_MS` (600) is a mode changing, which
 is everything ambient touches. One curve, `EASE`, matching `--ease`; six components had their own
 copy of it.
 
@@ -338,15 +338,17 @@ gentler one now.
 - **The centre's mood is one `scale()`**, not a dozen sizes. It had to be: a mode change and a
   pointer both want the readout's size, and as two font-size transitions on one element they can
   only have one duration. On separate properties they each keep their own, and the mode's rides the
-  same 460 ms as the chrome and the stage growing under it — which is what actually removed the
+  same 600 ms as the chrome and the stage growing under it — which is what actually removed the
   two-step.
 - **The rim crossfades.** `Fade` in `Dial.tsx` is an `AnimatePresence`-mounted `motion.g`, so the
   band and the elapsed trail dissolve into each other rather than swapping, and nothing is kept on
   the canvas for the sake of the transition.
-- **The band's two halves are two groups now**, switched by opacity rather than by which segments
-  exist. A half that differs between the modes fades; a half that is the same either side does not
-  move at all, which is the whole reason it is not one filtered list. It also stops a switch
-  recomputing 288 segments.
+- **The band's two halves each draw themselves**, from midnight and in the direction the day runs,
+  through a mask of their own — a `motion.path` on the mask's circle, `pathLength` from 0 to 1, so
+  it is one animated element per half rather than 144. A band is a thing that happens _over_ a day,
+  so it should arrive over one; appearing whole was the last piece of the rim that just turned up.
+  A half that is the same either side of a mode change still does not move at all, and the switch
+  no longer recomputes 288 segments.
 - The eight minor numerals recede by opacity rather than unmounting, and an arc's name is `off` by
   opacity too — `labels === "off"` used to unmount the `<textPath>`, blinking every name out at
   once.
@@ -368,20 +370,22 @@ And the honest omission: **there are no reminders.** A calendar that never tells
 viewer. While the tab is open, `Notification` is enough; closed, it needs a server, and a server is
 off-thesis. Say so in the UI rather than leaving the absence unexplained.
 
-### Correctness — seven fixed, four open
+### Correctness — eight fixed, four open
 
-Fixed while writing the suite, each with the tests that pin it:
+Fixed while writing the suite, each with the tests that pin it — plus one the suite could never
+have caught, because it is a gesture.
 
-| what                                   | the fix                                                                                                                                                                                                                                                                                       |
-| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| ~~**SSRF via redirect**~~              | `followChecked` in `worker/index.ts` walks the chain itself with `redirect: "manual"`, re-running the guard on every hop and capping at 5. A `302` into `169.254.169.254` is a 400, not a proxied body.                                                                                       |
-| ~~**IP literals bypass the guard**~~   | `ipv4Number` normalises decimal (`2130706433`), octal (`0177.0.0.1`), hex (`0x7f000001`), short forms (`127.1`) and v4-mapped v6 (`::ffff:127.0.0.1`) before anything is compared. The guard blocked the spelling, not the address. Carrier NAT, multicast and `0.0.0.0/8` added while there. |
-| ~~**Feeds without UID churn ids**~~    | The random id was in `ics.ts`, not `feeds.ts` — `crypto.randomUUID()` on every parse. Now `derivedUid()`, FNV-1a over DTSTART/DTEND/SUMMARY/LOCATION/RECURRENCE-ID. Fixes `.ics` import too, which had the same churn.                                                                        |
-| ~~**Cross-tab writes wipe undo**~~     | The wipe is scoped by `baseSignature()` — events, calendars minus their `feed`, settings. A background tab's feed pull no longer costs the foreground tab sixty steps.                                                                                                                        |
-| ~~**Undo reverted settings**~~         | Found by the suite. Settings commit with `record: false`, but undo restored a whole recorded snapshot, so undoing an event silently rolled back a switch flipped after it. Steps now carry `ownsSettings`, and only `restore` sets it.                                                        |
-| ~~**`zonedToUtc` wrong west of UTC**~~ | Found by the suite. The two-pass estimate converged from the naive UTC reading, so a spring-forward gap resolved _after_ the gap in Berlin and an hour _before_ it in Los Angeles. Now brackets the wall time with the offsets a day either side.                                             |
-| ~~**All-day toggle loses times**~~     | `timedSpan` ref in `EventEditor.tsx` remembers `{ startMin, durationMs }` across the toggle.                                                                                                                                                                                                  |
-| ~~**RDATE without RRULE dropped**~~    | Found by the suite. `readRecurrence` returned a bare `NEVER` when RRULE was absent, discarding EXDATE/RDATE with it — though `repeats()` and `startsBetween` both support an RDATE-only series. The lists are read independently now.                                                         |
+| what                                     | the fix                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ~~**SSRF via redirect**~~                | `followChecked` in `worker/index.ts` walks the chain itself with `redirect: "manual"`, re-running the guard on every hop and capping at 5. A `302` into `169.254.169.254` is a 400, not a proxied body.                                                                                                                                                                                                                                                                    |
+| ~~**IP literals bypass the guard**~~     | `ipv4Number` normalises decimal (`2130706433`), octal (`0177.0.0.1`), hex (`0x7f000001`), short forms (`127.1`) and v4-mapped v6 (`::ffff:127.0.0.1`) before anything is compared. The guard blocked the spelling, not the address. Carrier NAT, multicast and `0.0.0.0/8` added while there.                                                                                                                                                                              |
+| ~~**Feeds without UID churn ids**~~      | The random id was in `ics.ts`, not `feeds.ts` — `crypto.randomUUID()` on every parse. Now `derivedUid()`, FNV-1a over DTSTART/DTEND/SUMMARY/LOCATION/RECURRENCE-ID. Fixes `.ics` import too, which had the same churn.                                                                                                                                                                                                                                                     |
+| ~~**Cross-tab writes wipe undo**~~       | The wipe is scoped by `baseSignature()` — events, calendars minus their `feed`, settings. A background tab's feed pull no longer costs the foreground tab sixty steps.                                                                                                                                                                                                                                                                                                     |
+| ~~**Undo reverted settings**~~           | Found by the suite. Settings commit with `record: false`, but undo restored a whole recorded snapshot, so undoing an event silently rolled back a switch flipped after it. Steps now carry `ownsSettings`, and only `restore` sets it.                                                                                                                                                                                                                                     |
+| ~~**`zonedToUtc` wrong west of UTC**~~   | Found by the suite. The two-pass estimate converged from the naive UTC reading, so a spring-forward gap resolved _after_ the gap in Berlin and an hour _before_ it in Los Angeles. Now brackets the wall time with the offsets a day either side.                                                                                                                                                                                                                          |
+| ~~**All-day toggle loses times**~~       | `timedSpan` ref in `EventEditor.tsx` remembers `{ startMin, durationMs }` across the toggle.                                                                                                                                                                                                                                                                                                                                                                               |
+| ~~**RDATE without RRULE dropped**~~      | Found by the suite. `readRecurrence` returned a bare `NEVER` when RRULE was absent, discarding EXDATE/RDATE with it — though `repeats()` and `startsBetween` both support an RDATE-only series. The lists are read independently now.                                                                                                                                                                                                                                      |
+| ~~**A clamped drag opened the editor**~~ | `onArcUp` read "no delta" as "never moved", and a grip held against the minimum duration reports no delta however far the pointer runs (that is what `clampDelta` is for). So dragging the end of a fifteen-minute event — which cannot get shorter — opened it on release. `Adjust` carries `moved` now: crossing a step is the drag, changing the delta is only the arc having room. A press on a read-only arc still opens, which is the whole implementation of those. |
 
 Still open:
 

@@ -38,4 +38,4 @@ export const MOOD_MS = 260;
  * side of, it moves the whole window, and a room-scale object that snaps into
  * place is a webpage doing an animation.
  */
-export const MODE_MS = 460;
+export const MODE_MS = 600;

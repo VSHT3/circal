@@ -230,6 +230,17 @@ interface Adjust {
   /** How far the grip has travelled so far. Always a whole `STEP`. */
   delta: number;
   /**
+   * Whether the pointer has crossed a step since the grab — which is not the
+   * same question as whether the delta changed.
+   *
+   * A grip held against the minimum duration reports a delta of zero however
+   * far the pointer runs (see `clampDelta`), and a release with no delta used
+   * to be read as a click and open the editor. So: dragging an event that
+   * could not get any shorter opened it instead, which is the one thing a
+   * drag must never do.
+   */
+  moved: boolean;
+  /**
    * How many days the *view* has moved on this gesture's account, so that
    * abandoning the gesture can give them back. Nothing is measured from it:
    * the arcs come from the day's own agenda, with the drag folded in.
@@ -572,7 +583,7 @@ export default function Dial({
     // through the one being grabbed.
     e.stopPropagation();
     capture(e);
-    setAdjust({ occ, grip, at, delta: 0, shift: 0 });
+    setAdjust({ occ, grip, at, delta: 0, moved: false, shift: 0 });
     // Nothing is going to move on somebody else's event, so nothing clicks.
     if (grip !== "none") say(grip === "whole" ? "slide" : "step");
   }
@@ -587,10 +598,13 @@ export default function Dial({
     // before the arc started following the pointer back.
     const delta = clampDelta(adjust, adjust.delta + wrapDelta(adjust.at, at));
     if (delta === adjust.delta) {
-      setAdjust({ ...adjust, at });
+      // The pointer crossed a step and the grip did not follow: it is against
+      // the minimum duration. Still a drag — it is only the arc that is out
+      // of room — so the release must not fall through to opening the editor.
+      setAdjust({ ...adjust, at, moved: true });
       return;
     }
-    const next = { ...adjust, at, delta };
+    const next = { ...adjust, at, delta, moved: true };
     const step = dayFollow(next, day);
     setAdjust({ ...next, shift: adjust.shift + step });
     if (step !== 0) onStepDay(step);
@@ -600,17 +614,20 @@ export default function Dial({
 
   function onArcUp() {
     if (!adjust) return;
-    const { occ, delta } = adjust;
+    const { occ, grip, delta, moved } = adjust;
     const { start, end } = deltas(adjust);
     setAdjust(null);
     onPreview(null);
-    // A press that moved nothing is a click, and a click opens the event.
-    // That covers a read-only arc, which can never move at all.
-    if (delta === 0) {
+    // A press that never crossed a step is a click, and a click opens the
+    // event — as does any press on a read-only arc, which is the whole
+    // implementation of those: they open, they never move.
+    if (!moved || grip === "none") {
       onOpen(occ);
       return;
     }
-    onAdjust(occ, start, end);
+    // Moved, but the grip was pinned the whole way: nothing to write, and a
+    // no-op write would still cost an undo step.
+    if (delta !== 0) onAdjust(occ, start, end);
   }
 
   /**
@@ -840,6 +857,7 @@ function SunBand({
   moonlight: boolean;
   radius: number;
 }) {
+  const reducedMotion = useReducedMotion();
   const halves = useMemo(() => {
     const sun = sunTimes(day, place);
 
@@ -869,17 +887,42 @@ function SunBand({
     return lit;
   }, [day, clock, place, radius]);
 
-  // The two halves are two groups, switched by opacity rather than by which
-  // segments exist. A half that is on in one mode and off in the other fades
-  // between them; a half that is the same either side does not move at all,
-  // which is the whole reason this is not one filtered list.
+  // Each half is masked by a stroke of its own that draws itself round the
+  // face, from midnight and in the direction the day runs. A band is a thing
+  // that happens *over* a day, so it arrives over one — appearing whole was
+  // the one piece of the rim that still just turned up.
   //
-  // The curve is computed for the day whatever the switches say, so the half
-  // that stays keeps the exact shape it had beside the other.
+  // One animated element per half rather than 144: `pathLength` normalises
+  // the mask's own circle to 1, so a single number sweeps it. `motion`
+  // handles the dash arithmetic behind that prop.
+  //
+  // A half that is the same either side of a mode change never animates,
+  // because nothing about it changed — the curve is computed for the whole
+  // day whatever the switches say, so the half that stays keeps the exact
+  // shape it had beside the other.
+  const maskId = useId().replace(/[^a-zA-Z0-9-]/g, "");
+  const sweep = arcPath(radius, angleAt(0, clock), angleAt(0, clock) + 360);
   return (
     <g pointerEvents="none" shapeRendering="geometricPrecision">
-      {[daylight, moonlight].map((on, half) => (
-        <g key={half} opacity={on ? 1 : 0} style={{ transition: `opacity ${MODE}` }}>
+      <defs>
+        {[daylight, moonlight].map((on, half) => (
+          <mask key={half} id={`${maskId}-${half}`} maskUnits="userSpaceOnUse">
+            <motion.path
+              d={sweep}
+              fill="none"
+              stroke="#fff"
+              // Wider than the band, so the mask's own antialiased edges never
+              // shave the stroke it is revealing.
+              strokeWidth={DIAL.TRACK_WIDTH + 4}
+              initial={{ pathLength: 0 }}
+              animate={{ pathLength: on ? 1 : 0 }}
+              transition={{ duration: reducedMotion ? 0 : MODE_MS / 1000, ease: EASE }}
+            />
+          </mask>
+        ))}
+      </defs>
+      {[daylight, moonlight].map((_, half) => (
+        <g key={half} mask={`url(#${maskId}-${half})`}>
           {halves[half].map((segment, i) => (
             <path
               key={i}

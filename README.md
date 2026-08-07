@@ -160,7 +160,7 @@ and leaves like one, at the first sign of anybody being there; asked for with
 Nothing about the change is a cut, and all of it moves on one beat. The chrome
 withdraws, the eight hour numerals between the quarters recede, the names
 leave the arcs, the middle grows into its larger type and the rim crossfades
-between the band and the elapsed trail — over the same 460ms, on the way in
+between the band and the elapsed trail — over the same 600ms, on the way in
 and again on the way out. A half of the lightcycle that is on in one mode and
 off in the other fades between them; a half that is the same either side does
 not move at all. With **reduce motion** set, none of it moves.
@@ -215,7 +215,10 @@ An arc already on the face is draggable too: grab its middle to move the whole
 event, or either end to move that end alone. The minimum is one fifteen-minute
 step, ends stop dead there, and a move that passes midnight lands on the next
 day and says so. A subscription's arcs only open — somebody else's calendar is
-a mirror. Click an arc, an agenda row or a day in the year grid to open it.
+a mirror. Click an arc, an agenda row or a day in the year grid to open it —
+a click being a press that never crossed a step, so an end held against the
+minimum is still a drag however long it stays there and releasing it opens
+nothing.
 
 `Esc` abandons a drag in flight — the range or the moved arc goes back to where
 it was and nothing opens. It is the one gesture you can start by accident, and
