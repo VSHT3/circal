@@ -1,8 +1,9 @@
 # todo
 
 Recurrence is real, the interior answers the day, arcs carry their own names, the dial has an
-ambient mode, ⌘P writes an event in one line and ranks what it finds, and there is a test suite —
-831 cases over the domain layer, `pnpm test`, in the gate.
+ambient mode, ⌘P writes an event in one line and ranks what it finds, the year is a revolution and
+unrolls into the life grid, and there is a test suite — 868 cases over the domain layer,
+`pnpm test`, in the gate.
 
 Done work is not recorded here. The rationale that outlived it lives in `AGENTS.md`, next to the
 code it constrains.
@@ -24,16 +25,18 @@ somebody is looking at eighty years of nothing and needs a reason to type a date
 change you wish to see in the world": it is a bumper sticker sitting between two ideas that are not.
 Fold the rest into (9) — see there.
 
-**2. year -> life transition**
+**2. year -> life transition** — _done._
 
-Yes, and it is arguably more on-thesis than the zoom you already have: a year _is_ one row of the
-life grid, which is a stricter identity than "the dial is the dot". The catch is that it is only
-true if the year view lays its days out the way the life row does. Today it is twelve month blocks
-in a 4×3 grid (`YearView.tsx:133`) and a life row is 52-odd Monday-to-Sunday weeks on one to six
-lines (`life.ts:190`) — morph one into the other and you get an expensive crossfade wearing a
-zoom's clothes. So this is blocked on deciding what the year view is (see **Year view** below). Do
-that first, then `zoomsOut`/`zoomsIn` in `App.tsx:63-69` grow a second pair and `flow` already
-carries everything the exit variant needs.
+And it turned out to be the same job as deciding what the year view is, not a job blocked behind it.
+The year is now 365 marks in day order on one revolution, which is a row of the life grid rolled up
+— so ⌘Y ⇄ ⌘L is a genuine unroll: the ring opens at 1 January, straightens, and the days settle onto
+the row they were always going to be. `unroller` in `lib/year.ts` does the maths, `YearView` owns
+both halves on a canvas, and `App.tsx`'s `PANEL` keeps out of the way.
+
+Two things it left behind. The unroll lands on the _first_ line a year occupies, and `lifeLayout`
+splits a desktop year across two — the settle covers it, but a one-line split is the case it looks
+best in. And the year ring still has no year-scale summary in the middle; the readout prints `2026`
+and a date, where the dial's centre prints a whole sentence about the day.
 
 **3. group ui**
 
@@ -87,22 +90,28 @@ manifest, and the worm-through-time line from (1) lives on it. One page, not two
 ## review — the code as it stands
 
 The thesis is intact and the instrument is finished. The calendar underneath it is now real —
-RFC 5545 in and out, the interior answering the day, and one typed line making an event. What is
-left is one screen that contradicts the argument, one panel that is hard to read, and five
-DOM-shaped bugs.
+RFC 5545 in and out, the interior answering the day, and one typed line making an event. All three
+screens now make the same argument, and the moves between them are geometry. What is left is one
+panel that is hard to read and two DOM-shaped bugs.
 
-### The year view is the weak sibling, and the biggest opportunity
+### The year view — settled
 
-It is a conventional twelve-month grid that shares no _metaphor_ with the other two. It does share
-code — `mondayOffset` and `dayColors` both live in `life.ts` and both views call them, so an event
-no longer gets two different answers — but it is still the one screen that contradicts "one idea at
-three scales", and it is still what blocks (2). Two honest paths:
+It is a revolution: 365 marks in day order, growing outwards with what is on the day, months named
+outside, one tab stop with a cursor inside it. The twelve-month grid is gone, and with it the last
+screen that contradicted "one idea at three scales".
 
-- **On-thesis: the year is a revolution too.** 365 spokes on one ring — and the thing only this app
-  can draw, **the day-length curve across a year**, from `sunTimes` sampled 365 times (`sun.ts:72`).
-  A solstice-to-solstice figure no grid can show, for the price of a loop. **[high / medium]**
-- **Or accept it as an index** and give it what an index needs: hover detail, its own year stepper
-  (`year` is a fixed prop), and weight by count rather than "up to three dots".
+What it does _not_ have, deliberately: a daylight figure. Radius inside the marks was time of day
+for one draft, with sunrise and sunset as two curves round the year — the one picture a grid cannot
+draw, and never what anybody came to a calendar to find out. If it ever comes back it belongs
+behind a switch, beside the dial's own lightcycle, not as the face's furniture.
+
+What it still could use, in order:
+
+- **A year-scale sentence in the middle.** The dial's centre prints what the day is made of; the
+  year's prints `2026` and a date. Busiest month, longest run of empty days, events this year — one
+  line, the same voice as `totals`. **[medium / small]**
+- **Drag an arc of the ring** to select a range of days, the way a drag on the dial selects a range
+  of minutes. The maths is `dayAtPoint` twice and the readout already knows how to print a span.
 
 ### Life view
 
@@ -134,31 +143,34 @@ off-thesis. Say so in the UI rather than leaving the absence unexplained.
 
 ### Correctness — two open
 
-| what                             | where and why                                                                                                                                                                                                                                                                                                                               |
-| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **1 Hz whole-tree re-render**    | `useNow` ticks every second and `App` hands `now` to Dial, Sidebar, CenterPanel and LifeView, but only the readout and the hand move. Ambient takes the period to a minute, which is the right answer for a mode left running and no answer at all for the other 23 hours. Push second-resolution into a leaf and keep the rest on minutes. |
-| **Life grid is invisible to AT** | `role="img"`, one label, 30,000 dots, no focus path. The year grid does it right with real buttons — but its `aria-label` omits whether the day carries anything.                                                                                                                                                                           |
+| what                             | where and why                                                                                                                                                                                                                                                                                                                                          |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **1 Hz whole-tree re-render**    | `useNow` ticks every second and `App` hands `now` to Dial, Sidebar, CenterPanel, YearView and LifeView, but only the readout and the hand move. Ambient takes the period to a minute, which is the right answer for a mode left running and no answer at all for the other 23 hours. Push second-resolution into a leaf and keep the rest on minutes.  |
+| **Life grid is invisible to AT** | `role="img"`, one label, 30,000 dots, no focus path. The year ring now does it right — one `sr-only` listbox, arrows for a cursor, labels that say whether the day carries anything — and the same shape is what the grid wants: it is the same question at another scale, and 30,000 options is not it. A row-and-column cursor, or a year at a time. |
 
 Both are DOM-shaped, which is exactly the surface the suite does not cover: no DOM, no jsdom, no
 component tests, on purpose — a snapshot of an SVG path is a change-detector that fails on every
-legitimate geometry tweak. That is the honest boundary of what 830 pure-function tests buy you, and
-the dial stays eye-verified.
+legitimate geometry tweak. That is the honest boundary of what 868 pure-function tests buy you, and
+the faces stay eye-verified.
 
 ### What not to do
 
 - **No week view.** The circle is the argument; a seven-column grid concedes it.
 - **No sync, no accounts.** "Nothing leaves this browser" is a feature, and a second API route is a
   different product.
-- **Do not add a ring.** Every radius costs `PAD` and legibility, and the face already carries four
-  plus two bands. The room is in the interior.
+- **Do not add a ring to the dial.** Every radius costs `PAD` and legibility, and that face already
+  carries four plus two bands. The room is in the interior. The year face is a separate object with
+  its own budget, and it is nearly empty — but see what happened to the daylight figure.
 
 ### If it were three things
 
-The old five are spent, and so are the month banding and the life search. What is left, in order:
+The old five are spent, and so are the month banding, the life search and the year view. What is
+left, in order:
 
-1. **Decide what the year view is.** The last screen off-thesis, and the only thing blocking (2).
-   Everything else here is an improvement; this one is an argument. `[high / medium]`
-2. **The 1 Hz whole-tree re-render**, then **a focus path into the life grid** — the two DOM-shaped
-   bugs left, and the suite covers neither. `[medium / small]`
-3. **Milestones in the life grid** — day 10,000, the halfway dot. Cheap, on thesis, high delight.
+1. **The 1 Hz whole-tree re-render**, then **a focus path into the life grid** — the two DOM-shaped
+   bugs left, and the suite covers neither. The year ring's listbox is the pattern for the second.
    `[medium / small]`
+2. **Milestones in the life grid** — day 10,000, the halfway dot. Cheap, on thesis, high delight.
+   `[medium / small]`
+3. **A year-scale sentence in the middle of the year ring.** The one thing the new face is missing
+   against the dial it is a copy of. `[medium / small]`

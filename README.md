@@ -88,6 +88,29 @@ Two optional annotations, both configured in **Settings** (`⌘,`):
 With the lightcycle off — no city, or both halves switched off — the dial is
 exactly as it was: the elapsed day as a ramp of light around the rim.
 
+## The year, on one revolution
+
+`⌘Y` is the same instrument asked a bigger question. One revolution is one
+year, clockwise from 1 January at the top, and every day of it gets one mark
+on the rim — a stub when there is nothing on it, growing outwards with what
+there is, in the colour of the first thing there. A busy autumn is a bright
+ragged stretch and an empty spring is a dotted line, so the shape of a year is
+something you read rather than count. Months are named outside the ring, today
+is a pip just inside it, and the day you came in on is a white mark.
+
+The middle prints the year until you point at a day, and then prints that day
+— its date, and what is on it. Click a mark to open that day on the dial.
+
+It is one tab stop, not three hundred and sixty five. Tab to the ring and the
+arrows move a cursor round it — a day at a time, a week with up/down, four
+weeks with page up and down, `home` and `end` for the ends of the year — with
+the middle reading out whatever the cursor is on. `↵` opens it. `←` and `→`
+still step the whole year whenever the ring does not have focus.
+
+There is no daylight curve in the middle of it. There was, for a while, and it
+was the one picture a grid cannot draw — and it was never what anyone came to
+a calendar to find out.
+
 ## Your life, in days
 
 `⌘L` pulls all the way back. One dot is one day and the whole life is one
@@ -118,9 +141,14 @@ Between the dial and the grid it is a zoom, not a cut. Going out, the dial —
 arcs, hand and all — shrinks until it is the single dot standing for the day
 you were looking at, and the field arrives as a wave leaving that same dot,
 the days lighting up as it passes. Coming back, the wave collapses onto the
-day you clicked and the dial grows out of it. Only that pair zooms: the year
-grid is not a magnified anything, so it crossfades, and with **reduce motion**
-set nothing moves at all.
+day you clicked and the dial grows out of it.
+
+Between the year and the grid it is an unroll, which is the stricter claim of
+the two: a year in day order round a circle _is_ one row of this grid rolled
+up. So the ring opens at 1 January and straightens, the days settling onto the
+row they were always going to be, and rolls back up the other way. Day and
+year is neither — a day is not a magnified year and it is not a rolled-up one
+— so that pair crossfades. With **reduce motion** set nothing moves at all.
 
 ## Ambient
 
@@ -257,7 +285,7 @@ An arc already on the face is draggable too: grab its middle to move the whole
 event, or either end to move that end alone. The minimum is one fifteen-minute
 step, ends stop dead there, and a move that passes midnight lands on the next
 day and says so. A subscription's arcs only open — somebody else's calendar is
-a mirror. Click an arc, an agenda row or a day in the year grid to open it —
+a mirror. Click an arc, an agenda row or a mark on the year ring to open it —
 a click being a press that never crossed a step, so an end held against the
 minimum is still a drag however long it stays there and releasing it opens
 nothing.
@@ -294,6 +322,7 @@ src/
   lib/
     dial.ts      polar geometry — the 1000-unit viewBox, radii, arc paths
     life.ts      the life grid — its span, its layout, its arithmetic
+    year.ts      the year ring — its angle, its marks, and the unroll's maths
     time.ts      day arithmetic, the app's formatting voice, zone conversion
     events.ts    event model, recurrence expansion, lane packing, free gaps
     sun.ts       solar position — sunrise, sunset, civil twilight
@@ -310,11 +339,12 @@ src/
     Dial.tsx         the instrument
     CenterPanel.tsx  readout + agenda, pinned to the dial's centre
     LifeView.tsx     the life grid, on a canvas
-    TopBar.tsx  Sidebar.tsx  EventEditor.tsx  YearView.tsx
+    YearView.tsx     the year ring, and both halves of its unroll
+    TopBar.tsx  Sidebar.tsx  EventEditor.tsx
     CommandPalette.tsx  Settings.tsx  Toast.tsx
 worker/index.ts  assets + the /api/feed proxy
 public/sw.js     offline cache
-tests/           820 cases over src/lib and the worker's guards
+tests/           868 cases over src/lib and the worker's guards
 ```
 
 Two overlapping events are pushed onto concentric rings by `packLanes`, so
