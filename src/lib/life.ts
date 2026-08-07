@@ -246,8 +246,8 @@ function lifeCell(layout: LifeLayout, date: Date): { row: number; col: number } 
 /**
  * A day's dot, in the field's own coordinates — `null` for a day outside the
  * life. Every caller that needs a *point* rather than a cell goes through
- * this: the hover ring, the death mark, and the zoom, which has to land the
- * dial on exactly the dot the field draws.
+ * this: the hover ring, the selection ring, today's halo, and the zoom, which
+ * has to land the dial on exactly the dot the field draws.
  */
 export function lifeDot(layout: LifeLayout, span: LifeSpan, date: Date): LifePoint | null {
   if (date < span.birth || date > span.death) return null;

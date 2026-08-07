@@ -20,9 +20,9 @@
  *    up as it passes: one radial gradient in `destination-in` per frame. Going
  *    back, the same wave collapses onto that dot — and `usePresence` is what
  *    holds the unmount open until it has.
- * 4. **Nothing that follows the pointer is on the field.** Hover, selection,
- *    today's halo and the death mark are SVG circles in an overlay, so moving
- *    the mouse never costs a repaint of the bitmap underneath.
+ * 4. **Nothing that follows the pointer is on the field.** Hover, selection and
+ *    today's halo are SVG circles in an overlay, so moving the mouse never
+ *    costs a repaint of the bitmap underneath.
  *
  * The other half of the transition — the dial itself shrinking onto that dot —
  * is in `App.tsx`, because it belongs to the panel that is leaving.
@@ -97,21 +97,16 @@ const RIPPLE_IN = { duration: 0.55, ease: [0.5, 0, 0.75, 0] as const };
 const FEATHER = 0.16;
 
 /**
- * How bright a day is. One tone per state, and deliberately no month band.
+ * How bright a day is, as a level rather than a colour: everything here is
+ * multiplied by the end-of-life fade before it reaches `dim`.
  *
- * A month is not a whole number of weeks, so in a grid whose columns are weeks
- * it cannot be a gap — the only channel left for it is tone, and tone at this
- * pitch cannot carry it. Twelve bands to a row is six alternations across
- * fifty-odd columns, a stripe period within a couple of dots of the dot pitch
- * itself; stacked down eighty rows that is not a month, it is a moiré, and the
- * eye reads vertical striping over the whole field instead. Coarser does not
- * rescue it, because the band then collides with the layout: `SPLITS` cuts a
- * year into one to six lines, so a half-year band *is* a line at 27 weeks and
- * a quarter band *is* a line at 14, and the striping simply turns horizontal.
- *
- * So the field carries the units it can draw honestly — the week, in the
- * column gaps; the year, as a row; the decade, as a rule — and the month is
- * left to the two views that have room for it.
+ * Two tones per state, alternating by month. A month is not a whole number of
+ * weeks, so in a grid whose columns are weeks it cannot be a gap — tone is the
+ * only channel left for it, and the band drifting along the row is the honest
+ * shape of the thing. It is a fine line: six alternations across fifty-odd
+ * columns is close enough to the dot pitch that too much contrast between the
+ * pair stops reading as months and starts reading as vertical striping. This
+ * pair is the tested one; widen it and the field moirés.
  *
  * Solid past, faint future. The lived half is the part you own, and every
  * reader arrives expecting the filled portion of a progress figure to be the
@@ -123,26 +118,41 @@ const FEATHER = 0.16;
  * layout already says — a dot's row is its year. So it stops at the field: an
  * event's colour is never dimmed by how far off it is. Colour is the only
  * channel with data in it, and the days ahead that carry something are exactly
- * the ones you can still do anything about.
+ * the ones you can still do anything about. The end-of-life fade is the sole
+ * exception, and it is not distance: it is the grid running out, which every
+ * dot is subject to or none is.
  *
  * Opaque greys rather than translucent white, for the reason the dial's
  * elapsed ring is: on true black the two are the same colour, and only one of
  * them can be composited wrong.
  */
 const TONE = {
-  past: dim("#ffffff", 0.58),
-  future: dim("#ffffff", 0.23),
+  past: [0.58, 0.45],
+  future: [0.23, 0.17],
 } as const;
 
 /**
  * The field under an active search. The horizon survives — a thread with no
  * sense of lived-against-left is a pattern rather than an answer — but both
  * sides drop far enough that a lit day is the only thing the eye lands on.
+ * No month band down here: at this level the pair would be one colour, and a
+ * second rhythm across an answer is noise either way.
  */
-const SEARCH_TONE = {
-  past: dim("#ffffff", 0.13),
-  future: dim("#ffffff", 0.06),
-} as const;
+const SEARCH_TONE = { past: 0.13, future: 0.06 } as const;
+
+/**
+ * How the grid ends. The expectancy is a guess, and a guess drawn as an edge
+ * is a claim about a date — so the last years ramp to black instead, and the
+ * field runs out rather than stopping. A tenth of the span, floored at two
+ * years: `smoothstep` spends the first half of that window barely moving, so
+ * a shorter one lands as the grid stopping abruptly, which is the thing this
+ * replaced.
+ */
+const FADE_SHARE = 0.1;
+const FADE_MIN_DAYS = 730;
+/** Quantisation of that ramp: a dot reuses its neighbour's colour instead of
+ *  minting one of thirty thousand. */
+const FADE_STEPS = 32;
 
 /** The accent, as the canvas needs it — a token cannot be read by `fillStyle`. */
 const TODAY_COLOR = "#a3d9e4";
@@ -203,6 +213,42 @@ function drawField(
   const hitRadius = Math.max(radius * 1.55, 1.6);
   let lit: { at: LifePoint; color: string } | null = null;
 
+  // The ramp into nothing. `smoothstep` on both ends: it has to leave full
+  // brightness without a seam where it starts, and reach black without a last
+  // visible row of near-black dots sitting on the edge like a rule.
+  const deathMs = span.death.getTime();
+  const fadeMs = Math.max(FADE_MIN_DAYS, Math.round(span.days * FADE_SHARE)) * DAY_MS;
+  const fadeFrom = deathMs - fadeMs;
+  const fadeAt = (ms: number) => {
+    if (ms <= fadeFrom) return FADE_STEPS;
+    const f = Math.max(0, (deathMs - ms) / fadeMs);
+    return Math.round(f * f * (3 - 2 * f) * FADE_STEPS);
+  };
+
+  // `dim` mints a string per call and this loop runs thirty thousand times, so
+  // every colour is looked up by (base, fade step) and built once. Greys go in
+  // their own table keyed by level, because they are all but two of the dots
+  // and a numeric key costs nothing to make.
+  const greys = new Map<number, string[]>();
+  const grey = (level: number, step: number) => {
+    let ramp = greys.get(level);
+    if (!ramp) {
+      ramp = new Array<string>(FADE_STEPS + 1);
+      greys.set(level, ramp);
+    }
+    return (ramp[step] ??= dim("#ffffff", (level * step) / FADE_STEPS));
+  };
+  const tints = new Map<string, string[]>();
+  const tint = (hex: string, step: number) => {
+    if (step === FADE_STEPS) return hex;
+    let ramp = tints.get(hex);
+    if (!ramp) {
+      ramp = new Array<string>(FADE_STEPS + 1);
+      tints.set(hex, ramp);
+    }
+    return (ramp[step] ??= dim(hex, step / FADE_STEPS));
+  };
+
   for (let index = 0; index < layout.years; index++) {
     const { year, offset, from, to } = lifeYearRange(span, index);
     const firstRow = index * layout.linesPerYear;
@@ -218,22 +264,29 @@ function drawField(
       const x = lifeDotX(layout, slot - line * layout.colsPerLine);
       const y = lifeDotY(layout, firstRow + line);
       const key = coloured || found ? dayKey(cursor) : "";
-      const past = cursor.getTime() < todayMs;
+      const at = cursor.getTime();
+      const past = at < todayMs;
+      const step = fadeAt(at);
 
       // A search answers one question, so it takes the colour channel whole:
       // an unrelated event's colour on a day that did not match is noise in
       // the middle of the answer.
       const hit = found ? found.get(key) : undefined;
-      const color = found
-        ? (hit ?? (past ? SEARCH_TONE.past : SEARCH_TONE.future))
-        : (density.get(key) ?? (past ? TONE.past : TONE.future));
+      const event = found ? undefined : density.get(key);
+      const level = found
+        ? past
+          ? SEARCH_TONE.past
+          : SEARCH_TONE.future
+        : (past ? TONE.past : TONE.future)[cursor.getMonth() % 2]!;
 
-      if (cursor.getTime() === todayMs) {
-        lit = { at: { x, y }, color: found ? color : (density.get(key) ?? TODAY_COLOR) };
+      if (at === todayMs) {
+        const base = hit ?? event ?? (found ? "" : TODAY_COLOR);
+        lit = { at: { x, y }, color: base ? tint(base, step) : grey(level, step) };
         continue;
       }
-      if (hit) plot(hits, hit, x, y, hitRadius);
-      else plot(paths, color, x, y, radius);
+      if (hit) plot(hits, tint(hit, step), x, y, hitRadius);
+      else if (event) plot(paths, tint(event, step), x, y, radius);
+      else plot(paths, grey(level, step), x, y, radius);
     }
   }
 
@@ -579,7 +632,6 @@ function LifeGrid({
   const todayDot = dotOf(today);
   const hoverDot = hover ? dotOf(hover.date) : null;
   const selectedDot = isSameDay(selected, today) ? null : dotOf(selected);
-  const deathDot = dotOf(span.death);
   /** One rule per decade of age, on the line that decade's year starts. */
   const rules = Math.floor((layout.years - 1) / DECADE) + 1;
 
@@ -663,19 +715,6 @@ function LifeGrid({
           className="absolute inset-0 h-full w-full"
           viewBox={`0 0 ${Math.max(1, box.width)} ${Math.max(1, box.height)}`}
         >
-          {/* The estimate, marked rather than drawn: one dim red circumference
-              on the last day the grid has. */}
-          {deathDot && (
-            <circle
-              cx={deathDot.x}
-              cy={deathDot.y}
-              r={Math.max(layout.radius * 2.2, 2.6)}
-              fill="none"
-              stroke="var(--danger)"
-              strokeWidth={1}
-              opacity={0.5}
-            />
-          )}
           {selectedDot && (
             <circle
               cx={selectedDot.x}

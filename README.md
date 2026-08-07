@@ -98,8 +98,9 @@ calendar's colour, so a birthday runs down the grid as a coloured thread.
 
 It asks for one date the first time you open it — a birth date, kept in this
 browser like everything else — and a number of years to expect, which is a
-guess and is drawn as one: the grid simply stops, with the estimated last day
-ringed in red. Both live in **Settings** afterwards.
+guess and is drawn as one: the last years ramp down to nothing, so the field
+runs out rather than stopping at a date it does not know. Both live in
+**Settings** afterwards.
 
 The strip above the field counts: days lived, days left, and how much of the
 whole is spent to six decimals, which is enough to watch it move. Hover a dot
