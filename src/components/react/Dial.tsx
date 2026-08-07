@@ -867,6 +867,7 @@ function SunBand({
     const step = MINUTES_PER_DAY / COUNT;
 
     const lit: { d: string; stroke: string }[][] = [[], []];
+    const has: boolean[][] = [Array(COUNT).fill(false), Array(COUNT).fill(false)];
     for (let i = 0; i < COUNT; i += 1) {
       const value = solarLight(sun, (i + 0.5) * step);
       if (Math.abs(value) <= 0.004) continue;
@@ -879,36 +880,61 @@ function SunBand({
       // events, and neither band may compete with an arc.
       const [r, g, b] = value > 0 ? [255, 198, 124] : [150, 132, 255];
       const k = Math.abs(value);
-      lit[value > 0 ? 0 : 1].push({
+      const half = value > 0 ? 0 : 1;
+      has[half][i] = true;
+      lit[half].push({
         d: arcPath(radius, from, to),
         stroke: `rgb(${Math.round(r * k)},${Math.round(g * k)},${Math.round(b * k)})`,
       });
     }
-    return lit;
+
+    /**
+     * The arc a half's mask sweeps: where that half *begins*, and how far it
+     * runs from there.
+     *
+     * Not the whole revolution from midnight. Night starts at dusk and ends at
+     * dawn the other side of midnight, so a mask that began at midnight began
+     * in the middle of it — the band grew out of its own centre in two pieces,
+     * which is not how a night arrives.
+     *
+     * Each half is one contiguous run: `solarLight` is positive from dawn to
+     * dusk and negative the rest of the way round. The run's start is the lit
+     * slot whose predecessor is dark, and its length is however far forward
+     * the last lit slot is. Polar day and polar night fill every slot and get
+     * the whole turn.
+     */
+    const sweeps = has.map((slots) => {
+      const start = slots.findIndex((on, i) => on && !slots[(i - 1 + COUNT) % COUNT]);
+      if (start < 0) return { from: angleAt(0, clock), degrees: 360 };
+      let span = COUNT;
+      while (span > 0 && !slots[(start + span - 1) % COUNT]) span -= 1;
+      return { from: angleAt(start * step, clock), degrees: (span / COUNT) * 360 };
+    });
+
+    return lit.map((segments, half) => ({ segments, ...sweeps[half] }));
   }, [day, clock, place, radius]);
 
-  // Each half is masked by a stroke of its own that draws itself round the
-  // face, from midnight and in the direction the day runs. A band is a thing
-  // that happens *over* a day, so it arrives over one — appearing whole was
-  // the one piece of the rim that still just turned up.
+  // Each half is masked by a stroke of its own that draws itself along the
+  // face, from that half's own first minute and in the direction the day runs.
+  // A band is a thing that happens *over* a day, so it arrives over one —
+  // appearing whole was the one piece of the rim that still just turned up.
   //
   // One animated element per half rather than 144: `pathLength` normalises
-  // the mask's own circle to 1, so a single number sweeps it. `motion`
-  // handles the dash arithmetic behind that prop.
+  // the mask's own arc to 1, so a single number sweeps it. `motion` handles
+  // the dash arithmetic behind that prop.
   //
   // A half that is the same either side of a mode change never animates,
   // because nothing about it changed — the curve is computed for the whole
   // day whatever the switches say, so the half that stays keeps the exact
   // shape it had beside the other.
   const maskId = useId().replace(/[^a-zA-Z0-9-]/g, "");
-  const sweep = arcPath(radius, angleAt(0, clock), angleAt(0, clock) + 360);
   return (
     <g pointerEvents="none" shapeRendering="geometricPrecision">
       <defs>
         {[daylight, moonlight].map((on, half) => (
           <mask key={half} id={`${maskId}-${half}`} maskUnits="userSpaceOnUse">
             <motion.path
-              d={sweep}
+              d={arcPath(radius, halves[half].from, halves[half].from + halves[half].degrees)}
               fill="none"
               stroke="#fff"
               // Wider than the band, so the mask's own antialiased edges never
@@ -923,7 +949,7 @@ function SunBand({
       </defs>
       {[daylight, moonlight].map((_, half) => (
         <g key={half} mask={`url(#${maskId}-${half})`}>
-          {halves[half].map((segment, i) => (
+          {halves[half].segments.map((segment, i) => (
             <path
               key={i}
               d={segment.d}

@@ -343,12 +343,22 @@ gentler one now.
 - **The rim crossfades.** `Fade` in `Dial.tsx` is an `AnimatePresence`-mounted `motion.g`, so the
   band and the elapsed trail dissolve into each other rather than swapping, and nothing is kept on
   the canvas for the sake of the transition.
-- **The band's two halves each draw themselves**, from midnight and in the direction the day runs,
-  through a mask of their own — a `motion.path` on the mask's circle, `pathLength` from 0 to 1, so
-  it is one animated element per half rather than 144. A band is a thing that happens _over_ a day,
-  so it should arrive over one; appearing whole was the last piece of the rim that just turned up.
+- **The band's two halves each draw themselves**, from that half's own first minute and in the
+  direction the day runs, through a mask of their own — a `motion.path` on the mask's arc,
+  `pathLength` from 0 to 1, so it is one animated element per half rather than 144. A band is a
+  thing that happens _over_ a day, so it should arrive over one; appearing whole was the last piece
+  of the rim that just turned up.
+
+  The mask is that half's arc, not the whole revolution. Sweeping from midnight was the first cut
+  and it was wrong for exactly one of the two: night runs dusk → midnight → dawn, so a mask that
+  started at midnight started in the middle of it and the band grew out of its own centre in two
+  pieces. Each half is one contiguous run — `solarLight` is positive from dawn to dusk and negative
+  the rest of the way round — so the run's start is the lit slot whose predecessor is dark. Polar
+  day and polar night fill every slot and get the whole turn.
+
   A half that is the same either side of a mode change still does not move at all, and the switch
   no longer recomputes 288 segments.
+
 - The eight minor numerals recede by opacity rather than unmounting, and an arc's name is `off` by
   opacity too — `labels === "off"` used to unmount the `<textPath>`, blinking every name out at
   once.

@@ -162,8 +162,10 @@ withdraws, the eight hour numerals between the quarters recede, the names
 leave the arcs, the middle grows into its larger type and the rim crossfades
 between the band and the elapsed trail — over the same 600ms, on the way in
 and again on the way out. A half of the lightcycle that is on in one mode and
-off in the other fades between them; a half that is the same either side does
-not move at all. With **reduce motion** set, none of it moves.
+off in the other **draws itself** between them, from its own first minute and
+in the direction the day runs: daylight out of dawn, night out of dusk and on
+through midnight. A half that is the same either side does not move at all.
+With **reduce motion** set, none of it moves.
 
 ## Your data
 
