@@ -814,6 +814,7 @@ export default function App() {
                   selected={day}
                   events={visible}
                   calendars={calendars}
+                  settings={settings}
                   stage={stage}
                   flow={flow}
                   onSelectDay={(next) => actions.goDay(next)}

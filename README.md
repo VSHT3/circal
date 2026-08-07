@@ -101,6 +101,15 @@ is a pip just inside it, and the day you came in on is a white mark.
 The middle prints the year until you point at a day, and then prints that day
 — its date, and what is on it. Click a mark to open that day on the dial.
 
+A day is a third of a degree wide, which is smaller than the pointer, so the
+ring magnifies rather than merely highlighting. The day under the pointer
+swells inwards and lights up, its neighbours swell about half as much, and the
+few days either side lean out of the way to make room — so what you are
+pointing at is unmistakable without anything being drawn over the ring. The
+outer tip never moves, because that end is the data. Each new day the pointer
+crosses ticks, on the same switches the dial's drag uses: read it slowly and
+it is one tick a day, sweep it and it is a finger down a comb.
+
 It is one tab stop, not three hundred and sixty five. Tab to the ring and the
 arrows move a cursor round it — a day at a time, a week with up/down, four
 weeks with page up and down, `home` and `end` for the ends of the year — with
@@ -344,7 +353,7 @@ src/
     CommandPalette.tsx  Settings.tsx  Toast.tsx
 worker/index.ts  assets + the /api/feed proxy
 public/sw.js     offline cache
-tests/           868 cases over src/lib and the worker's guards
+tests/           881 cases over src/lib and the worker's guards
 ```
 
 Two overlapping events are pushed onto concentric rings by `packLanes`, so

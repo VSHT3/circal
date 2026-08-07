@@ -13,7 +13,8 @@ code it constrains.
 0. Moonpohases somewhere as an optional eyecandy
 1. Intro animation like what animejs has
 2. icons into dial list based on custom or default to calendar icon (which can be set too)
-3. event and stuff search
+3. event and stuff search (idk, cmd f)
+4. week view
 
 **1. quotes page** — _you are a worm through time, you have no obligations to your former self, be
 the change you wish to see in the world._
@@ -26,12 +27,6 @@ change you wish to see in the world": it is a bumper sticker sitting between two
 Fold the rest into (9) — see there.
 
 **2. year -> life transition** — _done._
-
-And it turned out to be the same job as deciding what the year view is, not a job blocked behind it.
-The year is now 365 marks in day order on one revolution, which is a row of the life grid rolled up
-— so ⌘Y ⇄ ⌘L is a genuine unroll: the ring opens at 1 January, straightens, and the days settle onto
-the row they were always going to be. `unroller` in `lib/year.ts` does the maths, `YearView` owns
-both halves on a canvas, and `App.tsx`'s `PANEL` keeps out of the way.
 
 Two things it left behind. The unroll lands on the _first_ line a year occupies, and `lifeLayout`
 splits a desktop year across two — the settle covers it, but a one-line split is the case it looks
@@ -150,7 +145,7 @@ off-thesis. Say so in the UI rather than leaving the absence unexplained.
 
 Both are DOM-shaped, which is exactly the surface the suite does not cover: no DOM, no jsdom, no
 component tests, on purpose — a snapshot of an SVG path is a change-detector that fails on every
-legitimate geometry tweak. That is the honest boundary of what 868 pure-function tests buy you, and
+legitimate geometry tweak. That is the honest boundary of what 881 pure-function tests buy you, and
 the faces stay eye-verified.
 
 ### What not to do

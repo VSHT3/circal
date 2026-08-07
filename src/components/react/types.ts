@@ -131,6 +131,9 @@ export interface YearViewProps {
   selected: Date;
   events: CalEvent[];
   calendars: Calendar[];
+  /** Whole, as everywhere: the ring reads the two tick channels for the cue a
+   *  day makes as the pointer crosses it. */
+  settings: Settings;
   /**
    * The life grid's geometry, resolved by the shell — the year ring owns both
    * halves of the unroll and needs to know where its row lands before that

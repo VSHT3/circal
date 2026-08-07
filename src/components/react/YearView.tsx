@@ -38,6 +38,8 @@ import {
   useMotionValueEvent,
   usePresence,
   useReducedMotion,
+  useSpring,
+  type MotionValue,
 } from "motion/react";
 import type { YearViewProps } from "@/components/react/types";
 import { DIAL, VIEW_BOX, VIEW_SIZE, polar } from "@/lib/dial";
@@ -46,18 +48,22 @@ import {
   YEAR,
   dateOfYear,
   dayAngle,
-  dayAtPoint,
   dayOfYear,
+  dayOfYearAt,
   daysInYear,
   faceToPanel,
-  markPath,
+  magnify,
   markRadius,
   monthMarks,
+  ringDelta,
+  spread,
   unroller,
+  yearAtPoint,
   type Vec,
 } from "@/lib/year";
 import { MONTHS, WEEKDAYS } from "@/lib/time";
 import { UNROLL_IN_MS, UNROLL_OUT_MS } from "@/lib/motion";
+import { cue } from "@/lib/feedback";
 import { useElementSize } from "./hooks";
 import { cn } from "@/lib/utils";
 
@@ -67,8 +73,23 @@ const ACCENT = "#a3d9e4";
  *  a dot — the same thing the same day is in the life grid. */
 const EMPTY_MARK = "#3a3a3e";
 
-/** How far a highlight overhangs the mark it is drawn round. */
-const MARK_PAD = 4;
+/**
+ * How white the magnified day goes, over its own colour.
+ *
+ * Over, never instead of: the mark keeps a trace of whose it is while it is
+ * lit. The selection is full white — that is where the dial will land and
+ * where the unroll leaves from — and the bulge fades in on the *square* of
+ * its lift, so the light stays on the one day the readout is naming instead
+ * of smearing across its neighbours the way the size does.
+ */
+const LIT_HOVER = 0.85;
+
+/**
+ * The bulge arriving and leaving. Stiff, because it answers a pointer and a
+ * highlight that lags one is not a highlight — and underdamped by a hair, so
+ * the day pops rather than inflating.
+ */
+const MAGNIFY_SPRING = { stiffness: 520, damping: 22, mass: 0.6 } as const;
 
 interface Mark {
   angle: number;
@@ -192,6 +213,7 @@ export default function YearView({
   selected,
   events,
   calendars,
+  settings,
   stage,
   flow,
   onSelectDay,
@@ -203,6 +225,11 @@ export default function YearView({
   const days = daysInYear(year);
   const listRef = useRef<HTMLUListElement>(null);
   const [hover, setHover] = useState<number | null>(null);
+  /** The two tick channels, as `cue` wants them. */
+  const channels = useMemo(
+    () => ({ sound: settings.tickSound, haptics: settings.tickHaptics }),
+    [settings.tickSound, settings.tickHaptics],
+  );
 
   /**
    * The keyboard's cursor, and it is a cursor rather than a selection: naming
@@ -241,21 +268,39 @@ export default function YearView({
   }, [year, days, events, calendars]);
 
   /**
-   * The marks as one path per colour. A year of individual elements is 365
-   * nodes to diff on every pointer move; batched it is a handful — the same
-   * trick the life grid's field uses for thirty thousand. Everything that
-   * follows the pointer is drawn over the top, so a hover never repaints the
-   * year.
+   * Where the pointer is in the year, as a fraction of a day, and how much of
+   * the bulge is up.
+   *
+   * Motion values rather than state: the position changes on every
+   * `pointermove` and the amount is a spring, and neither may cost a React
+   * render — 365 marks re-diffed at 60 Hz is what the canvas exists to avoid.
+   * The *day* is state, because the readout and the listbox name it and it
+   * only changes once per slot crossed.
    */
-  const strokes = useMemo(() => {
-    const byColor = new Map<string, string[]>();
-    for (const mark of marks) {
-      const list = byColor.get(mark.color);
-      if (list) list.push(markPath(mark.angle, mark.outer));
-      else byColor.set(mark.color, [markPath(mark.angle, mark.outer)]);
+  const pointerAt = useMotionValue(0);
+  const amount = useSpring(0, reducedMotion ? { duration: 0 } : MAGNIFY_SPRING);
+
+  /**
+   * The keyboard drives the same bulge the pointer does, so the cursor and
+   * the hover are one thing seen twice — and the pointer wins while it is on
+   * the ring, where `onMove` has already set the exact position.
+   *
+   * One effect, not two: a second one setting `amount` would run after this
+   * and put it back to zero every time the keyboard was the only thing on.
+   * Motion values are an external system, which is what an effect is for.
+   */
+  useEffect(() => {
+    if (hover !== null) {
+      amount.set(1);
+      return;
     }
-    return [...byColor].map(([color, paths]) => ({ color, d: paths.join(" ") }));
-  }, [marks]);
+    if (cursor === null) {
+      amount.set(0);
+      return;
+    }
+    pointerAt.set(cursor + 0.5);
+    amount.set(1);
+  }, [hover, cursor, pointerAt, amount]);
 
   const months = useMemo(() => monthMarks(year), [year]);
 
@@ -264,20 +309,52 @@ export default function YearView({
 
   /* ------------------------------ interaction ----------------------------- */
 
-  const dayAt = useCallback(
-    (e: ReactPointerEvent<SVGSVGElement>): number | null => {
+  /**
+   * Where a pointer event lands on the ring: its exact place in the year, and
+   * the day whose slot that is. `null` off the ring — the corners of a square
+   * panel are not pointing at December, and neither is the empty middle.
+   */
+  const locate = useCallback(
+    (e: ReactPointerEvent<SVGSVGElement>): { exact: number; day: number } | null => {
       const ctm = e.currentTarget.getScreenCTM();
       if (!ctm) return null;
       const { x, y } = new DOMPoint(e.clientX, e.clientY).matrixTransform(ctm.inverse());
-      // Generous inwards, because the ring is the only thing on the face and
-      // an empty interior is not December — but it is not a day either, and
-      // neither are the corners of a square panel.
       const r = Math.hypot(x - DIAL.C, y - DIAL.C);
       if (r < YEAR.TODAY_RING - 30 || r > YEAR.MONTH) return null;
-      return dayAtPoint(x, y, days);
+      const exact = yearAtPoint(x, y, days);
+      return { exact, day: dayOfYearAt(exact, days) };
     },
     [days],
   );
+
+  /**
+   * The last day the pointer was on, for the tick.
+   *
+   * `setHover` cannot answer this: React bails out of an identical value, so
+   * a `pointermove` that stayed inside the same slot is indistinguishable
+   * from one that crossed into a new one by the time state has settled — and
+   * a tick per pointer event rather than per day is not a tick, it is noise.
+   */
+  const ticked = useRef<number | null>(null);
+
+  const onMove = (e: ReactPointerEvent<SVGSVGElement>) => {
+    const hit = locate(e);
+    if (!hit) {
+      setHover(null);
+      ticked.current = null;
+      return;
+    }
+    pointerAt.set(hit.exact);
+    setHover(hit.day);
+    if (hit.day !== ticked.current) {
+      ticked.current = hit.day;
+      // The quieter of the two drag cues, and gated like them: crossing a day
+      // is the same event as crossing a detent. A slow read is one tick per
+      // day; a fast sweep is a rip, which is what running a finger along a
+      // comb does and is the right answer for a ring of 365 teeth.
+      cue("slide", channels);
+    }
+  };
 
   /**
    * Clamped at both ends of the year rather than rolling into the next one:
@@ -380,16 +457,19 @@ export default function YearView({
         className="h-full w-full touch-none select-none"
         style={{ opacity: flying ? 0 : 1, transition: `opacity ${CHROME_MS}ms var(--ease)` }}
         role="presentation"
-        onPointerMove={(e) => setHover(dayAt(e))}
-        onPointerLeave={() => setHover(null)}
+        onPointerMove={onMove}
+        onPointerLeave={() => {
+          setHover(null);
+          ticked.current = null;
+        }}
         onPointerDown={(e) => {
-          const index = dayAt(e);
-          if (index === null) return;
+          const hit = locate(e);
+          if (!hit) return;
           // Focus moves to the list so the arrows carry on from where the
           // pointer stopped, rather than starting again at the selection.
-          setCursor(index);
+          setCursor(hit.day);
           listRef.current?.focus();
-          onSelectDay(dateOfYear(year, index));
+          onSelectDay(dateOfYear(year, hit.day));
         }}
       >
         <defs>
@@ -400,32 +480,6 @@ export default function YearView({
           </radialGradient>
         </defs>
         <circle cx={DIAL.C} cy={DIAL.C} r={YEAR.DAY_INNER} fill="url(#year-glow)" />
-
-        {/* The year, one mark per day — unless it is in the air, in which case
-            the canvas below has it and two drawings of the same 365 marks
-            would be a doubled year. */}
-        {!flying && (
-          <>
-            <g pointerEvents="none" strokeWidth={YEAR.DAY_WIDTH} strokeLinecap="butt">
-              {strokes.map((stroke) => (
-                <path key={stroke.color} d={stroke.d} stroke={stroke.color} fill="none" />
-              ))}
-            </g>
-
-            {/* Today: a pip inside the ring, not a brighter mark. What a day
-                carries is its events' colour, and being today is not one of
-                them — the same reason the life grid haloes its dot rather
-                than filling it. */}
-            {todayIndex !== null && (
-              <circle
-                cx={polar(YEAR.TODAY_RING, dayAngle(todayIndex, days)).x}
-                cy={polar(YEAR.TODAY_RING, dayAngle(todayIndex, days)).y}
-                r={YEAR.TODAY_PIP}
-                fill={ACCENT}
-              />
-            )}
-          </>
-        )}
 
         {/* Month boundaries, and their names outside them. */}
         <g pointerEvents="none">
@@ -461,20 +515,26 @@ export default function YearView({
             );
           })}
         </g>
-
-        {/* The day the shell is on — a full-length white mark, because it is
-            where the dial will land and where the unroll leaves from. */}
-        {!flying && selectedIndex !== null && (
-          <Spoke angle={dayAngle(selectedIndex, days)} stroke="#fff" opacity={0.92} />
-        )}
-        {!flying && activeMark && active !== selectedIndex && (
-          <Spoke
-            angle={activeMark.angle}
-            stroke={activeMark.count > 0 ? activeMark.color : "#ffffff"}
-            opacity={0.45}
-          />
-        )}
       </svg>
+
+      {/* The year itself, on a canvas over the frame.
+
+          The marks used to be one `<path>` per colour in the SVG, which is
+          the right shape for a drawing that never moves — and this one does.
+          The day under the pointer swells and its neighbours give way, every
+          frame, off a fractional position: 365 SVG nodes re-diffed at 60 Hz
+          is exactly the cost a canvas does not have. */}
+      {!flying && (
+        <Ring
+          marks={marks}
+          days={days}
+          box={{ width, height }}
+          selected={selectedIndex}
+          today={todayIndex}
+          at={pointerAt}
+          amount={amount}
+        />
+      )}
 
       {/*
         The keyboard and everything that is not a pointer.
@@ -530,23 +590,121 @@ export default function YearView({
 
 /* --------------------------------- pieces ---------------------------------- */
 
-/** A day's mark at full length, over the ring: the selection and the cursor
- *  are the same object at two weights. */
-function Spoke({ angle, stroke, opacity }: { angle: number; stroke: string; opacity: number }) {
-  const a = polar(YEAR.DAY_INNER - MARK_PAD, angle);
-  const b = polar(YEAR.DAY_OUTER + MARK_PAD, angle);
-  return (
-    <line
-      pointerEvents="none"
-      x1={a.x}
-      y1={a.y}
-      x2={b.x}
-      y2={b.y}
-      stroke={stroke}
-      strokeWidth={YEAR.DAY_WIDTH + 1.6}
-      strokeOpacity={opacity}
-    />
-  );
+/**
+ * The year, one mark per day, magnified under the pointer.
+ *
+ * The day the pointer is on grows towards the centre and thickens, its
+ * neighbours grow half as much, and everything within a few days gives way
+ * so the swelling does not eat the rhythm of the ring. Straight out of the
+ * macOS Dock, and for the same reason: at 0.99° a day the thing you are
+ * pointing at is smaller than the pointer, and a highlight that only changed
+ * its colour would leave you counting teeth.
+ *
+ * It grows **inwards**. The outer tip is the datum — it is the whole of what
+ * this face says about the day — so magnifying it outwards would make a
+ * hovered empty day look like a booked one.
+ *
+ * Driven off motion values rather than props: the position changes on every
+ * `pointermove` and the amount is a spring, and 365 SVG nodes re-diffed at
+ * 60 Hz is precisely the cost this canvas exists not to pay. One `clearRect`
+ * and 365 strokes is a fraction of a millisecond.
+ */
+function Ring({
+  marks,
+  days,
+  box,
+  selected,
+  today,
+  at,
+  amount,
+}: {
+  marks: Mark[];
+  days: number;
+  box: { width: number; height: number };
+  selected: number | null;
+  today: number | null;
+  at: MotionValue<number>;
+  amount: MotionValue<number>;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  const paint = useCallback(() => {
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext("2d");
+    if (!canvas || !ctx) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, box.width, box.height);
+    ctx.lineCap = "butt";
+
+    const face = faceToPanel(box.width, box.height);
+    const centre = at.get();
+    const strength = amount.get();
+
+    for (let i = 0; i < days; i++) {
+      const mark = marks[i];
+      // The slot's own middle against the pointer's exact place, so the day
+      // being pointed at gets the whole bulge rather than half of it.
+      const delta = strength > 0.001 ? ringDelta(i + 0.5, centre, days) : YEAR.REACH + 1;
+      const lift = strength * magnify(delta);
+      const shift = strength * YEAR.PUSH * spread(delta);
+
+      const angle = dayAngle(i + shift, days);
+      const inner = face.at(...radial(YEAR.DAY_INNER - lift * YEAR.GROW_IN, angle));
+      const outer = face.at(...radial(mark.outer, angle));
+
+      ctx.lineWidth = YEAR.DAY_WIDTH * (1 + lift * YEAR.GROW_WIDTH) * face.u;
+      ctx.beginPath();
+      ctx.moveTo(inner.x, inner.y);
+      ctx.lineTo(outer.x, outer.y);
+      ctx.strokeStyle = mark.color;
+      ctx.stroke();
+
+      // White over the day's own colour, never instead of it: the mark keeps
+      // a trace of whose it is while it is lit. The selection is full white
+      // because it is where the dial will land; the bulge fades in on the
+      // square of its own lift, so the light stays on the one day the readout
+      // is naming instead of smearing across its neighbours.
+      const white = i === selected ? 1 : lift * lift * LIT_HOVER;
+      if (white > 0.004) {
+        ctx.globalAlpha = white;
+        ctx.strokeStyle = "#fff";
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+
+      if (i === today) {
+        const pip = face.at(...radial(YEAR.TODAY_RING, angle));
+        ctx.beginPath();
+        ctx.arc(pip.x, pip.y, YEAR.TODAY_PIP * face.u, 0, Math.PI * 2);
+        ctx.fillStyle = ACCENT;
+        ctx.fill();
+      }
+    }
+  }, [box.width, box.height, days, marks, selected, today, at, amount]);
+
+  useMotionValueEvent(at, "change", paint);
+  useMotionValueEvent(amount, "change", paint);
+
+  /* The canvas is an external system: written to, not rendered. */
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.round(box.width * dpr);
+    canvas.height = Math.round(box.height * dpr);
+    paint();
+  }, [box.width, box.height, paint]);
+
+  return <canvas ref={canvasRef} className="pointer-events-none absolute inset-0 h-full w-full" />;
+}
+
+/** A point on the face, as the pair `faceToPanel` takes. Saves minting a
+ *  `{x, y}` per mark per frame in a loop that runs 365 times. */
+function radial(r: number, deg: number): [number, number] {
+  const p = polar(r, deg);
+  return [p.x, p.y];
 }
 
 /* --------------------------------- unroll ---------------------------------- */

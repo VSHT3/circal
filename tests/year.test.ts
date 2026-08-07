@@ -8,7 +8,10 @@ import {
   dayAtPoint,
   dayOfYear,
   daysInYear,
-  markPath,
+  magnify,
+  ringDelta,
+  spread,
+  yearAtPoint,
   markRadius,
   faceToPanel,
   monthMarks,
@@ -171,30 +174,134 @@ describe("monthMarks", () => {
   });
 });
 
-/* --------------------------------- markPath -------------------------------- */
+/* ------------------------------ magnification ------------------------------ */
 
-describe("markPath", () => {
-  it("draws a radial segment from the ring outwards", () => {
-    const d = markPath(0, markRadius(2));
-    const [, x1, y1, x2, y2] = d.match(/M ([\d.]+) ([\d.]+) L ([\d.]+) ([\d.]+)/)!.map(Number);
-    // Straight up the face from 12 o'clock: same x, and the end is nearer the
-    // top of the viewBox than the start.
-    expect(x1).toBeCloseTo(DIAL.C, 1);
-    expect(x2).toBeCloseTo(DIAL.C, 1);
-    expect(y1).toBeCloseTo(DIAL.C - YEAR.DAY_INNER, 1);
-    expect(y2).toBeLessThan(y1);
+describe("ringDelta", () => {
+  // Callers pass a slot's own middle, `i + 0.5`, against the pointer's exact
+  // place in the year — so a whole-number result is a whole day apart.
+  it("measures the short way round the year", () => {
+    // 31 December and 1 January are neighbours. Measured linearly the end of
+    // the year is 364 days from the start and would stay flat while the
+    // pointer sat on 2 January.
+    expect(ringDelta(364.5, 0.5, 365)).toBeCloseTo(-1, 9);
+    expect(ringDelta(0.5, 364.5, 365)).toBeCloseTo(1, 9);
   });
 
-  it("puts every day on the circle it belongs to", () => {
+  it("is plain subtraction away from the seam", () => {
+    expect(ringDelta(100.5, 97.5, 365)).toBeCloseTo(3, 9);
+    expect(ringDelta(97.5, 100.5, 365)).toBeCloseTo(-3, 9);
+  });
+
+  it("never reports more than half a year", () => {
+    const offenders: string[] = [];
+    for (let i = 0; i < 366; i++) {
+      for (const at of [0.5, 90.5, 182.5, 300.5]) {
+        const d = ringDelta(i, at, 366);
+        if (Math.abs(d) > 183) offenders.push(`${i} from ${at} -> ${d}`);
+      }
+    }
+    expect(offenders.slice(0, 5), `${offenders.length} offender(s)`).toEqual([]);
+  });
+});
+
+describe("magnify", () => {
+  it("gives the pointer's own day the whole bulge", () => {
+    expect(magnify(0)).toBe(1);
+  });
+
+  it("gives each neighbour about half of it", () => {
+    // The shape of the effect, and the one number worth pinning: "and its two
+    // neighbours, less so" is what makes it read as a magnifier rather than
+    // as a single day switching size.
+    expect(magnify(1)).toBeCloseTo(0.5, 1);
+    expect(magnify(2)).toBeLessThan(0.1);
+  });
+
+  it("is symmetric and never negative", () => {
+    for (const x of [0.3, 1, 1.7, 2.5, 3.3]) {
+      expect.soft(magnify(x)).toBeCloseTo(magnify(-x), 12);
+      expect.soft(magnify(x)).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it("falls to nothing by `REACH`, with no step where it is cut", () => {
+    expect(magnify(YEAR.REACH + 0.001)).toBe(0);
+    // The cut is only honest if the curve is already invisible there — a step
+    // here is a day that visibly snaps as the pointer crosses it.
+    expect(magnify(YEAR.REACH)).toBeLessThan(1e-5);
+  });
+
+  it("never grows a mark past the month ticks", () => {
+    // It grows inwards, so the risk is the other end: the baseline must clear
+    // today's pip.
+    expect(YEAR.DAY_INNER - YEAR.GROW_IN).toBeGreaterThan(YEAR.TODAY_RING + YEAR.TODAY_PIP);
+    expect(YEAR.DAY_OUTER).toBeLessThan(YEAR.TICK_INNER);
+  });
+});
+
+describe("spread", () => {
+  it("leaves the pointer's own day exactly where it is", () => {
+    expect(spread(0)).toBe(0);
+  });
+
+  it("pushes each side away from the pointer", () => {
+    expect(spread(1)).toBeGreaterThan(0);
+    expect(spread(-1)).toBeLessThan(0);
+    expect(spread(1)).toBeCloseTo(-spread(-1), 12);
+  });
+
+  it("peaks just outside the hovered mark, where the room is wanted", () => {
+    expect(spread(YEAR.SIGMA_PUSH)).toBeCloseTo(1, 9);
+    expect(spread(0.4)).toBeLessThan(spread(YEAR.SIGMA_PUSH));
+    expect(spread(2.6)).toBeLessThan(spread(YEAR.SIGMA_PUSH));
+  });
+
+  it("returns the rest of the year to where it was", () => {
+    // Everything past `REACH` sits on its own slot, so the ring keeps its
+    // rhythm and only the neighbourhood breathes.
+    expect(spread(YEAR.REACH + 0.001)).toBe(0);
+    expect(Math.abs(spread(YEAR.REACH))).toBeLessThan(0.005);
+  });
+
+  it("opens up about the air the growth takes", () => {
+    // Half a slot each side against 3.7 units of extra width: the two have to
+    // stay in step or the hovered day either eats its neighbours or floats in
+    // a gap.
+    const slot = (2 * Math.PI * YEAR.DAY_INNER) / 365;
+    const extra = YEAR.DAY_WIDTH * YEAR.GROW_WIDTH;
+    expect(2 * YEAR.PUSH * slot).toBeGreaterThan(extra);
+    expect(2 * YEAR.PUSH * slot).toBeLessThan(extra * 2.5);
+  });
+});
+
+/* -------------------------------- yearAtPoint ------------------------------ */
+
+describe("yearAtPoint", () => {
+  it("is continuous where `dayAtPoint` steps", () => {
+    // The bulge is drawn from this and the readout from the integer: quantise
+    // the bulge and it lurches a slot at a time under a smoothly moving
+    // pointer, which is the one thing a magnifier must not do.
     const days = 365;
+    const seen = [0.1, 0.5, 0.9].map((f) => {
+      const p = polar(YEAR.DAY_INNER, yearAngle(100 + f, days));
+      return yearAtPoint(p.x, p.y, days);
+    });
+    expect(seen[0]).toBeCloseTo(100.1, 6);
+    expect(seen[1]).toBeCloseTo(100.5, 6);
+    expect(seen[2]).toBeCloseTo(100.9, 6);
+    expect(seen.every((v, i) => i === 0 || v > seen[i - 1])).toBe(true);
+  });
+
+  it("agrees with `dayAtPoint` on which slot it is", () => {
+    const days = 366;
     const offenders: string[] = [];
     for (let i = 0; i < days; i++) {
-      const d = markPath(dayAngle(i, days), YEAR.DAY_INNER + YEAR.DAY_STUB);
-      const [, x1, y1] = d.match(/M ([\d.]+) ([\d.]+)/)!.map(Number);
-      const r = Math.hypot(x1 - DIAL.C, y1 - DIAL.C);
-      if (Math.abs(r - YEAR.DAY_INNER) > 0.02) offenders.push(`day ${i} at r=${r}`);
+      const p = polar(YEAR.DAY_INNER, dayAngle(i, days));
+      if (Math.floor(yearAtPoint(p.x, p.y, days)) !== dayAtPoint(p.x, p.y, days)) {
+        offenders.push(`day ${i}`);
+      }
     }
-    expect(offenders.slice(0, 5), `${offenders.length} offending day(s)`).toEqual([]);
+    expect(offenders.slice(0, 5), `${offenders.length} offender(s)`).toEqual([]);
   });
 });
 

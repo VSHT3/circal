@@ -17,7 +17,7 @@
  * to a calendar to find out. The interior belongs to the readout.
  * ------------------------------------------------------------------ */
 
-import { DIAL, VIEW_SIZE, polar } from "./dial";
+import { DIAL, VIEW_SIZE } from "./dial";
 
 export const YEAR = {
   /**
@@ -49,18 +49,58 @@ export const YEAR = {
    *  is simply full and the extra says nothing a longer bar could show. */
   DAY_FULL_COUNT: 5,
 
+  /**
+   * The magnification under the pointer, in the units it is measured in.
+   *
+   * A day grows **inwards** only. The outer tip is the datum — it is where
+   * `markRadius` put it, and it is the whole of what the ring says about that
+   * day — so pushing it further out would make a hovered empty day look like
+   * a booked one. Growing from the baseline instead leaves the ragged edge
+   * exactly where it was and reads as the mark coming towards you.
+   */
+  GROW_IN: 18,
+  /** …and a little wider, which is what the pushing is for. */
+  GROW_WIDTH: 0.85,
+  /**
+   * How far the neighbours give way, in *day slots*, at the peak of the push.
+   *
+   * A slot is 6.2 units at this radius and a magnified mark is 3.6 units
+   * wider than a resting one, so half a slot each side is very nearly exactly
+   * the air the growth takes up: the ring keeps its rhythm instead of the
+   * hovered day eating its neighbours.
+   */
+  PUSH: 0.55,
+  /** Width of the bell, in days: `magnify(1)` is a half, which is the "and
+   *  its two neighbours, less so" the effect is made of. */
+  SIGMA: 1.2,
+  /** Where the push peaks, in days — just outside the hovered mark, where the
+   *  room is actually needed. */
+  SIGMA_PUSH: 1.15,
+  /**
+   * Where both curves are cut, in days.
+   *
+   * It has to be far enough out that the value there is already invisible,
+   * because the cut is a step and every step in these curves is a day that
+   * visibly snaps as the pointer crosses it. `magnify` is under a millionth
+   * here; `spread`, which has a long tail, is 0.3% of a push — three
+   * hundredths of a unit, which is nothing. It was 3.4 and `spread` was still
+   * 6% there.
+   */
+  REACH: 4.5,
+
   /** Today's pip, just inside the ring. A halo rather than a fill, for the
    *  reason the life grid's is: the day's own colour is its events', and
-   *  being today is not one of them. */
+   *  being today is not one of them. Far enough in to clear a magnified
+   *  mark's baseline (`DAY_INNER - GROW_IN` = 318). */
   TODAY_PIP: 3.4,
-  TODAY_RING: 322,
+  TODAY_RING: 310,
 
   /**
    * Month boundaries, just outside the marks — the same relationship the hour
    * ticks have to the dial's track.
    */
-  TICK_INNER: 404,
-  TICK_OUTER: 416,
+  TICK_INNER: 408,
+  TICK_OUTER: 420,
 
   /** Ring the month names are centred on. Deliberately `DIAL.ZONE`: the
    *  outermost text of both faces sits on the same circle, so ⌘D ⇄ ⌘Y is one
@@ -107,16 +147,44 @@ export function dayAngle(index: number, days: number): number {
 }
 
 /**
- * Inverse of `yearAngle`: a point in viewBox units → the day of the year whose
- * slot it falls in, always inside `[0, days)`. Exact inverse of `dayAngle`, and
- * it must stay so — the same contract `minutesAtPoint` has with `angleAt`.
+ * Inverse of `yearAngle`: a point in viewBox units → where it falls in the
+ * year, as a *fraction* of a day, always inside `[0, days)`.
+ *
+ * Fractional because the magnification is continuous while the day named in
+ * the readout is not. Quantising the bulge to whole days makes it lurch a
+ * slot at a time under a pointer that is moving smoothly, which is the one
+ * thing a magnifier must not do.
  */
-export function dayAtPoint(x: number, y: number, days: number): number {
+export function yearAtPoint(x: number, y: number, days: number): number {
   const deg = (Math.atan2(y - DIAL.C, x - DIAL.C) * 180) / Math.PI + 90;
   const wrapped = ((deg % 360) + 360) % 360;
-  // `floor` of a value that can round up to exactly 360 lands one past the
+  return (wrapped / 360) * days;
+}
+
+/** Which slot a fractional position in the year falls in. */
+export function dayOfYearAt(exact: number, days: number): number {
+  // `floor` of a value that can round up to exactly `days` lands one past the
   // end of the year, which is a day that does not exist.
-  return Math.min(days - 1, Math.floor((wrapped / 360) * days));
+  return Math.min(days - 1, Math.floor(exact));
+}
+
+/**
+ * The day whose slot a point falls in. Exact inverse of `dayAngle`, and it
+ * must stay so — the same contract `minutesAtPoint` has with `angleAt`.
+ */
+export function dayAtPoint(x: number, y: number, days: number): number {
+  return dayOfYearAt(yearAtPoint(x, y, days), days);
+}
+
+/**
+ * How far day `index` is from a fractional position in the year, the short
+ * way round. 31 December and 1 January are neighbours, so a pointer on 2
+ * January has to magnify the end of the old year as well as the start of the
+ * new one; measured linearly it would be 364 days away and stay flat.
+ */
+export function ringDelta(index: number, at: number, days: number): number {
+  const raw = index - at;
+  return raw - days * Math.round(raw / days);
 }
 
 /* ------------------------------- the radius -------------------------------- */
@@ -129,12 +197,36 @@ export function markRadius(count: number): number {
   return inner + t * (YEAR.DAY_OUTER - inner);
 }
 
-/** A day's mark, as one `M … L …`. Batched by colour by the caller: a year of
- *  individual elements is 365 nodes to diff on every pointer move. */
-export function markPath(angle: number, outer: number): string {
-  const from = polar(YEAR.DAY_INNER, angle);
-  const to = polar(outer, angle);
-  return `M ${from.x.toFixed(2)} ${from.y.toFixed(2)} L ${to.x.toFixed(2)} ${to.y.toFixed(2)}`;
+/* ----------------------------- magnification ------------------------------- */
+
+/**
+ * How much of the bulge a day `distance` days from the pointer gets: 1 under
+ * it, a half either side, a fifteenth two out, nothing past `REACH`.
+ *
+ * A Gaussian rather than a cosine bell or a clamped parabola, because it is
+ * the only one of the three with no corner anywhere: every kink in this curve
+ * is a day that visibly snaps as the pointer crosses it.
+ */
+export function magnify(distance: number): number {
+  const x = Math.abs(distance);
+  if (x > YEAR.REACH) return 0;
+  return Math.exp(-(x * x) / (YEAR.SIGMA * YEAR.SIGMA));
+}
+
+/**
+ * How far a day `distance` days from the pointer gives way, as a share of
+ * `PUSH`, signed towards its own side.
+ *
+ * Zero under the pointer (that day is not going anywhere), a peak at
+ * `SIGMA_PUSH` where the room is actually wanted, and back to zero further
+ * out — so the rest of the year stays exactly where it was and the ring keeps
+ * its rhythm. Normalised so the peak is 1.
+ */
+export function spread(distance: number): number {
+  const x = Math.abs(distance);
+  if (x > YEAR.REACH) return 0;
+  const t = x / YEAR.SIGMA_PUSH;
+  return Math.sign(distance) * t * Math.exp(0.5 - (t * t) / 2);
 }
 
 /* -------------------------------- the unroll ------------------------------- */
