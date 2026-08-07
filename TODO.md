@@ -14,7 +14,7 @@ code it constrains.
 1. Intro animation like what animejs has
 2. icons into dial list based on custom or default to calendar icon (which can be set too)
 3. event and stuff search (idk, cmd f)
-4. week view
+4. all day event fix -> an all day event can span accross multiple days, without a beginning/end time
 
 **1. quotes page** — _you are a worm through time, you have no obligations to your former self, be
 the change you wish to see in the world._
@@ -40,6 +40,38 @@ calendar from any surface in the app — `Sidebar.tsx:131-159` only toggles visi
 `store.addCalendarWithEvents`/`removeCalendar` are wired to import and feed-removal alone. Colour is
 the only category encoding this product has, and the user cannot make one. Ship calendar CRUD;
 groups only start paying rent past about eight calendars, and you cannot get to eight.
+
+**4. week view — seven dials, not seven columns**
+
+In. The old line here read _"no week view: the circle is the argument, a seven-column grid concedes
+it"_ — and that argument does not survive the counter-proposal, because **seven dials are not a
+grid.** They are the same instrument at a different count, and nothing is conceded.
+
+The gap is real and the old line was hiding it: **circal cannot answer "what does my week look
+like."** ⌘Y says how _busy_ each day is — mark length is a count — and never _when_. That is the one
+question this product cannot answer today, and angle-is-time answers it for free.
+
+The version to build:
+
+- **All seven faces at the same rotation.** This is the whole idea. A ten o'clock meeting sits at
+  the same angle on every face, so the week reads as a _pattern_ — a recurring thing is a radial
+  column across the strip. It is the one thing a seven-column grid is genuinely good at, and it
+  survives the translation to dials intact.
+- **A reduced face**: track, event arcs, and the elapsed ring plus now-hand on today alone. No
+  numerals, no zone ring, no interior. One shared legend, and one shared readout under the strip
+  printing the hovered day's sentence — the centre panel's voice, once, not seven times.
+- **Hover grows a face and click is ⌘D on that day** — the year ring's grammar, unchanged.
+- ⌘W. It crossfades with everything: a week is not a magnified anything.
+- On a phone it cannot be a row. Scroll-snap the faces horizontally; a wrapped 4+3 grid of circles
+  _is_ the version that concedes the argument.
+
+Two costs to accept before starting. **It is a fourth scale** — "one idea at three scales" becomes
+four, and the README's thesis paragraph needs rewriting rather than extending. And **`Dial.tsx` is
+built around one face filling a viewport**: doing this properly means extracting a `<Face>` that the
+dial and the strip both render, with numerals, zone ring and interior as opt-in. That extraction is
+the real work and the real prerequisite — perhaps 300 careful lines — and skipping it means a second
+copy of the arc-drawing code, which is how this repo gets its first duplicated convention.
+`faceToPanel` / `polar` / `arcPath` are already scale-free, so the geometry side is ready.
 
 **5. look at sidebar**
 
@@ -150,7 +182,8 @@ the faces stay eye-verified.
 
 ### What not to do
 
-- **No week view.** The circle is the argument; a seven-column grid concedes it.
+- **No seven-column grid.** This used to read "no week view", which was the wrong noun: the circle
+  is the argument and a _grid_ concedes it, but seven dials do not. See (4).
 - **No sync, no accounts.** "Nothing leaves this browser" is a feature, and a second API route is a
   different product.
 - **Do not add a ring to the dial.** Every radius costs `PAD` and legibility, and that face already
@@ -169,3 +202,7 @@ left, in order:
    `[medium / small]`
 3. **A year-scale sentence in the middle of the year ring.** The one thing the new face is missing
    against the dial it is a copy of. `[medium / small]`
+
+And the one big thing, which is not in that list because it is not small: **the week view** (4), and
+before it the `<Face>` extraction it needs. Everything above is an afternoon; that is a week, and it
+is the only item left that adds a screen rather than finishing one.
