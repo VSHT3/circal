@@ -45,7 +45,8 @@ import {
   usePresence,
   useReducedMotion,
 } from "motion/react";
-import { colorOf, occurrencesOn, type CalEvent, type Calendar } from "@/lib/events";
+import { Search, X } from "lucide-react";
+import { colorOf, occurrencesOn, scoreEvent, type CalEvent, type Calendar } from "@/lib/events";
 import {
   dim,
   formatAge,
@@ -70,7 +71,7 @@ import { LIFE_EXPECTANCY_RANGE, store } from "@/lib/store";
 import { WEEKDAYS, dayKey, fromDayKey, isSameDay, startOfDay } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import type { LifeViewProps, ViewFlow } from "@/components/react/types";
-import { DateField, NumberField } from "@/components/react/ui/primitives";
+import { DateField, IconButton, NumberField } from "@/components/react/ui/primitives";
 
 const EASE = [0.32, 0.72, 0, 1] as const;
 const TAU = Math.PI * 2;
@@ -133,6 +134,16 @@ const TONE = {
   future: dim("#ffffff", 0.23),
 } as const;
 
+/**
+ * The field under an active search. The horizon survives — a thread with no
+ * sense of lived-against-left is a pattern rather than an answer — but both
+ * sides drop far enough that a lit day is the only thing the eye lands on.
+ */
+const SEARCH_TONE = {
+  past: dim("#ffffff", 0.13),
+  future: dim("#ffffff", 0.06),
+} as const;
+
 /** The accent, as the canvas needs it — a token cannot be read by `fillStyle`. */
 const TODAY_COLOR = "#a3d9e4";
 
@@ -162,15 +173,21 @@ function drawField(
   span: LifeSpan,
   density: Map<string, string>,
   today: Date,
+  /** The days a search has lit, in their own colour, or `null` for no search. */
+  found: Map<string, string> | null,
 ) {
   ctx.clearRect(0, 0, box.width, box.height);
 
+  // Two batches, because a hit is drawn fatter than the field it sits in and
+  // a `Path2D` carries no radius — one map per radius, hits filled last so a
+  // lit day is never half-covered by the day beside it.
   const paths = new Map<string, Path2D>();
-  const plot = (color: string, x: number, y: number, r: number) => {
-    let path = paths.get(color);
+  const hits = new Map<string, Path2D>();
+  const plot = (into: Map<string, Path2D>, color: string, x: number, y: number, r: number) => {
+    let path = into.get(color);
     if (!path) {
       path = new Path2D();
-      paths.set(color, path);
+      into.set(color, path);
     }
     // `arc` starts at angle 0, which is exactly this point: the `moveTo` is
     // what stops each dot being joined to the previous one by a line.
@@ -181,6 +198,9 @@ function drawField(
   const todayMs = today.getTime();
   const coloured = density.size > 0;
   const radius = layout.radius;
+  // Enough over the field to read as a mark rather than a brighter dot, and
+  // never under a pixel and a half at the densest layout this view will pick.
+  const hitRadius = Math.max(radius * 1.55, 1.6);
   let lit: { at: LifePoint; color: string } | null = null;
 
   for (let index = 0; index < layout.years; index++) {
@@ -197,17 +217,31 @@ function drawField(
       const line = Math.floor(slot / layout.colsPerLine);
       const x = lifeDotX(layout, slot - line * layout.colsPerLine);
       const y = lifeDotY(layout, firstRow + line);
-      const event = coloured ? density.get(dayKey(cursor)) : undefined;
+      const key = coloured || found ? dayKey(cursor) : "";
+      const past = cursor.getTime() < todayMs;
+
+      // A search answers one question, so it takes the colour channel whole:
+      // an unrelated event's colour on a day that did not match is noise in
+      // the middle of the answer.
+      const hit = found ? found.get(key) : undefined;
+      const color = found
+        ? (hit ?? (past ? SEARCH_TONE.past : SEARCH_TONE.future))
+        : (density.get(key) ?? (past ? TONE.past : TONE.future));
 
       if (cursor.getTime() === todayMs) {
-        lit = { at: { x, y }, color: event ?? TODAY_COLOR };
+        lit = { at: { x, y }, color: found ? color : (density.get(key) ?? TODAY_COLOR) };
         continue;
       }
-      plot(event ?? (cursor.getTime() < todayMs ? TONE.past : TONE.future), x, y, radius);
+      if (hit) plot(hits, hit, x, y, hitRadius);
+      else plot(paths, color, x, y, radius);
     }
   }
 
   for (const [color, path] of paths) {
+    ctx.fillStyle = color;
+    ctx.fill(path);
+  }
+  for (const [color, path] of hits) {
     ctx.fillStyle = color;
     ctx.fill(path);
   }
@@ -263,6 +297,8 @@ export default function LifeView({
   selected,
   events,
   calendars,
+  search,
+  onClearSearch,
   onSelectDay,
 }: LifeViewProps) {
   /**
@@ -273,6 +309,22 @@ export default function LifeView({
   const todayKey = dayKey(now);
   const today = useMemo(() => fromDayKey(todayKey), [todayKey]);
   const stats = useMemo(() => (stage ? lifeStats(stage.span, now) : null), [stage, now]);
+
+  /**
+   * The days the query lit. Built by handing the matching events to the same
+   * `lifeDensity` the field itself is built from, so a searched day and a
+   * carrying day are the same question asked of the same engine — including
+   * which recurrence rules a grid this size will honour.
+   */
+  const found = useMemo(() => {
+    const q = search.trim();
+    if (!q || !stage) return null;
+    return lifeDensity(
+      events.filter((event) => scoreEvent(event, q) !== null),
+      calendars,
+      stage.span,
+    );
+  }, [search, events, calendars, stage]);
 
   return (
     <div className="flex h-full w-full flex-col overflow-hidden">
@@ -285,10 +337,14 @@ export default function LifeView({
       >
         {stage && stats && (
           <>
-            <span className="label hidden shrink-0 text-[10px] text-ink-3 sm:inline">
-              Born {formatLifeDate(stage.span.birth)} <span className="text-ink-4">·</span>{" "}
-              <span className="text-ink-2">{formatAge(stats.age)}</span>
-            </span>
+            {found ? (
+              <SearchChip query={search} days={found.size} onClear={onClearSearch} />
+            ) : (
+              <span className="label hidden shrink-0 text-[10px] text-ink-3 sm:inline">
+                Born {formatLifeDate(stage.span.birth)} <span className="text-ink-4">·</span>{" "}
+                <span className="text-ink-2">{formatAge(stats.age)}</span>
+              </span>
+            )}
             <span className="label ml-auto truncate text-[10px] text-ink-3">
               <span className="text-ink-2">{formatCount(stats.daysLived)}</span> lived{" "}
               <span className="text-ink-4">·</span> {formatCount(stats.daysLeft)} left{" "}
@@ -314,6 +370,7 @@ export default function LifeView({
             selected={selected}
             events={events}
             calendars={calendars}
+            found={found}
             onSelectDay={onSelectDay}
           />
         ) : (
@@ -321,6 +378,35 @@ export default function LifeView({
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * What the grid is currently showing you, in the strip the age usually has.
+ * The count is the point: "412 days" is the answer, and the field is the
+ * shape of it.
+ */
+function SearchChip({
+  query,
+  days,
+  onClear,
+}: {
+  query: string;
+  days: number;
+  onClear: () => void;
+}) {
+  return (
+    <span className="label flex min-w-0 shrink items-center gap-1.5 text-[10px] text-ink-3">
+      <Search size={11} strokeWidth={1.75} className="shrink-0 text-ink-3" />
+      <span className="truncate text-ink-2">{query.trim()}</span>
+      <span className="text-ink-4">·</span>
+      <span className="shrink-0 text-ink-2">
+        {formatCount(days)} day{days === 1 ? "" : "s"}
+      </span>
+      <IconButton label="Clear the search" onClick={onClear} className="ml-0.5 h-5 w-5 shrink-0">
+        <X size={12} strokeWidth={1.75} />
+      </IconButton>
+    </span>
   );
 }
 
@@ -337,6 +423,7 @@ function LifeGrid({
   selected,
   events,
   calendars,
+  found,
   onSelectDay,
 }: {
   stage: LifeStage;
@@ -345,6 +432,7 @@ function LifeGrid({
   selected: Date;
   events: CalEvent[];
   calendars: Calendar[];
+  found: Map<string, string> | null;
   onSelectDay: (day: Date) => void;
 }) {
   const reducedMotion = useReducedMotion();
@@ -447,13 +535,13 @@ function LifeGrid({
     const ctx = field.getContext("2d");
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    drawField(ctx, box, layout, span, density, today);
+    drawField(ctx, box, layout, span, density, today, found);
 
     fieldRef.current = field;
     canvas.width = field.width;
     canvas.height = field.height;
     paint();
-  }, [box, layout, span, density, today, paint]);
+  }, [box, layout, span, density, today, found, paint]);
 
   useMotionValueEvent(reveal, "change", paint);
 

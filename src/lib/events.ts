@@ -6,6 +6,7 @@
  * local calendar is unambiguous and JSON-safe.
  * ------------------------------------------------------------------ */
 
+import { fuzzyScore } from "./fuzzy";
 import { MINUTES_PER_DAY, addDays, minutesOfDay, startOfDay } from "./time";
 import { instantKey, startsBetween, type Recurrence } from "./recur";
 
@@ -254,6 +255,33 @@ export function freeGaps(
   }
   if (to - cursor >= minMinutes) gaps.push({ start: cursor, end: to });
   return gaps;
+}
+
+/* --------------------------------- search --------------------------------- */
+
+/**
+ * What a match outside the title gives up. A note is searchable but it is not
+ * what the event is called, so a title match of the same quality wins.
+ */
+const FIELD_PENALTY = { location: 30, notes: 45 };
+
+const penalise = (score: number | null, cost: number) => (score === null ? null : score - cost);
+
+/**
+ * How well an event answers a query, or `null` when it does not — the whole of
+ * "does this match" for every surface that searches, so the palette's ranking
+ * and the life grid's thread cannot disagree about what a hit is.
+ *
+ * Charged as a penalty rather than a multiplier: a score can be negative (a
+ * long note matched across big gaps), and halving a negative promotes it.
+ */
+export function scoreEvent(event: CalEvent, query: string): number | null {
+  const scores = [
+    fuzzyScore(event.title, query),
+    penalise(fuzzyScore(event.location, query), FIELD_PENALTY.location),
+    penalise(fuzzyScore(event.notes, query), FIELD_PENALTY.notes),
+  ].filter((score): score is number => score !== null);
+  return scores.length > 0 ? Math.max(...scores) : null;
 }
 
 /* --------------------------------- colour --------------------------------- */

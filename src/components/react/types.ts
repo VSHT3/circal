@@ -150,6 +150,14 @@ export interface LifeViewProps {
   selected: Date;
   events: CalEvent[];
   calendars: Calendar[];
+  /**
+   * The query lighting the grid — what ⌘P has in its box while this view is on
+   * screen, or `""`. Every day carrying a matching event keeps its colour and
+   * the rest of the life recedes, which is the one question a field of eighty
+   * years can answer that no other calendar surface can.
+   */
+  search: string;
+  onClearSearch: () => void;
   onSelectDay: (day: Date) => void;
 }
 
@@ -167,6 +175,12 @@ export interface CommandPaletteProps {
   occurrences: Occurrence[];
   clock: Clock;
   actions: ShellActions;
+  /**
+   * Every keystroke, while the life view is the one behind us. The shell holds
+   * it rather than this panel because the grid outlives the palette: the
+   * thread stays lit after ⌘P closes, so it can be read.
+   */
+  onSearchLife: (query: string) => void;
 }
 
 /**

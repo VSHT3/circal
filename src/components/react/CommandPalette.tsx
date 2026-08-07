@@ -29,7 +29,7 @@ import {
 import { useFocusTrap } from "@/components/react/hooks";
 import { Kbd } from "@/components/react/ui/primitives";
 import type { CommandPaletteProps } from "@/components/react/types";
-import { colorOf, freeGaps, WAKING, type CalEvent } from "@/lib/events";
+import { colorOf, freeGaps, scoreEvent, WAKING, type CalEvent } from "@/lib/events";
 import { fuzzyScore } from "@/lib/fuzzy";
 import { parseDate, parseQuickAdd, parseSlot, repeatPhrase } from "@/lib/quickadd";
 import {
@@ -49,13 +49,8 @@ import { cn } from "@/lib/utils";
 
 const EASE = [0.32, 0.72, 0, 1] as const;
 
-/**
- * What a match outside the title gives up. A note is searchable but it is not
- * what the event is called, so a title match of the same quality wins.
- */
-const FIELD_PENALTY = { location: 30, notes: 45 };
-
-const penalise = (score: number | null, cost: number) => (score === null ? null : score - cost);
+/* `fuzzyScore` is still the row matcher below — an event's own score lives in
+   `scoreEvent`, shared with the life grid's search. */
 
 /** One row in the flattened, keyboard-navigable result list. */
 interface Row {
@@ -79,6 +74,7 @@ export default function CommandPalette({
   onClose,
   day,
   now,
+  view,
   sidebarOpen,
   ambient,
   events,
@@ -86,6 +82,7 @@ export default function CommandPalette({
   occurrences,
   clock,
   actions,
+  onSearchLife,
 }: CommandPaletteProps) {
   const reducedMotion = useReducedMotion();
   const [query, setQuery] = useState("");
@@ -105,6 +102,8 @@ export default function CommandPalette({
   }
 
   const q = query.trim().toLowerCase();
+  /** Typing at the life grid: the query is lighting the field behind us. */
+  const threading = view === "life" && q !== "";
 
   const jumpDate = useMemo(() => parseDate(query, day), [query, day]);
   const jumpRows: Row[] = useMemo(() => {
@@ -188,27 +187,14 @@ export default function CommandPalette({
   }, [query, occurrences, day, now, clock, actions, onClose]);
 
   /**
-   * Every event, ranked rather than filtered. `fuzzyScore` answers "how well
-   * does this text match", so the sort is score first and nearness to the day
+   * Every event, ranked rather than filtered. `scoreEvent` answers "how well
+   * does this event match", so the sort is score first and nearness to the day
    * on screen second — which is exactly the old order when the query is empty,
    * because an empty query scores every candidate the same.
-   *
-   * A hit in the location or the notes is worth less than one in the title.
-   * Charged as a penalty rather than a multiplier: a score can be negative
-   * (a long note matched across big gaps), and halving a negative promotes it.
    */
   const eventRows: Row[] = useMemo(() => {
-    const rank = (event: CalEvent): number | null => {
-      const scores = [
-        fuzzyScore(event.title, q),
-        penalise(fuzzyScore(event.location, q), FIELD_PENALTY.location),
-        penalise(fuzzyScore(event.notes, q), FIELD_PENALTY.notes),
-      ].filter((score): score is number => score !== null);
-      return scores.length > 0 ? Math.max(...scores) : null;
-    };
-
     return events
-      .map((event) => ({ event, score: rank(event) }))
+      .map((event) => ({ event, score: scoreEvent(event, q) }))
       .filter((row): row is { event: CalEvent; score: number } => row.score !== null)
       .sort(
         (a, b) =>
@@ -497,7 +483,14 @@ export default function CommandPalette({
     <AnimatePresence>
       {open && (
         <motion.div
-          className="fixed inset-0 z-[60] flex items-start justify-center bg-black/50 pt-[18vh] backdrop-blur-[2px]"
+          className={cn(
+            "fixed inset-0 z-[60] flex items-start justify-center pt-[18vh]",
+            // Searching the life grid means the answer is *behind* this
+            // overlay: a 2px blur is wider than a dot, so it would sand the
+            // thread off the field the query just lit. Thinner scrim, no
+            // blur, for exactly that case.
+            threading ? "bg-black/35" : "bg-black/50 backdrop-blur-[2px]",
+          )}
           onClick={onClose}
           role="presentation"
           initial={reducedMotion ? false : { opacity: 0 }}
@@ -527,6 +520,7 @@ export default function CommandPalette({
                 onChange={(e) => {
                   setQuery(e.target.value);
                   setHighlighted(0);
+                  if (view === "life") onSearchLife(e.target.value);
                 }}
                 placeholder="Search, jump to a date, find 45m free, run a command…"
                 aria-label="Search, jump to a date, find free time, run a command"

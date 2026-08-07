@@ -106,6 +106,13 @@ whole is spent to six decimals, which is enough to watch it move. Hover a dot
 for its date, how far off it is and what is on it; click one to open that day
 on the dial.
 
+And it is the one view you can ask a question of. Open `⌘P` while the grid is
+up and every day carrying a matching event lights, in its own colour, with the
+rest of the life falling back to almost nothing — "every day I ran", as a
+thread down eighty years. The strip counts the answer, the palette stops
+blurring what is behind it, and the thread stays lit after the palette closes,
+because it is drawn at a size worth reading. `esc` clears it.
+
 Between the dial and the grid it is a zoom, not a cut. Going out, the dial —
 arcs, hand and all — shrinks until it is the single dot standing for the day
 you were looking at, and the field arrives as a wave leaving that same dot,

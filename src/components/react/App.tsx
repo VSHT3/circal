@@ -212,6 +212,20 @@ export default function App() {
   const [editor, setEditor] = useState<EditorTarget | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  /**
+   * The query lighting the life grid. Held here rather than in the palette
+   * because the thread outlives it: ⌘P closes and the field stays lit, so the
+   * answer can be read at the size it is drawn.
+   */
+  const [lifeSearch, setLifeSearch] = useState("");
+  // Opening the palette starts a fresh search, so the box and the field always
+  // say the same thing. Adjusted during render rather than in an effect, as
+  // everywhere else in this repo that new props must reset local state.
+  const [searchSeeded, setSearchSeeded] = useState(paletteOpen);
+  if (searchSeeded !== paletteOpen) {
+    setSearchSeeded(paletteOpen);
+    if (paletteOpen) setLifeSearch("");
+  }
   /** The pointer, parked. An arrow over a desk clock is the one piece of
    *  chrome the mode cannot remove by not rendering it. */
   const cursorIdle = useIdle(inAmbient, 2000);
@@ -507,12 +521,18 @@ export default function App() {
   useHotkeys({
     escape: () => {
       // One key, one thing: a press that closed a panel has done its work,
-      // and taking the mode down with it would be two.
+      // and taking the mode down with it would be two. A lit life grid is the
+      // next layer down — nothing is over it, so Escape is free to clear it.
       const panelled = busy;
       setPaletteOpen(false);
       setSettingsOpen(false);
       setEditor(null);
-      if (!panelled && inAmbient) enterAmbient("off", true);
+      if (panelled) return;
+      if (lifeSearch) {
+        setLifeSearch("");
+        return;
+      }
+      if (inAmbient) enterAmbient("off", true);
     },
   });
 
@@ -764,6 +784,8 @@ export default function App() {
                   selected={day}
                   events={visible}
                   calendars={calendars}
+                  search={lifeSearch}
+                  onClearSearch={() => setLifeSearch("")}
                   onSelectDay={(next) => actions.goDay(next)}
                 />
               )}
@@ -829,6 +851,7 @@ export default function App() {
         occurrences={agenda.all}
         clock={settings.clock}
         actions={actions}
+        onSearchLife={setLifeSearch}
       />
 
       <Toast />

@@ -9,6 +9,7 @@ import {
   instantKey,
   inkOn,
   occurrencesOn,
+  scoreEvent,
   statusOf,
   type Gap,
 } from "@/lib/events";
@@ -508,5 +509,43 @@ describe("statusOf", () => {
     },
   ])("$name is $expected", ({ now, expected }) => {
     expect(statusOf(occ!, now())).toBe(expected);
+  });
+});
+
+describe("scoreEvent", () => {
+  const e = event({ title: "Morning run", location: "Riverside", notes: "bring the dog" });
+
+  it("misses when the query is in none of the three fields", () => {
+    expect(scoreEvent(e, "dentist")).toBeNull();
+  });
+
+  it("takes the empty query as a hit, so an empty box ranks everything the same", () => {
+    expect(scoreEvent(e, "")).toBe(0);
+    expect(scoreEvent(event({ title: "Anything else" }), "")).toBe(0);
+  });
+
+  it("scores a title hit above the same hit in the location", () => {
+    const titled = event({ title: "Riverside", location: "", notes: "" });
+    const located = event({ title: "", location: "Riverside", notes: "" });
+    expect(scoreEvent(titled, "riverside")!).toBeGreaterThan(scoreEvent(located, "riverside")!);
+  });
+
+  it("scores a location hit above the same hit in the notes", () => {
+    const located = event({ title: "", location: "Riverside", notes: "" });
+    const noted = event({ title: "", location: "", notes: "Riverside" });
+    expect(scoreEvent(located, "riverside")!).toBeGreaterThan(scoreEvent(noted, "riverside")!);
+  });
+
+  it("keeps the best of the three fields rather than the last one tried", () => {
+    // The title match must survive a weaker hit in the notes beside it.
+    const both = event({ title: "Riverside", location: "", notes: "r i v e r s i d e" });
+    const titleOnly = event({ title: "Riverside", location: "", notes: "" });
+    expect(scoreEvent(both, "riverside")).toBe(scoreEvent(titleOnly, "riverside"));
+  });
+
+  it("finds a match the palette forgives one character into", () => {
+    // The grid lights every match, so its reach is exactly the palette's: one
+    // typo forgiven, and no second, stricter matcher anywhere.
+    expect(scoreEvent(event({ title: "Morning run" }), "mornng run")).not.toBeNull();
   });
 });

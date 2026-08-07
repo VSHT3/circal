@@ -106,11 +106,9 @@ three scales", and it is still what blocks (2). Two honest paths:
 
 ### Life view
 
-The strongest concept in the app, and the render is no longer fighting it.
+The strongest concept in the app, and searching it is now the thing no other calendar can do —
+⌘P lights every matching day and the thread stays lit after the palette closes.
 
-- **Search the whole life.** Every event is already in hand and there is a per-day lookup: type in
-  ⌘P and every matching day lights in the grid. "Every day I ran", as a thread down eighty years.
-  Nobody else has this and it is mostly wiring. **[high / medium]**
 - **Milestones.** You know the birth date: day 10,000, the halfway dot, each decade. Cheap, on
   thesis, high delight. **[medium / small]**
 - **Drag a range** → "4,182 days". The distance maths already exists (`formatDistance`).
@@ -156,12 +154,11 @@ the dial stays eye-verified.
 
 ### If it were three things
 
-The old five are spent — real RRULE in and out, the interior, arc labels, ambient mode, quick-add
-and the suite all shipped, and the feed payloads now live one key per subscription on a shared
-budget. What is left, in order:
+The old five are spent, and so are the month banding and the life search. What is left, in order:
 
 1. **Decide what the year view is.** The last screen off-thesis, and the only thing blocking (2).
    Everything else here is an improvement; this one is an argument. `[high / medium]`
-2. **Search the whole life** — the thing no other calendar can do. `[high / medium]`
-3. **The 1 Hz whole-tree re-render**, then **a focus path into the life grid** — the two DOM-shaped
+2. **The 1 Hz whole-tree re-render**, then **a focus path into the life grid** — the two DOM-shaped
    bugs left, and the suite covers neither. `[medium / small]`
+3. **Milestones in the life grid** — day 10,000, the halfway dot. Cheap, on thesis, high delight.
+   `[medium / small]`
