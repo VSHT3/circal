@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { at, ms, event, MemoryStorage } from "./helpers";
-import type { Repeat } from "@/lib/events";
+import type { CalEvent, Repeat } from "@/lib/events";
 import { DEFAULT_SETTINGS, LIFE_EXPECTANCY_RANGE } from "@/lib/store";
 import { dayKey } from "@/lib/time";
 import type * as StoreModule from "@/lib/store";
@@ -770,6 +770,157 @@ describe("a write that fails", () => {
     expect(spy).toHaveBeenCalledTimes(1);
     expect(spy.mock.calls[0][0]).toMatch(/not saved/i);
     expect(spy.mock.calls[0][1]).toBe("error");
+  });
+});
+
+/* ---------------------------- feed payloads ----------------------------- */
+
+/** Feed keys, in insertion order. */
+const feedKeys = (s: StoreHandle) =>
+  Array.from({ length: s.storage.length }, (_, i) => s.storage.key(i)!).filter((k) =>
+    k.startsWith("circal.feed."),
+  );
+
+/** ~100k characters each, so a couple of dozen overrun the 2M budget without
+ *  a test having to build two megabytes of plausible calendar. */
+const PAD = "x".repeat(100_000);
+const fat = (title: string, start: number, over: Partial<CalEvent> = {}) =>
+  event({ title, start, end: start + 3_600_000, notes: PAD, ...over });
+
+describe("feed payloads live outside the blob", () => {
+  it("a pull writes its own key and leaves nothing in circal.v1", async () => {
+    const s = await freshStore();
+    const cal = s.store.addFeed("https://example.com/feed.ics", "Feed");
+    s.store.setFeedEvents(cal.id, [event({ title: "theirs" })]);
+
+    const blob = JSON.parse(s.storage.getItem(KEY)!);
+    expect(blob.feeds).toBeUndefined();
+    expect(feedKeys(s)).toEqual([`circal.feed.${cal.id}`]);
+    expect(JSON.parse(s.storage.raw(`circal.feed.${cal.id}`)!)).toHaveLength(1);
+  });
+
+  it("survives a reload — the mirror comes back from its own key", async () => {
+    const first = await freshStore();
+    const cal = first.store.addFeed("https://example.com/feed.ics", "Feed");
+    first.store.setFeedEvents(cal.id, [event({ title: "theirs" })]);
+
+    const s = await freshStore(first.storage);
+    expect(s.store.snapshot().feeds[cal.id]).toHaveLength(1);
+  });
+
+  it("removing the calendar removes the key, not just the entry", async () => {
+    const s = await freshStore();
+    const cal = s.store.addFeed("https://example.com/feed.ics", "Feed");
+    s.store.setFeedEvents(cal.id, [event({ title: "theirs" })]);
+    s.store.removeCalendar(cal.id);
+    expect(feedKeys(s)).toEqual([]);
+  });
+
+  it("a payload whose calendar is gone is swept on the next load", async () => {
+    const s = await freshStore();
+    s.store.create(draft(s));
+    // What another tab removing the subscription leaves behind.
+    s.storage.setItem("circal.feed.never-existed", JSON.stringify([event()]));
+
+    const reloaded = await freshStore(s.storage);
+    reloaded.store.snapshot();
+    expect(feedKeys(reloaded)).toEqual([]);
+  });
+
+  it("a restore that drops a subscription drops its megabytes with it", async () => {
+    const s = await freshStore();
+    const cal = s.store.addFeed("https://example.com/feed.ics", "Feed");
+    s.store.setFeedEvents(cal.id, [event({ title: "theirs" })]);
+
+    s.store.restore({ events: [], calendars: [], settings: DEFAULT_SETTINGS });
+    expect(feedKeys(s)).toEqual([]);
+    expect(s.store.snapshot().feeds).toEqual({});
+  });
+
+  it("a blob written with feeds inline is migrated out and the field dropped", async () => {
+    const storage = new MemoryStorage();
+    const sub = {
+      id: "sub",
+      name: "Sub",
+      color: "#fff",
+      visible: true,
+      feed: { url: "https://example.com/f.ics", fetchedAt: 1, error: "" },
+    };
+    storage.setItem(
+      KEY,
+      JSON.stringify({
+        schema: 2,
+        events: [],
+        calendars: [sub],
+        feeds: { sub: [event({ title: "was inline" })] },
+        settings: {},
+      }),
+    );
+    const s = await freshStore(storage);
+
+    expect(s.store.snapshot().feeds.sub).toHaveLength(1);
+    expect(JSON.parse(s.storage.raw("circal.feed.sub")!)).toHaveLength(1);
+    // Rewritten immediately, or the next launch moves the same bytes again.
+    expect(JSON.parse(s.storage.raw(KEY)!).feeds).toBeUndefined();
+  });
+});
+
+describe("the feed budget", () => {
+  it("trims an oversized feed, keeps what is nearest, and says what is missing", async () => {
+    const s = await freshStore();
+    const cal = s.store.addFeed("https://example.com/feed.ics", "Feed");
+    const now = Date.now();
+    const dated = Array.from({ length: 30 }, (_, i) => fat(`day ${i}`, now + i * 86_400_000));
+    // Far future, but a rule is bytes that describe years — never the first
+    // thing to drop.
+    const series = fat("weekly", now + 3650 * 86_400_000, { repeat: "weekly", interval: 1 });
+    s.store.setFeedEvents(cal.id, [...dated, series]);
+
+    const cached = s.store.snapshot().feeds[cal.id];
+    const titles = cached.map((e) => e.title);
+    expect(cached.length).toBeGreaterThan(0);
+    expect(cached.length).toBeLessThan(31);
+    expect(titles).toContain("weekly");
+    expect(titles).toContain("day 0");
+    expect(titles).not.toContain("day 29");
+    // The feed's own order, minus what was dropped.
+    expect(titles).toEqual(
+      [...dated, series].map((e) => e.title).filter((t) => titles.includes(t)),
+    );
+
+    const error = s.store.snapshot().calendars.find((c) => c.id === cal.id)!.feed!.error;
+    expect(error).toBe(`${cached.length}/31 cached`);
+    expect(s.storage.raw(`circal.feed.${cal.id}`)!.length).toBeLessThanOrEqual(2_000_000);
+  });
+
+  it("is shared between subscriptions — four feeds get a quarter each", async () => {
+    const s = await freshStore();
+    const cals = [1, 2, 3, 4].map((n) => s.store.addFeed(`https://example.com/${n}.ics`, `F${n}`));
+    const now = Date.now();
+    s.store.setFeedEvents(
+      cals[0].id,
+      Array.from({ length: 30 }, (_, i) => fat(`day ${i}`, now + i * 86_400_000)),
+    );
+    expect(s.storage.raw(`circal.feed.${cals[0].id}`)!.length).toBeLessThanOrEqual(500_000);
+  });
+
+  it("a feed too big for the disk does not stop your own events saving", async () => {
+    const s = await freshStore();
+    const spy = vi.spyOn(s.notify, "notify");
+    const cal = s.store.addFeed("https://example.com/feed.ics", "Feed");
+    // Big enough for the blob, nowhere near enough for one padded event.
+    s.storage.quota = 50_000;
+    s.store.setFeedEvents(cal.id, [fat("huge", Date.now())]);
+
+    expect(feedKeys(s)).toEqual([]);
+    expect(s.store.snapshot().calendars.find((c) => c.id === cal.id)!.feed!.error).toMatch(
+      /no room/i,
+    );
+    // The subscription's failure is the subscription's, said on its own line.
+    expect(spy).not.toHaveBeenCalled();
+
+    const created = s.store.create(draft(s));
+    expect(JSON.parse(s.storage.getItem(KEY)!).events).toContainEqual(created);
   });
 });
 

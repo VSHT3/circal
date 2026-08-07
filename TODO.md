@@ -2,7 +2,7 @@
 
 Recurrence is real, the interior answers the day, arcs carry their own names, the dial has an
 ambient mode, ⌘P writes an event in one line and ranks what it finds, and there is a test suite —
-820 cases over the domain layer, `pnpm test`, in the gate.
+831 cases over the domain layer, `pnpm test`, in the gate.
 
 Done work is not recorded here. The rationale that outlived it lives in `AGENTS.md`, next to the
 code it constrains.
@@ -138,18 +138,17 @@ And the honest omission: **there are no reminders.** A calendar that never tells
 viewer. While the tab is open, `Notification` is enough; closed, it needs a server, and a server is
 off-thesis. Say so in the UI rather than leaving the absence unexplained.
 
-### Correctness — four open
+### Correctness — three open
 
 | what                             | where and why                                                                                                                                                                                                                                                                                                                               |
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Feed payloads share the blob** | Everything is one `circal.v1` key, so a fat subscription competes with your own events for one ~5MB quota; `write()` toasts once and then loses the write silently on reload. Feeds want their own key, and a cap. Needs a schema bump and a migration, so it is its own commit.                                                            |
 | **No focus trap in any modal**   | Three hand-rolled dialogs, no shared primitive: Tab escapes to the page behind, and the global hotkeys (←/→/`t`) still fire under an open editor.                                                                                                                                                                                           |
 | **1 Hz whole-tree re-render**    | `useNow` ticks every second and `App` hands `now` to Dial, Sidebar, CenterPanel and LifeView, but only the readout and the hand move. Ambient takes the period to a minute, which is the right answer for a mode left running and no answer at all for the other 23 hours. Push second-resolution into a leaf and keep the rest on minutes. |
 | **Life grid is invisible to AT** | `role="img"`, one label, 30,000 dots, no focus path. The year grid does it right with real buttons — but its `aria-label` omits whether the day carries anything.                                                                                                                                                                           |
 
-All four are DOM-shaped, which is exactly the surface the suite does not cover: no DOM, no jsdom, no
+All three are DOM-shaped, which is exactly the surface the suite does not cover: no DOM, no jsdom, no
 component tests, on purpose — a snapshot of an SVG path is a change-detector that fails on every
-legitimate geometry tweak. That is the honest boundary of what 820 pure-function tests buy you, and
+legitimate geometry tweak. That is the honest boundary of what 830 pure-function tests buy you, and
 the dial stays eye-verified.
 
 ### What not to do
@@ -160,16 +159,15 @@ the dial stays eye-verified.
 - **Do not add a ring.** Every radius costs `PAD` and legibility, and the face already carries four
   plus two bands. The room is in the interior.
 
-### If it were four things
+### If it were three things
 
 The old five are spent — real RRULE in and out, the interior, arc labels, ambient mode, quick-add
-and the suite all shipped. What is left, in order:
+and the suite all shipped, and the feed payloads now live one key per subscription on a shared
+budget. What is left, in order:
 
 1. **Decide what the year view is.** The last screen off-thesis, and the only thing blocking (2).
    Everything else here is an improvement; this one is an argument. `[high / medium]`
 2. **The life grid's month banding**, then **search the whole life** — one is a render bug wearing a
    feature's clothes, the other is the thing no other calendar can do. `[high / medium]`
-3. **Split the feed payloads out of the blob.** The only open bug that can lose data. `[high /
-medium]`
-4. **A focus trap, once, in a primitive** — three dialogs already need it and the next one will too.
+3. **A focus trap, once, in a primitive** — three dialogs already need it and the next one will too.
    `[medium / small]`

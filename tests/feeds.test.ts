@@ -224,15 +224,63 @@ describe("another tab's write and this tab's undo history", () => {
     const { refreshFeed } = await import("@/lib/feeds");
     subscribe(() => {});
 
-    store.create(event({ title: "Mine", start: "2026-03-08 11:00" }));
+    // The subscription is older than the step being undone — otherwise undoing
+    // past `addFeed` legitimately takes the calendar with it.
     const calendar = store.addFeed("https://example.com/cal.ics", "example.com");
     await refreshFeed(calendar);
     fire("circal.v1");
+    store.create(event({ title: "Mine", start: "2026-03-08 11:00" }));
 
     store.undo();
 
     // Feeds are a live mirror, never part of an undo step.
     expect(store.snapshot().feeds[calendar.id]).toHaveLength(2);
+  });
+
+  it("undoing past the subscription hides its mirror but keeps the payload", async () => {
+    serve(UID_LESS);
+    const { store } = await import("@/lib/store");
+    const { refreshFeed } = await import("@/lib/feeds");
+
+    const created = store.create(event({ title: "Mine", start: "2026-03-08 11:00" }));
+    const calendar = store.addFeed("https://example.com/cal.ics", "example.com");
+    await refreshFeed(calendar);
+
+    // `addFeed` and the pull are both `record: false`, so this lands on the
+    // step before the calendar existed.
+    store.undo();
+    expect(store.snapshot().events.map((e) => e.id)).not.toContain(created.id);
+    expect(store.snapshot().feeds[calendar.id]).toBeUndefined();
+
+    // The key is untouched, so redoing back to the calendar gets the events
+    // it already had rather than an empty ring until the next pull.
+    expect(storage.raw(`circal.feed.${calendar.id}`)).toBeTruthy();
+    store.redo();
+    expect(store.snapshot().feeds[calendar.id]).toHaveLength(2);
+  });
+
+  it("another tab's payload write is picked up without costing the history", async () => {
+    const fire = stubWindow();
+    serve(UID_LESS);
+    const { store, subscribe } = await import("@/lib/store");
+    const { refreshFeed } = await import("@/lib/feeds");
+    subscribe(() => {});
+
+    const calendar = store.addFeed("https://example.com/cal.ics", "example.com");
+    await refreshFeed(calendar);
+    store.create(event({ title: "Mine", start: "2026-03-08 11:00" }));
+
+    // The other tab re-pulls: a write to the payload key, and nothing else
+    // this tab has to care about.
+    storage.setItem(
+      `circal.feed.${calendar.id}`,
+      JSON.stringify([event({ title: "Theirs", start: "2026-03-10 09:00" })]),
+    );
+    fire(`circal.feed.${calendar.id}`);
+
+    expect(store.snapshot().feeds[calendar.id].map((e) => e.title)).toEqual(["Theirs"]);
+    // A payload is never part of the base, so it can never invalidate a step.
+    expect(store.undo()).toBe(true);
   });
 });
 

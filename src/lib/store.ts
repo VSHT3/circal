@@ -7,7 +7,7 @@
  * a dozen props through the shell, and a second tab picks up writes via the
  * `storage` event.
  *
- * Two properties this file is responsible for, both learned the hard way:
+ * Three properties this file is responsible for, all learned the hard way:
  *
  * 1. A write that fails must *say so*. `localStorage` throws on quota and in
  *    private mode, and the app looked identical either way — the UI showed the
@@ -15,6 +15,11 @@
  * 2. A second tab must not overwrite this one. Every action re-reads the blob
  *    before deriving from it (`fresh()`), so two tabs racing lose an *edit* at
  *    worst, never the other tab's events.
+ * 3. Somebody else's calendar must not be able to cost you yours. A mirrored
+ *    feed is the one unbounded thing in the store, and inside the blob every
+ *    one of its events competed with yours for a single origin quota — so a
+ *    fat subscription made every later save of your own fail. Feeds are one
+ *    key each now, outside the blob and on a budget.
  * ------------------------------------------------------------------ */
 
 import { useSyncExternalStore } from "react";
@@ -24,6 +29,31 @@ import { NEVER, PALETTE, type CalEvent, type Calendar, type Repeat } from "./eve
 import type { PickedPlace } from "./places";
 
 const KEY = "circal.v1";
+
+/**
+ * A subscription's cached events: one key per calendar, `circal.feed.<id>`.
+ *
+ * Out of the blob because they are not the user's data and there is no bound
+ * on them — a shared work calendar is thousands of VEVENTs. Split, a feed
+ * that will not fit fails on its own key and says so on its own calendar,
+ * and the blob that holds your day stays small enough to always write.
+ */
+const FEED_PREFIX = "circal.feed.";
+
+const feedKey = (id: string) => `${FEED_PREFIX}${id}`;
+
+/**
+ * Stored characters of mirrored feed events allowed in total, shared equally
+ * between the subscriptions — one feed may spend the lot, four get a quarter
+ * each. A total rather than a per-feed cap is the only form that bounds
+ * anything: the quota is per origin, so five caps of "one each" is five.
+ *
+ * Two million of the ~5M a browser gives an origin leaves three for your own
+ * events, which is tens of thousands of them. Re-divided on every pull, so a
+ * fifth subscription shrinks the other four as each is next refreshed rather
+ * than all at once — a pull is cheap and half an hour away at worst.
+ */
+const FEED_BUDGET = 2_000_000;
 
 /**
  * Bumped when a stored field changes meaning rather than shape. `clock: "24h"`
@@ -177,10 +207,16 @@ export interface Snapshot {
    * Events pulled from subscribed feeds, keyed by their calendar's id. Kept
    * apart from `events` so a refresh can replace a feed wholesale, and so
    * nobody's Google calendar ends up inside a circal backup.
+   *
+   * A read model assembled from the `circal.feed.*` keys — the one field of
+   * this interface that is never serialised into the blob.
    */
   feeds: Record<string, CalEvent[]>;
   settings: Settings;
 }
+
+/** The blob: everything but the feed mirror, which has keys of its own. */
+type Persisted = Omit<Snapshot, "feeds">;
 
 export const DEFAULT_SETTINGS: Settings = {
   // The 0–23 face. It is the one that matches the instrument: a revolution is
@@ -425,33 +461,225 @@ function hydrateEvents(value: unknown): CalEvent[] {
   });
 }
 
-function parse(raw: string): Snapshot {
-  const parsed: Partial<Snapshot> = JSON.parse(raw);
+function parse(stored: Partial<Snapshot>): Persisted {
   // A stale schema means the stored values no longer mean what they say.
   const settings =
-    parsed.schema === SCHEMA
-      ? { ...DEFAULT_SETTINGS, ...migrateSettings(parsed.settings ?? {}) }
+    stored.schema === SCHEMA
+      ? { ...DEFAULT_SETTINGS, ...migrateSettings(stored.settings ?? {}) }
       : DEFAULT_SETTINGS;
   return {
     schema: SCHEMA,
-    events: hydrateEvents(parsed.events),
-    calendars: parsed.calendars?.length ? parsed.calendars : DEFAULT_CALENDARS,
-    feeds: Object.fromEntries(
-      Object.entries(parsed.feeds ?? {}).map(([id, events]) => [id, hydrateEvents(events)]),
-    ),
+    events: hydrateEvents(stored.events),
+    calendars: stored.calendars?.length ? stored.calendars : DEFAULT_CALENDARS,
     // Both of these can be stored *wrong* rather than merely missing, and both
     // draw something broken if they are.
     settings: sane(settings),
   };
 }
 
-function load(): Snapshot {
-  if (typeof localStorage === "undefined") return EMPTY;
+/* ----------------------------- feed payloads ------------------------------ */
+
+/** `localStorage`, or `null` where there is none — SSR, and a browser that
+ *  refuses the API outright rather than throwing on use. */
+function disk(): Storage | null {
+  return typeof localStorage === "undefined" ? null : localStorage;
+}
+
+/**
+ * id → the exact string read from its key, and what it hydrated to.
+ *
+ * `fresh()` runs on every action and feeds are the one unbounded thing it
+ * reads; without this, a single subscription re-parses thousands of events
+ * every time you nudge an arc. Reference-stable output is also what lets
+ * `sameFeeds` tell a real change from a re-read.
+ */
+const feedCache = new Map<string, { raw: string; events: CalEvent[] }>();
+
+/** Every subscription's cached events, by calendar id. */
+function readFeeds(calendars: Calendar[]): Record<string, CalEvent[]> {
+  const store = disk();
+  if (!store) return {};
+  const feeds: Record<string, CalEvent[]> = {};
+  const live = new Set<string>();
+  for (const calendar of calendars) {
+    if (!calendar.feed) continue;
+    live.add(calendar.id);
+    const raw = store.getItem(feedKey(calendar.id));
+    if (raw === null) continue;
+    const hit = feedCache.get(calendar.id);
+    if (hit?.raw === raw) {
+      feeds[calendar.id] = hit.events;
+      continue;
+    }
+    try {
+      const events = hydrateEvents(JSON.parse(raw));
+      feedCache.set(calendar.id, { raw, events });
+      feeds[calendar.id] = events;
+    } catch {
+      // A corrupt payload is a cache miss, not a crash: the next pull replaces
+      // it, and until then the calendar simply draws nothing.
+    }
+  }
+  for (const id of feedCache.keys()) if (!live.has(id)) feedCache.delete(id);
+  return feeds;
+}
+
+/** Same keys, same arrays — so `fresh()` can leave the snapshot alone. */
+function sameFeeds(a: Record<string, CalEvent[]>, b: Record<string, CalEvent[]>): boolean {
+  const keys = Object.keys(a);
+  return keys.length === Object.keys(b).length && keys.every((id) => a[id] === b[id]);
+}
+
+/**
+ * Payloads whose calendar is gone — removed in another tab, or dropped by a
+ * restore. Nothing will ever read them again and they are the largest thing
+ * in storage, so they are swept wherever the calendar list is replaced.
+ *
+ * Keys are collected before any are removed: `key(i)` walks a list that
+ * shortens under a `removeItem`, and every second orphan would survive.
+ */
+function sweepFeeds(calendars: Calendar[]) {
+  const store = disk();
+  if (!store) return;
+  const live = new Set(calendars.filter((c) => c.feed).map((c) => c.id));
+  const orphans: string[] = [];
+  for (let i = 0; i < store.length; i++) {
+    const key = store.key(i);
+    if (key?.startsWith(FEED_PREFIX) && !live.has(key.slice(FEED_PREFIX.length))) orphans.push(key);
+  }
+  for (const key of orphans) {
+    store.removeItem(key);
+    feedCache.delete(key.slice(FEED_PREFIX.length));
+  }
+}
+
+function dropFeed(id: string) {
+  feedCache.delete(id);
+  disk()?.removeItem(feedKey(id));
+}
+
+/** What one subscription may spend, given how many are sharing the budget. */
+function feedBudget(calendars: Calendar[]): number {
+  return Math.floor(FEED_BUDGET / Math.max(1, calendars.filter((c) => c.feed).length));
+}
+
+const grouped = (n: number) => n.toLocaleString("en-US");
+
+/**
+ * The events kept when the whole set will not fit.
+ *
+ * Recurring events first — a rule is a few hundred characters that describe
+ * years, so dropping one to make room for a dated event is the worst trade on
+ * the table — then nearest today, outwards in both directions. The kept set
+ * is returned in the feed's own order: a trimmed cache should differ from a
+ * whole one only by what is missing.
+ */
+function trimFeed(events: CalEvent[], budget: number): CalEvent[] {
+  const now = Date.now();
+  const distance = (e: CalEvent) => (e.repeat === "never" ? Math.abs(e.start - now) : 0);
+  const sized = events.map((e) => ({ e, size: JSON.stringify(e).length + 1 }));
+
+  const kept = new Set<CalEvent>();
+  let used = 2; // The brackets.
+  for (const { e, size } of [...sized].sort((a, b) => distance(a.e) - distance(b.e))) {
+    if (used + size > budget) break;
+    used += size;
+    kept.add(e);
+  }
+  return events.filter((e) => kept.has(e));
+}
+
+/**
+ * Persist one feed's events, within `budget`, and say what did not fit.
+ *
+ * Both failures are reported on the calendar's own meta line rather than as a
+ * toast: a subscription is a background thing, and the panel that lists it is
+ * the place its state belongs. That line is one `.label` wide and truncates,
+ * so both messages lead with the fact and keep it under twenty characters —
+ * a fault whose text is cut off before it says anything is a decoration.
+ *
+ * Overflow trims *and* counts, because a feed silently drawing two thirds of
+ * itself is exactly what this split exists to make visible. A refused write
+ * keeps the events in memory: the session works, the reload will not.
+ */
+function storeFeed(
+  id: string,
+  events: CalEvent[],
+  budget: number,
+): { cached: CalEvent[]; error: string } {
+  let cached = events;
+  let raw = JSON.stringify(events);
+  let error = "";
+  if (raw.length > budget) {
+    cached = trimFeed(events, budget);
+    raw = JSON.stringify(cached);
+    error = `${grouped(cached.length)}/${grouped(events.length)} cached`;
+  }
   try {
-    const raw = localStorage.getItem(KEY);
+    disk()?.setItem(feedKey(id), raw);
+    feedCache.set(id, { raw, events: cached });
+  } catch {
+    // No room even for the trimmed set. Drop the key rather than leave a stale
+    // payload claiming to be this pull.
+    dropFeed(id);
+    return { cached, error: "Not cached — no room" };
+  }
+  return { cached, error };
+}
+
+/**
+ * A blob written before feeds had keys of their own carries them inline. Move
+ * them across once, then rewrite the blob without them — leave it and the
+ * next launch reads and moves the same megabytes again.
+ *
+ * Deliberately not a `SCHEMA` bump: a bump resets settings, and where a
+ * payload is stored is not something a setting means.
+ */
+function migrateFeeds(legacy: Record<string, unknown>, base: Persisted) {
+  const store = disk();
+  if (!store) return;
+  const budget = feedBudget(base.calendars);
+  for (const [id, events] of Object.entries(legacy)) {
+    if (store.getItem(feedKey(id)) === null) storeFeed(id, hydrateEvents(events), budget);
+  }
+  try {
+    const raw = JSON.stringify(base);
+    store.setItem(KEY, raw);
     lastRaw = raw;
-    if (!raw) return { ...EMPTY, events: seed() };
-    return parse(raw);
+  } catch {
+    // Out of room. The payloads are already out of the blob, where they can be
+    // dropped independently, and the next successful write finishes the job.
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The snapshot a blob describes, with its feed keys attached — and the one
+ * place a legacy inline `feeds` field is moved out of the way.
+ *
+ * Shared by `load()` and `fresh()` because either can be the first to see a
+ * blob: hydration happens at the first `subscribe`, but anything acting
+ * before that reaches `fresh()` instead, and a migration only one of them ran
+ * would depend on which. Sweeping here is safe against another tab mid-pull —
+ * a subscription's calendar is committed to the blob before its payload is
+ * ever written, so the calendars read a line above already know about it.
+ */
+function hydrate(raw: string): Snapshot {
+  const stored: Partial<Snapshot> = JSON.parse(raw);
+  const base = parse(stored);
+  if (stored.feeds) migrateFeeds(stored.feeds, base);
+  sweepFeeds(base.calendars);
+  return { ...base, feeds: readFeeds(base.calendars) };
+}
+
+function load(): Snapshot {
+  const store = disk();
+  if (!store) return EMPTY;
+  try {
+    const raw = store.getItem(KEY);
+    lastRaw = raw;
+    return raw ? hydrate(raw) : { ...EMPTY, events: seed() };
   } catch {
     // A corrupted blob must not brick the app; start clean rather than throw.
     return EMPTY;
@@ -512,13 +740,19 @@ function baseSignature(s: Snapshot): string {
  * same second silently drop one tab's event.
  */
 function fresh(): Snapshot {
-  if (typeof localStorage === "undefined") return snapshot;
+  const store = disk();
+  if (!store) return snapshot;
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = store.getItem(KEY);
     if (raw !== lastRaw) {
-      snapshot = raw ? parse(raw) : EMPTY;
       lastRaw = raw;
+      snapshot = raw ? hydrate(raw) : EMPTY;
+      return snapshot;
     }
+    // The blob has not moved, but a feed lives in a key of its own — another
+    // tab pulling a subscription changes nothing this comparison can see.
+    const feeds = readFeeds(snapshot.calendars);
+    if (!sameFeeds(feeds, snapshot.feeds)) snapshot = { ...snapshot, feeds };
   } catch {
     // Unreadable storage is the same situation as no storage: keep going on
     // what is in memory.
@@ -529,7 +763,11 @@ function fresh(): Snapshot {
 function write(next: Snapshot) {
   snapshot = next;
   try {
-    const raw = JSON.stringify(next);
+    // Without `feeds`: they are persisted a key at a time by `storeFeed`, and
+    // serialising them here as well is what put somebody else's calendar in
+    // competition with yours for one quota.
+    const { feeds: _feeds, ...persisted } = next;
+    const raw = JSON.stringify(persisted);
     localStorage.setItem(KEY, raw);
     lastRaw = raw;
   } catch {
@@ -587,16 +825,26 @@ export function subscribe(listener: () => void): () => void {
   listeners.add(listener);
 
   const onStorage = (e: StorageEvent) => {
+    // A feed key is another tab pulling a subscription. Re-read the mirror and
+    // leave the history alone: a payload is never part of the base, so it can
+    // never be the thing an undo step would land on top of.
+    if (e.key?.startsWith(FEED_PREFIX)) {
+      const feeds = readFeeds(snapshot.calendars);
+      if (sameFeeds(feeds, snapshot.feeds)) return;
+      snapshot = { ...snapshot, feeds };
+      emit();
+      return;
+    }
     if (e.key !== KEY) return;
     const before = baseSignature(snapshot);
     snapshot = load();
     // Undoing onto a base another tab has moved on from would resurrect the
     // events it just deleted. Ours is the stale history; drop it.
     //
-    // But only when the base actually moved. A *feed pull* in a background
-    // tab writes the same key, and dropping sixty steps of the foreground
-    // tab's history because a subscription refreshed itself is a data loss
-    // the user cannot even attribute to anything they did.
+    // But only when the base actually moved. A feed pull in a background tab
+    // still stamps `fetchedAt` on the calendar, and dropping sixty steps of
+    // the foreground tab's history because a subscription refreshed itself is
+    // a data loss the user cannot even attribute to anything they did.
     if (baseSignature(snapshot) !== before) {
       past = [];
       future = [];
@@ -754,6 +1002,7 @@ export const store = {
   removeCalendar(id: string) {
     const base = fresh();
     const { [id]: _dropped, ...feeds } = base.feeds;
+    dropFeed(id);
     commit({
       ...base,
       calendars: base.calendars.filter((c) => c.id !== id),
@@ -768,12 +1017,18 @@ export const store = {
    * Replaces the feed's cached events wholesale — a pull is not a merge.
    * `name` renames the calendar only when it is still the host placeholder the
    * user was given before the feed said what it was actually called.
+   *
+   * The payload is written to its own key *before* the commit, so what the
+   * dial draws is exactly what survives a reload: `storeFeed` may keep less
+   * than it was handed, and a snapshot holding the full set while the disk
+   * holds two thirds of it is the same lie this file's first rule is about.
    */
   setFeedEvents(id: string, events: CalEvent[], name?: string) {
     const base = fresh();
     const target = base.calendars.find((c) => c.id === id);
     if (!target) return;
     const rename = name && target.feed && target.name === hostLabel(target.feed.url);
+    const { cached, error } = storeFeed(id, events, feedBudget(base.calendars));
     commit(
       {
         ...base,
@@ -782,11 +1037,11 @@ export const store = {
             ? {
                 ...c,
                 name: rename ? name : c.name,
-                feed: { ...c.feed, fetchedAt: Date.now(), error: "" },
+                feed: { ...c.feed, fetchedAt: Date.now(), error },
               }
             : c,
         ),
-        feeds: { ...base.feeds, [id]: events },
+        feeds: { ...base.feeds, [id]: cached },
       },
       false,
     );
@@ -831,17 +1086,23 @@ export const store = {
 
   /** Whole-store restore from a backup. One undo step, so a misfire is not fatal. */
   restore(next: Pick<Snapshot, "events" | "calendars" | "settings">) {
-    const base = fresh();
+    // Only for its side effect: `commit` records the *current* snapshot as the
+    // step to undo onto, and a stale one would undo into another tab's past.
+    fresh();
+    // A backup carries subscriptions but never their payloads, so a restore
+    // that drops one has to drop its cache too — nothing would ever read those
+    // megabytes again, and they are the largest thing in storage. Undoing back
+    // to the subscription brings the calendar, not the mirror; it re-pulls.
+    sweepFeeds(next.calendars);
     commit(
       {
         schema: SCHEMA,
         events: next.events,
         calendars: next.calendars,
-        // Feeds are a live mirror, not part of a backup; keep whatever is cached.
-        feeds: base.feeds,
-        // Through the same clamp a stored blob goes through: a backup is external
-        // input, and `readSettings` only guarantees the *types*.
+        // Through the same clamp a stored blob goes through: a backup is
+        // external input, and `readSettings` only guarantees the *types*.
         settings: sane({ ...DEFAULT_SETTINGS, ...next.settings }),
+        feeds: readFeeds(next.calendars),
       },
       true,
       // The one undoable action that replaces settings, so the one whose undo
