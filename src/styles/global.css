@@ -121,6 +121,13 @@
     @apply font-mono text-[11px] font-medium tracking-[0.18em] uppercase;
   }
 
+  /* Prose. `.label` is a *label* voice: at 11px mono, uppercase and 0.18em it
+     is legible as three words and hostile as a sentence, and `ink-3` is
+     ~3.1:1 on black. Anything that reads as a sentence uses this instead. */
+  .caption {
+    @apply text-[12px] leading-[1.45] text-ink-2;
+  }
+
   /* Keyboard chip. Always paired with the action it triggers, never alone. */
   .kbd {
     @apply inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-[5px] px-[3px] font-mono text-[11px] leading-none text-ink-2;

@@ -1,5 +1,5 @@
 /* ------------------------------------------------------------------ *
- * Settings — everything the dial can be told, in one card.
+ * Settings — everything the dial can be told, on one surface.
  *
  * The sidebar is where you look at a day; this is where you configure the
  * instrument. It owns the two rings the dial can grow (daylight, a second
@@ -9,11 +9,17 @@
  * Settings mutations go straight to `store` rather than through
  * `ShellActions`: the shell has no view state to update for any of them, and
  * five more members on that object would only be a longer way to say `store`.
+ *
+ * The card is a near-full-screen overlay rather than a 420px column because
+ * this panel only grows: a single vertical scroll makes every setting added
+ * after the first screenful less discoverable than the one before it. The
+ * groups flow into balanced columns (`columns-[320px]`, each `Section` a
+ * whole card), so growth spends the width first and the scroll last.
  * ------------------------------------------------------------------ */
 
 import { useState, type ReactNode } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { Download, RefreshCw, Trash2, Upload } from "lucide-react";
+import { Download, RefreshCw, Trash2, Upload, X } from "lucide-react";
 import { refreshFeed } from "@/lib/feeds";
 import { canVibrate } from "@/lib/feedback";
 import { formatCount, formatLifeDate, lifeSpan } from "@/lib/life";
@@ -94,6 +100,20 @@ function relativeAge(at: number): string {
   if (minutes < 60) return `${minutes}m ago`;
   const hours = Math.round(minutes / 60);
   return hours < 24 ? `${hours}h ago` : `${Math.round(hours / 24)}d ago`;
+}
+
+/** A group of rows under one word, as a card. The titles are the panel's
+ *  only orientation, and a card is what lets the group be moved into a
+ *  column without its rows coming apart from their heading — `break-inside`
+ *  keeps it whole. Brighter than a `FieldRow` label on purpose: a section
+ *  names the rows, so it cannot sit at their weight. */
+function Section({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="mb-3 break-inside-avoid overflow-hidden rounded-[12px] border border-hairline">
+      <h3 className="label border-b border-hairline px-3.5 py-2 text-ink-2">{title}</h3>
+      {children}
+    </section>
+  );
 }
 
 export default function Settings({
@@ -186,353 +206,369 @@ export default function Settings({
             aria-modal="true"
             aria-label="Settings"
             onClick={(e) => e.stopPropagation()}
-            className="flex max-h-[86vh] w-[420px] max-w-[92vw] flex-col overflow-hidden rounded-[14px] border border-hairline bg-surface shadow-[0_32px_80px_-20px_rgba(0,0,0,0.9)]"
+            className="flex max-h-[min(900px,92vh)] min-h-[min(560px,82vh)] w-[min(1240px,94vw)] flex-col overflow-hidden rounded-[14px] border border-hairline bg-surface shadow-[0_32px_80px_-20px_rgba(0,0,0,0.9)]"
             initial={reducedMotion ? false : { opacity: 0, scale: 0.97 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={reducedMotion ? undefined : { opacity: 0, scale: 0.97 }}
             transition={{ duration: 0.18, ease: EASE }}
           >
-            <div className="border-b border-hairline px-3.5 py-3">
-              <span className="text-[17px] font-medium text-ink">Settings</span>
+            <div className="flex shrink-0 items-center justify-between border-b border-hairline px-4 py-3">
+              <h2 className="text-[17px] font-medium text-ink">Settings</h2>
+              <span className="flex items-center gap-3">
+                <span className="caption hidden sm:inline">
+                  <Kbd>Esc</Kbd> to close
+                </span>
+                <IconButton label="Close settings" onClick={onClose}>
+                  <X size={15} strokeWidth={1.75} />
+                </IconButton>
+              </span>
             </div>
 
-            <div className="no-scrollbar flex-1 overflow-y-auto [--field-label:88px]">
-              <FieldRow label="Dial" align="top">
-                <div className="flex items-center gap-2.5">
-                  <Segmented
-                    value={clock}
-                    onChange={actions.setClock}
-                    options={[
-                      { id: "12h" as const, label: "12 h" },
-                      { id: "24h" as const, label: "24 h" },
-                    ]}
-                  />
-                  {/* The face's other word: how the day is spent. Off by
+            <div className="no-scrollbar flex-1 columns-[320px] gap-3 overflow-y-auto p-3 [--field-label:88px]">
+              <Section title="Face">
+                <FieldRow label="Dial" align="top">
+                  <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
+                    <Segmented
+                      value={clock}
+                      onChange={actions.setClock}
+                      options={[
+                        { id: "12h" as const, label: "12 h" },
+                        { id: "24h" as const, label: "24 h" },
+                      ]}
+                    />
+                    {/* The face's other word: how the day is spent. Off by
                       default, so it sits beside the face it annotates rather
                       than in a row of its own. */}
-                  <Toggle
-                    label="Totals"
-                    name="Day totals"
-                    checked={totals}
-                    onChange={(on) => store.setToggle("totals", on)}
-                  />
-                </div>
-                {totals && (
-                  <div className="flex items-center gap-2.5">
-                    <PositionField
-                      value={totalsAt}
-                      onChange={store.setTotalsAt}
-                      options={TOTALS_OPTIONS}
-                      label="Where the totals sit"
+                    <Toggle
+                      label="Totals"
+                      name="Day totals"
+                      checked={totals}
+                      onChange={(on) => store.setToggle("totals", on)}
                     />
-                    <span className="label text-ink-3">Where it sits on the face</span>
                   </div>
-                )}
-                {/* Its own line: three segments will not sit beside the face
+                  {totals && (
+                    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
+                      <PositionField
+                        value={totalsAt}
+                        onChange={store.setTotalsAt}
+                        options={TOTALS_OPTIONS}
+                        label="Where the totals sit"
+                      />
+                      <span className="label text-ink-3">Where it sits on the face</span>
+                    </div>
+                  )}
+                  {/* Its own line: three segments will not sit beside the face
                     and the totals switch inside 310px, and this is the one
                     setting here that changes what an arc *is* rather than
                     what the face is called. */}
-                <div className="flex items-center gap-2.5">
-                  <Segmented
-                    value={arcLabels}
-                    onChange={store.setArcLabels}
-                    options={[
-                      { id: "always" as const, label: "Always" },
-                      { id: "hover" as const, label: "Hover" },
-                      { id: "off" as const, label: "Off" },
-                    ]}
-                  />
-                  {/* Two words: "Names on arcs" wraps at this column width,
+                  <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
+                    <Segmented
+                      value={arcLabels}
+                      onChange={store.setArcLabels}
+                      options={[
+                        { id: "always" as const, label: "Always" },
+                        { id: "hover" as const, label: "Hover" },
+                        { id: "off" as const, label: "Off" },
+                      ]}
+                    />
+                    {/* Two words: "Names on arcs" wraps at this column width,
                       and a caption on two lines beside a control on one reads
                       as a row that has come apart. */}
-                  <span className="label text-ink-3">Arc names</span>
-                </div>
-              </FieldRow>
-
-              <FieldRow label="2nd ring" align={secondZone ? "top" : "center"}>
-                <Select
-                  value={secondZone}
-                  onChange={store.setSecondZone}
-                  label="Second timezone"
-                  className="flex-1"
-                  options={ZONE_OPTIONS}
-                />
-                {secondZone && (
-                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                    <Toggle
-                      label="City name"
-                      checked={showZoneName}
-                      onChange={(on) => store.setToggle("showZoneName", on)}
-                    />
-                    <Toggle
-                      label="Offset"
-                      checked={showZoneOffset}
-                      onChange={(on) => store.setToggle("showZoneOffset", on)}
-                    />
-                    {zonePlace && (
-                      <>
-                        <Toggle
-                          label="Daylight"
-                          name="Second ring daylight"
-                          checked={zoneDaylight}
-                          onChange={(on) => store.setToggle("zoneDaylight", on)}
-                        />
-                        <Toggle
-                          label="Moonlight"
-                          name="Second ring moonlight"
-                          checked={zoneMoonlight}
-                          onChange={(on) => store.setToggle("zoneMoonlight", on)}
-                        />
-                      </>
-                    )}
+                    <span className="label text-ink-3">Arc names</span>
                   </div>
-                )}
-              </FieldRow>
+                </FieldRow>
 
-              <FieldRow label="Lightcycle" align="top">
-                <Select
-                  value={place?.zone ?? ""}
-                  onChange={pickPlace}
-                  label="Place"
-                  className="flex-1"
-                  options={LIGHTCYCLE_OPTIONS}
-                />
-                {place && (
-                  <div className="flex items-center gap-4">
-                    <Toggle
-                      label="Daylight"
-                      checked={daylight}
-                      onChange={(on) => store.setToggle("daylight", on)}
-                    />
-                    <Toggle
-                      label="Moonlight"
-                      checked={moonlight}
-                      onChange={(on) => store.setToggle("moonlight", on)}
-                    />
-                  </div>
-                )}
-                <span className="label text-ink-3">
-                  {!place
-                    ? "Puts the day's light on the ring, in place of the elapsed trail"
-                    : sun?.polar === "day"
-                      ? "Midnight sun"
-                      : sun?.polar === "night"
-                        ? "Polar night"
-                        : sun?.sunrise != null && sun.sunset != null
-                          ? `${formatTimeShort(atMinutes(new Date(), sun.sunrise), clock)} – ${formatTimeShort(atMinutes(new Date(), sun.sunset), clock)}`
-                          : "No sunrise today"}
-                </span>
-              </FieldRow>
+                <FieldRow label="2nd ring" align={secondZone ? "top" : "center"}>
+                  <Select
+                    value={secondZone}
+                    onChange={store.setSecondZone}
+                    label="Second timezone"
+                    className="flex-1"
+                    options={ZONE_OPTIONS}
+                  />
+                  {secondZone && (
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                      <Toggle
+                        label="City name"
+                        checked={showZoneName}
+                        onChange={(on) => store.setToggle("showZoneName", on)}
+                      />
+                      <Toggle
+                        label="Offset"
+                        checked={showZoneOffset}
+                        onChange={(on) => store.setToggle("showZoneOffset", on)}
+                      />
+                      {zonePlace && (
+                        <>
+                          <Toggle
+                            label="Daylight"
+                            name="Second ring daylight"
+                            checked={zoneDaylight}
+                            onChange={(on) => store.setToggle("zoneDaylight", on)}
+                          />
+                          <Toggle
+                            label="Moonlight"
+                            name="Second ring moonlight"
+                            checked={zoneMoonlight}
+                            onChange={(on) => store.setToggle("zoneMoonlight", on)}
+                          />
+                        </>
+                      )}
+                    </div>
+                  )}
+                </FieldRow>
 
-              {/* Ambient is a display mode, so what it shows is its own
+                <FieldRow label="Lightcycle" align="top">
+                  <Select
+                    value={place?.zone ?? ""}
+                    onChange={pickPlace}
+                    label="Place"
+                    className="flex-1"
+                    options={LIGHTCYCLE_OPTIONS}
+                  />
+                  {place && (
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                      <Toggle
+                        label="Daylight"
+                        checked={daylight}
+                        onChange={(on) => store.setToggle("daylight", on)}
+                      />
+                      <Toggle
+                        label="Moonlight"
+                        checked={moonlight}
+                        onChange={(on) => store.setToggle("moonlight", on)}
+                      />
+                    </div>
+                  )}
+                  <span className="caption tabular-nums">
+                    {!place
+                      ? "Puts the day's light on the ring, in place of the elapsed trail"
+                      : sun?.polar === "day"
+                        ? "Midnight sun"
+                        : sun?.polar === "night"
+                          ? "Polar night"
+                          : sun?.sunrise != null && sun.sunset != null
+                            ? `${formatTimeShort(atMinutes(new Date(), sun.sunrise), clock)} – ${formatTimeShort(atMinutes(new Date(), sun.sunset), clock)}`
+                            : "No sunrise today"}
+                  </span>
+                </FieldRow>
+
+                {/* Ambient is a display mode, so what it shows is its own
                   question — and every switch here can only take away what the
                   working face already draws. A mode is not an argument with a
                   choice the user already made. */}
-              <FieldRow label="Ambient" align="top">
-                <div className="flex items-center gap-2.5">
-                  <Select
-                    value={String(ambientAfter)}
-                    onChange={(next) => store.setAmbientAfter(Number(next))}
-                    label="Start ambient after"
-                    options={AMBIENT_OPTIONS}
-                  />
-                  <span className="label text-ink-3">Start on its own</span>
-                </div>
-                {/* Every one of these annotates something that has to exist
+                <FieldRow label="Ambient" align="top" last>
+                  <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
+                    <Select
+                      value={String(ambientAfter)}
+                      onChange={(next) => store.setAmbientAfter(Number(next))}
+                      label="Start ambient after"
+                      options={AMBIENT_OPTIONS}
+                    />
+                    <span className="label text-ink-3">Start on its own</span>
+                  </div>
+                  {/* Every one of these annotates something that has to exist
                     first, so with a bare dial the row is not empty — it is
                     not there. An empty flex row is a gap nobody can explain.
 
                     The two halves are ambient's own, not a view of the ones
                     above: only the place is shared, because a person is
                     somewhere and that is not a property of a mode. */}
-                {(place || secondZone) && (
+                  {(place || secondZone) && (
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                      {place && (
+                        <>
+                          <Toggle
+                            label="Daylight"
+                            name="Ambient daylight"
+                            checked={ambientDaylight}
+                            onChange={(on) => store.setToggle("ambientDaylight", on)}
+                          />
+                          <Toggle
+                            label="Moonlight"
+                            name="Ambient moonlight"
+                            checked={ambientMoonlight}
+                            onChange={(on) => store.setToggle("ambientMoonlight", on)}
+                          />
+                          <Toggle
+                            label="Dusk dim"
+                            name="Dim with the lightcycle"
+                            checked={ambientDim}
+                            onChange={(on) => store.setToggle("ambientDim", on)}
+                          />
+                        </>
+                      )}
+                      {secondZone && (
+                        <Toggle
+                          label="2nd ring"
+                          name="Second ring in ambient"
+                          checked={ambientZoneRing}
+                          onChange={(on) => store.setToggle("ambientZoneRing", on)}
+                        />
+                      )}
+                    </div>
+                  )}
+                  <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
+                    <Segmented
+                      value={ambientArcLabels}
+                      onChange={store.setAmbientArcLabels}
+                      options={[
+                        { id: "always" as const, label: "Always" },
+                        { id: "hover" as const, label: "Hover" },
+                        { id: "off" as const, label: "Off" },
+                      ]}
+                    />
+                    <span className="label text-ink-3">Arc names</span>
+                  </div>
+                  <span className="caption">
+                    Chrome away, dial to the window — <Kbd>F</Kbd>, or <Kbd>⇧F</Kbd> for the whole
+                    screen
+                  </span>
+                </FieldRow>
+              </Section>
+
+              <Section title="Life">
+                <FieldRow label="Span" align="top" last>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <DateField
+                      label="Date of birth"
+                      value={birth}
+                      onChange={(next) => store.setLife(next, lifeExpectancy)}
+                      min="1900-01-01"
+                      max={dayKey(new Date())}
+                      className="w-[150px]"
+                    >
+                      <span className="truncate tabular-nums">
+                        {birthDate ? formatLifeDate(birthDate) : "Not set"}
+                      </span>
+                    </DateField>
+                    <NumberField
+                      label="Life expectancy in years"
+                      value={lifeExpectancy}
+                      onChange={(next) => store.setLife(birth, next)}
+                      suffix="years"
+                      min={LIFE_EXPECTANCY_RANGE.min}
+                      max={LIFE_EXPECTANCY_RANGE.max}
+                    />
+                  </div>
+                  <span className="caption tabular-nums">
+                    {span
+                      ? `${formatCount(span.days)} days — one dot each, ending around ${formatLifeDate(span.death)}`
+                      : "One dot per day for a whole life. The date is asked for once and never leaves this browser"}
+                  </span>
+                </FieldRow>
+              </Section>
+
+              <Section title="Feedback">
+                {/* No caption: two switches whose labels are the whole of what
+                  they do, and the app demonstrates the rest the moment either
+                  is on. */}
+                <FieldRow label="Cues" align="top" last>
                   <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                    {place && (
-                      <>
-                        <Toggle
-                          label="Daylight"
-                          name="Ambient daylight"
-                          checked={ambientDaylight}
-                          onChange={(on) => store.setToggle("ambientDaylight", on)}
-                        />
-                        <Toggle
-                          label="Moonlight"
-                          name="Ambient moonlight"
-                          checked={ambientMoonlight}
-                          onChange={(on) => store.setToggle("ambientMoonlight", on)}
-                        />
-                        <Toggle
-                          label="Dusk dim"
-                          name="Dim with the lightcycle"
-                          checked={ambientDim}
-                          onChange={(on) => store.setToggle("ambientDim", on)}
-                        />
-                      </>
-                    )}
-                    {secondZone && (
+                    <Toggle
+                      label="Sound"
+                      checked={tickSound}
+                      onChange={(on) => store.setToggle("tickSound", on)}
+                    />
+                    {vibrates && (
                       <Toggle
-                        label="2nd ring"
-                        name="Second ring in ambient"
-                        checked={ambientZoneRing}
-                        onChange={(on) => store.setToggle("ambientZoneRing", on)}
+                        label="Vibration"
+                        checked={tickHaptics}
+                        onChange={(on) => store.setToggle("tickHaptics", on)}
                       />
                     )}
                   </div>
-                )}
-                <div className="flex items-center gap-2.5">
-                  <Segmented
-                    value={ambientArcLabels}
-                    onChange={store.setAmbientArcLabels}
-                    options={[
-                      { id: "always" as const, label: "Always" },
-                      { id: "hover" as const, label: "Hover" },
-                      { id: "off" as const, label: "Off" },
-                    ]}
-                  />
-                  <span className="label text-ink-3">Arc names</span>
-                </div>
-                <span className="label text-ink-3">
-                  Chrome away, dial to the window — <Kbd>F</Kbd>, or <Kbd>⇧F</Kbd> for the whole
-                  screen
-                </span>
-              </FieldRow>
+                </FieldRow>
+              </Section>
 
-              <FieldRow label="Life" align="top">
-                <div className="flex flex-wrap items-center gap-2">
-                  <DateField
-                    label="Date of birth"
-                    value={birth}
-                    onChange={(next) => store.setLife(next, lifeExpectancy)}
-                    min="1900-01-01"
-                    max={dayKey(new Date())}
-                    className="w-[150px]"
-                  >
-                    <span className="truncate tabular-nums">
-                      {birthDate ? formatLifeDate(birthDate) : "Not set"}
+              <Section title="Data">
+                <FieldRow label="Feeds" align="top">
+                  {subscriptions.length === 0 && (
+                    <span className="caption">
+                      Paste a public ICS link — read-only, refreshed on launch
                     </span>
-                  </DateField>
-                  <NumberField
-                    label="Life expectancy in years"
-                    value={lifeExpectancy}
-                    onChange={(next) => store.setLife(birth, next)}
-                    suffix="years"
-                    min={LIFE_EXPECTANCY_RANGE.min}
-                    max={LIFE_EXPECTANCY_RANGE.max}
-                  />
-                </div>
-                <span className="label text-ink-3">
-                  {span
-                    ? `${formatCount(span.days)} days — one dot each, ending around ${formatLifeDate(span.death)}`
-                    : "One dot per day for a whole life. The date is asked for once and never leaves this browser"}
-                </span>
-              </FieldRow>
-
-              {/* No caption: two switches whose labels are the whole of what
-                  they do, and the app demonstrates the rest the moment either
-                  is on. */}
-              <FieldRow label="Feedback" align="top">
-                <div className="flex items-center gap-4">
-                  <Toggle
-                    label="Sound"
-                    checked={tickSound}
-                    onChange={(on) => store.setToggle("tickSound", on)}
-                  />
-                  {vibrates && (
-                    <Toggle
-                      label="Vibration"
-                      checked={tickHaptics}
-                      onChange={(on) => store.setToggle("tickHaptics", on)}
-                    />
                   )}
-                </div>
-              </FieldRow>
-
-              <FieldRow label="Feeds" align="top">
-                {subscriptions.length === 0 && (
-                  <span className="label text-ink-3">
-                    Paste a public ICS link — read-only, refreshed on launch
-                  </span>
-                )}
-                {subscriptions.map((calendar) => (
-                  <div key={calendar.id} className="flex items-center gap-2">
-                    <span
-                      aria-hidden
-                      className="size-2.5 shrink-0 rounded-full"
-                      style={{ backgroundColor: calendar.color }}
-                    />
-                    <span className="flex min-w-0 flex-1 flex-col">
-                      <span className="truncate text-[13px] text-ink">{calendar.name}</span>
+                  {subscriptions.map((calendar) => (
+                    <div key={calendar.id} className="flex items-center gap-2">
                       <span
-                        className={feedMetaClass(calendar.feed?.error)}
-                        title={calendar.feed?.error || calendar.feed?.url}
-                      >
-                        {pulling === calendar.id
-                          ? "PULLING…"
-                          : calendar.feed?.error || relativeAge(calendar.feed?.fetchedAt ?? 0)}
+                        aria-hidden
+                        className="size-2.5 shrink-0 rounded-full"
+                        style={{ backgroundColor: calendar.color }}
+                      />
+                      <span className="flex min-w-0 flex-1 flex-col">
+                        <span className="truncate text-[13px] text-ink">{calendar.name}</span>
+                        <span
+                          className={feedMetaClass(calendar.feed?.error)}
+                          title={calendar.feed?.error || calendar.feed?.url}
+                        >
+                          {pulling === calendar.id
+                            ? "PULLING…"
+                            : calendar.feed?.error || relativeAge(calendar.feed?.fetchedAt ?? 0)}
+                        </span>
                       </span>
-                    </span>
-                    <IconButton label={`Refresh ${calendar.name}`} onClick={() => pull(calendar)}>
-                      <RefreshCw size={13} strokeWidth={1.75} />
-                    </IconButton>
-                    <IconButton
-                      label={`Remove ${calendar.name}`}
-                      onClick={() => store.removeCalendar(calendar.id)}
+                      <IconButton label={`Refresh ${calendar.name}`} onClick={() => pull(calendar)}>
+                        <RefreshCw size={13} strokeWidth={1.75} />
+                      </IconButton>
+                      <IconButton
+                        label={`Remove ${calendar.name}`}
+                        onClick={() => store.removeCalendar(calendar.id)}
+                      >
+                        <Trash2 size={13} strokeWidth={1.75} />
+                      </IconButton>
+                    </div>
+                  ))}
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="url"
+                      value={feedUrl}
+                      onChange={(e) => setFeedUrl(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          void addFeed();
+                        }
+                      }}
+                      placeholder="https://…/basic.ics"
+                      aria-label="Feed URL"
+                      className="h-8 min-w-0 flex-1 rounded-[8px] bg-surface-2 px-2 text-[13px] text-ink placeholder:text-ink-3"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void addFeed()}
+                      disabled={!feedUrl.trim()}
+                      className="h-8 shrink-0 rounded-[8px] border border-hairline bg-surface-2 px-3 text-[13px] text-ink transition-colors hover:bg-white/10 disabled:pointer-events-none disabled:opacity-35"
                     >
-                      <Trash2 size={13} strokeWidth={1.75} />
-                    </IconButton>
+                      Add
+                    </button>
                   </div>
-                ))}
-                <div className="flex items-center gap-2">
-                  <input
-                    type="url"
-                    value={feedUrl}
-                    onChange={(e) => setFeedUrl(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        void addFeed();
-                      }
-                    }}
-                    placeholder="https://…/basic.ics"
-                    aria-label="Feed URL"
-                    className="h-8 min-w-0 flex-1 rounded-[8px] bg-surface-2 px-2 text-[13px] text-ink placeholder:text-ink-3"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => void addFeed()}
-                    disabled={!feedUrl.trim()}
-                    className="h-8 shrink-0 rounded-[8px] border border-hairline bg-surface-2 px-3 text-[13px] text-ink transition-colors hover:bg-white/10 disabled:pointer-events-none disabled:opacity-35"
-                  >
-                    Add
-                  </button>
-                </div>
-              </FieldRow>
+                </FieldRow>
 
-              <FieldRow label="Data" align="top" last>
-                <div className="flex flex-wrap items-center gap-2">
-                  <DataButton
-                    icon={<Download size={13} strokeWidth={1.75} />}
-                    onClick={actions.exportIcs}
-                  >
-                    Export .ics
-                  </DataButton>
-                  <DataButton
-                    icon={<Download size={13} strokeWidth={1.75} />}
-                    onClick={actions.exportBackup}
-                  >
-                    Backup .json
-                  </DataButton>
-                  <DataButton
-                    icon={<Upload size={13} strokeWidth={1.75} />}
-                    onClick={actions.importFile}
-                  >
-                    Import…
-                  </DataButton>
-                </div>
-                <span className="label text-ink-3">
-                  Events live only in this browser. A backup is the only copy that survives it
-                </span>
-              </FieldRow>
+                <FieldRow label="Backup" align="top" last>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <DataButton
+                      icon={<Download size={13} strokeWidth={1.75} />}
+                      onClick={actions.exportIcs}
+                    >
+                      Export .ics
+                    </DataButton>
+                    <DataButton
+                      icon={<Download size={13} strokeWidth={1.75} />}
+                      onClick={actions.exportBackup}
+                    >
+                      Backup .json
+                    </DataButton>
+                    <DataButton
+                      icon={<Upload size={13} strokeWidth={1.75} />}
+                      onClick={actions.importFile}
+                    >
+                      Import…
+                    </DataButton>
+                  </div>
+                  <span className="caption">
+                    Events live only in this browser. A backup is the only copy that survives it
+                  </span>
+                </FieldRow>
+              </Section>
             </div>
           </motion.div>
         </motion.div>
@@ -543,7 +579,7 @@ export default function Settings({
 
 /** Feed meta line: a failing subscription is the one place chrome goes red. */
 function feedMetaClass(error?: string): string {
-  return cn("label truncate text-[10px]", error ? "text-danger" : "text-ink-4");
+  return cn("label truncate text-[10px]", error ? "text-danger" : "text-ink-3");
 }
 
 function DataButton({

@@ -43,16 +43,6 @@ calendar from any surface in the app — `Sidebar.tsx:131-159` only toggles visi
 the only category encoding this product has, and the user cannot make one. Ship calendar CRUD;
 groups only start paying rent past about eight calendars, and you cannot get to eight.
 
-**4. cleanup settings**
-
-Agreed, and the screenshot says exactly what is wrong. The panel is seven rows of wildly unequal
-density in one unbroken scroll, and four of them end in a paragraph set in `.label` — 11px, mono,
-uppercase, 0.18em tracking, `text-ink-3` at ~3.1:1 on black (`Settings.tsx:231,267,289,299,379`).
-The Feedback one is sixty words of it. `.label` is a _label_ voice; prose wants sentence case,
-12–13px, `text-ink-2`. Then: one line of help per row, the rest behind a disclosure, and section
-rules between Face / Life / Feedback / Data. It is currently the least readable surface in an app
-whose whole argument is legibility.
-
 **5. look at sidebar**
 
 Agreed, but the fix is a decision, not a tidy-up: **the sidebar and the centre panel print the same
@@ -148,17 +138,16 @@ And the honest omission: **there are no reminders.** A calendar that never tells
 viewer. While the tab is open, `Notification` is enough; closed, it needs a server, and a server is
 off-thesis. Say so in the UI rather than leaving the absence unexplained.
 
-### Correctness — five open
+### Correctness — four open
 
 | what                             | where and why                                                                                                                                                                                                                                                                                                                               |
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Feed payloads share the blob** | Everything is one `circal.v1` key, so a fat subscription competes with your own events for one ~5MB quota; `write()` toasts once and then loses the write silently on reload. Feeds want their own key, and a cap. Needs a schema bump and a migration, so it is its own commit.                                                            |
 | **No focus trap in any modal**   | Three hand-rolled dialogs, no shared primitive: Tab escapes to the page behind, and the global hotkeys (←/→/`t`) still fire under an open editor.                                                                                                                                                                                           |
-| **`text-ink-3` for prose**       | ~3.1:1 on black, and `ink-4` is ~1.5:1 — decorative only, never text. See (4).                                                                                                                                                                                                                                                              |
 | **1 Hz whole-tree re-render**    | `useNow` ticks every second and `App` hands `now` to Dial, Sidebar, CenterPanel and LifeView, but only the readout and the hand move. Ambient takes the period to a minute, which is the right answer for a mode left running and no answer at all for the other 23 hours. Push second-resolution into a leaf and keep the rest on minutes. |
 | **Life grid is invisible to AT** | `role="img"`, one label, 30,000 dots, no focus path. The year grid does it right with real buttons — but its `aria-label` omits whether the day carries anything.                                                                                                                                                                           |
 
-All five are DOM-shaped, which is exactly the surface the suite does not cover: no DOM, no jsdom, no
+All four are DOM-shaped, which is exactly the surface the suite does not cover: no DOM, no jsdom, no
 component tests, on purpose — a snapshot of an SVG path is a change-detector that fails on every
 legitimate geometry tweak. That is the honest boundary of what 820 pure-function tests buy you, and
 the dial stays eye-verified.
@@ -171,18 +160,16 @@ the dial stays eye-verified.
 - **Do not add a ring.** Every radius costs `PAD` and legibility, and the face already carries four
   plus two bands. The room is in the interior.
 
-### If it were five things
+### If it were four things
 
 The old five are spent — real RRULE in and out, the interior, arc labels, ambient mode, quick-add
 and the suite all shipped. What is left, in order:
 
 1. **Decide what the year view is.** The last screen off-thesis, and the only thing blocking (2).
    Everything else here is an improvement; this one is an argument. `[high / medium]`
-2. **Make Settings readable.** (4), and it takes `text-ink-3`-for-prose with it. The panel is the
-   least legible surface in an app whose whole case is legibility. `[high / small]`
-3. **The life grid's month banding**, then **search the whole life** — one is a render bug wearing a
+2. **The life grid's month banding**, then **search the whole life** — one is a render bug wearing a
    feature's clothes, the other is the thing no other calendar can do. `[high / medium]`
-4. **Split the feed payloads out of the blob.** The only open bug that can lose data. `[high /
+3. **Split the feed payloads out of the blob.** The only open bug that can lose data. `[high /
 medium]`
-5. **A focus trap, once, in a primitive** — three dialogs already need it and the next one will too.
+4. **A focus trap, once, in a primitive** — three dialogs already need it and the next one will too.
    `[medium / small]`
