@@ -106,12 +106,8 @@ three scales", and it is still what blocks (2). Two honest paths:
 
 ### Life view
 
-The strongest concept in the app, and the render is still fighting it in one place.
+The strongest concept in the app, and the render is no longer fighting it.
 
-- **The month banding reads as vertical striping**, not as months (`TONE`, `LifeView.tsx:99`). At
-  this density, alternating tone per month across eighty rows is near-moiré, and the brighter past
-  has made it louder than it was. Tone by year-half, or drop it and keep the decade rules. This is
-  the next thing in this view.
 - **Search the whole life.** Every event is already in hand and there is a per-day lookup: type in
   ⌘P and every matching day lights in the grid. "Every day I ran", as a thread down eighty years.
   Nobody else has this and it is mostly wiring. **[high / medium]**
@@ -166,7 +162,6 @@ budget. What is left, in order:
 
 1. **Decide what the year view is.** The last screen off-thesis, and the only thing blocking (2).
    Everything else here is an improvement; this one is an argument. `[high / medium]`
-2. **The life grid's month banding**, then **search the whole life** — one is a render bug wearing a
-   feature's clothes, the other is the thing no other calendar can do. `[high / medium]`
+2. **Search the whole life** — the thing no other calendar can do. `[high / medium]`
 3. **The 1 Hz whole-tree re-render**, then **a focus path into the life grid** — the two DOM-shaped
    bugs left, and the suite covers neither. `[medium / small]`

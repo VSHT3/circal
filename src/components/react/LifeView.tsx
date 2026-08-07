@@ -96,10 +96,21 @@ const RIPPLE_IN = { duration: 0.55, ease: [0.5, 0, 0.75, 0] as const };
 const FEATHER = 0.16;
 
 /**
- * How bright a day is. Two tones per state, alternating by month: a month is
- * not a whole number of weeks, so it cannot be a gap in a grid whose columns
- * are weeks — it is this instead, and the band drifting along the row is the
- * honest shape of the thing.
+ * How bright a day is. One tone per state, and deliberately no month band.
+ *
+ * A month is not a whole number of weeks, so in a grid whose columns are weeks
+ * it cannot be a gap — the only channel left for it is tone, and tone at this
+ * pitch cannot carry it. Twelve bands to a row is six alternations across
+ * fifty-odd columns, a stripe period within a couple of dots of the dot pitch
+ * itself; stacked down eighty rows that is not a month, it is a moiré, and the
+ * eye reads vertical striping over the whole field instead. Coarser does not
+ * rescue it, because the band then collides with the layout: `SPLITS` cuts a
+ * year into one to six lines, so a half-year band *is* a line at 27 weeks and
+ * a quarter band *is* a line at 14, and the striping simply turns horizontal.
+ *
+ * So the field carries the units it can draw honestly — the week, in the
+ * column gaps; the year, as a row; the decade, as a rule — and the month is
+ * left to the two views that have room for it.
  *
  * Solid past, faint future. The lived half is the part you own, and every
  * reader arrives expecting the filled portion of a progress figure to be the
@@ -118,8 +129,8 @@ const FEATHER = 0.16;
  * them can be composited wrong.
  */
 const TONE = {
-  past: [dim("#ffffff", 0.58), dim("#ffffff", 0.45)],
-  future: [dim("#ffffff", 0.23), dim("#ffffff", 0.17)],
+  past: dim("#ffffff", 0.58),
+  future: dim("#ffffff", 0.23),
 } as const;
 
 /** The accent, as the canvas needs it — a token cannot be read by `fillStyle`. */
@@ -192,8 +203,7 @@ function drawField(
         lit = { at: { x, y }, color: event ?? TODAY_COLOR };
         continue;
       }
-      const tone = cursor.getTime() < todayMs ? TONE.past : TONE.future;
-      plot(event ?? tone[cursor.getMonth() % 2], x, y, radius);
+      plot(event ?? (cursor.getTime() < todayMs ? TONE.past : TONE.future), x, y, radius);
     }
   }
 
