@@ -141,9 +141,10 @@ field trails off rather than stopping at a date it does not know. Both live in
 **Settings** afterwards.
 
 The strip above the field counts: days lived, days left, and how much of the
-whole is spent to six decimals, which is enough to watch it move. Hover a dot
-for its date, how far off it is and what is on it; click one to open that day
-on the dial.
+whole is spent to seven decimals, which is enough to watch it move — the last
+digit turns every couple of seconds, because a life is long enough that six
+would leave it sitting still for half a minute. Hover a dot for its date, how
+far off it is and what is on it; click one to open that day on the dial.
 
 A few days are named. The ten-thousandth, the twenty-thousandth, the midpoint
 of the estimate: each one takes a thin ring, and clicking it says what the
@@ -364,7 +365,7 @@ src/
     CommandPalette.tsx  Settings.tsx  Toast.tsx
 worker/index.ts  assets + the /api/feed proxy
 public/sw.js     offline cache
-tests/           898 cases over src/lib and the worker's guards
+tests/           907 cases over src/lib and the worker's guards
 ```
 
 Two overlapping events are pushed onto concentric rings by `packLanes`, so

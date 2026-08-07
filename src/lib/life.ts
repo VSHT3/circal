@@ -477,10 +477,11 @@ export interface LifeStats {
 /**
  * How far through the span `now` is, as a fraction of the whole. Its own
  * function because it is the only number in this file that moves faster than
- * once a day: at the six decimals the strip prints, an eighty-year span
- * advances its last digit about every twenty-five seconds. That is finer than
+ * once a day: at the seven decimals the strip prints, an eighty-year span
+ * advances its last digit every two and a half seconds. That is finer than
  * the shell's minute and it is why the leaf that prints it keeps a clock of
- * its own. Everything else in `LifeStats` is day-granular.
+ * its own — see `PERCENT_DECIMALS` in `LifeView.tsx` for why seven.
+ * Everything else in `LifeStats` is day-granular.
  */
 export function lifeFraction(span: LifeSpan, now: Date): number {
   const elapsed = now.getTime() - span.birth.getTime();

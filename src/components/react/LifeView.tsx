@@ -442,18 +442,37 @@ export default function LifeView({
 }
 
 /**
+ * How many decimals the percentage carries, and it is derived rather than
+ * chosen. One step of the last digit is `span / 10^(DECIMALS + 2)`, so the
+ * figure is only alive if that lands between the clock below and the eye:
+ *
+ * | decimals | 80y (default) | 150y (the longest span the app draws) |
+ * | -------- | ------------- | ------------------------------------- |
+ * | 6        | 25.2s         | 47.3s                                 |
+ * | 7        | 2.5s          | 4.7s                                  |
+ * | 8        | 0.25s         | 0.47s                                 |
+ *
+ * Six was the first draft and is worse than the shell's own minute at a long
+ * span, which is a figure with decimals on it that sits still. Eight steps
+ * four times per tick of the clock below, so three in four values would never
+ * be drawn — honest only on `requestAnimationFrame`, and a digit changing
+ * faster than it can be read is noise. Seven is the only one inside five
+ * seconds across the whole of `LIFE_EXPECTANCY_RANGE`.
+ */
+const PERCENT_DECIMALS = 7;
+
+/**
  * The percentage, and the only thing in the app that needs a clock faster
- * than a minute. Its last digit turns about every twenty-five seconds on an
- * eighty-year span, so on the shell's minute it would jump two or three at a
- * time at an instant unrelated to when it actually changed. Every other
- * printed instant in circal is `HH:MM` or coarser, which is why this is a
- * leaf: one text node re-rendering each second, and the rest of the tree
- * still.
+ * than a minute. Every other printed instant in circal is `HH:MM` or coarser,
+ * which is why this is a leaf: one text node re-rendering each second, and
+ * the rest of the tree still.
  */
 function LifePercent({ span }: { span: LifeSpan }) {
   const now = useNow(1000);
   return (
-    <span className="text-accent tabular-nums">{(lifeFraction(span, now) * 100).toFixed(6)}%</span>
+    <span className="text-accent tabular-nums">
+      {(lifeFraction(span, now) * 100).toFixed(PERCENT_DECIMALS)}%
+    </span>
   );
 }
 

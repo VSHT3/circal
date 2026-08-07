@@ -17,7 +17,9 @@ import {
   lifeStats,
   lifeYearRange,
   mondayOffset,
+  type LifeSpan,
 } from "@/lib/life";
+import { LIFE_EXPECTANCY_RANGE } from "@/lib/store";
 import { addDays } from "@/lib/time";
 import { calendar, day, event, ms, show } from "./helpers";
 
@@ -501,16 +503,41 @@ describe("lifeFraction", () => {
     expect(lifeFraction(span, at)).toBe(lifeStats(span, at).fraction);
   });
 
-  it("turns its last printed digit inside a minute, which is why the leaf keeps a clock", () => {
-    // The whole justification for the life view's one-second clock after the
-    // shell went to a minute: at six decimals an eighty-year span advances
-    // roughly every twenty-five seconds, so a minute tick would step it two
-    // or three at a time.
-    const at = new Date(2026, 7, 8, 13, 47, 12);
-    const printed = (d: Date) => (lifeFraction(span, d) * 100).toFixed(6);
-    const digits = (d: Date) => Number(printed(d).replace(".", ""));
-    expect(printed(at)).toBe(printed(new Date(at.getTime() + 1_000)));
-    expect(printed(at)).not.toBe(printed(new Date(at.getTime() + 60_000)));
-    expect(digits(new Date(at.getTime() + 60_000)) - digits(at)).toBeGreaterThan(1);
+  /**
+   * The strip prints seven decimals, and seven is derived rather than chosen:
+   * one step of the last digit is `span / 10^9`, which has to stay inside a
+   * few seconds for the widest life the app will draw. These pin the bound,
+   * not the arithmetic — `PERCENT_DECIMALS` in `LifeView.tsx` carries the
+   * table.
+   */
+  const printedAt = (s: LifeSpan, d: Date, decimals: number) =>
+    (lifeFraction(s, d) * 100).toFixed(decimals);
+  /** Halfway along, so the sample is inside every span regardless of length. */
+  const midway = (s: LifeSpan) => new Date((s.birth.getTime() + s.death.getTime()) / 2);
+
+  it.each([20, 40, 60, 80, 100, 120, LIFE_EXPECTANCY_RANGE.max])(
+    "moves the last printed digit inside five seconds on a %iy span",
+    (years) => {
+      const s = lifeSpan(day("1990-03-12"), years);
+      const at = midway(s);
+      expect(printedAt(s, at, 7)).not.toBe(printedAt(s, new Date(at.getTime() + 5_000), 7));
+    },
+  );
+
+  it("moves inside three seconds on the default span", () => {
+    const at = midway(span);
+    expect(printedAt(span, at, 7)).not.toBe(printedAt(span, new Date(at.getTime() + 3_000), 7));
+  });
+
+  it("would sit still for five seconds at six decimals, which is why it is not six", () => {
+    const at = midway(span);
+    expect(printedAt(span, at, 6)).toBe(printedAt(span, new Date(at.getTime() + 5_000), 6));
+  });
+
+  it("does not outrun the one-second clock that renders it", () => {
+    // At eight decimals the digit steps several times per tick and three in
+    // four values would never be drawn. Seven stays slower than the clock.
+    const at = midway(span);
+    expect(printedAt(span, at, 7)).toBe(printedAt(span, new Date(at.getTime() + 1_000), 7));
   });
 });
