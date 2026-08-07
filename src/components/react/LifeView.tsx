@@ -142,14 +142,16 @@ const SEARCH_TONE = { past: 0.13, future: 0.06 } as const;
 
 /**
  * How the grid ends. The expectancy is a guess, and a guess drawn as an edge
- * is a claim about a date — so the last years ramp to black instead, and the
- * field runs out rather than stopping. A tenth of the span, floored at two
- * years: `smoothstep` spends the first half of that window barely moving, so
- * a shorter one lands as the grid stopping abruptly, which is the thing this
- * replaced.
+ * is a claim about a date — so the last few days ramp to black and the field
+ * trails off instead of stopping.
+ *
+ * A week, and it is a count of days rather than a share of the span on
+ * purpose. A share scales with the life, and any share big enough to see is
+ * years of it: the last decade goes grey and the softness stops reading as an
+ * edge condition and starts reading as data about your seventies. Seven dots
+ * is the smallest thing that is unmistakably a fade and not a ragged row.
  */
-const FADE_SHARE = 0.1;
-const FADE_MIN_DAYS = 730;
+const FADE_DAYS = 7;
 /** Quantisation of that ramp: a dot reuses its neighbour's colour instead of
  *  minting one of thirty thousand. */
 const FADE_STEPS = 32;
@@ -215,9 +217,9 @@ function drawField(
 
   // The ramp into nothing. `smoothstep` on both ends: it has to leave full
   // brightness without a seam where it starts, and reach black without a last
-  // visible row of near-black dots sitting on the edge like a rule.
+  // visible dot sitting on the edge like a full stop.
   const deathMs = span.death.getTime();
-  const fadeMs = Math.max(FADE_MIN_DAYS, Math.round(span.days * FADE_SHARE)) * DAY_MS;
+  const fadeMs = FADE_DAYS * DAY_MS;
   const fadeFrom = deathMs - fadeMs;
   const fadeAt = (ms: number) => {
     if (ms <= fadeFrom) return FADE_STEPS;
