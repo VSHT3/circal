@@ -231,11 +231,11 @@ describe("magnify", () => {
     expect(magnify(YEAR.REACH)).toBeLessThan(1e-5);
   });
 
-  it("never grows a mark past the month ticks", () => {
-    // It grows inwards, so the risk is the other end: the baseline must clear
-    // today's pip.
-    expect(YEAR.DAY_INNER - YEAR.GROW_IN).toBeGreaterThan(YEAR.TODAY_RING + YEAR.TODAY_PIP);
-    expect(YEAR.DAY_OUTER).toBeLessThan(YEAR.TICK_INNER);
+  it("leaves a magnified tip room before the month ticks", () => {
+    // It grows outwards now, so the tip is what has to clear something. The
+    // resting ring has to clear today's pip at the other end.
+    expect(YEAR.DAY_OUTER + YEAR.GROW_OUT).toBeLessThan(YEAR.TICK_INNER);
+    expect(YEAR.DAY_INNER).toBeGreaterThan(YEAR.TODAY_RING + YEAR.TODAY_PIP);
   });
 });
 
@@ -264,9 +264,9 @@ describe("spread", () => {
   });
 
   it("opens up about the air the growth takes", () => {
-    // Half a slot each side against 3.7 units of extra width: the two have to
-    // stay in step or the hovered day either eats its neighbours or floats in
-    // a gap.
+    // Nearly a slot each side against 5.5 units of extra width: the two have
+    // to stay in step or the hovered day either eats its neighbours or floats
+    // in a gap of its own.
     const slot = (2 * Math.PI * YEAR.DAY_INNER) / 365;
     const extra = YEAR.DAY_WIDTH * YEAR.GROW_WIDTH;
     expect(2 * YEAR.PUSH * slot).toBeGreaterThan(extra);

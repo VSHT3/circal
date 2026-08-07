@@ -29,12 +29,14 @@ export const YEAR = {
    * the right way round: the eye reads the raggedness as the data and the
    * rule as the axis it is measured from.
    *
-   * Sixty units of travel, which is a lot for a bar — and it has to be. The
-   * interior is empty, so this ring *is* the face, and at the twenty units it
-   * started with the whole year read as a hairline round a hole.
+   * Fifty-eight units of travel, which is a lot for a bar — and it has to be.
+   * The interior is empty, so this ring *is* the face, and at the twenty units
+   * it started with the whole year read as a hairline round a hole.
+   *
+   * Pulled in from 336/396 to leave the magnifier somewhere to go.
    */
-  DAY_INNER: 336,
-  DAY_OUTER: 396,
+  DAY_INNER: 328,
+  DAY_OUTER: 386,
   /** What a day with nothing on it draws. At the size a year renders that is
    *  a square, which is a dot — the same thing the same day is in the life
    *  grid. */
@@ -52,24 +54,26 @@ export const YEAR = {
   /**
    * The magnification under the pointer, in the units it is measured in.
    *
-   * A day grows **inwards** only. The outer tip is the datum — it is where
-   * `markRadius` put it, and it is the whole of what the ring says about that
-   * day — so pushing it further out would make a hovered empty day look like
-   * a booked one. Growing from the baseline instead leaves the ragged edge
-   * exactly where it was and reads as the mark coming towards you.
+   * A day grows **outwards**, tip first, and thickens. It grew inwards for a
+   * draft, on the argument that the outer tip is the datum and pushing it out
+   * makes a hovered empty day look like a booked one — which is true and is
+   * the wrong trade. Only one day is ever magnified, it is unmistakably the
+   * magnified one, and it is the only day whose count the readout is printing
+   * in words at the same moment. Growing away from the centre is what reads
+   * as the day coming up to meet you; growing towards it read as a smudge.
    */
-  GROW_IN: 18,
-  /** …and a little wider, which is what the pushing is for. */
-  GROW_WIDTH: 0.85,
+  GROW_OUT: 28,
+  /** …and half as much again as wide, which is what the pushing is for. */
+  GROW_WIDTH: 1.25,
   /**
    * How far the neighbours give way, in *day slots*, at the peak of the push.
    *
-   * A slot is 6.2 units at this radius and a magnified mark is 3.6 units
-   * wider than a resting one, so half a slot each side is very nearly exactly
-   * the air the growth takes up: the ring keeps its rhythm instead of the
-   * hovered day eating its neighbours.
+   * A slot is 6 units at this radius and a magnified mark is 5.5 units wider
+   * than a resting one, so a little under a slot each side is very nearly
+   * exactly the air the growth takes up: the ring keeps its rhythm instead of
+   * the hovered day eating its neighbours.
    */
-  PUSH: 0.55,
+  PUSH: 0.9,
   /** Width of the bell, in days: `magnify(1)` is a half, which is the "and
    *  its two neighbours, less so" the effect is made of. */
   SIGMA: 1.2,
@@ -90,17 +94,19 @@ export const YEAR = {
 
   /** Today's pip, just inside the ring. A halo rather than a fill, for the
    *  reason the life grid's is: the day's own colour is its events', and
-   *  being today is not one of them. Far enough in to clear a magnified
-   *  mark's baseline (`DAY_INNER - GROW_IN` = 318). */
+   *  being today is not one of them. */
   TODAY_PIP: 3.4,
-  TODAY_RING: 310,
+  TODAY_RING: 306,
 
   /**
-   * Month boundaries, just outside the marks — the same relationship the hour
-   * ticks have to the dial's track.
+   * Month boundaries, outside the marks — the same relationship the hour ticks
+   * have to the dial's track, and far enough out to clear a magnified tip
+   * (`DAY_OUTER + GROW_OUT` = 414). They sit at month *edges* and the names at
+   * month *middles*, so the two are never at the same angle and the radial gap
+   * between them costs nothing.
    */
-  TICK_INNER: 408,
-  TICK_OUTER: 420,
+  TICK_INNER: 422,
+  TICK_OUTER: 434,
 
   /** Ring the month names are centred on. Deliberately `DIAL.ZONE`: the
    *  outermost text of both faces sits on the same circle, so ⌘D ⇄ ⌘Y is one

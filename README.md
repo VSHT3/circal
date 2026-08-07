@@ -103,12 +103,12 @@ The middle prints the year until you point at a day, and then prints that day
 
 A day is a third of a degree wide, which is smaller than the pointer, so the
 ring magnifies rather than merely highlighting. The day under the pointer
-swells inwards and lights up, its neighbours swell about half as much, and the
-few days either side lean out of the way to make room — so what you are
-pointing at is unmistakable without anything being drawn over the ring. The
-outer tip never moves, because that end is the data. Each new day the pointer
-crosses ticks, on the same switches the dial's drag uses: read it slowly and
-it is one tick a day, sweep it and it is a finger down a comb.
+reaches out towards you and lights up, its neighbours come part of the way,
+and the few days either side lean aside to make room — so what you are
+pointing at is unmistakable without anything being drawn over the ring. Each
+new day the pointer crosses ticks, on the same switches the dial's drag uses:
+read it slowly and it is one tick a day, sweep it and it is a finger down a
+comb.
 
 It is one tab stop, not three hundred and sixty five. Tab to the ring and the
 arrows move a cursor round it — a day at a time, a week with up/down, four

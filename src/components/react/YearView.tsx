@@ -74,15 +74,26 @@ const ACCENT = "#a3d9e4";
 const EMPTY_MARK = "#3a3a3e";
 
 /**
- * How white the magnified day goes, over its own colour.
- *
- * Over, never instead of: the mark keeps a trace of whose it is while it is
- * lit. The selection is full white — that is where the dial will land and
- * where the unroll leaves from — and the bulge fades in on the *square* of
- * its lift, so the light stays on the one day the readout is naming instead
- * of smearing across its neighbours the way the size does.
+ * How white the magnified day goes, over its own colour. Over, never instead
+ * of: the mark keeps a trace of whose it is while it is lit.
  */
-const LIT_HOVER = 0.85;
+const LIT_HOVER = 0.95;
+
+/**
+ * How the three parts of the magnifier are spread across the neighbourhood,
+ * as exponents on `magnify`'s bell.
+ *
+ * The bell is the *shape* — a half at one day out, which is what makes it
+ * read as a magnifier rather than as one day changing size — and these
+ * decide how much of each part the middle keeps. Length is the gentlest, so
+ * the neighbours visibly come along; width and light are steep, so the day
+ * the readout is naming is unmistakably the one, instead of the emphasis
+ * smearing across three.
+ *
+ * They are here and not in `YEAR` on purpose: the bell is geometry and is
+ * tested, these are how hard the drawing leans on it.
+ */
+const FALLOFF = { length: 1.5, width: 2.5, light: 3 } as const;
 
 /**
  * The bulge arriving and leaving. Stiff, because it answers a pointer and a
@@ -650,23 +661,26 @@ function Ring({
       const lift = strength * magnify(delta);
       const shift = strength * YEAR.PUSH * spread(delta);
 
+      // The tip goes out, the baseline stays. It is the day rising to meet
+      // the pointer, and the three parts of it lean on the bell by different
+      // amounts: the neighbours come along in length and barely at all in
+      // width or light, so the emphasis stays on the one day being named.
       const angle = dayAngle(i + shift, days);
-      const inner = face.at(...radial(YEAR.DAY_INNER - lift * YEAR.GROW_IN, angle));
-      const outer = face.at(...radial(mark.outer, angle));
+      const grown = mark.outer + YEAR.GROW_OUT * lift ** FALLOFF.length;
+      const inner = face.at(...radial(YEAR.DAY_INNER, angle));
+      const outer = face.at(...radial(grown, angle));
 
-      ctx.lineWidth = YEAR.DAY_WIDTH * (1 + lift * YEAR.GROW_WIDTH) * face.u;
+      ctx.lineWidth = YEAR.DAY_WIDTH * (1 + YEAR.GROW_WIDTH * lift ** FALLOFF.width) * face.u;
       ctx.beginPath();
       ctx.moveTo(inner.x, inner.y);
       ctx.lineTo(outer.x, outer.y);
       ctx.strokeStyle = mark.color;
       ctx.stroke();
 
-      // White over the day's own colour, never instead of it: the mark keeps
-      // a trace of whose it is while it is lit. The selection is full white
-      // because it is where the dial will land; the bulge fades in on the
-      // square of its own lift, so the light stays on the one day the readout
-      // is naming instead of smearing across its neighbours.
-      const white = i === selected ? 1 : lift * lift * LIT_HOVER;
+      // White over the day's own colour, never instead of it. The selection
+      // is full white because it is where the dial will land and where the
+      // unroll leaves from.
+      const white = i === selected ? 1 : LIT_HOVER * lift ** FALLOFF.light;
       if (white > 0.004) {
         ctx.globalAlpha = white;
         ctx.strokeStyle = "#fff";
