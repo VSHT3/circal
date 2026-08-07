@@ -574,6 +574,45 @@ describe("sane() via parsing a stored blob", () => {
     const s = await freshStore(storage);
     expect(s.store.snapshot().settings.arcLabels).toBe("always");
   });
+
+  // The one ambient setting that can act on its own. A delay off the list is
+  // a timer the panel cannot show, and a mode arriving on a schedule nothing
+  // on screen names is worse than one that never arrives.
+  it.each([
+    { name: "a delay the panel cannot offer", stored: 7, want: 0 },
+    { name: "a non-number", stored: "5", want: 0 },
+    { name: "a delay it can", stored: 10, want: 10 },
+  ])("ambientAfter: $name → $want", async ({ stored, want }) => {
+    const storage = new MemoryStorage();
+    storage.setItem(
+      KEY,
+      JSON.stringify({
+        schema: 2,
+        events: [],
+        calendars: [],
+        feeds: {},
+        settings: { ambientAfter: stored },
+      }),
+    );
+    const s = await freshStore(storage);
+    expect(s.store.snapshot().settings.ambientAfter).toBe(want);
+  });
+
+  // A blob written before the mode existed: the timer stays off, and the face
+  // keeps the defaults rather than inheriting the working face's.
+  it("a blob with no ambient keys gets the defaults, timer included", async () => {
+    const storage = new MemoryStorage();
+    storage.setItem(
+      KEY,
+      JSON.stringify({ schema: 2, events: [], calendars: [], feeds: {}, settings: {} }),
+    );
+    const { settings } = (await freshStore(storage)).store.snapshot();
+    expect(settings.ambientAfter).toBe(0);
+    expect(settings.ambientDim).toBe(true);
+    expect(settings.ambientLightcycle).toBe(true);
+    expect(settings.ambientZoneRing).toBe(false);
+    expect(settings.ambientArcLabels).toBe("off");
+  });
 });
 
 describe("migrateSettings", () => {

@@ -1,12 +1,14 @@
 # todo
 
-Recurrence is real, the interior answers the day, arcs carry their own names, and there is now a
-test suite — 602 cases over the domain layer, `pnpm test`, in the gate.
+Recurrence is real, the interior answers the day, arcs carry their own names, the dial has an
+ambient mode, and there is a test suite — 619 cases over the domain layer, `pnpm test`, in the gate.
 
 ## the list, and what I think of it
 
 0. Moonpohases somewhere as an optional eyecandy
-   0.5. icons into dial list based on custom or default to calendar icon (which can be set too)
+1. Intro animation like what animejs has
+2. icons into dial list based on custom or default to calendar icon (which can be set too)
+3. event and stuff search
 
 **1. quotes page** — _you are a worm through time, you have no obligations to your former self, be
 the change you wish to see in the world._
@@ -271,11 +273,50 @@ parser exists; the sentence does not. **[high / small]**
 Also cheap and missing: fuzzy and recency ranking (plain substring today), **duplicate event** (no
 such action anywhere), and calendar CRUD (see (3)).
 
-### Two things that cost nothing and change how it feels
+### ~~Ambient mode~~ — done, and one thing left beside it
 
-- **Ambient mode** (`F`, or ⌘.): chrome away, dial to the viewport, hand and lightcycle only, wake
-  on pointer. This is already the best-looking desk clock on the web and it is one boolean from
-  shipping as one. **[high / trivial]**
+`F` withdraws the chrome, `⇧F` takes the screen too, `Esc` leaves. Not a setting: a mode that
+survives a reload with nothing on screen to say how to leave it is a trap.
+
+It is the day view with a mood, not a second component — four numerals instead of twelve, no names
+on the arcs, the readout and the card at ×1.55 with one row instead of three. `[high / trivial]`
+was wrong: chrome-off is a boolean, but the things that make it an object rather than a screenshot
+are not.
+
+- **It dims with your own dusk.** `ambientLevel` in `sun.ts` rides the same curve the lightcycle
+  band draws — full while the sun is up where you are, down to 0.55 in the middle of the night. One
+  opacity on the instrument: over true black, opacity _is_ luminance, and it costs a composite
+  rather than a repaint of nine hundred paths. No place picked, no curve, no dimming.
+- **Wake lock, cursor, drift.** The screen is held awake and re-held on `visibilitychange` (the
+  platform drops it on every hide). The pointer goes after two seconds. The whole face wanders six
+  pixels over five minutes, so a static rim never burns in.
+- **The hand glides its minute.** `useEasedAngle`, 420 ms, the only thing that moves. A second hand
+  was the obvious idea and it contradicts the product's one sentence.
+
+Two things fell out of it that were bugs of their own: `useNow` takes a period and ambient runs at
+one minute, which is the first cut at the 1 Hz whole-tree re-render below; and Escape's meaning was
+ordered wrongly — a panel's own Escape re-renders the shell before the shell's `window` listener
+sees the same press, so the palette and the editor now `stopPropagation` and one press means one
+thing.
+
+It has its own section in Settings, because a display mode's face is its own question:
+`ambientDim`, `ambientLightcycle`, `ambientZoneRing`, `ambientArcLabels` (`off` by default, where
+the working face's is `always`) and `ambientAfter`. Every switch can only take away what the
+working face already draws — a mode is not an argument with a choice the user already made.
+
+`ambientAfter` is the one that acts on its own, so it carries the most rules: armed only on the
+dial with nothing open, and `AmbientMode` is `off | manual | auto` because how it arrived decides
+how it leaves. Auto is a screensaver and goes at the first input; manual stays, since there the
+pointer is how you use the dial. The 500 ms grace on the auto exit is not politeness — withdrawing
+the chrome moves the layout under a parked cursor and the browser calls that a `pointermove`, so
+without it the mode arrived and left in the same frame.
+
+And the default face is now `24h`. It is the one that matches the instrument: a revolution here is
+a whole day, so an hour has exactly one place on it. No schema bump — a default is what a blob says
+when it says nothing, and every stored blob says one or the other out loud.
+
+What is left here:
+
 - **Hear the hour.** Every 15-minute detent in a drag clicks identically; give every fourth one a
   different resonance and you can count hours by ear without looking, which is exactly the
   affordance a physical dial has. `SOUNDS` is already parameterised for it. **[medium / small]**
@@ -301,13 +342,13 @@ Fixed while writing the suite, each with the tests that pin it:
 
 Still open:
 
-| what                             | where and why                                                                                                                                                                                                                                                                    |
-| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Feed payloads share the blob** | Everything is one `circal.v1` key, so a fat subscription competes with your own events for one ~5MB quota; `write()` toasts once and then loses the write silently on reload. Feeds want their own key, and a cap. Needs a schema bump and a migration, so it is its own commit. |
-| **No focus trap in any modal**   | Three hand-rolled dialogs, no shared primitive: Tab escapes to the page behind, and the global hotkeys (←/→/`t`) still fire under an open editor.                                                                                                                                |
-| **`text-ink-3` for prose**       | ~3.1:1 on black, and `ink-4` is ~1.5:1 — decorative only, never text. See (4).                                                                                                                                                                                                   |
-| **1 Hz whole-tree re-render**    | `useNow` ticks every second and `App` hands `now` to Dial, Sidebar, CenterPanel and LifeView, but only the readout and the hand move. Push second-resolution into a leaf and keep the rest on minutes.                                                                           |
-| **Life grid is invisible to AT** | `role="img"`, one label, 30,000 dots, no focus path. The year grid does it right with real buttons — but its `aria-label` omits whether the day carries anything.                                                                                                                |
+| what                             | where and why                                                                                                                                                                                                                                                                                                                               |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Feed payloads share the blob** | Everything is one `circal.v1` key, so a fat subscription competes with your own events for one ~5MB quota; `write()` toasts once and then loses the write silently on reload. Feeds want their own key, and a cap. Needs a schema bump and a migration, so it is its own commit.                                                            |
+| **No focus trap in any modal**   | Three hand-rolled dialogs, no shared primitive: Tab escapes to the page behind, and the global hotkeys (←/→/`t`) still fire under an open editor.                                                                                                                                                                                           |
+| **`text-ink-3` for prose**       | ~3.1:1 on black, and `ink-4` is ~1.5:1 — decorative only, never text. See (4).                                                                                                                                                                                                                                                              |
+| **1 Hz whole-tree re-render**    | `useNow` ticks every second and `App` hands `now` to Dial, Sidebar, CenterPanel and LifeView, but only the readout and the hand move. Ambient takes the period to a minute, which is the right answer for a mode left running and no answer at all for the other 23 hours. Push second-resolution into a leaf and keep the rest on minutes. |
+| **Life grid is invisible to AT** | `role="img"`, one label, 30,000 dots, no focus path. The year grid does it right with real buttons — but its `aria-label` omits whether the day carries anything.                                                                                                                                                                           |
 
 The last four are all DOM-shaped, which is exactly the surface this suite does not cover. That is
 the honest boundary of what 571 pure-function tests buy you.
@@ -330,7 +371,8 @@ The old list is spent: ~~real RRULE in and out~~, ~~next event and countdown in 
    glyph budget means a label only lands where the sweep can hold one.
 3. **Quick-add in ⌘P.** `[high / small]` — every parser exists, the sentence does not. And the
    parsers it composes are now covered, which is what makes it safe to build on them.
-4. **Ambient mode.** `[high / trivial]` — one boolean from shipping the best desk clock on the web.
+4. ~~**Ambient mode.**~~ Done — see Ambient mode above. `F`, `⇧F` for the screen, and it dims with
+   your own dusk, which is the part that makes it an object rather than a hidden toolbar.
 
 Then the year view, which is the one screen still contradicting "one idea at three scales" and the
 thing blocking (2).

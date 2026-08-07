@@ -17,6 +17,7 @@ import {
   Grid2x2,
   Grid3x3,
   Hourglass,
+  Maximize,
   PanelLeft,
   Plus,
   RefreshCw,
@@ -183,6 +184,7 @@ export default function CommandPalette({
   day,
   now,
   sidebarOpen,
+  ambient,
   events,
   calendars,
   occurrences,
@@ -382,6 +384,16 @@ export default function CommandPalette({
         },
       },
       {
+        id: "cmd-ambient",
+        icon: <Maximize {...CHROME_ICON_PROPS} />,
+        title: ambient ? "Leave ambient mode" : "Ambient mode",
+        meta: <Kbd>F</Kbd>,
+        run: () => {
+          actions.toggleAmbient();
+          onClose();
+        },
+      },
+      {
         id: "cmd-clock",
         icon: <Clock3 {...CHROME_ICON_PROPS} />,
         title: clock === "12h" ? "Use the 24-hour dial (00–23)" : "Use the 12-hour dial (AM/PM)",
@@ -472,7 +484,7 @@ export default function CommandPalette({
       })),
     ];
     return base.filter((row) => row.title.toLowerCase().includes(q));
-  }, [q, day, sidebarOpen, calendars, clock, actions, onClose]);
+  }, [q, day, sidebarOpen, ambient, calendars, clock, actions, onClose]);
 
   const groups: Group[] = useMemo(
     () =>
@@ -509,6 +521,11 @@ export default function CommandPalette({
       flatItems[highlighted]?.run();
     } else if (e.key === "Escape") {
       e.preventDefault();
+      // The shell listens for Escape on `window`, and by the time the event
+      // gets there this close has already re-rendered it — so it would read
+      // the palette as shut and take Escape's *next* meaning (leaving ambient)
+      // in the same press. A key the panel handled stops at the panel.
+      e.stopPropagation();
       onClose();
     } else if (e.key === "Tab") {
       e.preventDefault();

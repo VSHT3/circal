@@ -404,6 +404,10 @@ export default function EventEditor({
       const mod = e.metaKey || e.ctrlKey;
       if (e.key === "Escape") {
         e.preventDefault();
+        // Captured at `window`, so stopping here keeps the press from also
+        // reaching the shell's own Escape — which by then would see a closed
+        // editor and go on to take Escape's next meaning.
+        e.stopPropagation();
         onClose();
       } else if (readOnly) {
         return;

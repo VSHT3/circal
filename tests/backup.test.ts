@@ -241,7 +241,15 @@ describe("readSettings", () => {
     expect(readSettings(null)).toBe(DEFAULT_SETTINGS);
   });
 
-  it.each(["showZoneName", "showZoneOffset", "daylight", "tickSound", "tickHaptics"] as const)(
+  it.each([
+    "showZoneName",
+    "showZoneOffset",
+    "daylight",
+    "tickSound",
+    "tickHaptics",
+    "ambientDim",
+    "ambientLightcycle",
+  ] as const)(
     "%s reads absent as on — a backup written before the switch existed came from a dial showing it",
     (field) => {
       expect.soft(readSettings({})[field]).toBe(true);
@@ -251,7 +259,7 @@ describe("readSettings", () => {
     },
   );
 
-  it.each(["zoneDaylight", "zoneMoonlight", "totals"] as const)(
+  it.each(["zoneDaylight", "zoneMoonlight", "totals", "ambientZoneRing"] as const)(
     "%s reads absent as off, and only a literal true turns it on",
     (field) => {
       expect.soft(readSettings({})[field]).toBe(false);
@@ -261,13 +269,24 @@ describe("readSettings", () => {
     },
   );
 
+  // Two spellings are read; anything else is the current default, which is
+  // also what a backup written before the setting existed gets.
   it.each([
     { input: "24h", expected: "24h" },
-    { input: "AM/PM", expected: "12h" },
-    { input: undefined, expected: "12h" },
-    { input: 24, expected: "12h" },
+    { input: "12h", expected: "12h" },
+    { input: "AM/PM", expected: DEFAULT_SETTINGS.clock },
+    { input: undefined, expected: DEFAULT_SETTINGS.clock },
+    { input: 24, expected: DEFAULT_SETTINGS.clock },
   ])("clock $input reads as $expected", ({ input, expected }) => {
     expect(readSettings({ clock: input }).clock).toBe(expected);
+  });
+
+  // The mode's own timer. A backup from before it existed came from a build
+  // with no timer at all, which is exactly what "never" means.
+  it("ambientAfter reads absent as never, and a number as itself", () => {
+    expect.soft(readSettings({}).ambientAfter).toBe(0);
+    expect.soft(readSettings({ ambientAfter: 10 }).ambientAfter).toBe(10);
+    expect.soft(readSettings({ ambientAfter: "10" }).ambientAfter).toBe(0);
   });
 
   describe.each([

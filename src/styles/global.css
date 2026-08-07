@@ -146,6 +146,30 @@
   .no-scrollbar::-webkit-scrollbar {
     display: none;
   }
+
+  /* Ambient's only involuntary movement: a few pixels of wander over five
+     minutes, so a face left on a desk all evening never burns its numerals
+     into the panel. Slow enough that it is never something you catch it
+     doing, and off with everything else under `prefers-reduced-motion`. */
+  .ambient-drift {
+    animation: drift 300s ease-in-out infinite;
+  }
+
+  @keyframes drift {
+    0%,
+    100% {
+      transform: translate(0, 0);
+    }
+    25% {
+      transform: translate(6px, -4px);
+    }
+    50% {
+      transform: translate(-3px, 6px);
+    }
+    75% {
+      transform: translate(-6px, -2px);
+    }
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

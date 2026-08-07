@@ -17,7 +17,13 @@ import { Download, RefreshCw, Trash2, Upload } from "lucide-react";
 import { refreshFeed } from "@/lib/feeds";
 import { canVibrate } from "@/lib/feedback";
 import { formatCount, formatLifeDate, lifeSpan } from "@/lib/life";
-import { LIFE_EXPECTANCY_RANGE, TOTALS_POSITIONS, hostLabel, store } from "@/lib/store";
+import {
+  AMBIENT_DELAYS,
+  LIFE_EXPECTANCY_RANGE,
+  TOTALS_POSITIONS,
+  hostLabel,
+  store,
+} from "@/lib/store";
 import { PLACE_OPTIONS, placeForZone } from "@/lib/places";
 import { sunTimes } from "@/lib/sun";
 import {
@@ -36,6 +42,7 @@ import {
   DateField,
   FieldRow,
   IconButton,
+  Kbd,
   NumberField,
   PositionField,
   Segmented,
@@ -57,6 +64,13 @@ const ZONE_OPTIONS = [
 ];
 
 const LIGHTCYCLE_OPTIONS = [OFF, ...PLACE_OPTIONS];
+
+/** The auto-ambient delays, as the row prints them. `0` is the only one that
+ *  is not a duration, and it is the default. */
+const AMBIENT_OPTIONS = AMBIENT_DELAYS.map((minutes) => ({
+  value: String(minutes),
+  label: minutes === 0 ? "Never" : minutes === 60 ? "After 1 hour" : `After ${minutes} min`,
+}));
 
 /** The nine cells of the totals picker, row-major, each named for a reader
  *  who cannot see which cell it is. */
@@ -100,6 +114,11 @@ export default function Settings({
     daylight,
     moonlight,
     arcLabels,
+    ambientAfter,
+    ambientDim,
+    ambientLightcycle,
+    ambientZoneRing,
+    ambientArcLabels,
     totals,
     totalsAt,
     tickSound,
@@ -123,6 +142,9 @@ export default function Settings({
   /** Same rule for the vibration switch: no motor, no offer. Desktop and iOS
    *  are both in that camp, and only the sound half is shown there. */
   const vibrates = canVibrate();
+  /** Same rule again for ambient's own lightcycle switch: it can only take
+   *  the band away, so there is nothing to offer until there is a band. */
+  const band = Boolean(place) && (daylight || moonlight);
 
   /** The life the grid would draw with what is set right now — the row prints
    *  where it ends, so the number beside it is never an abstraction. Plain
@@ -304,6 +326,69 @@ export default function Settings({
                 </span>
               </FieldRow>
 
+              {/* Ambient is a display mode, so what it shows is its own
+                  question — and every switch here can only take away what the
+                  working face already draws. A mode is not an argument with a
+                  choice the user already made. */}
+              <FieldRow label="Ambient" align="top">
+                <div className="flex items-center gap-2.5">
+                  <Select
+                    value={String(ambientAfter)}
+                    onChange={(next) => store.setAmbientAfter(Number(next))}
+                    label="Start ambient after"
+                    options={AMBIENT_OPTIONS}
+                  />
+                  <span className="label text-ink-3">Start on its own</span>
+                </div>
+                {/* Every one of these annotates something that has to exist
+                    first, so with a bare dial the row is not empty — it is
+                    not there. An empty flex row is a gap nobody can explain. */}
+                {(place || secondZone) && (
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                    {place && (
+                      <Toggle
+                        label="Dusk dim"
+                        name="Dim with the lightcycle"
+                        checked={ambientDim}
+                        onChange={(on) => store.setToggle("ambientDim", on)}
+                      />
+                    )}
+                    {band && (
+                      <Toggle
+                        label="Lightcycle"
+                        name="Lightcycle in ambient"
+                        checked={ambientLightcycle}
+                        onChange={(on) => store.setToggle("ambientLightcycle", on)}
+                      />
+                    )}
+                    {secondZone && (
+                      <Toggle
+                        label="2nd ring"
+                        name="Second ring in ambient"
+                        checked={ambientZoneRing}
+                        onChange={(on) => store.setToggle("ambientZoneRing", on)}
+                      />
+                    )}
+                  </div>
+                )}
+                <div className="flex items-center gap-2.5">
+                  <Segmented
+                    value={ambientArcLabels}
+                    onChange={store.setAmbientArcLabels}
+                    options={[
+                      { id: "always" as const, label: "Always" },
+                      { id: "hover" as const, label: "Hover" },
+                      { id: "off" as const, label: "Off" },
+                    ]}
+                  />
+                  <span className="label text-ink-3">Arc names</span>
+                </div>
+                <span className="label text-ink-3">
+                  Chrome away, dial to the window — <Kbd>F</Kbd>, or <Kbd>⇧F</Kbd> for the whole
+                  screen
+                </span>
+              </FieldRow>
+
               <FieldRow label="Life" align="top">
                 <div className="flex flex-wrap items-center gap-2">
                   <DateField
@@ -334,6 +419,9 @@ export default function Settings({
                 </span>
               </FieldRow>
 
+              {/* No caption: two switches whose labels are the whole of what
+                  they do, and the app demonstrates the rest the moment either
+                  is on. */}
               <FieldRow label="Feedback" align="top">
                 <div className="flex items-center gap-4">
                   <Toggle
@@ -349,12 +437,6 @@ export default function Settings({
                     />
                   )}
                 </div>
-                <span className="label text-ink-3">
-                  Every key you type, struck rather than recorded — plus a click for each
-                  fifteen-minute step you drag on the dial, lower for an event moving whole, sharper
-                  for either of its ends, and marks for the editor opening, a new event landing, and
-                  one being deleted
-                </span>
               </FieldRow>
 
               <FieldRow label="Feeds" align="top">

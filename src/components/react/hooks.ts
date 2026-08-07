@@ -3,25 +3,171 @@ import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "re
 import { keyDown, keyUp } from "@/lib/keys";
 
 /**
- * The wall clock, re-read once a second and aligned to the second boundary so
- * the readout flips when the system clock does rather than a random offset
- * after mount. Returns a new `Date` only when the displayed second changes.
+ * The wall clock, aligned to the boundary of its own period so the readout
+ * flips when the system clock does rather than at a random offset after
+ * mount. Returns a new `Date` only when the displayed instant changes.
+ *
+ * The period is a second because the readout counts one down in its last
+ * minute. Ambient asks for a minute instead: nothing on that face is finer
+ * than the hand, and a desk clock left on all evening should not wake the
+ * whole tree sixty times a minute to redraw the same pixels.
  */
-export function useNow(): Date {
+export function useNow(periodMs = 1000): Date {
   const [now, setNow] = useState(() => new Date());
 
   useEffect(() => {
     let timer: number;
     const tick = () => {
-      const d = new Date();
-      setNow(d);
-      timer = window.setTimeout(tick, 1000 - d.getMilliseconds());
+      setNow(new Date());
+      timer = window.setTimeout(tick, periodMs - (Date.now() % periodMs));
     };
-    timer = window.setTimeout(tick, 1000 - new Date().getMilliseconds());
+    timer = window.setTimeout(tick, periodMs - (Date.now() % periodMs));
     return () => window.clearTimeout(timer);
-  }, []);
+  }, [periodMs]);
 
   return now;
+}
+
+/**
+ * Keep the screen awake while `enabled`. Without it the best desk clock on
+ * the web goes black after four minutes, which is the difference between a
+ * mode and a demo.
+ *
+ * Re-requested on `visibilitychange`: the platform drops the lock whenever the
+ * tab is hidden and never gives it back on its own. Every call is guarded —
+ * the API is absent on older Safari and a request is rejected outright in some
+ * embedded views, and neither is worth a word to the user.
+ */
+export function useWakeLock(enabled: boolean) {
+  useEffect(() => {
+    if (!enabled || !("wakeLock" in navigator)) return;
+    let sentinel: WakeLockSentinel | null = null;
+    let released = false;
+
+    const request = async () => {
+      if (released || document.visibilityState !== "visible") return;
+      try {
+        sentinel = await navigator.wakeLock.request("screen");
+      } catch {
+        // Denied, or the document lost visibility mid-request. Either way the
+        // screen sleeps, which is what it was going to do anyway.
+      }
+    };
+
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") void request();
+    };
+
+    void request();
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      released = true;
+      document.removeEventListener("visibilitychange", onVisibility);
+      void sentinel?.release();
+    };
+  }, [enabled]);
+}
+
+/**
+ * Whether the pointer has been still for `afterMs`, while `enabled`. Ambient
+ * hides the cursor with it: an arrow parked over a clock is the one piece of
+ * chrome the mode cannot remove by not rendering it.
+ *
+ * Pointer only. A keystroke is how you leave the mode, and a key that both
+ * acts and wakes the cursor makes the exit look like a flicker.
+ */
+export function useIdle(enabled: boolean, afterMs: number): boolean {
+  const [idle, setIdle] = useState(false);
+
+  useEffect(() => {
+    if (!enabled) {
+      setIdle(false);
+      return;
+    }
+    let timer = window.setTimeout(() => setIdle(true), afterMs);
+    const wake = () => {
+      setIdle(false);
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => setIdle(true), afterMs);
+    };
+    window.addEventListener("pointermove", wake);
+    window.addEventListener("pointerdown", wake);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("pointermove", wake);
+      window.removeEventListener("pointerdown", wake);
+    };
+  }, [enabled, afterMs]);
+
+  return idle;
+}
+
+/**
+ * Everything that counts as somebody being there. Wheel and touch are in it
+ * because a page can be read for a long time without a pointer moving or a
+ * key going down, and scrolling an agenda is not being away from the desk.
+ */
+const INPUT_EVENTS = ["pointermove", "pointerdown", "keydown", "wheel", "touchstart"] as const;
+
+/**
+ * Call `onIdle` once, after `afterMs` without any input at all. `0` is off,
+ * which is what the setting stores for "never".
+ *
+ * The callback rides a ref so that the listeners are hung once per delay
+ * rather than once per render — the shell rebuilds this closure every second.
+ */
+export function useIdleAfter(afterMs: number, onIdle: () => void) {
+  const latest = useRef(onIdle);
+  useEffect(() => {
+    latest.current = onIdle;
+  }, [onIdle]);
+
+  useEffect(() => {
+    if (afterMs <= 0) return;
+    let timer = window.setTimeout(() => latest.current(), afterMs);
+    const wake = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => latest.current(), afterMs);
+    };
+    for (const type of INPUT_EVENTS) window.addEventListener(type, wake, { passive: true });
+    return () => {
+      window.clearTimeout(timer);
+      for (const type of INPUT_EVENTS) window.removeEventListener(type, wake);
+    };
+  }, [afterMs]);
+}
+
+/**
+ * Call `onInput` on the next input of any kind, while `enabled`, ignoring
+ * anything inside the first `graceMs`.
+ *
+ * The other half of the timer: a mode that arrived because nobody was there
+ * leaves the moment somebody is. Only that half — ambient entered on purpose
+ * stays until it is dismissed on purpose, because there the pointer is how
+ * you use it.
+ *
+ * The grace is not politeness. Withdrawing the chrome moves the whole layout
+ * under a parked cursor, and a browser reports that as a `pointermove` from a
+ * pointer that never went anywhere — so without it the mode would arrive and
+ * leave in the same frame, forever.
+ */
+export function useOnInput(enabled: boolean, onInput: () => void, graceMs = 0) {
+  const latest = useRef(onInput);
+  useEffect(() => {
+    latest.current = onInput;
+  }, [onInput]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    const fire = () => latest.current();
+    const arm = window.setTimeout(() => {
+      for (const type of INPUT_EVENTS) window.addEventListener(type, fire, { passive: true });
+    }, graceMs);
+    return () => {
+      window.clearTimeout(arm);
+      for (const type of INPUT_EVENTS) window.removeEventListener(type, fire);
+    };
+  }, [enabled, graceMs]);
 }
 
 /**

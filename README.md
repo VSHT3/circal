@@ -11,7 +11,9 @@ The **Dial** setting (`⌘,`) picks how the face names its hours:
 - **12 h** — noon at the top, midnight at the bottom, `12 · 1…11` twice with
   AM/PM captions. 6 AM sits at nine o'clock, 6 PM at three.
 - **24 h** — midnight at the top, `00 · 1…23` running clockwise, so `06` is at
-  three o'clock, `12` at the bottom and `18` at nine.
+  three o'clock, `12` at the bottom and `18` at nine. The default: it is the
+  face that matches the instrument, since one revolution here is a whole day
+  rather than half of one, and an hour has exactly one place on it.
 
 Same geometry either way: an event's arc is the same length on both faces, and
 switching is a 180° rotation and a relabel. The setting also picks how every
@@ -112,6 +114,41 @@ day you clicked and the dial grows out of it. Only that pair zooms: the year
 grid is not a magnified anything, so it crossfades, and with **reduce motion**
 set nothing moves at all.
 
+## Ambient
+
+`F` takes the chrome away and gives the window to the dial. What is left is the
+day at a glance: the ring, the light on it, the arcs, the hand, the time, and
+one line under it for the next thing and how long you have. Twelve hour
+numerals become the four the face is navigated by, and the names come off the
+arcs — both are type meant to be read from a chair, and this is a face meant to
+be read from across a room.
+
+It is a mode you leave running, so it behaves like one. The screen is kept
+awake. The pointer disappears after two seconds and comes back when you move
+it. The whole composition wanders a few pixels over five minutes, which no one
+will ever notice and which is what stops a static rim burning into a panel.
+And if you have picked a city for the lightcycle, the face **dims with your own
+dusk** — full brightness while the sun is up, a little over half of it in the
+middle of the night, on the same curve the band is drawing. A clock in a dark
+room should not be a lamp.
+
+Everything still works: drag the ring, move an arc, `⌘P`. Opening the editor
+brings the chrome back with it, because that is a surface you work on rather
+than one you look at. `⇧F` asks for the whole screen as well, and `Esc` leaves.
+
+**Settings** has a section for it, because a display mode's face is its own
+question: whether it dims with dusk, whether it keeps the lightcycle, whether
+it keeps the second ring, and its own **Arc names** mode — off by default,
+where the working face's is on. Each switch can only take away something the
+working face already draws.
+
+**Start on its own** is the last row: never, or after one, two, five, ten,
+thirty minutes or an hour of the dial being left alone. It arms only on the
+dial with nothing open — a timer that swapped the view out from under a grid
+would lose the year you were reading. Arriving that way it is a screensaver
+and leaves like one, at the first sign of anybody being there; asked for with
+`F` it stays, because there the pointer is how you use it.
+
 ## Your data
 
 Events live in this browser's `localStorage` under `circal.v1`. Nothing is
@@ -145,6 +182,7 @@ taking your calendar with it.
 | `⌘B`                | Sidebar                                                       |
 | `←` `→`             | Previous / next day (year in the year and life views)         |
 | `T`                 | Today                                                         |
+| `F` / `⇧F`          | Ambient — chrome away, and with the screen as well            |
 | `⌘↵` / `⌘⌫` / `esc` | Save / delete / cancel in the editor                          |
 
 Type a duration into `⌘P` — `45m`, `1h30`, `free 20` — and the palette lists

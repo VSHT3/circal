@@ -30,8 +30,18 @@ import {
   startOfDay,
 } from "@/lib/time";
 import { LIFE_META_H, lifeDot, lifeStage } from "@/lib/life";
-import { useElementSize, useHotkeys, useNow, useTypingSound } from "./hooks";
-import type { EditorTarget, ShellActions, ViewFlow, ViewMode } from "./types";
+import { cn } from "@/lib/utils";
+import {
+  useElementSize,
+  useHotkeys,
+  useIdle,
+  useIdleAfter,
+  useNow,
+  useOnInput,
+  useTypingSound,
+  useWakeLock,
+} from "./hooks";
+import type { AmbientMode, EditorTarget, ShellActions, ViewFlow, ViewMode } from "./types";
 import CommandPalette from "./CommandPalette";
 import Dial, { type DragPreview } from "./Dial";
 import EventEditor from "./EventEditor";
@@ -54,6 +64,20 @@ const PANEL_EASE = [0.32, 0.72, 0, 1] as const;
  * the panel's border box.
  */
 const PANEL_PAD = 8;
+
+/**
+ * The top bar's height, as a number. It is `h-12` in `TopBar`'s own class list
+ * and 48 here because ambient animates the bar away, and a height cannot be
+ * transitioned from a utility class to nothing.
+ */
+const TOP_BAR_H = 48;
+
+/**
+ * How long ambient ignores input after arriving on its own. Withdrawing the
+ * chrome moves the layout under a parked cursor, and the browser reports that
+ * as a pointer that moved — so the mode would arrive and leave in one frame.
+ */
+const AUTO_AMBIENT_GRACE_MS = 500;
 
 /**
  * Day ⇄ life is the one pair that zooms, because it is the one pair where the
@@ -174,7 +198,23 @@ function writeLocation({ day, view }: ViewLocation, mode: "push" | "replace") {
 
 export default function App() {
   const { events, calendars, feeds, settings } = useStore();
-  const now = useNow();
+  /**
+   * Ambient: the chrome withdraws and the dial becomes the window. View state
+   * and deliberately not a setting — a mode that survives a reload, with no
+   * chrome on screen to say how to leave it, is a trap rather than a feature.
+   *
+   * Three values rather than a boolean, because how it arrived decides how it
+   * leaves. Asked for, it stays until it is dismissed: the pointer is how you
+   * use the dial, and a mode that fell over at a mouse movement could not be
+   * dragged on. Arrived on its own, it is a screensaver and leaves like one,
+   * at the first sign of anybody being there.
+   */
+  const [ambient, setAmbient] = useState<AmbientMode>("off");
+  const inAmbient = ambient !== "off";
+  // Nothing on the ambient face is finer than the hand, and the mode is meant
+  // to be left running: a minute is the honest resolution for it, and it takes
+  // the shell's whole-tree tick down with it from 3,600 an hour to 60.
+  const now = useNow(inAmbient ? 60_000 : 1000);
   const reducedMotion = useReducedMotion();
 
   const [location, setLocation] = useState<ViewLocation>(() => readLocation());
@@ -183,6 +223,10 @@ export default function App() {
   const [editor, setEditor] = useState<EditorTarget | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  /** The pointer, parked. An arrow over a desk clock is the one piece of
+   *  chrome the mode cannot remove by not rendering it. */
+  const cursorIdle = useIdle(inAmbient, 2000);
+  useWakeLock(inAmbient);
 
   /**
    * The arc the dial has hold of, at where the drag has it. Held here rather
@@ -316,9 +360,67 @@ export default function App() {
     void refreshStaleFeeds(store.snapshot().calendars);
   }, []);
 
+  /**
+   * Ambient, and the fullscreen it does not take on its own.
+   *
+   * `f` withdraws the chrome; `⇧f` does that and asks for the screen as well,
+   * because hijacking the whole display from a bare keypress surprises people
+   * and the mode is worth having either way. Only the day view has an
+   * instrument to show, so entering from a grid brings the dial with it.
+   */
+  const enterAmbient = useCallback(
+    (mode: AmbientMode, fullscreen = false) => {
+      if (mode !== "off" && current.current.view !== "day") go({ view: "day" });
+      setAmbient(mode);
+      if (!fullscreen) return;
+      const root = document.documentElement;
+      // Both are rejected rather than thrown outside a user gesture, and
+      // neither exists in every browser that renders the rest of this.
+      if (mode !== "off") void root.requestFullscreen?.().catch(() => {});
+      else if (document.fullscreenElement) void document.exitFullscreen?.().catch(() => {});
+    },
+    [go],
+  );
+
+  /**
+   * Leaving fullscreen leaves ambient. Escape inside fullscreen is taken by
+   * the browser before the page ever sees the keydown, so without this the
+   * first press appears to do nothing and the mode needs two to exit.
+   */
+  useEffect(() => {
+    if (!inAmbient) return;
+    const onChange = () => {
+      if (!document.fullscreenElement) setAmbient("off");
+    };
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, [inAmbient]);
+
+  /**
+   * The mode arriving on its own, and leaving the same way.
+   *
+   * Armed only on the dial, with nothing open: a timer that swapped the view
+   * out from under a grid would lose the year you were reading, and one that
+   * fired over a half-finished event would be a data loss dressed as a
+   * screensaver. Both conditions read as "there is nothing here to interrupt".
+   */
+  const busy = paletteOpen || settingsOpen || editor !== null;
+  useIdleAfter(
+    inAmbient || busy || view !== "day" ? 0 : settings.ambientAfter * 60_000,
+    useCallback(() => setAmbient("auto"), []),
+  );
+  useOnInput(
+    ambient === "auto",
+    useCallback(() => setAmbient("off"), []),
+    AUTO_AMBIENT_GRACE_MS,
+  );
+
   const openDraft = useCallback(
     (startMin: number, endMin: number, on: Date) => {
       setPaletteOpen(false);
+      // A modal over the desk clock is neither: the editor is a working
+      // surface and it wants the chrome it was designed beside.
+      setAmbient("off");
       setEditor({ id: null, draft: draftEvent(on, startMin, endMin, defaultCalendar) });
     },
     [defaultCalendar],
@@ -342,6 +444,7 @@ export default function App() {
       openEvent: (event: CalEvent) => {
         const { id, ...draft } = event;
         setPaletteOpen(false);
+        setAmbient("off");
         setEditor({ id, draft, readOnly: feedIds.has(event.calendarId) });
       },
       newEvent: () => {
@@ -365,8 +468,9 @@ export default function App() {
         notify(`Refreshing ${subscriptions.length} subscriptions…`);
         void Promise.all(subscriptions.map(refreshFeed));
       },
+      toggleAmbient: () => enterAmbient(inAmbient ? "off" : "manual"),
     }),
-    [day, go, openDraft, feedIds, calendars],
+    [day, go, openDraft, feedIds, calendars, inAmbient, enterAmbient],
   );
 
   const step = useCallback(
@@ -404,10 +508,16 @@ export default function App() {
     arrowleft: () => step(-1),
     arrowright: () => step(1),
     t: actions.goToday,
+    f: () => enterAmbient(inAmbient ? "off" : "manual"),
+    "shift+f": () => enterAmbient(inAmbient ? "off" : "manual", true),
     escape: () => {
+      // One key, one thing: a press that closed a panel has done its work,
+      // and taking the mode down with it would be two.
+      const panelled = busy;
       setPaletteOpen(false);
       setSettingsOpen(false);
       setEditor(null);
+      if (!panelled && inAmbient) enterAmbient("off", true);
     },
   });
 
@@ -513,6 +623,7 @@ export default function App() {
     (occ: Occurrence) => {
       const { id, ...draft } = occ.event;
       setPaletteOpen(false);
+      setAmbient("off");
       setEditor({
         id,
         draft,
@@ -549,12 +660,27 @@ export default function App() {
   );
 
   return (
-    <div className="flex h-dvh w-dvw flex-col overflow-hidden bg-void">
-      <TopBar day={day} view={view} sidebarOpen={sidebarOpen} onStep={step} actions={actions} />
+    <div
+      className={cn(
+        "relative flex h-dvh w-dvw flex-col overflow-hidden bg-void",
+        inAmbient && cursorIdle && "cursor-none",
+      )}
+    >
+      {/* The chrome does not vanish, it withdraws — and it leaves on the same
+          beat the dial takes to grow into the space, because two curves would
+          read as two events rather than as one movement. */}
+      <motion.div
+        className="shrink-0 overflow-hidden"
+        initial={false}
+        animate={{ height: inAmbient ? 0 : TOP_BAR_H, opacity: inAmbient ? 0 : 1 }}
+        transition={reducedMotion ? { duration: 0 } : { duration: 0.24, ease: PANEL_EASE }}
+      >
+        <TopBar day={day} view={view} sidebarOpen={sidebarOpen} onStep={step} actions={actions} />
+      </motion.div>
 
       <div className="flex min-h-0 flex-1">
         <Sidebar
-          open={sidebarOpen}
+          open={sidebarOpen && !inAmbient}
           day={day}
           now={now}
           occurrences={agenda.all}
@@ -602,6 +728,7 @@ export default function App() {
                   onAdjust={adjustOccurrence}
                   onPreview={setPreview}
                   onStepDay={step}
+                  ambient={inAmbient}
                 />
               )}
               {view === "year" && (
@@ -631,6 +758,21 @@ export default function App() {
           </AnimatePresence>
         </main>
       </div>
+
+      {/* The way out, said once. A mode with no chrome on screen has to
+          answer "how do I leave" itself, and it has to stop saying it — a
+          permanent caption is chrome by another name. Remounted on every
+          entry, so it plays again the next time and never during. */}
+      {inAmbient && (
+        <motion.div
+          className="pointer-events-none absolute inset-x-0 bottom-5 flex justify-center"
+          initial={{ opacity: 0 }}
+          animate={reducedMotion ? { opacity: 0 } : { opacity: [0, 1, 1, 0] }}
+          transition={{ duration: 3.4, times: [0, 0.1, 0.62, 1], ease: "linear" }}
+        >
+          <span className="label text-ink-3">Esc to exit</span>
+        </motion.div>
+      )}
 
       {editor && (
         <EventEditor
@@ -668,6 +810,7 @@ export default function App() {
         now={now}
         view={view}
         sidebarOpen={sidebarOpen}
+        ambient={inAmbient}
         events={visible}
         calendars={calendars}
         occurrences={agenda.all}

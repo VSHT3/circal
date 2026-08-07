@@ -32,13 +32,17 @@ const KEY = "circal.v1";
  * survive the bump — only settings reset.
  *
  * Still 2: `secondZone`, `place`, `feeds`, `birth`, `lifeExpectancy`,
- * `arcLabels`, the full RFC 5545 recurrence fields (`interval`, `until`,
- * `wkst`, the `byMonth` / `byWeekNo` / `byYearDay` / `byMonthDay` / `byDay` /
- * `byHour` / `byMinute` / `bySecond` / `bySetPos` limits, `exdates`,
- * `rdates`) and the series-override pair (`seriesId`, `seriesKey`) are all new
- * *fields*, and a blob without them has them filled in on read. Nothing
- * already stored changed meaning, so there is no reason to throw away anyone's
- * dial preference.
+ * `arcLabels`, the five `ambient*` fields, the full RFC 5545 recurrence fields
+ * (`interval`, `until`, `wkst`, the `byMonth` / `byWeekNo` / `byYearDay` /
+ * `byMonthDay` / `byDay` / `byHour` / `byMinute` / `bySecond` / `bySetPos`
+ * limits, `exdates`, `rdates`) and the series-override pair (`seriesId`,
+ * `seriesKey`) are all new *fields*, and a blob without them has them filled
+ * in on read. Nothing already stored changed meaning, so there is no reason to
+ * throw away anyone's dial preference.
+ *
+ * Still 2 through the `clock` default going to `24h`, too. A default is what a
+ * blob says when it says nothing; every blob that already exists says `12h` or
+ * `24h` out loud, and neither of those changed meaning.
  */
 const SCHEMA = 2;
 
@@ -71,6 +75,19 @@ export type TotalsPosition = (typeof TOTALS_POSITIONS)[number];
 export const ARC_LABEL_MODES = ["always", "hover", "off"] as const;
 
 export type ArcLabelMode = (typeof ARC_LABEL_MODES)[number];
+
+/**
+ * How long the dial has to be left alone before it takes the window, in
+ * minutes. `0` is never, which is the default: a mode that arrives on its own
+ * has to be asked for once.
+ *
+ * A list rather than a free number, because the useful range is one decision
+ * (a break, lunch, gone for the day) and a spinner invites tuning something
+ * that has one right answer per desk.
+ */
+export const AMBIENT_DELAYS = [0, 1, 2, 5, 10, 30, 60] as const;
+
+export type AmbientDelay = (typeof AMBIENT_DELAYS)[number];
 
 export interface Settings {
   /** Which face the dial wears — see `lib/dial.ts`. */
@@ -117,6 +134,25 @@ export interface Settings {
   /** Years the life grid runs for, from the birthday. An estimate the user
    *  owns — no actuarial table is going to know better. */
   lifeExpectancy: number;
+  /**
+   * Ambient is a display mode, so what it shows is its own question. These
+   * five are what the face is allowed to differ on — everything else (the
+   * geometry, the events, the hand) is the same dial, because it *is* the same
+   * dial.
+   */
+  ambientAfter: number;
+  /** Brightness follows the lightcycle: full by day, a little over half in the
+   *  middle of the night. Nothing to follow without a place, so it is off by
+   *  consequence rather than by setting there. */
+  ambientDim: boolean;
+  /** The band, on the rim, in ambient. It can only take away what the working
+   *  face already draws — a half switched off there is off here too. */
+  ambientLightcycle: boolean;
+  /** The second zone's numerals and its band, in ambient. */
+  ambientZoneRing: boolean;
+  /** Names along the arcs, in ambient. Its own mode, because 11px mono is
+   *  read from a chair and this face is read from across a room. */
+  ambientArcLabels: ArcLabelMode;
 }
 
 /** The switches: every field of `Settings` that is a plain boolean. */
@@ -139,7 +175,10 @@ export interface Snapshot {
 }
 
 export const DEFAULT_SETTINGS: Settings = {
-  clock: "12h",
+  // The 0–23 face. It is the one that matches the instrument: a revolution is
+  // a day here, not half of one, so an hour has exactly one place on it and
+  // `13` is where `13` is. AM/PM is a preference, and it is one click away.
+  clock: "24h",
   secondZone: "",
   showZoneName: true,
   showZoneOffset: true,
@@ -175,6 +214,23 @@ export const DEFAULT_SETTINGS: Settings = {
   // Eighty. High enough to be a life rather than a countdown, round enough to
   // read as the estimate it is.
   lifeExpectancy: 80,
+  // Never, until asked for. Everything else in this file appears because the
+  // user did something; a mode that arrives on a timer is the one thing that
+  // could appear because they did not.
+  ambientAfter: 0,
+  // On, and it is the reason the mode is worth having: a face that does not
+  // know it is night is a lamp. Costs nothing where no place is set — there is
+  // no curve to follow, so it does not dim.
+  ambientDim: true,
+  // On. The band is the picture of the day, and ambient is the mode that is
+  // nothing but the picture of the day.
+  ambientLightcycle: true,
+  // Off. A second place's numerals are a working reference — you look them up
+  // — and this face is not looked *up*.
+  ambientZoneRing: false,
+  // Off, for the reason `arcLabels` defaults to `always`: the argument is
+  // legibility, and at this distance the label is the illegible part.
+  ambientArcLabels: "off",
 };
 
 const DEFAULT_CALENDARS: Calendar[] = [
@@ -274,6 +330,14 @@ function sane(settings: Settings): Settings {
     arcLabels: ARC_LABEL_MODES.includes(settings.arcLabels)
       ? settings.arcLabels
       : DEFAULT_SETTINGS.arcLabels,
+    ambientArcLabels: ARC_LABEL_MODES.includes(settings.ambientArcLabels)
+      ? settings.ambientArcLabels
+      : DEFAULT_SETTINGS.ambientArcLabels,
+    // A delay off the list is a timer the panel cannot show, which is the
+    // worst kind: the mode would arrive on a schedule nothing on screen names.
+    ambientAfter: (AMBIENT_DELAYS as readonly number[]).includes(settings.ambientAfter)
+      ? settings.ambientAfter
+      : DEFAULT_SETTINGS.ambientAfter,
   };
 }
 
@@ -617,6 +681,17 @@ export const store = {
   setArcLabels(arcLabels: ArcLabelMode) {
     const base = fresh();
     commit({ ...base, settings: { ...base.settings, arcLabels } }, false);
+  },
+
+  setAmbientArcLabels(ambientArcLabels: ArcLabelMode) {
+    const base = fresh();
+    commit({ ...base, settings: { ...base.settings, ambientArcLabels } }, false);
+  },
+
+  /** Minutes of stillness before the dial takes the window; `0` is never. */
+  setAmbientAfter(ambientAfter: number) {
+    const base = fresh();
+    commit({ ...base, settings: sane({ ...base.settings, ambientAfter }) }, false);
   },
 
   /** `""` turns the second ring off. */

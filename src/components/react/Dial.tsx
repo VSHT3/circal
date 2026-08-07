@@ -31,7 +31,7 @@ import {
 } from "@/lib/dial";
 import { colorOf, inkOn, statusOf, type Calendar, type Occurrence } from "@/lib/events";
 import { cue, type Cue } from "@/lib/feedback";
-import { sunTimes, type Place } from "@/lib/sun";
+import { ambientLevel, solarLight, sunTimes, type Place } from "@/lib/sun";
 import {
   MINUTES_PER_DAY,
   addDays,
@@ -47,6 +47,7 @@ import {
   type Clock,
 } from "@/lib/time";
 import type { ArcLabelMode, Settings } from "@/lib/store";
+import { cn } from "@/lib/utils";
 import { useElementSize, useHotkeys } from "./hooks";
 import CenterPanel from "./CenterPanel";
 
@@ -81,6 +82,15 @@ export interface DialProps {
    * halves switch independently of yours: two places, two cycles.
    */
   zonePlace: Place | null;
+  /**
+   * Ambient: the chrome is gone and the face is the whole window, so the dial
+   * stops being a surface you work on and becomes one you glance at from
+   * across a room. It changes what is drawn, never how it is drawn — four
+   * numerals instead of twelve, no names along the arcs, the centre reading
+   * at a distance, and the whole face riding the lightcycle's own brightness.
+   * Every gesture still works.
+   */
+  ambient: boolean;
   onOpen: (occ: Occurrence) => void;
   onCreate: (startMin: number, endMin: number) => void;
   /**
@@ -130,6 +140,13 @@ const GRIP_WIDTH = DIAL.ARC_WIDTH + 8;
  */
 const LANE_MS = 140;
 const LANE_EASE = [0.32, 0.72, 0, 1] as const;
+/**
+ * The ambient hand's minute step. Three times a lane change, because it is
+ * covering a quarter of a degree rather than 27 units and a move that short
+ * has to be slow to read as a move at all — under about a third of a second
+ * it is the snap it replaced with extra steps.
+ */
+const HAND_MS = 420;
 /** An arc with nothing beside it on its lane: no seam to cut. Hoisted so it is
  *  one object rather than one per arc per render. */
 const NO_NEIGHBOUR = { before: Infinity, after: Infinity } as const;
@@ -277,6 +294,7 @@ export default function Dial({
   calendars,
   settings,
   zonePlace,
+  ambient,
   onOpen,
   onCreate,
   onAdjust,
@@ -294,6 +312,10 @@ export default function Dial({
     zoneDaylight,
     zoneMoonlight,
     arcLabels,
+    ambientDim,
+    ambientLightcycle,
+    ambientZoneRing,
+    ambientArcLabels,
     totals,
     totalsAt,
     tickSound,
@@ -311,6 +333,18 @@ export default function Dial({
   const today = isSameDay(day, now);
   const nowMin = minutesOfDay(now);
 
+  /**
+   * The face's own brightness. Full while the sun is up where you are, down
+   * to a little over half in the middle of the night — a desk clock at full
+   * white in a dark room is a lamp, and the one thing this mode must not be.
+   *
+   * One opacity on the whole instrument rather than a second set of colours:
+   * over true black, opacity *is* luminance, and it costs a composite rather
+   * than a repaint of nine hundred paths. Recomputed once a minute, and
+   * transitioned over a second so no step of it is ever a step.
+   */
+  const level = ambient && ambientDim ? ambientLevel(now, place) : 1;
+
   /** Calendars nobody here may edit: a subscription is a mirror. */
   const feedIds = useMemo(
     () => new Set(calendars.filter((c) => c.feed).map((c) => c.id)),
@@ -320,9 +354,18 @@ export default function Dial({
   /** How much of this day is spent: all of a past day, none of a future one. */
   const elapsed = today ? nowMin : startOfDay(day) < startOfDay(now) ? MINUTES_PER_DAY : 0;
 
-  /** A band is drawn only while it has a half left to draw. */
-  const band = place && (daylight || moonlight) ? place : null;
-  const zoneBand = zonePlace && (zoneDaylight || zoneMoonlight) ? zonePlace : null;
+  /**
+   * A band is drawn only while it has a half left to draw — and in ambient,
+   * only while ambient says so. The switch there can take the rim away, never
+   * give it back: a half switched off on the working face is a half the user
+   * does not want to see, and a mode is not an argument with that.
+   *
+   * The second zone goes whole: its numerals and its band are one reference,
+   * and half of one is not a reference.
+   */
+  const zoneRing = ambient ? ambientZoneRing : true;
+  const band = place && (daylight || moonlight) && (!ambient || ambientLightcycle) ? place : null;
+  const zoneBand = zonePlace && (zoneDaylight || zoneMoonlight) && zoneRing ? zonePlace : null;
 
   /**
    * Escape abandons a gesture in flight. A drag is the one thing in the app
@@ -584,7 +627,14 @@ export default function Dial({
   /* ------------------------------- render ------------------------------- */
 
   return (
-    <div ref={stageRef} className="relative h-full w-full">
+    <div
+      ref={stageRef}
+      // The drift is a few pixels over five minutes, so that a face left on a
+      // desk all evening never burns its numerals into the panel. Imperceptible
+      // by design, and off under `prefers-reduced-motion` with everything else.
+      className={cn("relative h-full w-full", ambient && "ambient-drift")}
+      style={{ opacity: level, transition: "opacity 1200ms linear" }}
+    >
       <svg
         ref={svgRef}
         viewBox={VIEW_BOX}
@@ -625,7 +675,7 @@ export default function Dial({
             radius={DIAL.ZONE_BAND}
           />
         )}
-        {secondZone && (
+        {secondZone && zoneRing && (
           <ZoneRing
             now={now}
             clock={clock}
@@ -649,7 +699,7 @@ export default function Dial({
         </g>
 
         <Ticks clock={clock} />
-        <HourLabels clock={clock} />
+        <HourLabels clock={clock} quartersOnly={ambient} />
 
         {/* Drag target. An annulus, so the agenda in the middle stays clickable
             and the corners of the window do not create events. */}
@@ -669,7 +719,10 @@ export default function Dial({
             key={occ.key}
             occ={occ}
             clock={clock}
-            labels={arcLabels}
+            // Its own mode in ambient, defaulting to off: 11px mono is
+            // interaction-distance type, and noise on the one surface that has
+            // to stay a shape when it is read from across a room.
+            labels={ambient ? ambientArcLabels : arcLabels}
             color={colorOf(occ.event, calendars)}
             dimmed={today && statusOf(occ, now) === "past"}
             hovered={hovered === occ.key}
@@ -687,7 +740,12 @@ export default function Dial({
         )}
 
         {today && (
-          <NowHand minutes={nowMin} clock={clock} dimmed={draw !== null || adjust !== null} />
+          <NowHand
+            minutes={nowMin}
+            clock={clock}
+            dimmed={draw !== null || adjust !== null}
+            eased={ambient}
+          />
         )}
       </svg>
 
@@ -698,6 +756,7 @@ export default function Dial({
         calendars={calendars}
         u={u}
         clock={clock}
+        ambient={ambient}
         totals={totals}
         totalsAt={totalsAt}
         drag={ghost && ghost.end > ghost.start ? ghost : adjust ? dragSpan(adjust, day) : null}
@@ -747,71 +806,32 @@ function SunBand({
   const segments = useMemo(() => {
     const sun = sunTimes(day, place);
 
-    /**
-     * Signed light at minute `m`: positive is sun, negative is night, and it
-     * passes through zero exactly at the civil-twilight boundary.
-     *
-     * One continuous function rather than four cases with their own constants,
-     * because every discontinuity in here becomes a visible step on the rim —
-     * the shoulders used to start at 0.04 and the band began with a hard edge.
-     *
-     * It answers for the whole day whatever the two switches say: dropping a
-     * half is a filter on the segments below, not a hole punched in the curve,
-     * so the half that stays keeps the exact shape it had beside the other.
-     */
-    const light = (m: number): number => {
-      if (sun.polar === "day") return 0.86;
-      const { dawn, sunrise, sunset, dusk } = sun;
-      if (sun.polar !== "night" && sunrise !== null && sunset !== null) {
-        if (m >= sunrise && m <= sunset) {
-          // A sine between the two horizons stands in for solar altitude:
-          // wrong by a few percent, right about where the day is brightest.
-          const t = (m - sunrise) / (sunset - sunrise);
-          return 0.14 + 0.72 * Math.sin(Math.PI * t) ** 0.7;
-        }
-        // Civil twilight: a shoulder that reaches the horizon at zero, so the
-        // warm band and the night band meet without either one starting on a
-        // step.
-        if (dawn !== null && m >= dawn && m < sunrise) {
-          return 0.14 * ((m - dawn) / (sunrise - dawn));
-        }
-        if (dusk !== null && m > sunset && m <= dusk) {
-          return 0.14 * ((dusk - m) / (dusk - sunset));
-        }
-      }
-      // Night wraps midnight, so it is measured as the fraction of the way
-      // from dusk to the next dawn rather than as a span of this day.
-      const from = sun.dusk ?? sun.sunset ?? 0;
-      const to = (sun.dawn ?? sun.sunrise ?? MINUTES_PER_DAY) + MINUTES_PER_DAY;
-      const at = m < from ? m + MINUTES_PER_DAY : m;
-      const u = sun.polar === "night" ? 0.5 : clamp((at - from) / (to - from), 0, 1);
-      return -(0.05 + 0.42 * Math.sin(Math.PI * u) ** 0.6);
-    };
-
     // Five minutes a segment. At this radius that is an eight-unit chord, and
     // the step between neighbouring shades stops being something you can see.
     const COUNT = 288;
     const step = MINUTES_PER_DAY / COUNT;
 
-    return Array.from({ length: COUNT }, (_, i) => light((i + 0.5) * step)).flatMap((value, i) => {
-      if (value > 0 ? !daylight : !moonlight) return [];
-      if (Math.abs(value) <= 0.004) return [];
-      const from = angleAt(i * step, clock);
-      // Overlap the neighbour: an exact butt-to-butt join leaves an
-      // antialiasing seam, which is the same artefact one shade darker.
-      const to = angleAt((i + 1) * step, clock) + 0.3;
-      // Both pre-composited against black. Warm but desaturated for day, and a
-      // dim violet for night — saturated colour on this canvas belongs to
-      // events, and neither band may compete with an arc.
-      const [r, g, b] = value > 0 ? [255, 198, 124] : [150, 132, 255];
-      const k = Math.abs(value);
-      return [
-        {
-          d: arcPath(radius, from, to),
-          stroke: `rgb(${Math.round(r * k)},${Math.round(g * k)},${Math.round(b * k)})`,
-        },
-      ];
-    });
+    return Array.from({ length: COUNT }, (_, i) => solarLight(sun, (i + 0.5) * step)).flatMap(
+      (value, i) => {
+        if (value > 0 ? !daylight : !moonlight) return [];
+        if (Math.abs(value) <= 0.004) return [];
+        const from = angleAt(i * step, clock);
+        // Overlap the neighbour: an exact butt-to-butt join leaves an
+        // antialiasing seam, which is the same artefact one shade darker.
+        const to = angleAt((i + 1) * step, clock) + 0.3;
+        // Both pre-composited against black. Warm but desaturated for day, and a
+        // dim violet for night — saturated colour on this canvas belongs to
+        // events, and neither band may compete with an arc.
+        const [r, g, b] = value > 0 ? [255, 198, 124] : [150, 132, 255];
+        const k = Math.abs(value);
+        return [
+          {
+            d: arcPath(radius, from, to),
+            stroke: `rgb(${Math.round(r * k)},${Math.round(g * k)},${Math.round(b * k)})`,
+          },
+        ];
+      },
+    );
   }, [day, clock, place, daylight, moonlight, radius]);
 
   return (
@@ -945,7 +965,16 @@ function Ticks({ clock }: { clock: Clock }) {
   return <g pointerEvents="none">{ticks}</g>;
 }
 
-function HourLabels({ clock }: { clock: Clock }) {
+/**
+ * The hours, on the ring just inside the ticks.
+ *
+ * `quartersOnly` keeps the four the face is navigated by and drops the eight
+ * between them: twelve 19-unit numerals is interaction-distance type, and from
+ * a chair it reads as a grey fringe rather than as a scale. The ticks are
+ * still there, so nothing about the geometry is lost — only the labelling of
+ * hours nobody is squinting at.
+ */
+function HourLabels({ clock, quartersOnly = false }: { clock: Clock; quartersOnly?: boolean }) {
   return (
     <g pointerEvents="none" textAnchor="middle">
       {Array.from({ length: 24 }, (_, h) => {
@@ -957,6 +986,7 @@ function HourLabels({ clock }: { clock: Clock }) {
         const twelve = h % 12 === 0 ? 12 : h % 12;
 
         if (!major) {
+          if (quartersOnly) return null;
           return (
             <text
               key={h}
@@ -1039,6 +1069,47 @@ function useEasedRadius(target: number): number {
   }, [target, reducedMotion]);
 
   return reducedMotion ? target : eased;
+}
+
+/**
+ * The now-hand's angle, eased rather than stepped — ambient only.
+ *
+ * Same shape as `useEasedRadius` and for the same reason: the geometry is
+ * rebuilt from the value, so it has to be a number this render rather than a
+ * motion value on an attribute.
+ *
+ * Off, it keeps the ref in step without touching state, so the default mode
+ * pays nothing for a mode it is not in — and the first eased step after
+ * switching starts from where the hand actually is rather than from wherever
+ * it was when this mounted.
+ */
+function useEasedAngle(target: number, enabled: boolean): number {
+  const reducedMotion = useReducedMotion();
+  const [eased, setEased] = useState(target);
+  const at = useRef(target);
+
+  useEffect(() => {
+    if (!enabled || reducedMotion) {
+      at.current = target;
+      return;
+    }
+    // Already there: nothing to animate, but the state may be a mode behind.
+    if (at.current === target) {
+      setEased(target);
+      return;
+    }
+    const run = animate(at.current, target, {
+      duration: HAND_MS / 1000,
+      ease: [...LANE_EASE],
+      onUpdate: (a) => {
+        at.current = a;
+        setEased(a);
+      },
+    });
+    return () => run.stop();
+  }, [target, enabled, reducedMotion]);
+
+  return enabled && !reducedMotion ? eased : target;
 }
 
 /**
@@ -1275,9 +1346,31 @@ function GhostArc({ clock, start, end }: { clock: Clock; start: number; end: num
  *
  * `dimmed` while a drag is in progress: the hand marks a time the user is no
  * longer reading, and at full white it competes with the range being drawn.
+ *
+ * `eased` glides the minute step instead of jumping it. At a working distance
+ * the step is a couple of pixels and instant is honest; filling the window it
+ * is a visible snap, and a clock whose hand snaps is a webpage showing the
+ * time. It is the only thing that moves in ambient, once a minute, which is
+ * exactly as much as an object in a room should.
  */
-function NowHand({ minutes, clock, dimmed }: { minutes: number; clock: Clock; dimmed: boolean }) {
-  const deg = angleAt(minutes, clock);
+function NowHand({
+  minutes,
+  clock,
+  dimmed,
+  eased,
+}: {
+  minutes: number;
+  clock: Clock;
+  dimmed: boolean;
+  eased: boolean;
+}) {
+  // Eased into new geometry rather than rotated into place. A CSS rotation
+  // would be cheaper, but it needs a transform origin, and `transform-box`
+  // resolves percentages against a box whose own origin is the cropped
+  // viewBox's — 30 units off centre, which is a hand that no longer points at
+  // the middle of its own dial. The angle is a number here, so there is
+  // nothing to resolve: `polar` puts it where it has always gone.
+  const deg = useEasedAngle(angleAt(minutes, clock), eased);
   const head = polar(DIAL.TRACK, deg);
   const inner = polar(DIAL.HAND_INNER, deg);
   return (

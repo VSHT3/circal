@@ -88,7 +88,10 @@ export function readSettings(value: unknown): Settings {
   if (!isRecord(value)) return DEFAULT_SETTINGS;
   const place = value.place;
   return {
-    clock: value.clock === "24h" ? "24h" : "12h",
+    // A face the backup did not name is the current default, not the old one:
+    // there are exactly two spellings and both are written out by every
+    // version that has ever had the setting.
+    clock: value.clock === "12h" || value.clock === "24h" ? value.clock : DEFAULT_SETTINGS.clock,
     secondZone: typeof value.secondZone === "string" ? value.secondZone : "",
     // The dial switches read absent-as-on: a backup written before they
     // existed came from a dial that was showing all of them.
@@ -129,6 +132,18 @@ export function readSettings(value: unknown): Settings {
       typeof value.lifeExpectancy === "number" && Number.isFinite(value.lifeExpectancy)
         ? value.lifeExpectancy
         : DEFAULT_SETTINGS.lifeExpectancy,
+    // Ambient. A backup from before the mode came from a build with no mode,
+    // so every one of these reads as the default rather than as a choice —
+    // and the one that could act on its own, the timer, defaults to never.
+    // `sane()` pins the delay and the label mode to values the panel can show.
+    ambientAfter:
+      typeof value.ambientAfter === "number" ? value.ambientAfter : DEFAULT_SETTINGS.ambientAfter,
+    ambientDim: value.ambientDim !== false,
+    ambientLightcycle: value.ambientLightcycle !== false,
+    ambientZoneRing: value.ambientZoneRing === true,
+    ambientArcLabels: (typeof value.ambientArcLabels === "string"
+      ? value.ambientArcLabels
+      : DEFAULT_SETTINGS.ambientArcLabels) as Settings["ambientArcLabels"],
   };
 }
 

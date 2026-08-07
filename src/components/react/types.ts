@@ -9,6 +9,14 @@ import type { Settings } from "@/lib/store";
 export type ViewMode = "day" | "year" | "life";
 
 /**
+ * How ambient was entered, because that is what decides how it leaves. Asked
+ * for (`manual`), it stays until it is dismissed — the pointer is how you use
+ * a dial, and a mode that fell over at a mouse movement could not be dragged
+ * on. Arrived on its own (`auto`), it is a screensaver and leaves like one.
+ */
+export type AmbientMode = "off" | "manual" | "auto";
+
+/**
  * The view change in progress, and the day it lands on.
  *
  * Read through a ref rather than passed as a value, because it is needed by
@@ -48,6 +56,12 @@ export interface ShellActions {
   /** A draft over an explicit range on the selected day — the free-time rows. */
   newEventAt: (startMin: number, endMin: number) => void;
   toggleSidebar: () => void;
+  /**
+   * Chrome away, dial to the window. Not exposed in the top bar: the left
+   * group's width is what fixes the date readout's clearance, and this is a
+   * mode you leave running rather than one you reach for hourly.
+   */
+  toggleAmbient: () => void;
   openEvent: (event: CalEvent) => void;
   toggleCalendar: (id: string) => void;
   openPalette: () => void;
@@ -139,6 +153,7 @@ export interface CommandPaletteProps {
   now: Date;
   view: ViewMode;
   sidebarOpen: boolean;
+  ambient: boolean;
   events: CalEvent[];
   calendars: Calendar[];
   /** The selected day's agenda — what the free-time search works against. */

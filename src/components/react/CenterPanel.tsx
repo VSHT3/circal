@@ -34,6 +34,13 @@ export interface CenterPanelProps {
   /** Pixels per SVG user unit. */
   u: number;
   clock: Clock;
+  /**
+   * Read from across a room rather than from a chair. The centre keeps its
+   * moods and its hierarchy and changes size: the time at nearly twice the
+   * type, and one row under it instead of three, because the second and third
+   * rows are for a surface you are working on.
+   */
+  ambient: boolean;
   /** Whether to print what the day is made of, and where on the stage. */
   totals: boolean;
   totalsAt: TotalsPosition;
@@ -46,6 +53,13 @@ export interface CenterPanelProps {
 
 /** Height of one agenda row, in SVG user units. The card is sized in these. */
 const ROW_H = 18;
+/**
+ * How much bigger everything inside the ring gets in ambient. One factor
+ * rather than a second set of sizes: the hierarchy between the readout, the
+ * name and the wait is the design, and it survives being scaled — a second
+ * table of numbers would drift from this one within two changes.
+ */
+const AMBIENT_SCALE = 1.55;
 /** Rows the card shows before it scrolls. */
 const VISIBLE_ROWS = 3;
 /** How close the next thing has to be before its dot is cocked. */
@@ -107,6 +121,7 @@ export default function CenterPanel({
   calendars,
   u,
   clock,
+  ambient,
   totals,
   totalsAt,
   drag,
@@ -115,6 +130,8 @@ export default function CenterPanel({
   onOpen,
 }: CenterPanelProps) {
   const today = isSameDay(day, now);
+  /** Pixels per user unit, as this mood draws them. */
+  const s = ambient ? u * AMBIENT_SCALE : u;
 
   /**
    * The arc under the pointer, when it is one that has a span to report. An
@@ -168,6 +185,14 @@ export default function CenterPanel({
       ? (rows.find((occ) => !occ.event.allDay && statusOf(occ, now) !== "past")?.key ?? null)
       : null;
 
+  /**
+   * What the card actually shows. Ambient keeps exactly one line — the one
+   * you would want from across the room — and that is the headline, unless
+   * the pointer is on an arc, in which case it is that one: the readout is
+   * printing a span, and a span with no name beside it is half an answer.
+   */
+  const shown = ambient ? rows.filter((occ) => occ.key === (hovered ?? headline)) : rows;
+
   const load = totals && !drag ? dayLoad(occurrences) : null;
   /**
    * The line itself, built once and placed twice: under the card when the
@@ -196,14 +221,14 @@ export default function CenterPanel({
         className="absolute top-1/2 left-1/2 flex items-baseline whitespace-nowrap"
         style={{
           transform: "translate(-50%, -50%)",
-          gap: `${8 * u}px`,
-          textShadow: `0 0 ${16 * u}px #000`,
+          gap: `${8 * s}px`,
+          textShadow: `0 0 ${16 * s}px #000`,
         }}
       >
         <span
           className="font-medium text-ink"
           style={{
-            fontSize: `${span ? 32 * u : 54 * u}px`,
+            fontSize: `${(span ? 32 : 54) * s}px`,
             letterSpacing: "-0.03em",
             fontVariantNumeric: "tabular-nums",
             transition: "font-size 140ms var(--ease)",
@@ -215,7 +240,7 @@ export default function CenterPanel({
           <span
             className="font-medium text-ink-2"
             style={{
-              fontSize: `${span ? 18 * u : 26 * u}px`,
+              fontSize: `${(span ? 18 : 26) * s}px`,
               transition: "font-size 140ms var(--ease)",
             }}
           >
@@ -224,38 +249,49 @@ export default function CenterPanel({
         )}
       </div>
 
-      {!drag && (rows.length > 0 || centred) && (
+      {!drag && (shown.length > 0 || centred) && (
         <div
           className="absolute top-1/2 left-1/2 flex flex-col items-center"
           style={{
             // Clears the readout, which owns the centre.
-            transform: `translate(-50%, ${56 * u}px)`,
-            width: `${226 * u}px`,
-            gap: `${5 * u}px`,
+            transform: `translate(-50%, ${56 * s}px)`,
+            // Three rows want a column they share; one row wants to be as wide
+            // as it is. Left at a fixed width, the wait ends up an inch from
+            // the name it belongs to and the pair stops reading as a sentence.
+            width: ambient ? "max-content" : `${226 * u}px`,
+            // Past about here a name runs out under the drag annulus.
+            maxWidth: `${294 * u}px`,
+            gap: `${5 * s}px`,
           }}
         >
-          {rows.length > 0 && (
+          {shown.length > 0 && (
             <div
               className={cn(
-                "no-scrollbar pointer-events-auto w-full overflow-y-auto",
+                "no-scrollbar pointer-events-auto w-full",
+                !ambient && "overflow-y-auto",
                 // Only when there is something below to scroll to. A permanent
                 // fade dims the last row of a list that already fits, which
                 // reads as a rendering fault rather than as "there is more".
-                rows.length > VISIBLE_ROWS && "fade-b",
+                shown.length > VISIBLE_ROWS && "fade-b",
               )}
               style={{
-                maxHeight: `${(ROW_H * VISIBLE_ROWS + 8) * u}px`,
-                padding: `${4 * u}px`,
+                maxHeight: ambient ? undefined : `${(ROW_H * VISIBLE_ROWS + 8) * u}px`,
+                padding: `${4 * s}px`,
                 // A pool of darkness, not a card: the slab's edges were the
                 // hardest line inside the dial, and the ring is supposed to be
                 // the only edge on the face. No backdrop-filter — combined with
                 // a mask Chromium paints the blurred backdrop far outside the
                 // box.
-                background:
-                  "radial-gradient(closest-side, rgba(0,0,0,0.94), rgba(0,0,0,0.82) 62%, transparent)",
+                //
+                // One ambient row needs none of it: the pool exists to hold a
+                // scrolling list off the glow, and drawn around a single line
+                // it is a smudge under the clock.
+                background: ambient
+                  ? undefined
+                  : "radial-gradient(closest-side, rgba(0,0,0,0.94), rgba(0,0,0,0.82) 62%, transparent)",
               }}
             >
-              {rows.map((occ) => {
+              {shown.map((occ) => {
                 const status = statusOf(occ, now);
                 const color = colorOf(occ.event, calendars);
                 // An all-day event is context, not a thing in progress: it is
@@ -282,20 +318,23 @@ export default function CenterPanel({
                       today && status === "past" && "opacity-45",
                     )}
                     style={{
-                      height: `${ROW_H * u}px`,
-                      gap: `${6 * u}px`,
-                      paddingInline: `${6 * u}px`,
+                      height: `${ROW_H * s}px`,
+                      // Wider in ambient: the row is as wide as its content
+                      // there, so the gap is the only thing separating the
+                      // name from the wait, rather than a column of space.
+                      gap: `${(ambient ? 9 : 6) * s}px`,
+                      paddingInline: `${6 * s}px`,
                     }}
                   >
                     <span
                       className={cn("shrink-0 rounded-full", running && "animate-pulse")}
                       style={{
-                        width: `${(lead ? 5.5 : 4.5) * u}px`,
-                        height: `${(lead ? 5.5 : 4.5) * u}px`,
+                        width: `${(lead ? 5.5 : 4.5) * s}px`,
+                        height: `${(lead ? 5.5 : 4.5) * s}px`,
                         background: color,
                         opacity: running || lead ? 1 : 0.75,
                         boxShadow: imminent
-                          ? `0 0 0 ${1.2 * u}px #000, 0 0 0 ${2.4 * u}px ${color}59`
+                          ? `0 0 0 ${1.2 * s}px #000, 0 0 0 ${2.4 * s}px ${color}59`
                           : undefined,
                       }}
                     />
@@ -305,7 +344,7 @@ export default function CenterPanel({
                     {!lead && (
                       <span
                         className="shrink-0 font-mono font-medium text-ink-2 uppercase"
-                        style={{ fontSize: `${10.5 * u}px`, letterSpacing: "0.1em" }}
+                        style={{ fontSize: `${10.5 * s}px`, letterSpacing: "0.1em" }}
                       >
                         {running
                           ? "Now"
@@ -320,7 +359,7 @@ export default function CenterPanel({
                         lead && "leading-none",
                       )}
                       style={{
-                        fontSize: `${(lead ? 13 : 10.5) * u}px`,
+                        fontSize: `${(lead ? 13 : 10.5) * s}px`,
                         letterSpacing: lead ? "0.04em" : "0.08em",
                       }}
                     >
@@ -333,7 +372,7 @@ export default function CenterPanel({
                         // printed at the meta column's usual whisper.
                         lead ? "text-ink-2" : "text-ink-3",
                       )}
-                      style={{ fontSize: `${10 * u}px` }}
+                      style={{ fontSize: `${10 * s}px` }}
                     >
                       {running
                         ? `ends in ${formatDuration((occ.end.getTime() - now.getTime()) / 60000)}`

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { placeForZone } from "@/lib/places";
-import { sunTimes, type Place } from "@/lib/sun";
-import { day } from "./helpers";
+import { ambientLevel, solarLight, sunTimes, type Place } from "@/lib/sun";
+import { at, day } from "./helpers";
 
 const BERLIN: Place = { lat: 52.52, lon: 13.405, label: "Berlin" };
 const LONDON: Place = { lat: 51.5074, lon: -0.1278, label: "London" };
@@ -182,5 +182,84 @@ describe("placeForZone", () => {
 
   it("returns null for a zone that isn't in the picker at all", () => {
     expect(placeForZone("Mars/Cydonia")).toBeNull();
+  });
+});
+
+/* --------------------------------- the curve --------------------------------- */
+
+describe("solarLight", () => {
+  const sun = sunTimes(day("2026-06-21"), BERLIN);
+
+  it("is positive between the horizons and negative outside civil twilight", () => {
+    const noon = (sun.sunrise! + sun.sunset!) / 2;
+    expect(solarLight(sun, noon)).toBeGreaterThan(0);
+    expect(solarLight(sun, sun.dawn! - 30)).toBeLessThan(0);
+    expect(solarLight(sun, sun.dusk! + 30)).toBeLessThan(0);
+  });
+
+  it("reaches zero at each civil-twilight boundary", () => {
+    // The band's warm half and its violet half meet here. A curve that does
+    // not actually arrive at zero starts one of them on a step, which is a
+    // hard line across the rim.
+    expect(solarLight(sun, sun.dawn!)).toBeCloseTo(0, 6);
+    expect(solarLight(sun, sun.dusk!)).toBeCloseTo(0, 6);
+  });
+
+  it("crosses each horizon without a step", () => {
+    // The twilight shoulder hands over to the daylight arc at sunrise and
+    // takes it back at sunset. Both meet at the same value from either side —
+    // this is the join that used to be a hard edge on the rim.
+    //
+    // Approached closely: the daylight arc leaves the horizon with an
+    // infinite slope (a 0.7 power of a sine), so continuity here is a limit
+    // and the epsilon has to be small enough to be inside it.
+    for (const horizon of [sun.sunrise!, sun.sunset!]) {
+      expect(solarLight(sun, horizon - 1e-4)).toBeCloseTo(solarLight(sun, horizon), 3);
+      expect(solarLight(sun, horizon + 1e-4)).toBeCloseTo(solarLight(sun, horizon), 3);
+    }
+  });
+
+  it("is flat and lit through a polar day, flat and dark through a polar night", () => {
+    const arctic: Place = { lat: 70, lon: 20, label: "Arctic" };
+    const midsummer = sunTimes(day("2026-06-21"), arctic);
+    const midwinter = sunTimes(day("2026-12-21"), arctic);
+    for (const m of [0, 360, 720, 1080, 1439]) {
+      expect(solarLight(midsummer, m)).toBeGreaterThan(0.5);
+      expect(solarLight(midwinter, m)).toBeLessThan(-0.4);
+    }
+  });
+});
+
+/* -------------------------------- ambientLevel ------------------------------- */
+
+describe("ambientLevel", () => {
+  it("is full brightness with no place, because there is no curve to follow", () => {
+    expect(ambientLevel(at("2026-06-21 03:00"), null)).toBe(1);
+  });
+
+  it("is full brightness while the sun is up", () => {
+    expect(ambientLevel(at("2026-06-21 13:00"), BERLIN)).toBe(1);
+  });
+
+  it("bottoms out in the middle of the night and never goes under the floor", () => {
+    // Berlin, midsummer: the shortest night of the year, and the deepest part
+    // of it still reaches the floor — the curve is normalised against night's
+    // own depth rather than against how long it lasts.
+    expect(ambientLevel(at("2026-06-21 01:15"), BERLIN)).toBeCloseTo(0.55, 2);
+    for (let m = 0; m < 1440; m += 7) {
+      const level = ambientLevel(new Date(2026, 11, 21, 0, m), BERLIN);
+      expect(level).toBeGreaterThanOrEqual(0.55);
+      expect(level).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("dims for the place, not for the viewer's clock", () => {
+    // Mid-morning in Berlin is the middle of the night in Honolulu. The face
+    // follows the place the lightcycle is drawn for, which is the whole point
+    // of choosing one.
+    const honolulu: Place = { lat: 21.3069, lon: -157.8583, label: "Honolulu" };
+    const midMorning = at("2026-06-21 10:00");
+    expect(ambientLevel(midMorning, BERLIN)).toBe(1);
+    expect(ambientLevel(midMorning, honolulu)).toBeLessThan(0.7);
   });
 });
