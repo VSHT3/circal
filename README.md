@@ -221,6 +221,18 @@ generates — `gym every monday` written on a Wednesday starts on the Monday,
 rather than being an event its own rule skips. A bare weekday is still a date:
 `party friday` is one party. The row spells the rule out beside the span.
 
+Or say when it starts from here: **`dinner in 2h`**, `standup in 20m`, `dinner in
+an hour`, `dinner now`. The word `in` is the switch — `dinner 2h` is a two-hour
+dinner, `dinner in 2h` is a dinner two hours from now — and everything after it
+belongs to the offset, so `in 1h 30m` is ninety minutes from now. To give a
+length as well, put it in front of the name: **`45min dinner in 1h`**. An offset
+lands on the quarter hour, like every other time this app picks for you, and it
+rolls onto tomorrow when it crosses midnight. Name a day too and the day wins
+while the clock still comes from now: `dinner tomorrow in 2h` is tomorrow, two
+hours past this moment. `in` in front of anything that is not a length is just a
+word — `dinner in Rome 8pm` keeps its name, and `checkup in 3 days` is still that
+day.
+
 Search is forgiving. `dsgn rev` finds "Design review", `reveiw` and `desgin`
 find it too, and results are ranked rather than filtered — whole words beat
 scattered letters, the start of a name beats the middle of one, and a hit in an
@@ -294,7 +306,7 @@ src/
     CommandPalette.tsx  Settings.tsx  Toast.tsx
 worker/index.ts  assets + the /api/feed proxy
 public/sw.js     offline cache
-tests/           797 cases over src/lib and the worker's guards
+tests/           820 cases over src/lib and the worker's guards
 ```
 
 Two overlapping events are pushed onto concentric rings by `packLanes`, so

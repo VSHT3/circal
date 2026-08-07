@@ -2,7 +2,7 @@
 
 Recurrence is real, the interior answers the day, arcs carry their own names, the dial has an
 ambient mode, ⌘P writes an event in one line and ranks what it finds, and there is a test suite —
-797 cases over the domain layer, `pnpm test`, in the gate.
+820 cases over the domain layer, `pnpm test`, in the gate.
 
 Done work is not recorded here. The rationale that outlived it lives in `AGENTS.md`, next to the
 code it constrains.
@@ -160,7 +160,7 @@ off-thesis. Say so in the UI rather than leaving the absence unexplained.
 
 All five are DOM-shaped, which is exactly the surface the suite does not cover: no DOM, no jsdom, no
 component tests, on purpose — a snapshot of an SVG path is a change-detector that fails on every
-legitimate geometry tweak. That is the honest boundary of what 797 pure-function tests buy you, and
+legitimate geometry tweak. That is the honest boundary of what 820 pure-function tests buy you, and
 the dial stays eye-verified.
 
 ### What not to do
