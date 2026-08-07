@@ -321,19 +321,42 @@ And the default face is now `24h`. It is the one that matches the instrument: a 
 a whole day, so an hour has exactly one place on it. No schema bump — a default is what a blob says
 when it says nothing, and every stored blob says one or the other out loud.
 
-**And nothing about the change is a cut.** That was the second pass and it is most of the work:
+**And nothing about the change is a cut.** That was the second pass and it is most of the work.
 
-- The rim crossfades. `Fade` in `Dial.tsx` is an `AnimatePresence`-mounted `motion.g`, so the band
-  and the elapsed trail dissolve into each other rather than swapping, and nothing is kept on the
-  canvas for the sake of the transition.
-- The eight minor numerals recede by opacity rather than unmounting, and an arc's name is now
-  `off` by opacity too — `labels === "off"` used to unmount the `<textPath>`, which blinked every
-  name on the face out at once.
-- The centre moves as one object: `MOOD` (140 ms, the arc's own stroke beat) on every size in it,
-  and the card's rows enter and leave through `AnimatePresence` with their own height. The width
-  went back to a number, because `max-content` cannot be interpolated.
+**Two beats and two curves, in `lib/motion.ts`.** The whole reason the first attempt read as
+"blocky": arriving in ambient ran the centre at 140 ms and the chrome at 240, so what you saw was a
+snap followed by a crawl. Now `MOOD_MS` (260) is a pointer being answered — an arc thickening, the
+readout shrinking into its span, a lane repacking — and `MODE_MS` (460) is a mode changing, which
+is everything ambient touches. One curve, `EASE`, matching `--ease`; six components had their own
+copy of it.
+
+The second curve is `--ease-size`. `--ease` spends two thirds of its travel in the first quarter of
+its time, which is right for a highlight arriving under a cursor and wrong for type dropping forty
+per cent — at any duration the readout banged and then settled. Every size in the centre is on the
+gentler one now.
+
+- **The centre's mood is one `scale()`**, not a dozen sizes. It had to be: a mode change and a
+  pointer both want the readout's size, and as two font-size transitions on one element they can
+  only have one duration. On separate properties they each keep their own, and the mode's rides the
+  same 460 ms as the chrome and the stage growing under it — which is what actually removed the
+  two-step.
+- **The rim crossfades.** `Fade` in `Dial.tsx` is an `AnimatePresence`-mounted `motion.g`, so the
+  band and the elapsed trail dissolve into each other rather than swapping, and nothing is kept on
+  the canvas for the sake of the transition.
+- **The band's two halves are two groups now**, switched by opacity rather than by which segments
+  exist. A half that differs between the modes fades; a half that is the same either side does not
+  move at all, which is the whole reason it is not one filtered list. It also stops a switch
+  recomputing 288 segments.
+- The eight minor numerals recede by opacity rather than unmounting, and an arc's name is `off` by
+  opacity too — `labels === "off"` used to unmount the `<textPath>`, blinking every name out at
+  once.
+- The card's rows enter and leave through `AnimatePresence` with their own height, which also fixes
+  rows popping as events end. Its width went back to a number, because `max-content` cannot be
+  interpolated.
 - The sidebar's content is held mounted while it leaves, so the column's 220 ms of width has
   something in it to clip.
+
+Measured, not eyeballed: 60 fps through the whole transition, no frame over 18 ms.
 
 What is left here:
 

@@ -30,6 +30,7 @@ import {
   startOfDay,
 } from "@/lib/time";
 import { LIFE_META_H, lifeDot, lifeStage } from "@/lib/life";
+import { EASE, MODE_MS } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import {
   useElementSize,
@@ -53,9 +54,6 @@ import TopBar from "./TopBar";
 import YearView from "./YearView";
 
 /* ------------------------------- transitions ------------------------------- */
-
-/** The app's one curve, for the crossfade between views. */
-const PANEL_EASE = [0.32, 0.72, 0, 1] as const;
 
 /**
  * The padding of a view panel, as a number. It is `p-2` in the class list and
@@ -139,7 +137,7 @@ const PANEL = {
           transition: {
             duration: 0.4,
             delay: zoomsOut(flow.current) ? 0.18 : 0,
-            ease: PANEL_EASE,
+            ease: EASE,
           },
         },
   exit: (flow: RefObject<ViewFlow>) =>
@@ -156,7 +154,7 @@ const PANEL = {
           opacity: 0,
           scale: 0.97,
           pointerEvents: "none" as const,
-          transition: { duration: 0.3, ease: PANEL_EASE },
+          transition: { duration: 0.3, ease: EASE },
         },
 } as const;
 
@@ -673,7 +671,7 @@ export default function App() {
         className="shrink-0 overflow-hidden"
         initial={false}
         animate={{ height: inAmbient ? 0 : TOP_BAR_H, opacity: inAmbient ? 0 : 1 }}
-        transition={reducedMotion ? { duration: 0 } : { duration: 0.24, ease: PANEL_EASE }}
+        transition={reducedMotion ? { duration: 0 } : { duration: MODE_MS / 1000, ease: EASE }}
       >
         <TopBar day={day} view={view} sidebarOpen={sidebarOpen} onStep={step} actions={actions} />
       </motion.div>

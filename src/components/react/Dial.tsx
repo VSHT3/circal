@@ -48,6 +48,7 @@ import {
   type Clock,
 } from "@/lib/time";
 import type { ArcLabelMode, Settings } from "@/lib/store";
+import { EASE, MODE_MS, MOOD_MS } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import { useElementSize, useHotkeys } from "./hooks";
 import CenterPanel from "./CenterPanel";
@@ -132,17 +133,7 @@ const GRIP_REACH = 18;
  *  cap's reach past the tip and that reach is inward too. */
 const GRIP_WIDTH = DIAL.ARC_WIDTH + 8;
 /**
- * A lane change, as a duration and a curve. The same 140 ms and the same easing
- * as the arc's stroke-width transition: an arc that thickens as it is grabbed
- * and slides inwards as it passes another event is doing one thing, and two
- * curves would make it read as two.
- *
- * `--ease` is a CSS variable, so the numbers are repeated here rather than read.
- */
-const LANE_MS = 140;
-const LANE_EASE = [0.32, 0.72, 0, 1] as const;
-/**
- * The ambient hand's minute step. Three times a lane change, because it is
+ * The ambient hand's minute step. Longer than a pointer's beat, because it is
  * covering a quarter of a degree rather than 27 units and a move that short
  * has to be slow to read as a move at all — under about a third of a second
  * it is the snap it replaced with extra steps.
@@ -161,13 +152,9 @@ function grey(level: number): string {
   return `rgb(${v},${v},${v})`;
 }
 
-/**
- * What a mode change costs on the rim, as a duration. Slower than a lane
- * change (that one answers a pointer, and a detent you have to wait for is
- * not a detent) and matched to the chrome withdrawing in `App.tsx`, because
- * on the way into ambient they are the same movement.
- */
-const FADE_MS = 240;
+/** The beats, as the CSS shorthand the inline styles here reach for. */
+const MOOD = `${MOOD_MS}ms var(--ease)`;
+const MODE = `${MODE_MS}ms var(--ease)`;
 
 /**
  * A group that arrives and leaves by fading, for the pieces of the face a
@@ -182,7 +169,7 @@ function Fade({ children }: { children: ReactNode }) {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      transition={{ duration: reducedMotion ? 0 : FADE_MS / 1000, ease: [...LANE_EASE] }}
+      transition={{ duration: reducedMotion ? 0 : MODE_MS / 1000, ease: EASE }}
     >
       {children}
     </motion.g>
@@ -853,7 +840,7 @@ function SunBand({
   moonlight: boolean;
   radius: number;
 }) {
-  const segments = useMemo(() => {
+  const halves = useMemo(() => {
     const sun = sunTimes(day, place);
 
     // Five minutes a segment. At this radius that is an eight-unit chord, and
@@ -861,43 +848,52 @@ function SunBand({
     const COUNT = 288;
     const step = MINUTES_PER_DAY / COUNT;
 
-    return Array.from({ length: COUNT }, (_, i) => solarLight(sun, (i + 0.5) * step)).flatMap(
-      (value, i) => {
-        if (value > 0 ? !daylight : !moonlight) return [];
-        if (Math.abs(value) <= 0.004) return [];
-        const from = angleAt(i * step, clock);
-        // Overlap the neighbour: an exact butt-to-butt join leaves an
-        // antialiasing seam, which is the same artefact one shade darker.
-        const to = angleAt((i + 1) * step, clock) + 0.3;
-        // Both pre-composited against black. Warm but desaturated for day, and a
-        // dim violet for night — saturated colour on this canvas belongs to
-        // events, and neither band may compete with an arc.
-        const [r, g, b] = value > 0 ? [255, 198, 124] : [150, 132, 255];
-        const k = Math.abs(value);
-        return [
-          {
-            d: arcPath(radius, from, to),
-            stroke: `rgb(${Math.round(r * k)},${Math.round(g * k)},${Math.round(b * k)})`,
-          },
-        ];
-      },
-    );
-  }, [day, clock, place, daylight, moonlight, radius]);
+    const lit: { d: string; stroke: string }[][] = [[], []];
+    for (let i = 0; i < COUNT; i += 1) {
+      const value = solarLight(sun, (i + 0.5) * step);
+      if (Math.abs(value) <= 0.004) continue;
+      const from = angleAt(i * step, clock);
+      // Overlap the neighbour: an exact butt-to-butt join leaves an
+      // antialiasing seam, which is the same artefact one shade darker.
+      const to = angleAt((i + 1) * step, clock) + 0.3;
+      // Both pre-composited against black. Warm but desaturated for day, and a
+      // dim violet for night — saturated colour on this canvas belongs to
+      // events, and neither band may compete with an arc.
+      const [r, g, b] = value > 0 ? [255, 198, 124] : [150, 132, 255];
+      const k = Math.abs(value);
+      lit[value > 0 ? 0 : 1].push({
+        d: arcPath(radius, from, to),
+        stroke: `rgb(${Math.round(r * k)},${Math.round(g * k)},${Math.round(b * k)})`,
+      });
+    }
+    return lit;
+  }, [day, clock, place, radius]);
 
+  // The two halves are two groups, switched by opacity rather than by which
+  // segments exist. A half that is on in one mode and off in the other fades
+  // between them; a half that is the same either side does not move at all,
+  // which is the whole reason this is not one filtered list.
+  //
+  // The curve is computed for the day whatever the switches say, so the half
+  // that stays keeps the exact shape it had beside the other.
   return (
     <g pointerEvents="none" shapeRendering="geometricPrecision">
-      {segments.map((segment, i) => (
-        <path
-          key={i}
-          d={segment.d}
-          fill="none"
-          stroke={segment.stroke}
-          strokeWidth={DIAL.TRACK_WIDTH}
-          // Butt everywhere: the band now fades to black at both ends rather
-          // than stopping, so a round cap would only add a bead where there is
-          // nothing left to round off.
-          strokeLinecap="butt"
-        />
+      {[daylight, moonlight].map((on, half) => (
+        <g key={half} opacity={on ? 1 : 0} style={{ transition: `opacity ${MODE}` }}>
+          {halves[half].map((segment, i) => (
+            <path
+              key={i}
+              d={segment.d}
+              fill="none"
+              stroke={segment.stroke}
+              strokeWidth={DIAL.TRACK_WIDTH}
+              // Butt everywhere: the band fades to black at both ends rather
+              // than stopping, so a round cap would only add a bead where
+              // there is nothing left to round off.
+              strokeLinecap="butt"
+            />
+          ))}
+        </g>
       ))}
     </g>
   );
@@ -1051,7 +1047,7 @@ function HourLabels({ clock, quartersOnly = false }: { clock: Clock; quartersOnl
               fontWeight={450}
               opacity={quartersOnly ? 0 : 1}
               aria-hidden={quartersOnly}
-              style={{ transition: `opacity ${FADE_MS}ms var(--ease)` }}
+              style={{ transition: `opacity ${MODE}` }}
             >
               {clock === "12h" ? twelve : h}
             </text>
@@ -1114,8 +1110,8 @@ function useEasedRadius(target: number): number {
   useEffect(() => {
     if (reducedMotion || at.current === target) return;
     const run = animate(at.current, target, {
-      duration: LANE_MS / 1000,
-      ease: [...LANE_EASE],
+      duration: MOOD_MS / 1000,
+      ease: EASE,
       onUpdate: (r) => {
         at.current = r;
         setEased(r);
@@ -1150,7 +1146,7 @@ function useEasedAngle(target: number): number {
     if (reducedMotion || at.current === target) return;
     const run = animate(at.current, target, {
       duration: HAND_MS / 1000,
-      ease: [...LANE_EASE],
+      ease: EASE,
       onUpdate: (a) => {
         at.current = a;
         setEased(a);
@@ -1311,7 +1307,7 @@ function EventArc({
         strokeLinecap="round"
         opacity={dimmed && !hovered && !dragging ? 0.42 : 1}
         pointerEvents="none"
-        style={{ transition: "stroke-width 140ms var(--ease), opacity 140ms var(--ease)" }}
+        style={{ transition: `stroke-width ${MOOD}, opacity ${MOOD}` }}
       />
       {label && (
         <>
@@ -1333,7 +1329,7 @@ function EventArc({
             opacity={labelShown ? 1 : 0}
             aria-hidden={!labelShown}
             pointerEvents="none"
-            style={{ transition: "opacity 140ms var(--ease)" }}
+            style={{ transition: `opacity ${MOOD}` }}
           >
             <textPath href={`#${labelId}`} startOffset="50%" textAnchor="middle">
               {label.text}
@@ -1414,11 +1410,7 @@ function NowHand({ minutes, clock, dimmed }: { minutes: number; clock: Clock; di
   const head = polar(DIAL.TRACK, deg);
   const inner = polar(DIAL.HAND_INNER, deg);
   return (
-    <g
-      pointerEvents="none"
-      opacity={dimmed ? 0.22 : 1}
-      style={{ transition: "opacity 140ms var(--ease)" }}
-    >
+    <g pointerEvents="none" opacity={dimmed ? 0.22 : 1} style={{ transition: `opacity ${MOOD}` }}>
       <defs>
         {/* Along the spoke, not across it: solid at the rim, gone by the
             inner end, so the hand has no hard tail to notice. */}

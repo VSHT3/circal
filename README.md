@@ -157,11 +157,13 @@ would lose the year you were reading. Arriving that way it is a screensaver
 and leaves like one, at the first sign of anybody being there; asked for with
 `F` it stays, because there the pointer is how you use it.
 
-Nothing about the change is a cut. The chrome withdraws, the eight hour
-numerals between the quarters recede, the names leave the arcs, the middle
-grows into its larger type and the rim crossfades between the band and the
-elapsed trail — all on the way in, and all again on the way out. With
-**reduce motion** set, none of it moves.
+Nothing about the change is a cut, and all of it moves on one beat. The chrome
+withdraws, the eight hour numerals between the quarters recede, the names
+leave the arcs, the middle grows into its larger type and the rim crossfades
+between the band and the elapsed trail — over the same 460ms, on the way in
+and again on the way out. A half of the lightcycle that is on in one mode and
+off in the other fades between them; a half that is the same either side does
+not move at all. With **reduce motion** set, none of it moves.
 
 ## Your data
 

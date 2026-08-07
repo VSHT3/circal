@@ -55,6 +55,12 @@
   /* One duration + one curve for pointer-caused state. */
   --dur: 160ms;
   --ease: cubic-bezier(0.32, 0.72, 0, 1);
+  /* The same idea for something that changes *size* rather than state.
+     `--ease` spends two thirds of its travel in the first quarter of its
+     time, which is exactly right for a highlight arriving under a cursor and
+     exactly wrong for type dropping forty per cent: at any duration it reads
+     as a bang and then a settle. This one leaves gently and arrives gently. */
+  --ease-size: cubic-bezier(0.45, 0.05, 0.25, 1);
 }
 
 @theme {

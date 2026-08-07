@@ -15,15 +15,13 @@ import {
   isSameDay,
   WEEKDAYS,
 } from "@/lib/time";
+import { EASE } from "@/lib/motion";
 import type { SidebarProps } from "@/components/react/types";
 import { cn } from "@/lib/utils";
 import { IconButton } from "@/components/react/ui/primitives";
 
 // Monday-first week order — the reference app never starts a row on Sunday.
 const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0];
-
-/** The app's one curve, as the sidebar's fade needs it. */
-const EASE = [0.32, 0.72, 0, 1] as const;
 
 export default function Sidebar({
   open,
