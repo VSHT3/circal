@@ -214,6 +214,19 @@ because that is what you said. The row shows the day and the span it resolved to
 before you commit it, and `⌘Z` undoes it. A word on its own stays a search —
 the line has to name a day, a time or a length to become an event.
 
+It takes the repetition too: **`morning run 8am 45m daily`**, or `every 2
+weeks`, `every other friday`, `weekdays`, `every mon/wed/fri`, `monthly`,
+`fortnightly`. A rule that names weekdays also moves the first one onto a day it
+generates — `gym every monday` written on a Wednesday starts on the Monday,
+rather than being an event its own rule skips. A bare weekday is still a date:
+`party friday` is one party. The row spells the rule out beside the span.
+
+Search is forgiving. `dsgn rev` finds "Design review", `reveiw` and `desgin`
+find it too, and results are ranked rather than filtered — whole words beat
+scattered letters, the start of a name beats the middle of one, and a hit in an
+event's notes ranks below one in its title. It ranks the commands as well, so
+`lfe vw` reaches the life view.
+
 Drag anywhere on the ring to block out time — the readout in the middle turns
 into the range you are drawing. A click on the ring creates an hour instead.
 The range follows the way your hand went rather than the shorter way round, so
@@ -267,6 +280,7 @@ src/
     places.ts    city → coordinates, from the IANA tz database
     ics.ts       RFC 5545 serialise and parse
     quickadd.ts  the palette's parsers — one typed line into one event
+    fuzzy.ts     forgiving match and ranking, for the palette's results
     store.ts     the store (useSyncExternalStore + localStorage)
     feeds.ts     subscription pulls
     backup.ts    export and import
@@ -280,7 +294,7 @@ src/
     CommandPalette.tsx  Settings.tsx  Toast.tsx
 worker/index.ts  assets + the /api/feed proxy
 public/sw.js     offline cache
-tests/           722 cases over src/lib and the worker's guards
+tests/           797 cases over src/lib and the worker's guards
 ```
 
 Two overlapping events are pushed onto concentric rings by `packLanes`, so

@@ -1,8 +1,8 @@
 # todo
 
 Recurrence is real, the interior answers the day, arcs carry their own names, the dial has an
-ambient mode, ⌘P creates as well as navigates, and there is a test suite — 722 cases over the domain
-layer, `pnpm test`, in the gate.
+ambient mode, ⌘P writes an event in one line and ranks what it finds, and there is a test suite —
+797 cases over the domain layer, `pnpm test`, in the gate.
 
 Done work is not recorded here. The rationale that outlived it lives in `AGENTS.md`, next to the
 code it constrains.
@@ -131,9 +131,12 @@ The strongest concept in the app, and the render is still fighting it in one pla
 
 ### Input: what the palette still cannot do
 
-Quick-add shipped, so the sentence exists. What is still missing there is cheap and unglamorous:
-**fuzzy and recency ranking** (plain substring today), **duplicate event** (no such action
-anywhere), and calendar CRUD (see (3)).
+Quick-add shipped — a sentence, its repetition included — and results are ranked with a forgiving
+match rather than filtered by substring. What is still missing there is cheap and unglamorous:
+**recency ranking** (nothing records what you opened, so the tiebreak is still nearness to the day
+on screen — it wants a stored `openedAt` and therefore a schema bump), **duplicate event** (no such
+action anywhere, and the decision is where it lives: the editor, the palette, or a modifier-drag on
+the arc), and calendar CRUD (see (3)).
 
 ### The dial
 
@@ -157,7 +160,7 @@ off-thesis. Say so in the UI rather than leaving the absence unexplained.
 
 All five are DOM-shaped, which is exactly the surface the suite does not cover: no DOM, no jsdom, no
 component tests, on purpose — a snapshot of an SVG path is a change-detector that fails on every
-legitimate geometry tweak. That is the honest boundary of what 722 pure-function tests buy you, and
+legitimate geometry tweak. That is the honest boundary of what 797 pure-function tests buy you, and
 the dial stays eye-verified.
 
 ### What not to do
