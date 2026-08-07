@@ -29,11 +29,11 @@ import {
 import { Kbd } from "@/components/react/ui/primitives";
 import type { CommandPaletteProps } from "@/components/react/types";
 import { colorOf, freeGaps, WAKING, type CalEvent } from "@/lib/events";
+import { parseDate, parseQuickAdd, parseSlot } from "@/lib/quickadd";
 import {
   MINUTES_PER_DAY,
   addDays,
   atMinutes,
-  daysInMonth,
   formatDuration,
   formatRelativeDay,
   formatTimeShort,
@@ -41,17 +41,11 @@ import {
   minutesOfDay,
   MONTHS,
   snap,
-  startOfDay,
   WEEKDAYS,
 } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
 const EASE = [0.32, 0.72, 0, 1] as const;
-const WEEKDAYS_LOWER = WEEKDAYS.map((w) => w.toLowerCase());
-const MONTHS_LOWER = MONTHS.map((m) => m.toLowerCase());
-
-/** What a bare "free" means. */
-const DEFAULT_SLOT = 30;
 
 /** One row in the flattened, keyboard-navigable result list. */
 interface Row {
@@ -66,114 +60,6 @@ interface Row {
 interface Group {
   title: string;
   rows: Row[];
-}
-
-/**
- * Resolves free-text into a date, relative to `reference` (the day the
- * palette was opened on). Order matters: literal words first, then
- * unambiguous structured formats, then the loosest one (a bare number).
- */
-function parseDate(raw: string, reference: Date): Date | null {
-  const query = raw.trim().toLowerCase();
-  if (!query) return null;
-
-  const base = startOfDay(reference);
-
-  if (query === "today") return base;
-  if (query === "tomorrow") return addDays(base, 1);
-  if (query === "yesterday") return addDays(base, -1);
-
-  const weekdayIndex = WEEKDAYS_LOWER.findIndex((w) => w === query || w.slice(0, 3) === query);
-  if (weekdayIndex !== -1) {
-    const delta = (weekdayIndex - base.getDay() + 7) % 7 || 7;
-    return addDays(base, delta);
-  }
-
-  const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(query);
-  if (iso) {
-    const year = Number(iso[1]);
-    const month = Number(iso[2]) - 1;
-    const dom = Number(iso[3]);
-    if (month >= 0 && month < 12 && dom >= 1 && dom <= daysInMonth(year, month)) {
-      return new Date(year, month, dom);
-    }
-    return null;
-  }
-
-  const resolveMonthDay = (monthStr: string, domStr: string): Date | null => {
-    const monthIndex = MONTHS_LOWER.findIndex((m) => m === monthStr || m.slice(0, 3) === monthStr);
-    const dom = Number(domStr);
-    if (monthIndex === -1 || dom < 1 || dom > daysInMonth(reference.getFullYear(), monthIndex))
-      return null;
-    const year = reference.getFullYear();
-    const candidate = new Date(year, monthIndex, dom);
-    return candidate.getTime() < base.getTime() ? new Date(year + 1, monthIndex, dom) : candidate;
-  };
-
-  const monthDay = /^([a-z]+)\s+(\d{1,2})$/.exec(query);
-  if (monthDay) {
-    const resolved = resolveMonthDay(monthDay[1], monthDay[2]);
-    if (resolved) return resolved;
-  }
-
-  const dayMonth = /^(\d{1,2})\s+([a-z]+)$/.exec(query);
-  if (dayMonth) {
-    const resolved = resolveMonthDay(dayMonth[2], dayMonth[1]);
-    if (resolved) return resolved;
-  }
-
-  const relative = /^([+-])(\d+)$/.exec(query);
-  if (relative) {
-    return addDays(base, Number(relative[2]) * (relative[1] === "-" ? -1 : 1));
-  }
-
-  const inDays = /^in\s+(\d+)\s+days?$/.exec(query);
-  if (inDays) return addDays(base, Number(inDays[1]));
-
-  const bareDay = /^(\d{1,2})$/.exec(query);
-  if (bareDay) {
-    const dom = Number(bareDay[1]);
-    if (dom < 1 || dom > 31) return null;
-    let year = reference.getFullYear();
-    let month = reference.getMonth();
-    if (dom > daysInMonth(year, month)) return null;
-    let candidate = new Date(year, month, dom);
-    if (candidate.getTime() < base.getTime()) {
-      month += 1;
-      if (month > 11) {
-        month = 0;
-        year += 1;
-      }
-      if (dom > daysInMonth(year, month)) return null;
-      candidate = new Date(year, month, dom);
-    }
-    return candidate;
-  }
-
-  return null;
-}
-
-/**
- * A duration, for the free-time search. Deliberately stricter than the date
- * parser above: a bare number already means a day of the month, so a slot has
- * to carry a unit or the word "free" to claim the query.
- */
-function parseDuration(raw: string): number | null {
-  const query = raw.trim().toLowerCase();
-  if (!query) return null;
-  if (query === "free") return DEFAULT_SLOT;
-
-  const hours = /^(?:free\s*)?(\d{1,2})\s*(?:h|hr|hrs|hour|hours)\s*(\d{1,2})?\s*(?:m|min|mins)?$/;
-  const hit = hours.exec(query);
-  if (hit) return Number(hit[1]) * 60 + Number(hit[2] ?? 0);
-
-  const minutes = /^(?:free\s*)?(\d{1,3})\s*(?:m|min|mins|minute|minutes)$/.exec(query);
-  if (minutes) return Number(minutes[1]);
-
-  const bare = /^free\s+(\d{1,3})$/.exec(query);
-  if (bare) return Number(bare[1]);
-
-  return null;
 }
 
 const CHROME_ICON_PROPS = { size: 15, strokeWidth: 1.75 as const, className: "text-ink-3" };
@@ -228,12 +114,41 @@ export default function CommandPalette({
   }, [jumpDate, actions, onClose]);
 
   /**
+   * Quick-add: the whole line as one event, above everything else. It is safe
+   * at the top because `parseQuickAdd` returns nothing unless the line names
+   * more than a title — a plain search never grows a create row, and a bare
+   * date is a jump rather than an all-day event with no name.
+   */
+  const createRows: Row[] = useMemo(() => {
+    const parsed = parseQuickAdd(query, day, now);
+    if (!parsed) return [];
+    const { title, day: on, startMin, endMin, allDay } = parsed;
+    // Printed before it is committed: this row creates without a review step,
+    // so the hour it resolved to has to be visible in the row itself.
+    const when = allDay
+      ? "ALL DAY"
+      : `${formatTimeShort(atMinutes(on, startMin), clock)} – ${formatTimeShort(atMinutes(on, endMin), clock)}`;
+    return [
+      {
+        id: "create",
+        icon: <Plus {...CHROME_ICON_PROPS} />,
+        title: `Create “${title}”`,
+        meta: <span className="label text-ink-3">{`${formatRelativeDay(on, now)} · ${when}`}</span>,
+        run: () => {
+          actions.quickAdd(parsed);
+          onClose();
+        },
+      },
+    ];
+  }, [query, day, now, clock, actions, onClose]);
+
+  /**
    * Free slots on the selected day. The dial already makes gaps the most
    * legible thing on the face; this only makes them addressable — and each
    * row opens a draft already filling the slot it names.
    */
   const freeRows: Row[] = useMemo(() => {
-    const wanted = parseDuration(query);
+    const wanted = parseSlot(query);
     if (wanted === null || wanted <= 0) return [];
 
     // A slot that started twenty minutes ago is not free, it is late.
@@ -489,12 +404,13 @@ export default function CommandPalette({
   const groups: Group[] = useMemo(
     () =>
       [
+        { title: "Create", rows: createRows },
         { title: "Jump", rows: jumpRows },
         { title: "Free time", rows: freeRows },
         { title: "Events", rows: eventRows },
         { title: "Commands", rows: commandRows },
       ].filter((g) => g.rows.length > 0),
-    [jumpRows, freeRows, eventRows, commandRows],
+    [createRows, jumpRows, freeRows, eventRows, commandRows],
   );
 
   const flatItems = useMemo(() => groups.flatMap((g) => g.rows), [groups]);

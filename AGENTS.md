@@ -31,7 +31,7 @@ src/pages/index.astro   static HTML shell
   Settings travel as one `settings: Settings` prop, never field by field.
 ```
 
-- **`src/lib/` = domain layer**, mostly pure. Dependency direction one-way: `time.ts` (base, imports nothing) ← `dial.ts`, `events.ts`, `sun.ts`, `ics.ts` ← `life.ts`, `store.ts` ← `feeds.ts`, `backup.ts`. Components import via `@/lib/*`, never reimplement geometry or date maths locally. **Every module here already has a test file** — `tests/<module>.test.ts`; change one, add the case there.
+- **`src/lib/` = domain layer**, mostly pure. Dependency direction one-way: `time.ts` (base, imports nothing) ← `dial.ts`, `events.ts`, `sun.ts`, `ics.ts`, `quickadd.ts` ← `life.ts`, `store.ts` ← `feeds.ts`, `backup.ts`. Components import via `@/lib/*`, never reimplement geometry or date maths locally. **Every module here already has a test file** — `tests/<module>.test.ts`; change one, add the case there.
 - **Store = only source of truth for persisted data.** `App.tsx` holds _view_ state only. Mutations go through `store.*` — never `setState` copy of event. Settings-only mutations (`setSecondZone`, `setPlace`, `addFeed`, `removeCalendar`) called straight from `Settings.tsx`, not routed through `ShellActions`, because shell has nothing to update for them.
 - **Two event lists.** `snapshot.events` = what user wrote; `snapshot.feeds[calendarId]` = what subscription mirrored. `App.tsx` concatenates into `visible` for rendering, and _only_ that. Nothing writes to `feeds` except `lib/feeds.ts`, nothing exports it, event whose calendar has `feed` opens read-only.
 - **`dayAgenda(events, calendars, day)`** = single read path onto a day: expands recurrence, clips to day, packs overlapping events onto concentric lanes. `Dial`, `CenterPanel`, `Sidebar` all render from its output.
@@ -46,6 +46,7 @@ src/pages/index.astro   static HTML shell
 | `src/lib/dial.ts`                        | Polar geometry: `DIAL` radius table, `angleAt` / `polar` / `arcPath` / `minutesAtPoint` / `capInset` / `arcLabel`                                     |
 | `src/lib/life.ts`                        | Life grid: `lifeSpan` / `lifeCellAt` / `lifeDensity` / `lifeStats`, `dim` (`lifeLayout` / `lifeCell` internal)                                        |
 | `src/lib/time.ts`                        | `Clock` type, day arithmetic, formatting voice (`formatTime`, `parseClock`, `dayKey`), zone maths (`zonedToUtc`)                                      |
+| `src/lib/quickadd.ts`                    | The palette's parsers: `parseQuickAdd` (one line → one event), `parseDate` (jump), `parseSlot` (free time), `defaultStart`                            |
 | `src/lib/recur.ts`                       | RFC 5545 recurrence: `Recurrence`, `startsBetween`, `countedUntil`, `instantKey`. The whole BY\* cascade                                              |
 | `src/lib/events.ts`                      | `CalEvent` / `Calendar` / `Occurrence`, `occurrencesOn`, `dayAgenda`, `freeGaps` (`packLanes` internal)                                               |
 | `src/lib/sun.ts`                         | `Place`, `sunTimes` — NOAA solar position, minutes since local midnight                                                                               |
@@ -64,7 +65,7 @@ src/pages/index.astro   static HTML shell
 | `src/components/react/ui/primitives.tsx` | Ten shared controls all chrome built from                                                                                                             |
 | `src/components/react/types.ts`          | **Every panel prop interface.** Edit shapes here                                                                                                      |
 | `src/styles/global.css`                  | Design tokens, `@theme inline` colour mappings, five component classes                                                                                |
-| `tests/`                                 | **The suite — 602 cases.** `helpers.ts` = fixtures + matchers; one `*.test.ts` per module; `west/` = TZ re-runs                                       |
+| `tests/`                                 | **The suite — 722 cases.** `helpers.ts` = fixtures + matchers; one `*.test.ts` per module; `west/` = TZ re-runs                                       |
 
 ## Development Commands
 
@@ -167,12 +168,13 @@ if (seeded !== day) {
 
 ## Testing & QA
 
-**There IS a suite. Read it before writing one.** Vitest, `tests/`, 602 cases, ~450 ms, wired into `verify`. Adding coverage = adding cases to the file below that already owns the module. Never scaffold a second harness, never a second fixture style, never a `*.spec.ts`.
+**There IS a suite. Read it before writing one.** Vitest, `tests/`, 722 cases, ~550 ms, wired into `verify`. Adding coverage = adding cases to the file below that already owns the module. Never scaffold a second harness, never a second fixture style, never a `*.spec.ts`.
 
 | test file                    | covers                                                                      |
 | ---------------------------- | --------------------------------------------------------------------------- |
 | `tests/helpers.ts`           | **not a test** — fixtures, builders, matchers. Extend, never fork           |
 | `tests/time.test.ts`         | `time.ts` — day arithmetic, DST, `parseClock`, `zonedToUtc`                 |
+| `tests/quickadd.test.ts`     | `quickadd.ts` — every date form, the scanner, the ambiguous pairs           |
 | `tests/dial.test.ts`         | `dial.ts` — `angleAt` ↔ `minutesAtPoint`, `arcPath`, `capInset`, `arcLabel` |
 | `tests/recur.test.ts`        | `recur.ts` — RFC 5545 §3.8.5.3 worked examples, BY\* , BYSETPOS             |
 | `tests/events.test.ts`       | `events.ts` — clipping, lanes, overrides, `freeGaps`, `colorOf`, `inkOn`    |
@@ -246,6 +248,9 @@ expect(occ.start).toBeSameInstantAs("2026-03-08 09:00");
 - **`zonedToUtc` brackets the wall time with two candidate offsets** — the one in force a day before and a day after — and takes the pre-transition one when neither or both read back. That resolves a spring-forward gap to the instant _after_ it and a fall-back ambiguity to the _first_ of the two, in every zone. The earlier two-pass version converged from the naive UTC reading, so which side of a gap it landed on depended on the sign of the offset: Berlin was right and Los Angeles was an hour early.
 - **The all-day toggle remembers the times it had.** `timedSpan` in `EventEditor.tsx` is a ref holding `{ startMin, durationMs }`, captured on the way into all-day and restored on the way out; without it, off → on → off reset every event to 9–10am and silently discarded a duration the user had set.
 - **`<input type="time">` banned here** — renders in _browser's_ UI locale, not app's. Use `TimeField` in `EventEditor.tsx`, backed by `parseClock` (accepts `10:45 AM`, `10:45am`, `1045`, `9p`, `13:00`).
+- **Quick-add reads the sentence right to left.** `parseQuickAdd` in `lib/quickadd.ts` peels a duration, then a time or dash-range, then a date off the _end_ of the line; whatever is left is the title, because the title is the only free-text field and always the prefix. Order between the parts therefore does not matter — `lunch 1pm tomorrow 45m` = `lunch tomorrow 1pm 45m`. Duration is attempted before time (`1h30` = 90 minutes, `130` = 01:30 — only the unit tells them apart) and date last, so a bare number _in a sentence_ is an hour rather than a day of the month. A range carries a dash and only a dash: `to` appears in titles ("go to gym") far more often than in times, and a parser that ate it would eat the title.
+- **`parseQuickAdd` returns `null` unless the line names more than a title, and it invents nothing.** A bare word is a search and a bare date is a jump — the palette already answers both, and that rule is the whole reason a create row does not appear under every query in the app. A day with no time is an **all-day** event, because that is what was said; a duration with no start takes `defaultStart` (next quarter hour on today, 9:00 on any other day), which is ⌘N's own rule, imported rather than copied. It creates and closes with no review step, so the row prints the resolved span before you press Enter.
+- **The palette's whole-query parsers live in `lib/quickadd.ts` and split three ways.** `parseDate` (jump), `parseSlot` (the free-time search — the only form in which a bare number means minutes) and `parseDurationToken` (unit required, what the scanner uses). They were private to `CommandPalette.tsx` and untested, which is exactly why composing them into a sentence was not the "wiring" it looked like.
 - **No `backdrop-filter` on element also carrying `.fade-y`** — Chromium paints blur over box far larger than element, appears as grey rectangle mid-dial (see comment in `CenterPanel.tsx`).
 - **Your lightcycle band replaces elapsed ring; does not join it.** Both live on `DIAL.TRACK` at `DIAL.TRACK_WIDTH`, and `elapsedSegments` returns `[]` whenever band has half left to draw (`place && (daylight || moonlight)`, computed once as `band`). Second band on own radius _next to_ track was first attempt, read as one line accidentally doubled. Deliberately no `DIAL.SUN`.
 - **Second zone's band = different place, so it does get own rim.** `DIAL.ZONE_BAND` (424) sits 21 units outside track, 13 inside zone numerals it belongs to, and `SunBand` takes `radius` for exactly this. Halves = `zoneDaylight` / `zoneMoonlight` — independent of yours, because point of ring is comparing two places, comparing them half-drawn not a comparison. Coordinates come from `placeForZone(secondZone)`, resolved in `App.tsx`; `null` (`UTC`, aliases like `Asia/Calcutta`) means no band, no switches offered.

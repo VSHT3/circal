@@ -190,22 +190,29 @@ taking your calendar with it.
 
 ## Interaction
 
-|                     |                                                               |
-| ------------------- | ------------------------------------------------------------- |
-| `⌘P`                | Command palette — search, jump to a date, find free time, run |
-| `⌘N`                | New event                                                     |
-| `⌘,`                | Settings                                                      |
-| `⌘Z` / `⇧⌘Z`        | Undo / redo                                                   |
-| `⌘D` / `⌘Y` / `⌘L`  | Day view / year view / life view                              |
-| `⌘B`                | Sidebar                                                       |
-| `←` `→`             | Previous / next day (year in the year and life views)         |
-| `T`                 | Today                                                         |
-| `F` / `⇧F`          | Ambient — chrome away, and with the screen as well            |
-| `⌘↵` / `⌘⌫` / `esc` | Save / delete / cancel in the editor                          |
+|                     |                                                                               |
+| ------------------- | ----------------------------------------------------------------------------- |
+| `⌘P`                | Command palette — write an event, search, jump to a date, find free time, run |
+| `⌘N`                | New event                                                                     |
+| `⌘,`                | Settings                                                                      |
+| `⌘Z` / `⇧⌘Z`        | Undo / redo                                                                   |
+| `⌘D` / `⌘Y` / `⌘L`  | Day view / year view / life view                                              |
+| `⌘B`                | Sidebar                                                                       |
+| `←` `→`             | Previous / next day (year in the year and life views)                         |
+| `T`                 | Today                                                                         |
+| `F` / `⇧F`          | Ambient — chrome away, and with the screen as well                            |
+| `⌘↵` / `⌘⌫` / `esc` | Save / delete / cancel in the editor                                          |
 
 Type a duration into `⌘P` — `45m`, `1h30`, `free 20` — and the palette lists
 the gaps in the day that fit it. Picking one opens a draft already filling the
 slot.
+
+Or write the event itself: **`lunch tomorrow 1pm 45m`** is one line and one
+`↵`. The parts can come in any order, a range works too (`dinner 19:00-21:30`,
+`party 22:00-01:00`), and a name with a day but no time makes an all-day event,
+because that is what you said. The row shows the day and the span it resolved to
+before you commit it, and `⌘Z` undoes it. A word on its own stays a search —
+the line has to name a day, a time or a length to become an event.
 
 Drag anywhere on the ring to block out time — the readout in the middle turns
 into the range you are drawing. A click on the ring creates an hour instead.
@@ -259,6 +266,7 @@ src/
     sun.ts       solar position — sunrise, sunset, civil twilight
     places.ts    city → coordinates, from the IANA tz database
     ics.ts       RFC 5545 serialise and parse
+    quickadd.ts  the palette's parsers — one typed line into one event
     store.ts     the store (useSyncExternalStore + localStorage)
     feeds.ts     subscription pulls
     backup.ts    export and import
@@ -272,7 +280,7 @@ src/
     CommandPalette.tsx  Settings.tsx  Toast.tsx
 worker/index.ts  assets + the /api/feed proxy
 public/sw.js     offline cache
-tests/           602 cases over src/lib and the worker's guards
+tests/           722 cases over src/lib and the worker's guards
 ```
 
 Two overlapping events are pushed onto concentric rings by `packLanes`, so

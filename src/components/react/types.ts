@@ -5,6 +5,7 @@ import type { Clock } from "@/lib/time";
 import type { CalEvent, Calendar, Occurrence } from "@/lib/events";
 import type { LifeStage } from "@/lib/life";
 import type { Settings } from "@/lib/store";
+import type { QuickAdd } from "@/lib/quickadd";
 
 export type ViewMode = "day" | "year" | "life";
 
@@ -55,6 +56,12 @@ export interface ShellActions {
   newEvent: () => void;
   /** A draft over an explicit range on the selected day — the free-time rows. */
   newEventAt: (startMin: number, endMin: number) => void;
+  /**
+   * A whole event from one typed line in ⌘P. It creates and closes — a review
+   * step would make a one-line gesture two — so the row that runs it prints
+   * the span first, and undo covers the misfire.
+   */
+  quickAdd: (spec: QuickAdd) => void;
   toggleSidebar: () => void;
   /**
    * Chrome away, dial to the window. Not exposed in the top bar: the left

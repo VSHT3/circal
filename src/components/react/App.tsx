@@ -18,17 +18,8 @@ import { cue } from "@/lib/feedback";
 import { placeForZone } from "@/lib/places";
 import { refreshFeed, refreshStaleFeeds } from "@/lib/feeds";
 import { notify } from "@/lib/notify";
-import {
-  MINUTES_PER_DAY,
-  addDays,
-  dayKey,
-  formatRelativeDay,
-  fromDayKey,
-  isSameDay,
-  minutesOfDay,
-  snap,
-  startOfDay,
-} from "@/lib/time";
+import { DEFAULT_DURATION, defaultStart } from "@/lib/quickadd";
+import { addDays, dayKey, formatRelativeDay, fromDayKey, isSameDay, startOfDay } from "@/lib/time";
 import { LIFE_META_H, lifeDot, lifeStage } from "@/lib/life";
 import { EASE, MODE_MS } from "@/lib/motion";
 import { cn } from "@/lib/utils";
@@ -413,6 +404,12 @@ export default function App() {
     AUTO_AMBIENT_GRACE_MS,
   );
 
+  /** The sound channels, as every cue in the shell wants them. */
+  const channels = useMemo(
+    () => ({ sound: settings.tickSound, haptics: settings.tickHaptics }),
+    [settings.tickSound, settings.tickHaptics],
+  );
+
   const openDraft = useCallback(
     (startMin: number, endMin: number, on: Date) => {
       setPaletteOpen(false);
@@ -446,15 +443,25 @@ export default function App() {
         setEditor({ id, draft, readOnly: feedIds.has(event.calendarId) });
       },
       newEvent: () => {
-        // Start at the next quarter hour when looking at today, otherwise at a
-        // plausible working hour — a draft that opens at 00:00 is never right.
-        const isToday = startOfDay(new Date()).getTime() === day.getTime();
-        const start = isToday
-          ? Math.min(snap(minutesOfDay(new Date()) + 7.5, 15), MINUTES_PER_DAY - 60)
-          : 9 * 60;
-        openDraft(start, start + 60, day);
+        // The hour a draft opens on is `defaultStart`'s answer, shared with
+        // quick-add: two ways of adding an event must not disagree about when.
+        const start = defaultStart(day, DEFAULT_DURATION);
+        openDraft(start, start + DEFAULT_DURATION, day);
       },
       newEventAt: (startMin: number, endMin: number) => openDraft(startMin, endMin, day),
+      quickAdd: (spec) => {
+        store.create({
+          ...draftEvent(spec.day, spec.startMin, spec.endMin, defaultCalendar),
+          title: spec.title,
+        });
+        setPaletteOpen(false);
+        // Land on the day it went to. An event created off-screen is a claim
+        // rather than a result, and the dial is what makes it a result — which
+        // is also the only review this gesture gets.
+        go({ day: spec.day, view: "day" });
+        cue("created", channels);
+        notify(`Added “${spec.title}” — ⌘Z to undo`);
+      },
       undo: () => notify(store.undo() ? "Undone" : "Nothing to undo"),
       redo: () => notify(store.redo() ? "Redone" : "Nothing to redo"),
       exportIcs: () => exportIcs(store.snapshot()),
@@ -468,7 +475,7 @@ export default function App() {
       },
       toggleAmbient: () => enterAmbient(inAmbient ? "off" : "manual"),
     }),
-    [day, go, openDraft, feedIds, calendars, inAmbient, enterAmbient],
+    [day, go, openDraft, defaultCalendar, feedIds, calendars, inAmbient, enterAmbient, channels],
   );
 
   const step = useCallback(
@@ -524,12 +531,6 @@ export default function App() {
   // ask for a keyboard.
   useTypingSound(settings.tickSound);
 
-  /** The sound channels, as every cue in the shell wants them. */
-  const channels = useMemo(
-    () => ({ sound: settings.tickSound, haptics: settings.tickHaptics }),
-    [settings.tickSound, settings.tickHaptics],
-  );
-
   /**
    * A panel arriving says so, from wherever it was opened — ⌘P, the top bar,
    * or the palette handing over to settings. One effect per panel rather than a
@@ -537,7 +538,7 @@ export default function App() {
    * drift; audio is an external system, which is what an effect is for.
    *
    * The channels come from a ref so that flipping Sound while a panel is open
-   * does not re-announce it, and so `actions` need not depend on them.
+   * does not re-announce it: a new object would run the effect again.
    */
   const channelsRef = useRef(channels);
   useEffect(() => {
