@@ -29,7 +29,8 @@ import {
 import { Kbd } from "@/components/react/ui/primitives";
 import type { CommandPaletteProps } from "@/components/react/types";
 import { colorOf, freeGaps, WAKING, type CalEvent } from "@/lib/events";
-import { parseDate, parseQuickAdd, parseSlot } from "@/lib/quickadd";
+import { fuzzyScore } from "@/lib/fuzzy";
+import { parseDate, parseQuickAdd, parseSlot, repeatPhrase } from "@/lib/quickadd";
 import {
   MINUTES_PER_DAY,
   addDays,
@@ -46,6 +47,14 @@ import {
 import { cn } from "@/lib/utils";
 
 const EASE = [0.32, 0.72, 0, 1] as const;
+
+/**
+ * What a match outside the title gives up. A note is searchable but it is not
+ * what the event is called, so a title match of the same quality wins.
+ */
+const FIELD_PENALTY = { location: 30, notes: 45 };
+
+const penalise = (score: number | null, cost: number) => (score === null ? null : score - cost);
 
 /** One row in the flattened, keyboard-navigable result list. */
 interface Row {
@@ -122,18 +131,22 @@ export default function CommandPalette({
   const createRows: Row[] = useMemo(() => {
     const parsed = parseQuickAdd(query, day, now);
     if (!parsed) return [];
-    const { title, day: on, startMin, endMin, allDay } = parsed;
+    const { title, day: on, startMin, endMin, allDay, repeat } = parsed;
     // Printed before it is committed: this row creates without a review step,
-    // so the hour it resolved to has to be visible in the row itself.
+    // so what it resolved to — the day, the span, the rule — has to be visible
+    // in the row itself.
     const when = allDay
       ? "ALL DAY"
       : `${formatTimeShort(atMinutes(on, startMin), clock)} – ${formatTimeShort(atMinutes(on, endMin), clock)}`;
+    const rule = repeat ? ` · ${repeatPhrase(repeat)}` : "";
     return [
       {
         id: "create",
         icon: <Plus {...CHROME_ICON_PROPS} />,
         title: `Create “${title}”`,
-        meta: <span className="label text-ink-3">{`${formatRelativeDay(on, now)} · ${when}`}</span>,
+        meta: (
+          <span className="label text-ink-3">{`${formatRelativeDay(on, now)} · ${when}${rule}`}</span>
+        ),
         run: () => {
           actions.quickAdd(parsed);
           onClose();
@@ -172,16 +185,36 @@ export default function CommandPalette({
     }));
   }, [query, occurrences, day, now, clock, actions, onClose]);
 
+  /**
+   * Every event, ranked rather than filtered. `fuzzyScore` answers "how well
+   * does this text match", so the sort is score first and nearness to the day
+   * on screen second — which is exactly the old order when the query is empty,
+   * because an empty query scores every candidate the same.
+   *
+   * A hit in the location or the notes is worth less than one in the title.
+   * Charged as a penalty rather than a multiplier: a score can be negative
+   * (a long note matched across big gaps), and halving a negative promotes it.
+   */
   const eventRows: Row[] = useMemo(() => {
-    const matches = (e: CalEvent) =>
-      e.title.toLowerCase().includes(q) ||
-      e.location.toLowerCase().includes(q) ||
-      e.notes.toLowerCase().includes(q);
+    const rank = (event: CalEvent): number | null => {
+      const scores = [
+        fuzzyScore(event.title, q),
+        penalise(fuzzyScore(event.location, q), FIELD_PENALTY.location),
+        penalise(fuzzyScore(event.notes, q), FIELD_PENALTY.notes),
+      ].filter((score): score is number => score !== null);
+      return scores.length > 0 ? Math.max(...scores) : null;
+    };
+
     return events
-      .filter(matches)
-      .sort((a, b) => Math.abs(a.start - day.getTime()) - Math.abs(b.start - day.getTime()))
+      .map((event) => ({ event, score: rank(event) }))
+      .filter((row): row is { event: CalEvent; score: number } => row.score !== null)
+      .sort(
+        (a, b) =>
+          b.score - a.score ||
+          Math.abs(a.event.start - day.getTime()) - Math.abs(b.event.start - day.getTime()),
+      )
       .slice(0, 8)
-      .map((event) => ({
+      .map(({ event }) => ({
         id: `event-${event.id}`,
         dot: colorOf(event, calendars),
         title: event.title,
@@ -398,7 +431,14 @@ export default function CommandPalette({
         },
       })),
     ];
-    return base.filter((row) => row.title.toLowerCase().includes(q));
+    // Ranked, not filtered, and only once there is a query: with the box empty
+    // this list's own order is the answer — New event first, calendars last.
+    if (!q) return base;
+    return base
+      .map((row, index) => ({ row, index, score: fuzzyScore(row.title, q) }))
+      .filter((hit): hit is { row: Row; index: number; score: number } => hit.score !== null)
+      .sort((a, b) => b.score - a.score || a.index - b.index)
+      .map((hit) => hit.row);
   }, [q, day, sidebarOpen, ambient, calendars, clock, actions, onClose]);
 
   const groups: Group[] = useMemo(
