@@ -201,13 +201,20 @@ export function useElementSize<T extends HTMLElement>(): [RefObject<T | null>, n
  * `shift+` is part of the combo whenever Shift is held, including for a
  * printable key: `e.key` is already `"Z"` rather than `"z"` there, so without
  * it ⇧⌘Z and ⌘Z are the same string and redo silently becomes undo.
+ *
+ * `enabled` is how a modal switches the shell off. Typing is not the only way
+ * to be somewhere else: focus on a button inside the event editor is not
+ * typing, so without it ← stepped the day behind an open dialog.
  */
-export function useHotkeys(bindings: Record<string, (e: KeyboardEvent) => void>) {
+export function useHotkeys(bindings: Record<string, (e: KeyboardEvent) => void>, enabled = true) {
   const latest = useRef(bindings);
   latest.current = bindings;
+  const on = useRef(enabled);
+  on.current = enabled;
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      if (!on.current) return;
       const mod = e.metaKey || e.ctrlKey;
       const combo = `${mod ? "mod+" : ""}${e.shiftKey ? "shift+" : ""}${e.key.toLowerCase()}`;
       const handler = latest.current[combo];
@@ -229,6 +236,111 @@ export function useHotkeys(bindings: Record<string, (e: KeyboardEvent) => void>)
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
+}
+
+/**
+ * What Tab can land on inside a dialog. `:disabled` covers the controls the
+ * event editor switches off through its read-only fieldset — a form control
+ * inside a disabled fieldset is disabled — and the rect test drops anything
+ * a collapsed section has taken off the page. `offsetParent` is no use here:
+ * it is null for everything under a `position: fixed` dialog.
+ */
+const TAB_STOPS =
+  'a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])';
+
+function tabStops(root: HTMLElement): HTMLElement[] {
+  return Array.from(root.querySelectorAll<HTMLElement>(TAB_STOPS)).filter(
+    (el) => el.getClientRects().length > 0,
+  );
+}
+
+/**
+ * The last thing focused outside a dialog — one document listener for every
+ * trap rather than one each, because the fact is the document's. A dialog
+ * mounted only while it is open (the event editor) has no listener of its own
+ * at the moment the button that opens it takes focus, so a per-hook listener
+ * misses the one focus it exists to record.
+ *
+ * Membership is tested against `[role=dialog]` in the DOM rather than against
+ * the trap's ref, which is not attached yet when a child autofocuses: React
+ * commits a child's autofocus before it attaches the parent's ref, so the ref
+ * test recorded the dialog's own first field as the thing that opened it.
+ */
+let opener: HTMLElement | null = null;
+let watchers = 0;
+
+function onFocusIn(e: FocusEvent) {
+  const el = e.target as HTMLElement;
+  if (!el.closest?.("[role=dialog]")) opener = el;
+}
+
+/**
+ * Hold Tab inside the returned element while `active`, and hand focus back to
+ * whatever opened it on the way out.
+ *
+ * A hook rather than a `<Modal>`, because the three dialogs share this one
+ * behaviour and nothing else: the palette is a combobox, the editor a form,
+ * settings a two-column sheet. Wrapping all three in one shell would be a
+ * fourth layout pretending to be a primitive.
+ *
+ * Focus only moves in if the dialog has not claimed it already — the palette
+ * and the editor autofocus their first field, and pulling that back to the
+ * container would undo the thing the ARIA pattern asks for. A dialog with
+ * nothing to autofocus carries `tabIndex={-1}` and takes it on the container.
+ *
+ * The element it is attached to must carry `role="dialog"`: that is how the
+ * hook tells a focus arriving from the page behind from one the dialog gave
+ * itself, and every caller has it for the assistive tree anyway.
+ */
+export function useFocusTrap<T extends HTMLElement>(active: boolean): RefObject<T | null> {
+  const ref = useRef<T | null>(null);
+  useEffect(() => {
+    if (watchers++ === 0) document.addEventListener("focusin", onFocusIn);
+    return () => {
+      if (--watchers === 0) document.removeEventListener("focusin", onFocusIn);
+    };
+  }, []);
+
+  useEffect(() => {
+    const root = ref.current;
+    if (!active || !root) return;
+
+    if (!root.contains(document.activeElement)) root.focus({ preventScroll: true });
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Tab") return;
+      const stops = tabStops(root);
+      // Nothing to land on: the container is holding focus, and Tab taking it
+      // to the page behind is the whole bug.
+      if (stops.length === 0) return e.preventDefault();
+
+      const first = stops[0];
+      const last = stops[stops.length - 1];
+      const at = document.activeElement;
+      // Backwards off the first, forwards off the last — and backwards from
+      // the container itself, which is not a stop and would otherwise leave.
+      const wraps = e.shiftKey ? at === first || at === root : at === last;
+      if (!wraps) return;
+      e.preventDefault();
+      (e.shiftKey ? last : first).focus();
+    };
+    root.addEventListener("keydown", onKeyDown);
+
+    const back = opener;
+    return () => {
+      root.removeEventListener("keydown", onKeyDown);
+      // The dialog's own nodes are gone by the time a passive cleanup runs, so
+      // focus has usually fallen to `body` — that, or focus still inside, is
+      // what "the dialog was holding it" looks like from here. Anything else
+      // moved focus deliberately and knows better than this does.
+      const at = document.activeElement;
+      if (!at || at === document.body || root.contains(at)) {
+        if (back?.isConnected) back.focus();
+      }
+    };
+  }, [active]);
+
+  return ref;
 }
 
 /**

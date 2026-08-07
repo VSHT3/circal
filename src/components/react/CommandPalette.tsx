@@ -26,6 +26,7 @@ import {
   Undo2,
   Upload,
 } from "lucide-react";
+import { useFocusTrap } from "@/components/react/hooks";
 import { Kbd } from "@/components/react/ui/primitives";
 import type { CommandPaletteProps } from "@/components/react/types";
 import { colorOf, freeGaps, WAKING, type CalEvent } from "@/lib/events";
@@ -90,6 +91,7 @@ export default function CommandPalette({
   const [query, setQuery] = useState("");
   const [highlighted, setHighlighted] = useState(0);
   const itemRefs = useRef<Array<HTMLDivElement | null>>([]);
+  const dialog = useFocusTrap<HTMLDivElement>(open);
 
   // Reset during render on the open transition rather than in an effect: an
   // effect would paint last session's query for one frame before clearing it.
@@ -483,8 +485,11 @@ export default function CommandPalette({
       // in the same press. A key the panel handled stops at the panel.
       e.stopPropagation();
       onClose();
-    } else if (e.key === "Tab") {
+    } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "p") {
+      // ⌘P is a toggle, and the shell's copy of it is off while a panel is up.
       e.preventDefault();
+      e.stopPropagation();
+      onClose();
     }
   }
 
@@ -501,6 +506,7 @@ export default function CommandPalette({
           transition={{ duration: 0.16, ease: EASE }}
         >
           <motion.div
+            ref={dialog}
             role="dialog"
             aria-modal="true"
             aria-label="Command palette"

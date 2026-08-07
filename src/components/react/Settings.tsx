@@ -43,6 +43,7 @@ import {
 } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import type { Calendar } from "@/lib/events";
+import { useFocusTrap } from "@/components/react/hooks";
 import type { SettingsPanelProps } from "@/components/react/types";
 import {
   DateField,
@@ -150,6 +151,7 @@ export default function Settings({
   const reducedMotion = useReducedMotion();
   const [feedUrl, setFeedUrl] = useState("");
   const [pulling, setPulling] = useState<string | null>(null);
+  const dialog = useFocusTrap<HTMLDivElement>(open);
 
   const subscriptions = calendars.filter((c) => c.feed);
   const sun = place ? sunTimes(startOfDay(new Date()), place) : null;
@@ -202,9 +204,15 @@ export default function Settings({
           transition={{ duration: 0.16, ease: EASE }}
         >
           <motion.div
+            ref={dialog}
             role="dialog"
             aria-modal="true"
             aria-label="Settings"
+            /* Nothing here autofocuses — the first control is the close button
+               and a settings panel that opens with a ring on Close reads as a
+               warning. The container takes focus instead, which is what the
+               trap needs to keep Tab inside. */
+            tabIndex={-1}
             onClick={(e) => e.stopPropagation()}
             className="flex max-h-[min(900px,92vh)] min-h-[min(560px,82vh)] w-[min(1240px,94vw)] flex-col overflow-hidden rounded-[14px] border border-hairline bg-surface shadow-[0_32px_80px_-20px_rgba(0,0,0,0.9)]"
             initial={reducedMotion ? false : { opacity: 0, scale: 0.97 }}

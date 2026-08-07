@@ -32,6 +32,7 @@ import {
   type Clock,
 } from "@/lib/time";
 import { cn } from "@/lib/utils";
+import { useFocusTrap } from "@/components/react/hooks";
 import {
   DateField,
   FieldRow as Row,
@@ -379,6 +380,8 @@ export default function EventEditor({
   const reducedMotion = useReducedMotion();
   /** A subscribed feed's event: shown in full, editable in no part. */
   const readOnly = target.readOnly === true;
+  // Mounted only while it is open, so the trap is always armed.
+  const dialog = useFocusTrap<HTMLDivElement>(true);
 
   // Re-seed during render when a genuinely different event is handed in —
   // React's documented "adjust state when props change" pattern. An effect
@@ -543,6 +546,7 @@ export default function EventEditor({
           transition={{ duration: reducedMotion ? 0 : 0.18 }}
         />
         <motion.div
+          ref={dialog}
           role="dialog"
           aria-modal="true"
           aria-label={readOnly ? "Event" : target.id ? "Edit event" : "New event"}

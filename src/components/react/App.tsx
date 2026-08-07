@@ -502,21 +502,9 @@ export default function App() {
     [go],
   );
 
+  // Escape belongs to whatever is on top, so it is the one shortcut a panel
+  // does not switch off.
   useHotkeys({
-    "mod+p": () => setPaletteOpen((open) => !open),
-    "mod+n": actions.newEvent,
-    "mod+y": () => actions.setView("year"),
-    "mod+d": () => actions.setView("day"),
-    "mod+b": actions.toggleSidebar,
-    "mod+l": () => actions.setView("life"),
-    "mod+,": actions.openSettings,
-    "mod+z": actions.undo,
-    "mod+shift+z": actions.redo,
-    arrowleft: () => step(-1),
-    arrowright: () => step(1),
-    t: actions.goToday,
-    f: () => enterAmbient(inAmbient ? "off" : "manual"),
-    "shift+f": () => enterAmbient(inAmbient ? "off" : "manual", true),
     escape: () => {
       // One key, one thing: a press that closed a panel has done its work,
       // and taking the mode down with it would be two.
@@ -527,6 +515,30 @@ export default function App() {
       if (!panelled && inAmbient) enterAmbient("off", true);
     },
   });
+
+  // The rest are the shell's, and the shell is behind the panel: ← stepping
+  // the day under an open editor is the same bug as ⌘Z undoing behind one.
+  // A panel that wants one of these keeps it for itself — the palette closes
+  // on its own ⌘P, since the copy here is off while it is up.
+  useHotkeys(
+    {
+      "mod+p": () => setPaletteOpen((open) => !open),
+      "mod+n": actions.newEvent,
+      "mod+y": () => actions.setView("year"),
+      "mod+d": () => actions.setView("day"),
+      "mod+b": actions.toggleSidebar,
+      "mod+l": () => actions.setView("life"),
+      "mod+,": actions.openSettings,
+      "mod+z": actions.undo,
+      "mod+shift+z": actions.redo,
+      arrowleft: () => step(-1),
+      arrowright: () => step(1),
+      t: actions.goToday,
+      f: () => enterAmbient(inAmbient ? "off" : "manual"),
+      "shift+f": () => enterAmbient(inAmbient ? "off" : "manual", true),
+    },
+    !busy,
+  );
 
   // Every field in the app, on the same switch as the dial's clicks: one
   // setting called Sound, because a user who turned the dial quiet did not

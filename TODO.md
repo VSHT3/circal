@@ -138,15 +138,14 @@ And the honest omission: **there are no reminders.** A calendar that never tells
 viewer. While the tab is open, `Notification` is enough; closed, it needs a server, and a server is
 off-thesis. Say so in the UI rather than leaving the absence unexplained.
 
-### Correctness — three open
+### Correctness — two open
 
 | what                             | where and why                                                                                                                                                                                                                                                                                                                               |
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **No focus trap in any modal**   | Three hand-rolled dialogs, no shared primitive: Tab escapes to the page behind, and the global hotkeys (←/→/`t`) still fire under an open editor.                                                                                                                                                                                           |
 | **1 Hz whole-tree re-render**    | `useNow` ticks every second and `App` hands `now` to Dial, Sidebar, CenterPanel and LifeView, but only the readout and the hand move. Ambient takes the period to a minute, which is the right answer for a mode left running and no answer at all for the other 23 hours. Push second-resolution into a leaf and keep the rest on minutes. |
 | **Life grid is invisible to AT** | `role="img"`, one label, 30,000 dots, no focus path. The year grid does it right with real buttons — but its `aria-label` omits whether the day carries anything.                                                                                                                                                                           |
 
-All three are DOM-shaped, which is exactly the surface the suite does not cover: no DOM, no jsdom, no
+Both are DOM-shaped, which is exactly the surface the suite does not cover: no DOM, no jsdom, no
 component tests, on purpose — a snapshot of an SVG path is a change-detector that fails on every
 legitimate geometry tweak. That is the honest boundary of what 830 pure-function tests buy you, and
 the dial stays eye-verified.
@@ -169,5 +168,5 @@ budget. What is left, in order:
    Everything else here is an improvement; this one is an argument. `[high / medium]`
 2. **The life grid's month banding**, then **search the whole life** — one is a render bug wearing a
    feature's clothes, the other is the thing no other calendar can do. `[high / medium]`
-3. **A focus trap, once, in a primitive** — three dialogs already need it and the next one will too.
-   `[medium / small]`
+3. **The 1 Hz whole-tree re-render**, then **a focus path into the life grid** — the two DOM-shaped
+   bugs left, and the suite covers neither. `[medium / small]`
