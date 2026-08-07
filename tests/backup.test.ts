@@ -248,7 +248,8 @@ describe("readSettings", () => {
     "tickSound",
     "tickHaptics",
     "ambientDim",
-    "ambientLightcycle",
+    "ambientDaylight",
+    "ambientMoonlight",
   ] as const)(
     "%s reads absent as on — a backup written before the switch existed came from a dial showing it",
     (field) => {

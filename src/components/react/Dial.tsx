@@ -14,8 +14,9 @@ import {
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
+  type ReactNode,
 } from "react";
-import { animate, useReducedMotion } from "motion/react";
+import { AnimatePresence, animate, motion, useReducedMotion } from "motion/react";
 import {
   ARC_LABEL_SIZE,
   DIAL,
@@ -158,6 +159,34 @@ const NO_NEIGHBOUR = { before: Infinity, after: Infinity } as const;
 function grey(level: number): string {
   const v = Math.round(clamp(level, 0, 1) * 255);
   return `rgb(${v},${v},${v})`;
+}
+
+/**
+ * What a mode change costs on the rim, as a duration. Slower than a lane
+ * change (that one answers a pointer, and a detent you have to wait for is
+ * not a detent) and matched to the chrome withdrawing in `App.tsx`, because
+ * on the way into ambient they are the same movement.
+ */
+const FADE_MS = 240;
+
+/**
+ * A group that arrives and leaves by fading, for the pieces of the face a
+ * mode or a switch adds and removes. Mounted through `AnimatePresence`, so
+ * nothing is kept on the canvas for the sake of the transition — the nodes
+ * exist while it runs and not a frame longer.
+ */
+function Fade({ children }: { children: ReactNode }) {
+  const reducedMotion = useReducedMotion();
+  return (
+    <motion.g
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: reducedMotion ? 0 : FADE_MS / 1000, ease: [...LANE_EASE] }}
+    >
+      {children}
+    </motion.g>
+  );
 }
 
 /**
@@ -313,7 +342,8 @@ export default function Dial({
     zoneMoonlight,
     arcLabels,
     ambientDim,
-    ambientLightcycle,
+    ambientDaylight,
+    ambientMoonlight,
     ambientZoneRing,
     ambientArcLabels,
     totals,
@@ -355,16 +385,20 @@ export default function Dial({
   const elapsed = today ? nowMin : startOfDay(day) < startOfDay(now) ? MINUTES_PER_DAY : 0;
 
   /**
-   * A band is drawn only while it has a half left to draw — and in ambient,
-   * only while ambient says so. The switch there can take the rim away, never
-   * give it back: a half switched off on the working face is a half the user
-   * does not want to see, and a mode is not an argument with that.
+   * A band is drawn only while it has a half left to draw. Which halves is a
+   * question the two faces answer separately: on the working face the band
+   * shares the rim with a day's arcs and dropping one half is a legibility
+   * trade, and on a face that is nothing but the rim it is the picture. Only
+   * the place is shared, because a person is somewhere and that is not a
+   * property of a mode.
    *
    * The second zone goes whole: its numerals and its band are one reference,
    * and half of one is not a reference.
    */
   const zoneRing = ambient ? ambientZoneRing : true;
-  const band = place && (daylight || moonlight) && (!ambient || ambientLightcycle) ? place : null;
+  const bandDay = ambient ? ambientDaylight : daylight;
+  const bandNight = ambient ? ambientMoonlight : moonlight;
+  const band = place && (bandDay || bandNight) ? place : null;
   const zoneBand = zonePlace && (zoneDaylight || zoneMoonlight) && zoneRing ? zonePlace : null;
 
   /**
@@ -655,48 +689,62 @@ export default function Dial({
 
         <circle cx={DIAL.C} cy={DIAL.C} r={DIAL.TRACK} fill="url(#dial-glow)" />
 
-        {band && (
-          <SunBand
-            day={day}
-            clock={clock}
-            place={band}
-            daylight={daylight}
-            moonlight={moonlight}
-            radius={DIAL.TRACK}
-          />
-        )}
-        {zoneBand && (
-          <SunBand
-            day={day}
-            clock={clock}
-            place={zoneBand}
-            daylight={zoneDaylight}
-            moonlight={zoneMoonlight}
-            radius={DIAL.ZONE_BAND}
-          />
-        )}
-        {secondZone && zoneRing && (
-          <ZoneRing
-            now={now}
-            clock={clock}
-            zone={secondZone}
-            showName={showZoneName}
-            showOffset={showZoneOffset}
-          />
-        )}
-
-        <g shapeRendering="geometricPrecision">
-          {elapsedSegments.map((segment, i) => (
-            <path
-              key={i}
-              d={segment.d}
-              fill="none"
-              stroke={segment.stroke}
-              strokeWidth={DIAL.TRACK_WIDTH}
-              strokeLinecap={segment.cap}
-            />
-          ))}
-        </g>
+        <AnimatePresence initial={false}>
+          {band && (
+            <Fade key="band">
+              <SunBand
+                day={day}
+                clock={clock}
+                place={band}
+                daylight={bandDay}
+                moonlight={bandNight}
+                radius={DIAL.TRACK}
+              />
+            </Fade>
+          )}
+          {/* The trail and the band share the track, so one leaving is the
+              other arriving — and switched between by a mode or a switch, a
+              cut on the rim reads as the dial redrawing itself. */}
+          {elapsedSegments.length > 0 && (
+            <Fade key="elapsed">
+              <g shapeRendering="geometricPrecision">
+                {elapsedSegments.map((segment, i) => (
+                  <path
+                    key={i}
+                    d={segment.d}
+                    fill="none"
+                    stroke={segment.stroke}
+                    strokeWidth={DIAL.TRACK_WIDTH}
+                    strokeLinecap={segment.cap}
+                  />
+                ))}
+              </g>
+            </Fade>
+          )}
+          {zoneBand && (
+            <Fade key="zone-band">
+              <SunBand
+                day={day}
+                clock={clock}
+                place={zoneBand}
+                daylight={zoneDaylight}
+                moonlight={zoneMoonlight}
+                radius={DIAL.ZONE_BAND}
+              />
+            </Fade>
+          )}
+          {secondZone && zoneRing && (
+            <Fade key="zone-ring">
+              <ZoneRing
+                now={now}
+                clock={clock}
+                zone={secondZone}
+                showName={showZoneName}
+                showOffset={showZoneOffset}
+              />
+            </Fade>
+          )}
+        </AnimatePresence>
 
         <Ticks clock={clock} />
         <HourLabels clock={clock} quartersOnly={ambient} />
@@ -740,11 +788,13 @@ export default function Dial({
         )}
 
         {today && (
+          // Keyed on the face: relabelling is a 180° jump, and a hand sweeping
+          // half the dial while the numerals under it teleport is two events.
           <NowHand
+            key={clock}
             minutes={nowMin}
             clock={clock}
             dimmed={draw !== null || adjust !== null}
-            eased={ambient}
           />
         )}
       </svg>
@@ -973,6 +1023,10 @@ function Ticks({ clock }: { clock: Clock }) {
  * a chair it reads as a grey fringe rather than as a scale. The ticks are
  * still there, so nothing about the geometry is lost — only the labelling of
  * hours nobody is squinting at.
+ *
+ * Dropped by opacity rather than by unmounting, so the eight recede instead of
+ * blinking out. Eight `<text>` nodes at zero alpha is what a fade costs here,
+ * and they are the same eight that are mounted the rest of the time.
  */
 function HourLabels({ clock, quartersOnly = false }: { clock: Clock; quartersOnly?: boolean }) {
   return (
@@ -986,7 +1040,6 @@ function HourLabels({ clock, quartersOnly = false }: { clock: Clock; quartersOnl
         const twelve = h % 12 === 0 ? 12 : h % 12;
 
         if (!major) {
-          if (quartersOnly) return null;
           return (
             <text
               key={h}
@@ -996,6 +1049,9 @@ function HourLabels({ clock, quartersOnly = false }: { clock: Clock; quartersOnl
               className="fill-[#6d6d73]"
               fontSize={19.5}
               fontWeight={450}
+              opacity={quartersOnly ? 0 : 1}
+              aria-hidden={quartersOnly}
+              style={{ transition: `opacity ${FADE_MS}ms var(--ease)` }}
             >
               {clock === "12h" ? twelve : h}
             </text>
@@ -1072,32 +1128,26 @@ function useEasedRadius(target: number): number {
 }
 
 /**
- * The now-hand's angle, eased rather than stepped — ambient only.
+ * The now-hand's angle, eased rather than stepped.
  *
  * Same shape as `useEasedRadius` and for the same reason: the geometry is
  * rebuilt from the value, so it has to be a number this render rather than a
  * motion value on an attribute.
  *
- * Off, it keeps the ref in step without touching state, so the default mode
- * pays nothing for a mode it is not in — and the first eased step after
- * switching starts from where the hand actually is rather than from wherever
- * it was when this mounted.
+ * On both faces, not only in ambient. A quarter of a degree is two pixels at
+ * a working size and thirty times that filling a window, but a clock whose
+ * hand steps is a clock that redraws — the difference is only how obvious it
+ * is. Switching the face is the one jump left, and it is a jump on purpose:
+ * `NowHand` is keyed on the clock, so the 180° relabel remounts it rather
+ * than sweeping a hand across a dial that teleported around it.
  */
-function useEasedAngle(target: number, enabled: boolean): number {
+function useEasedAngle(target: number): number {
   const reducedMotion = useReducedMotion();
   const [eased, setEased] = useState(target);
   const at = useRef(target);
 
   useEffect(() => {
-    if (!enabled || reducedMotion) {
-      at.current = target;
-      return;
-    }
-    // Already there: nothing to animate, but the state may be a mode behind.
-    if (at.current === target) {
-      setEased(target);
-      return;
-    }
+    if (reducedMotion || at.current === target) return;
     const run = animate(at.current, target, {
       duration: HAND_MS / 1000,
       ease: [...LANE_EASE],
@@ -1107,9 +1157,9 @@ function useEasedAngle(target: number, enabled: boolean): number {
       },
     });
     return () => run.stop();
-  }, [target, enabled, reducedMotion]);
+  }, [target, reducedMotion]);
 
-  return enabled && !reducedMotion ? eased : target;
+  return reducedMotion ? target : eased;
 }
 
 /**
@@ -1192,8 +1242,12 @@ function EventArc({
   // hidden by opacity, because in `hover` mode it arrives at the same instant
   // the stroke grows by 3 — and text popping in on a growing arc reads as a
   // wobble where the crossfade should be.
-  const label = labels === "off" || dot ? null : arcLabel(r, paintFrom, paintTo, occ.event.title);
-  const labelShown = labels === "always" || hovered || dragging;
+  //
+  // `off` is the same bargain one step further out: ambient has its own mode
+  // and switching into it would otherwise blink every name on the face out at
+  // once. Off is now a state of the label rather than its absence.
+  const label = dot ? null : arcLabel(r, paintFrom, paintTo, occ.event.title);
+  const labelShown = labels === "always" || (labels === "hover" && (hovered || dragging));
 
   /**
    * The grips own the *tips*, the body owns the middle — which is entirely a
@@ -1347,30 +1401,16 @@ function GhostArc({ clock, start, end }: { clock: Clock; start: number; end: num
  * `dimmed` while a drag is in progress: the hand marks a time the user is no
  * longer reading, and at full white it competes with the range being drawn.
  *
- * `eased` glides the minute step instead of jumping it. At a working distance
- * the step is a couple of pixels and instant is honest; filling the window it
- * is a visible snap, and a clock whose hand snaps is a webpage showing the
- * time. It is the only thing that moves in ambient, once a minute, which is
- * exactly as much as an object in a room should.
+ * The minute step is glided rather than jumped — see `useEasedAngle`.
  */
-function NowHand({
-  minutes,
-  clock,
-  dimmed,
-  eased,
-}: {
-  minutes: number;
-  clock: Clock;
-  dimmed: boolean;
-  eased: boolean;
-}) {
+function NowHand({ minutes, clock, dimmed }: { minutes: number; clock: Clock; dimmed: boolean }) {
   // Eased into new geometry rather than rotated into place. A CSS rotation
   // would be cheaper, but it needs a transform origin, and `transform-box`
   // resolves percentages against a box whose own origin is the cropped
   // viewBox's — 30 units off centre, which is a hand that no longer points at
   // the middle of its own dial. The angle is a number here, so there is
   // nothing to resolve: `polar` puts it where it has always gone.
-  const deg = useEasedAngle(angleAt(minutes, clock), eased);
+  const deg = useEasedAngle(angleAt(minutes, clock));
   const head = polar(DIAL.TRACK, deg);
   const inner = polar(DIAL.HAND_INNER, deg);
   return (

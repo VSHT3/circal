@@ -136,7 +136,7 @@ export interface Settings {
   lifeExpectancy: number;
   /**
    * Ambient is a display mode, so what it shows is its own question. These
-   * five are what the face is allowed to differ on — everything else (the
+   * six are what the face is allowed to differ on — everything else (the
    * geometry, the events, the hand) is the same dial, because it *is* the same
    * dial.
    */
@@ -145,9 +145,17 @@ export interface Settings {
    *  middle of the night. Nothing to follow without a place, so it is off by
    *  consequence rather than by setting there. */
   ambientDim: boolean;
-  /** The band, on the rim, in ambient. It can only take away what the working
-   *  face already draws — a half switched off there is off here too. */
-  ambientLightcycle: boolean;
+  /**
+   * The band's two halves, in ambient — its own pair, not the working face's.
+   * Only the *place* is shared, because there is only one of those: a person
+   * is somewhere, and where they are is not a property of a mode.
+   *
+   * The halves are, though. On the working face the band shares the rim with
+   * a day's arcs and half of it is a legibility trade; on a face that is
+   * nothing but the rim, it is the picture.
+   */
+  ambientDaylight: boolean;
+  ambientMoonlight: boolean;
   /** The second zone's numerals and its band, in ambient. */
   ambientZoneRing: boolean;
   /** Names along the arcs, in ambient. Its own mode, because 11px mono is
@@ -222,9 +230,11 @@ export const DEFAULT_SETTINGS: Settings = {
   // know it is night is a lamp. Costs nothing where no place is set — there is
   // no curve to follow, so it does not dim.
   ambientDim: true,
-  // On. The band is the picture of the day, and ambient is the mode that is
-  // nothing but the picture of the day.
-  ambientLightcycle: true,
+  // Both on, for the same reason the working face's pair is: the band *is*
+  // the track, and with one half off the ring stops at dusk. Here it is also
+  // the whole picture — ambient is the mode that is nothing but the rim.
+  ambientDaylight: true,
+  ambientMoonlight: true,
   // Off. A second place's numerals are a working reference — you look them up
   // — and this face is not looked *up*.
   ambientZoneRing: false,

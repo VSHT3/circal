@@ -116,7 +116,8 @@ export default function Settings({
     arcLabels,
     ambientAfter,
     ambientDim,
-    ambientLightcycle,
+    ambientDaylight,
+    ambientMoonlight,
     ambientZoneRing,
     ambientArcLabels,
     totals,
@@ -142,9 +143,6 @@ export default function Settings({
   /** Same rule for the vibration switch: no motor, no offer. Desktop and iOS
    *  are both in that camp, and only the sound half is shown there. */
   const vibrates = canVibrate();
-  /** Same rule again for ambient's own lightcycle switch: it can only take
-   *  the band away, so there is nothing to offer until there is a band. */
-  const band = Boolean(place) && (daylight || moonlight);
 
   /** The life the grid would draw with what is set right now — the row prints
    *  where it ends, so the number beside it is never an abstraction. Plain
@@ -342,24 +340,34 @@ export default function Settings({
                 </div>
                 {/* Every one of these annotates something that has to exist
                     first, so with a bare dial the row is not empty — it is
-                    not there. An empty flex row is a gap nobody can explain. */}
+                    not there. An empty flex row is a gap nobody can explain.
+
+                    The two halves are ambient's own, not a view of the ones
+                    above: only the place is shared, because a person is
+                    somewhere and that is not a property of a mode. */}
                 {(place || secondZone) && (
                   <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                     {place && (
-                      <Toggle
-                        label="Dusk dim"
-                        name="Dim with the lightcycle"
-                        checked={ambientDim}
-                        onChange={(on) => store.setToggle("ambientDim", on)}
-                      />
-                    )}
-                    {band && (
-                      <Toggle
-                        label="Lightcycle"
-                        name="Lightcycle in ambient"
-                        checked={ambientLightcycle}
-                        onChange={(on) => store.setToggle("ambientLightcycle", on)}
-                      />
+                      <>
+                        <Toggle
+                          label="Daylight"
+                          name="Ambient daylight"
+                          checked={ambientDaylight}
+                          onChange={(on) => store.setToggle("ambientDaylight", on)}
+                        />
+                        <Toggle
+                          label="Moonlight"
+                          name="Ambient moonlight"
+                          checked={ambientMoonlight}
+                          onChange={(on) => store.setToggle("ambientMoonlight", on)}
+                        />
+                        <Toggle
+                          label="Dusk dim"
+                          name="Dim with the lightcycle"
+                          checked={ambientDim}
+                          onChange={(on) => store.setToggle("ambientDim", on)}
+                        />
+                      </>
                     )}
                     {secondZone && (
                       <Toggle

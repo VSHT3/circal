@@ -139,7 +139,8 @@ export function readSettings(value: unknown): Settings {
     ambientAfter:
       typeof value.ambientAfter === "number" ? value.ambientAfter : DEFAULT_SETTINGS.ambientAfter,
     ambientDim: value.ambientDim !== false,
-    ambientLightcycle: value.ambientLightcycle !== false,
+    ambientDaylight: value.ambientDaylight !== false,
+    ambientMoonlight: value.ambientMoonlight !== false,
     ambientZoneRing: value.ambientZoneRing === true,
     ambientArcLabels: (typeof value.ambientArcLabels === "string"
       ? value.ambientArcLabels

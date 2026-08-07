@@ -137,10 +137,18 @@ brings the chrome back with it, because that is a surface you work on rather
 than one you look at. `⇧F` asks for the whole screen as well, and `Esc` leaves.
 
 **Settings** has a section for it, because a display mode's face is its own
-question: whether it dims with dusk, whether it keeps the lightcycle, whether
-it keeps the second ring, and its own **Arc names** mode — off by default,
-where the working face's is on. Each switch can only take away something the
-working face already draws.
+question: whether it dims with dusk, its own **Daylight** and **Moonlight**
+halves, whether it keeps the second ring, and its own **Arc names** mode — off
+by default, where the working face's is on.
+
+The two halves are ambient's own, not a view of the ones above. Only the
+_place_ is shared, because there is one of those: a person is somewhere, and
+where they are is not a property of a mode. The halves are — on the working
+face the band shares the rim with a day's arcs and dropping one is a
+legibility trade, and on a face that is nothing but the rim it is the picture.
+So the night half can be on here and off there, or the other way round, and
+with both off the elapsed trail comes back exactly as it does on the working
+face.
 
 **Start on its own** is the last row: never, or after one, two, five, ten,
 thirty minutes or an hour of the dial being left alone. It arms only on the
@@ -148,6 +156,12 @@ dial with nothing open — a timer that swapped the view out from under a grid
 would lose the year you were reading. Arriving that way it is a screensaver
 and leaves like one, at the first sign of anybody being there; asked for with
 `F` it stays, because there the pointer is how you use it.
+
+Nothing about the change is a cut. The chrome withdraws, the eight hour
+numerals between the quarters recede, the names leave the arcs, the middle
+grows into its larger type and the rim crossfades between the band and the
+elapsed trail — all on the way in, and all again on the way out. With
+**reduce motion** set, none of it moves.
 
 ## Your data
 

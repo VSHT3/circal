@@ -12,6 +12,7 @@
  * with the next thing rather than printing three rows of equal grey.
  * ------------------------------------------------------------------ */
 
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { WAKING, colorOf, freeGaps, statusOf, type Calendar, type Occurrence } from "@/lib/events";
 import {
   MINUTES_PER_DAY,
@@ -60,6 +61,19 @@ const ROW_H = 18;
  * table of numbers would drift from this one within two changes.
  */
 const AMBIENT_SCALE = 1.55;
+/**
+ * How long the centre takes to change its mind, and on what curve.
+ *
+ * 140 ms is the arc's own stroke-width transition, and that pairing is the
+ * point: point at an arc and the arc thickens while the clock shrinks into
+ * its span, in one beat. Everything else in here rides the same number, so
+ * the whole middle moves as one object rather than as a dozen properties
+ * that happen to be changing together.
+ */
+const MOOD_MS = 140;
+const MOOD_EASE = [0.32, 0.72, 0, 1] as const;
+/** The same, as the CSS shorthand every inline style here reaches for. */
+const MOOD = `${MOOD_MS}ms var(--ease)`;
 /** Rows the card shows before it scrolls. */
 const VISIBLE_ROWS = 3;
 /** How close the next thing has to be before its dot is cocked. */
@@ -130,6 +144,7 @@ export default function CenterPanel({
   onOpen,
 }: CenterPanelProps) {
   const today = isSameDay(day, now);
+  const reducedMotion = useReducedMotion();
   /** Pixels per user unit, as this mood draws them. */
   const s = ambient ? u * AMBIENT_SCALE : u;
 
@@ -199,12 +214,17 @@ export default function CenterPanel({
    * position is `center`, in a corner of the stage otherwise.
    */
   const totalsLine = load ? (
-    <span
+    <motion.span
+      key="totals"
       className="font-mono font-medium text-ink-3 uppercase"
       style={{ fontSize: `${9.5 * u}px`, letterSpacing: "0.16em" }}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: reducedMotion ? 0 : MOOD_MS / 1000, ease: [...MOOD_EASE] }}
     >
       {formatDuration(load.booked)} booked · {formatDuration(load.free)} free
-    </span>
+    </motion.span>
   ) : null;
   const centred = totalsAt === "center" ? totalsLine : null;
 
@@ -223,6 +243,7 @@ export default function CenterPanel({
           transform: "translate(-50%, -50%)",
           gap: `${8 * s}px`,
           textShadow: `0 0 ${16 * s}px #000`,
+          transition: `${MOOD} gap`,
         }}
       >
         <span
@@ -231,7 +252,7 @@ export default function CenterPanel({
             fontSize: `${(span ? 32 : 54) * s}px`,
             letterSpacing: "-0.03em",
             fontVariantNumeric: "tabular-nums",
-            transition: "font-size 140ms var(--ease)",
+            transition: `${MOOD} font-size`,
           }}
         >
           {value}
@@ -241,7 +262,7 @@ export default function CenterPanel({
             className="font-medium text-ink-2"
             style={{
               fontSize: `${(span ? 18 : 26) * s}px`,
-              transition: "font-size 140ms var(--ease)",
+              transition: `${MOOD} font-size`,
             }}
           >
             {suffix}
@@ -249,159 +270,198 @@ export default function CenterPanel({
         )}
       </div>
 
-      {!drag && (shown.length > 0 || centred) && (
-        <div
-          className="absolute top-1/2 left-1/2 flex flex-col items-center"
-          style={{
-            // Clears the readout, which owns the centre.
-            transform: `translate(-50%, ${56 * s}px)`,
-            // Three rows want a column they share; one row wants to be as wide
-            // as it is. Left at a fixed width, the wait ends up an inch from
-            // the name it belongs to and the pair stops reading as a sentence.
-            width: ambient ? "max-content" : `${226 * u}px`,
-            // Past about here a name runs out under the drag annulus.
-            maxWidth: `${294 * u}px`,
-            gap: `${5 * s}px`,
-          }}
-        >
-          {shown.length > 0 && (
-            <div
-              className={cn(
-                "no-scrollbar pointer-events-auto w-full",
-                !ambient && "overflow-y-auto",
-                // Only when there is something below to scroll to. A permanent
-                // fade dims the last row of a list that already fits, which
-                // reads as a rendering fault rather than as "there is more".
-                shown.length > VISIBLE_ROWS && "fade-b",
-              )}
-              style={{
-                maxHeight: ambient ? undefined : `${(ROW_H * VISIBLE_ROWS + 8) * u}px`,
-                padding: `${4 * s}px`,
-                // A pool of darkness, not a card: the slab's edges were the
-                // hardest line inside the dial, and the ring is supposed to be
-                // the only edge on the face. No backdrop-filter — combined with
-                // a mask Chromium paints the blurred backdrop far outside the
-                // box.
-                //
-                // One ambient row needs none of it: the pool exists to hold a
-                // scrolling list off the glow, and drawn around a single line
-                // it is a smudge under the clock.
-                background: ambient
-                  ? undefined
-                  : "radial-gradient(closest-side, rgba(0,0,0,0.94), rgba(0,0,0,0.82) 62%, transparent)",
-              }}
-            >
-              {shown.map((occ) => {
-                const status = statusOf(occ, now);
-                const color = colorOf(occ.event, calendars);
-                // An all-day event is context, not a thing in progress: it is
-                // "All day", never "Now … ends in 10h", which is a countdown
-                // to midnight dressed as an appointment.
-                const running = today && !occ.event.allDay && status === "now";
-                const lead = occ.key === headline;
-                const until = occ.start.getTime() - now.getTime();
-                // Cocked, not pulsing: the pulse already means "this one is
-                // running", and two ways of saying different things with the
-                // same signal is one way of saying neither.
-                const imminent = lead && !running && until <= IMMINENT_MS;
+      {/* The card as a whole comes and goes too — a drag starting takes it
+          away, and on an empty day there is nothing to take. Both were cuts,
+          and a cut beside a readout that is gliding into its span reads as
+          the card having crashed rather than left. */}
+      <AnimatePresence initial={false}>
+        {!drag && (shown.length > 0 || centred) && (
+          <motion.div
+            key="card"
+            className="absolute top-1/2 left-1/2 flex flex-col items-center"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: reducedMotion ? 0 : MOOD_MS / 1000, ease: [...MOOD_EASE] }}
+            style={{
+              // Clears the readout, which owns the centre.
+              transform: `translate(-50%, ${56 * s}px)`,
+              // Past about here a name runs out under the drag annulus.
+              // Numeric in both moods rather than `max-content` in one: the
+              // mood change is a size change like every other one here, and a
+              // width that cannot be interpolated is a width that jumps.
+              width: `${(ambient ? 294 : 226) * u}px`,
+              gap: `${5 * s}px`,
+              transition: `${MOOD} width, ${MOOD} transform, ${MOOD} gap`,
+            }}
+          >
+            {shown.length > 0 && (
+              <div
+                className={cn(
+                  "no-scrollbar pointer-events-auto overflow-y-auto",
+                  // One row wants to be as wide as it is: left full-width, the
+                  // wait ends up an inch from the name and the pair stops
+                  // reading as a sentence.
+                  ambient ? "w-max" : "w-full",
+                  // Only when there is something below to scroll to. A permanent
+                  // fade dims the last row of a list that already fits, which
+                  // reads as a rendering fault rather than as "there is more".
+                  shown.length > VISIBLE_ROWS && "fade-b",
+                )}
+                style={{
+                  maxHeight: `${(ROW_H * (ambient ? 1 : VISIBLE_ROWS) + 8) * s}px`,
+                  padding: `${4 * s}px`,
+                  // A pool of darkness, not a card: the slab's edges were the
+                  // hardest line inside the dial, and the ring is supposed to be
+                  // the only edge on the face. No backdrop-filter — combined with
+                  // a mask Chromium paints the blurred backdrop far outside the
+                  // box.
+                  //
+                  // It stays on in ambient. `closest-side` sizes it to whatever
+                  // box it is in, and a `background-image` is the one thing here
+                  // that cannot be interpolated — dropping it for one mood is a
+                  // pop where everything around it glides.
+                  background:
+                    "radial-gradient(closest-side, rgba(0,0,0,0.94), rgba(0,0,0,0.82) 62%, transparent)",
+                  transition: `${MOOD} max-height, ${MOOD} padding`,
+                }}
+              >
+                <AnimatePresence initial={false}>
+                  {shown.map((occ) => {
+                    const status = statusOf(occ, now);
+                    const color = colorOf(occ.event, calendars);
+                    // An all-day event is context, not a thing in progress: it is
+                    // "All day", never "Now … ends in 10h", which is a countdown
+                    // to midnight dressed as an appointment.
+                    const running = today && !occ.event.allDay && status === "now";
+                    const lead = occ.key === headline;
+                    const until = occ.start.getTime() - now.getTime();
+                    // Cocked, not pulsing: the pulse already means "this one is
+                    // running", and two ways of saying different things with the
+                    // same signal is one way of saying neither.
+                    const imminent = lead && !running && until <= IMMINENT_MS;
 
-                return (
-                  <button
-                    key={occ.key}
-                    type="button"
-                    onClick={() => onOpen(occ)}
-                    onMouseEnter={() => onHover(occ.key)}
-                    onMouseLeave={() => onHover(null)}
-                    className={cn(
-                      "flex w-full items-center rounded-[6px] transition-colors",
-                      hovered === occ.key && "bg-white/8",
-                      today && status === "past" && "opacity-45",
-                    )}
-                    style={{
-                      height: `${ROW_H * s}px`,
-                      // Wider in ambient: the row is as wide as its content
-                      // there, so the gap is the only thing separating the
-                      // name from the wait, rather than a column of space.
-                      gap: `${(ambient ? 9 : 6) * s}px`,
-                      paddingInline: `${6 * s}px`,
-                    }}
-                  >
-                    <span
-                      className={cn("shrink-0 rounded-full", running && "animate-pulse")}
-                      style={{
-                        width: `${(lead ? 5.5 : 4.5) * s}px`,
-                        height: `${(lead ? 5.5 : 4.5) * s}px`,
-                        background: color,
-                        opacity: running || lead ? 1 : 0.75,
-                        boxShadow: imminent
-                          ? `0 0 0 ${1.2 * s}px #000, 0 0 0 ${2.4 * s}px ${color}59`
-                          : undefined,
-                      }}
-                    />
-                    {/* The headline spends its width on the name and the wait.
-                        What time it starts is on the ring — that is what the
-                        ring is for — and how long until it is not. */}
-                    {!lead && (
-                      <span
-                        className="shrink-0 font-mono font-medium text-ink-2 uppercase"
-                        style={{ fontSize: `${10.5 * s}px`, letterSpacing: "0.1em" }}
+                    return (
+                      // The row's own height is the wrapper's, so one leaving
+                      // closes the space it took instead of the ones below it
+                      // jumping up. Rows come and go for three reasons — an event
+                      // ending, a mode changing, a pointer landing on a past arc —
+                      // and all three used to be a cut.
+                      <motion.div
+                        key={occ.key}
+                        className="w-full overflow-hidden"
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: ROW_H * s }}
+                        exit={{ opacity: 0, height: 0 }}
+                        transition={{
+                          duration: reducedMotion ? 0 : MOOD_MS / 1000,
+                          ease: [...MOOD_EASE],
+                        }}
                       >
-                        {running
-                          ? "Now"
-                          : occ.event.allDay
-                            ? "All day"
-                            : formatTimeShort(occ.start, clock).replace(" ", "\u2009")}
-                      </span>
-                    )}
-                    <span
-                      className={cn(
-                        "truncate font-mono font-medium text-ink uppercase",
-                        lead && "leading-none",
-                      )}
-                      style={{
-                        fontSize: `${(lead ? 13 : 10.5) * s}px`,
-                        letterSpacing: lead ? "0.04em" : "0.08em",
-                      }}
-                    >
-                      {occ.event.title}
-                    </span>
-                    <span
-                      className={cn(
-                        "ml-auto shrink-0 font-mono",
-                        // The wait is the headline's whole point, so it is not
-                        // printed at the meta column's usual whisper.
-                        lead ? "text-ink-2" : "text-ink-3",
-                      )}
-                      style={{ fontSize: `${10 * s}px` }}
-                    >
-                      {running
-                        ? `ends in ${formatDuration((occ.end.getTime() - now.getTime()) / 60000)}`
-                        : lead
-                          ? untilText(until)
-                          : ""}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
+                        <button
+                          type="button"
+                          onClick={() => onOpen(occ)}
+                          onMouseEnter={() => onHover(occ.key)}
+                          onMouseLeave={() => onHover(null)}
+                          className={cn(
+                            "flex h-full w-full items-center rounded-[6px] transition-colors",
+                            hovered === occ.key && "bg-white/8",
+                            today && status === "past" && "opacity-45",
+                          )}
+                          style={{
+                            // Wider in ambient: the row is as wide as its content
+                            // there, so the gap is the only thing separating the
+                            // name from the wait, rather than a column of space.
+                            gap: `${(ambient ? 9 : 6) * s}px`,
+                            paddingInline: `${6 * s}px`,
+                            transition: `${MOOD} gap, ${MOOD} padding-inline`,
+                          }}
+                        >
+                          <span
+                            className={cn("shrink-0 rounded-full", running && "animate-pulse")}
+                            style={{
+                              width: `${(lead ? 5.5 : 4.5) * s}px`,
+                              height: `${(lead ? 5.5 : 4.5) * s}px`,
+                              background: color,
+                              opacity: running || lead ? 1 : 0.75,
+                              boxShadow: imminent
+                                ? `0 0 0 ${1.2 * s}px #000, 0 0 0 ${2.4 * s}px ${color}59`
+                                : undefined,
+                              transition: `${MOOD} width, ${MOOD} height, ${MOOD} opacity`,
+                            }}
+                          />
+                          {/* The headline spends its width on the name and the
+                          wait. What time it starts is on the ring — that is
+                          what the ring is for — and how long until it is not. */}
+                          {!lead && (
+                            <span
+                              className="shrink-0 font-mono font-medium text-ink-2 uppercase"
+                              style={{
+                                fontSize: `${10.5 * s}px`,
+                                letterSpacing: "0.1em",
+                                transition: `${MOOD} font-size`,
+                              }}
+                            >
+                              {running
+                                ? "Now"
+                                : occ.event.allDay
+                                  ? "All day"
+                                  : formatTimeShort(occ.start, clock).replace(" ", "\u2009")}
+                            </span>
+                          )}
+                          <span
+                            className={cn(
+                              "truncate font-mono font-medium text-ink uppercase",
+                              lead && "leading-none",
+                            )}
+                            style={{
+                              fontSize: `${(lead ? 13 : 10.5) * s}px`,
+                              letterSpacing: lead ? "0.04em" : "0.08em",
+                              transition: `${MOOD} font-size`,
+                            }}
+                          >
+                            {occ.event.title}
+                          </span>
+                          <span
+                            className={cn(
+                              "ml-auto shrink-0 font-mono",
+                              // The wait is the headline's whole point, so it is
+                              // not printed at the meta column's usual whisper.
+                              lead ? "text-ink-2" : "text-ink-3",
+                            )}
+                            style={{ fontSize: `${10 * s}px`, transition: `${MOOD} font-size` }}
+                          >
+                            {running
+                              ? `ends in ${formatDuration((occ.end.getTime() - now.getTime()) / 60000)}`
+                              : lead
+                                ? untilText(until)
+                                : ""}
+                          </span>
+                        </button>
+                      </motion.div>
+                    );
+                  })}
+                </AnimatePresence>
+              </div>
+            )}
 
-          {centred}
-        </div>
-      )}
+            <AnimatePresence initial={false}>{centred}</AnimatePresence>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Anywhere but the centre, the line leaves the card and takes a corner
           of the stage — which on any window wider than it is tall is black the
           circle never reaches. Padded off the edge, because a line flush to a
           window edge reads as something that fell off. */}
-      {totalsLine && !centred && (
+      {totalsAt !== "center" && (
         <div
           className={cn(
             "absolute inset-0 flex p-4",
             CORNERS[totalsAt as Exclude<TotalsPosition, "center">],
           )}
         >
-          {totalsLine}
+          <AnimatePresence initial={false}>{totalsLine}</AnimatePresence>
         </div>
       )}
     </div>

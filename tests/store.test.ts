@@ -609,7 +609,8 @@ describe("sane() via parsing a stored blob", () => {
     const { settings } = (await freshStore(storage)).store.snapshot();
     expect(settings.ambientAfter).toBe(0);
     expect(settings.ambientDim).toBe(true);
-    expect(settings.ambientLightcycle).toBe(true);
+    expect(settings.ambientDaylight).toBe(true);
+    expect(settings.ambientMoonlight).toBe(true);
     expect(settings.ambientZoneRing).toBe(false);
     expect(settings.ambientArcLabels).toBe("off");
   });

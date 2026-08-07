@@ -290,7 +290,9 @@ are not.
 - **Wake lock, cursor, drift.** The screen is held awake and re-held on `visibilitychange` (the
   platform drops it on every hide). The pointer goes after two seconds. The whole face wanders six
   pixels over five minutes, so a static rim never burns in.
-- **The hand glides its minute.** `useEasedAngle`, 420 ms, the only thing that moves. A second hand
+- **The hand glides its minute.** `useEasedAngle`, 420 ms, on both faces rather than only in
+  ambient — a clock whose hand steps is a clock that redraws, and the mode only makes it obvious.
+  `NowHand` is keyed on the clock so the 180° relabel stays a jump. A second hand
   was the obvious idea and it contradicts the product's one sentence.
 
 Two things fell out of it that were bugs of their own: `useNow` takes a period and ambient runs at
@@ -300,9 +302,13 @@ sees the same press, so the palette and the editor now `stopPropagation` and one
 thing.
 
 It has its own section in Settings, because a display mode's face is its own question:
-`ambientDim`, `ambientLightcycle`, `ambientZoneRing`, `ambientArcLabels` (`off` by default, where
-the working face's is `always`) and `ambientAfter`. Every switch can only take away what the
-working face already draws — a mode is not an argument with a choice the user already made.
+`ambientDim`, `ambientDaylight`, `ambientMoonlight`, `ambientZoneRing`, `ambientArcLabels` (`off`
+by default, where the working face's is `always`) and `ambientAfter`.
+
+The two halves are its own, not a view of the working face's — only the _place_ is shared, because
+a person is somewhere and that is not a property of a mode. The halves are: on the working face
+the band shares the rim with a day's arcs and dropping one is a legibility trade, and on a face
+that is nothing but the rim it is the picture.
 
 `ambientAfter` is the one that acts on its own, so it carries the most rules: armed only on the
 dial with nothing open, and `AmbientMode` is `off | manual | auto` because how it arrived decides
@@ -314,6 +320,20 @@ without it the mode arrived and left in the same frame.
 And the default face is now `24h`. It is the one that matches the instrument: a revolution here is
 a whole day, so an hour has exactly one place on it. No schema bump — a default is what a blob says
 when it says nothing, and every stored blob says one or the other out loud.
+
+**And nothing about the change is a cut.** That was the second pass and it is most of the work:
+
+- The rim crossfades. `Fade` in `Dial.tsx` is an `AnimatePresence`-mounted `motion.g`, so the band
+  and the elapsed trail dissolve into each other rather than swapping, and nothing is kept on the
+  canvas for the sake of the transition.
+- The eight minor numerals recede by opacity rather than unmounting, and an arc's name is now
+  `off` by opacity too — `labels === "off"` used to unmount the `<textPath>`, which blinked every
+  name on the face out at once.
+- The centre moves as one object: `MOOD` (140 ms, the arc's own stroke beat) on every size in it,
+  and the card's rows enter and leave through `AnimatePresence` with their own height. The width
+  went back to a number, because `max-content` cannot be interpolated.
+- The sidebar's content is held mounted while it leaves, so the column's 220 ms of width has
+  something in it to clip.
 
 What is left here:
 
