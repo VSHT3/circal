@@ -483,3 +483,129 @@ describe("parseQuickAdd reads a rule out of the sentence", () => {
     expect(parseQuickAdd("every 2 weeks 9am", REFERENCE, NOW)).toBeNull();
   });
 });
+
+/* ---------------------------- relative to now ------------------------------ */
+
+describe("parseQuickAdd reads an offset from now", () => {
+  // NOW is 10:07, so every case below also proves the quarter-hour rounding:
+  // a machine-chosen time in this app always lands on the dial's own grid.
+  it.each([
+    { input: "dinner in 2h", startMin: 12 * 60, endMin: 13 * 60 },
+    { input: "dinner in 2 hours", startMin: 12 * 60, endMin: 13 * 60 },
+    { input: "dinner in an hour", startMin: 11 * 60, endMin: 12 * 60 },
+    { input: "dinner in 90m", startMin: 11 * 60 + 30, endMin: 12 * 60 + 30 },
+    { input: "dinner in 20min", startMin: 10 * 60 + 30, endMin: 11 * 60 + 30 },
+    // Greedy: `in 1h 30m` is ninety minutes from now, never "in an hour, for
+    // half of one".
+    { input: "dinner in 1h 30m", startMin: 11 * 60 + 30, endMin: 12 * 60 + 30 },
+    { input: "dinner in 2h 45m", startMin: 12 * 60 + 45, endMin: 13 * 60 + 45 },
+    // The quarter you are in, not the next one: at 10:07 the next one is eight
+    // minutes away, which is not what "now" means.
+    { input: "dinner now", startMin: 10 * 60, endMin: 11 * 60 },
+  ])("reads $input as $startMin–$endMin today", ({ input, startMin, endMin }) => {
+    expect(shape(input)).toEqual({
+      title: "dinner",
+      day: "2026-08-05",
+      startMin,
+      endMin,
+      allDay: false,
+    });
+  });
+
+  // A length beside an offset goes in front of the name, because everything
+  // after `in` belongs to the offset.
+  it.each(["45min dinner in 1h", "dinner in 1h for 45min", "45m dinner in 1h"])(
+    "takes a leading length in %o",
+    (input) => {
+      expect(shape(input)).toEqual({
+        title: "dinner",
+        day: "2026-08-05",
+        startMin: 11 * 60,
+        endMin: 11 * 60 + 45,
+        allDay: false,
+      });
+    },
+  );
+
+  it("takes a leading length on its own", () => {
+    expect(shape("45m run")).toEqual({
+      title: "run",
+      day: "2026-08-05",
+      startMin: defaultStart(REFERENCE, 45, NOW),
+      endMin: defaultStart(REFERENCE, 45, NOW) + 45,
+      allDay: false,
+    });
+  });
+
+  it("never eats the whole line as a length", () => {
+    expect(parseQuickAdd("45m", REFERENCE, NOW)).toBeNull();
+    expect(parseQuickAdd("in 2h", REFERENCE, NOW)).toBeNull();
+    expect(parseQuickAdd("now", REFERENCE, NOW)).toBeNull();
+  });
+
+  // The decision: an offset names a clock, a date still names the day.
+  it("keeps a named day and takes only the clock from the offset", () => {
+    expect(shape("dinner tomorrow in 2h")).toMatchObject({
+      day: "2026-08-06",
+      startMin: 12 * 60,
+    });
+    expect(shape("dinner 2026-09-14 in 2h")).toMatchObject({
+      day: "2026-09-14",
+      startMin: 12 * 60,
+    });
+  });
+
+  it("rolls onto tomorrow when the offset crosses midnight", () => {
+    const late = at("2026-08-05 23:20");
+    expect(shape("dinner in 2h", REFERENCE, late)).toMatchObject({
+      day: "2026-08-06",
+      startMin: 75,
+    });
+  });
+
+  // With a day named, the roll is the named day's business and not the clock's.
+  it("does not roll a named day past itself", () => {
+    const late = at("2026-08-05 23:20");
+    expect(shape("dinner tomorrow in 2h", REFERENCE, late)).toMatchObject({
+      day: "2026-08-06",
+      startMin: 75,
+    });
+  });
+
+  it("measures from now even when another day is on screen", () => {
+    expect(shape("dinner in 2h", day("2026-12-24"))).toMatchObject({
+      day: "2026-08-05",
+      startMin: 12 * 60,
+    });
+  });
+
+  it("lets an explicit time win over an offset", () => {
+    expect(shape("dinner 8pm in 2h")).toMatchObject({ startMin: 20 * 60 });
+  });
+
+  it("takes a rule beside an offset", () => {
+    expect(shape("gym every monday in 2h")).toMatchObject({
+      day: "2026-08-10",
+      startMin: 12 * 60,
+    });
+  });
+
+  // `in` is only an offset when a length follows it. Otherwise it is a word.
+  it.each([
+    { input: "dinner in Rome 8pm", title: "dinner in Rome" },
+    { input: "standup in the studio 9:30", title: "standup in the studio" },
+    { input: "coffee in a bit 3pm", title: "coffee in a bit" },
+  ])("leaves the preposition alone in $input", ({ input, title }) => {
+    expect(shape(input)?.title).toBe(title);
+  });
+
+  it("still reads `in 3 days` as the date it always was", () => {
+    expect(shape("checkup in 3 days")).toEqual({
+      title: "checkup",
+      day: "2026-08-08",
+      startMin: 0,
+      endMin: MINUTES_PER_DAY,
+      allDay: true,
+    });
+  });
+});

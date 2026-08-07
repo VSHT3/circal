@@ -49,6 +49,9 @@ const DATE_WORDS = 3;
 /** The longest a repeat phrase gets: `every other week`, `every 2 weeks`. */
 const REPEAT_WORDS = 3;
 
+/** The longest an offset phrase gets: `in 2h 45m`, `in 2 hours`. */
+const OFFSET_WORDS = 3;
+
 /**
  * A preposition left dangling by the token it introduced — `lunch at 1pm`,
  * `run for 40m`. Only ever stripped from the very end of what is left, so a
@@ -57,6 +60,31 @@ const REPEAT_WORDS = 3;
  * range is written with a dash.
  */
 const FILLER = new Set(["at", "on", "from", "for", "@"]);
+
+/**
+ * `in 2h`, `in 90m`, `in an hour`, `now` — minutes from *this moment*, rather
+ * than a length. The word `in` is the whole switch: `dinner 2h` is a two-hour
+ * dinner and `dinner in 2h` is a dinner two hours from now, and the only thing
+ * telling them apart is that preposition. Which is also why `in` is not in
+ * `FILLER`: swept up as a connector it would leave the length reading in place,
+ * quietly wrong, with the word gone from the title that was hiding it.
+ *
+ * Everything after `in` is the offset, greedily — `in 1h 30m` is ninety minutes
+ * from now and must never be read as "in an hour, lasting thirty minutes". A
+ * length beside an offset goes in front of the name: `45min dinner in 1h`.
+ */
+function parseOffset(raw: string): number | null {
+  const query = raw.trim().toLowerCase();
+  if (query === "now") return 0;
+
+  const relative = /^in\s+(.+)$/.exec(query);
+  if (!relative) return null;
+
+  // `in an hour` is how people say `in 1h`, and an article is the only word
+  // between the two.
+  const minutes = parseDurationToken(relative[1].replace(/^an?\s+/, "1 "));
+  return minutes !== null && minutes > 0 ? minutes : null;
+}
 
 /**
  * Resolves free-text into a date, relative to `reference` (the day the
@@ -374,6 +402,9 @@ export interface QuickAdd {
  * - **A rule moves the first instance onto a day it generates.** `gym every
  *   monday` created on a Wednesday must not be an event whose own rule skips
  *   the day it was made on — it would vanish off the face as you saved it.
+ * - **An offset names a clock; a date still names the day.** `dinner tomorrow
+ *   in 2h` is tomorrow at this time plus two hours, because the sentence says
+ *   both and each is answering a different question.
  */
 export function parseQuickAdd(input: string, reference: Date, now = new Date()): QuickAdd | null {
   // A hyphen is joined only between two digits, so `13:15 - 14:00` is one
@@ -410,8 +441,19 @@ export function parseQuickAdd(input: string, reference: Date, now = new Date()):
   let span: Span | null = null;
   let duration: number | null = null;
   let repeat: RepeatSpec | null = null;
+  let offset: number | null = null;
 
   while (end > 0) {
+    // Offsets before durations, for the same reason and in the same breath:
+    // `in 2h` has to be claimed whole, or the duration matcher takes the `2h`
+    // out from under it and leaves `in` stranded in the title.
+    if (offset === null && span === null) {
+      const value = claim(OFFSET_WORDS, parseOffset);
+      if (value !== null) {
+        offset = value;
+        continue;
+      }
+    }
     // Repetition before the date, because `every friday` ends in a weekday and
     // a date matcher would take it for one — leaving `every` in the title and
     // an event that happens once.
@@ -455,9 +497,35 @@ export function parseQuickAdd(input: string, reference: Date, now = new Date()):
     break;
   }
 
+  // A length in front of the name — `45min dinner`, and the only way to say a
+  // length *and* an offset in one line, since everything after `in` belongs to
+  // the offset. Claimed from the left, after the right-to-left pass, so a
+  // trailing length still wins and a title is never left empty.
+  if (duration === null) {
+    for (let words = Math.min(2, end - 1); words >= 1; words--) {
+      const minutes = parseDurationToken(phrase(0, words));
+      if (minutes !== null && minutes > 0) {
+        duration = minutes;
+        tokens.splice(0, words);
+        end -= words;
+        break;
+      }
+    }
+  }
+
   const title = phrase(0, end).trim();
   if (!title) return null;
-  if (!dated && span === null && duration === null && repeat === null) return null;
+  if (!dated && span === null && duration === null && repeat === null && offset === null) {
+    return null;
+  }
+
+  // An offset is measured from now, so it also decides the day — but only when
+  // the line did not name one. `dinner tomorrow in 2h` keeps tomorrow and takes
+  // the clock, which is what the words say: one names a day, the other an hour.
+  const fromNow = offset === null ? null : snap(minutesOfDay(now) + offset, 15);
+  if (fromNow !== null && !dated) {
+    day = addDays(startOfDay(now), Math.floor(fromNow / MINUTES_PER_DAY));
+  }
 
   if (!dated && repeat && repeat.byDay.length > 0) {
     const wanted = new Set(repeat.byDay.map((w) => w.day));
@@ -471,6 +539,9 @@ export function parseQuickAdd(input: string, reference: Date, now = new Date()):
     // A range that named both ends wins over a duration: `1pm-2pm 30m` is an
     // hour with a redundant word in it, not half an hour.
     endMin = span.endMin ?? startMin + (duration ?? DEFAULT_DURATION);
+  } else if (fromNow !== null) {
+    startMin = fromNow % MINUTES_PER_DAY;
+    endMin = startMin + (duration ?? DEFAULT_DURATION);
   } else if (duration !== null) {
     startMin = defaultStart(day, duration, now);
     endMin = startMin + duration;
