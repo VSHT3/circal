@@ -126,10 +126,19 @@ export interface EventEditorProps {
 
 export interface YearViewProps {
   year: number;
+  /** Ticking, but read at day resolution: the face marks today with a pip. */
   today: Date;
   selected: Date;
   events: CalEvent[];
   calendars: Calendar[];
+  /**
+   * The life grid's geometry, resolved by the shell — the year ring owns both
+   * halves of the unroll and needs to know where its row lands before that
+   * grid exists. `null` when there is no life to unroll into, which falls the
+   * pair back to a crossfade.
+   */
+  stage: LifeStage | null;
+  flow: RefObject<ViewFlow>;
   onSelectDay: (day: Date) => void;
 }
 

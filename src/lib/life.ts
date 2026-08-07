@@ -215,10 +215,9 @@ export function lifeStage(
   return { span, layout: lifeLayout(box.width, box.height, span), box };
 }
 
-/** Monday-first weekday of `date` — 0 for Monday, 6 for Sunday. Exported so
- *  a caller drawing its own week grid (`YearView`'s month blocks) reads the
- *  same offset this file does, rather than re-deriving the `+6 % WEEK` trick
- *  and risking the two disagreeing on where a week starts. */
+/** Monday-first weekday of `date` — 0 for Monday, 6 for Sunday. It is what
+ *  makes any seven adjacent columns of the grid a real week: a year starts as
+ *  many blank slots in as its 1 January is deep into its own. */
 export function mondayOffset(date: Date): number {
   return (date.getDay() + 6) % WEEK;
 }
@@ -435,27 +434,33 @@ export function lifeDensity(
 }
 
 /**
- * Up to `max` distinct colours the events landing on `day` carry, in the
- * order `occurrencesOn` returns them. The one place that resolves "what
- * colour is this day" from a day's occurrences, so `YearView`'s month grid
- * calls it once per cell rather than re-deriving its own dedup loop — a
- * hidden calendar, an override or a colour-precedence rule then reads the
- * same wherever a day is drawn as a dot instead of an agenda.
+ * What a day carries: how many occurrences land on it, and the distinct
+ * colours they wear, in the order `occurrencesOn` returns them.
+ *
+ * The one place that resolves "what is on this day, and what colour is it"
+ * from a day's occurrences, so the life grid, the year ring and the year
+ * ring's screen-reader labels all read the same answer — a hidden calendar,
+ * an override or a colour-precedence rule then applies wherever a day is
+ * drawn as a mark instead of as an agenda.
+ *
+ * `Tally` rather than `Load`: `CenterPanel` already has a `dayLoad`, and that
+ * one answers a different question in different units — how many *minutes* of
+ * a day are booked against free.
  */
-export function dayColors(
-  events: CalEvent[],
-  calendars: Calendar[],
-  day: Date,
-  max: number,
-): string[] {
+export interface DayTally {
+  count: number;
+  colors: string[];
+}
+
+export function dayTally(events: CalEvent[], calendars: Calendar[], day: Date): DayTally {
   const colors: string[] = [];
+  let count = 0;
   for (const occ of occurrencesOn(events, calendars, day)) {
+    count += 1;
     const color = colorOf(occ.event, calendars);
-    if (colors.includes(color)) continue;
-    colors.push(color);
-    if (colors.length === max) break;
+    if (!colors.includes(color)) colors.push(color);
   }
-  return colors;
+  return { count, colors };
 }
 
 /* ---------------------------------- stats --------------------------------- */

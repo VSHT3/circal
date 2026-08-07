@@ -21,7 +21,7 @@ import { notify } from "@/lib/notify";
 import { DEFAULT_DURATION, defaultStart } from "@/lib/quickadd";
 import { addDays, dayKey, formatRelativeDay, fromDayKey, isSameDay, startOfDay } from "@/lib/time";
 import { LIFE_META_H, lifeDot, lifeStage } from "@/lib/life";
-import { EASE, MODE_MS } from "@/lib/motion";
+import { EASE, MODE_MS, UNROLL_IN_MS, UNROLL_OUT_MS } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import {
   useElementSize,
@@ -69,9 +69,8 @@ const TOP_BAR_H = 48;
 const AUTO_AMBIENT_GRACE_MS = 500;
 
 /**
- * Day ⇄ life is the one pair that zooms, because it is the one pair where the
- * same thing is drawn at two scales: the dial *is* the dot it lands on. Every
- * other pair crossfades — a year grid is not a magnified anything.
+ * Day ⇄ life is the one pair that *zooms*, because it is the one pair where
+ * the same thing is drawn at two scales: the dial *is* the dot it lands on.
  */
 function zoomsOut(flow: ViewFlow): boolean {
   return flow.from === "day" && flow.to === "life";
@@ -79,6 +78,24 @@ function zoomsOut(flow: ViewFlow): boolean {
 
 function zoomsIn(flow: ViewFlow): boolean {
   return flow.from === "life" && flow.to === "day";
+}
+
+/**
+ * Year ⇄ life *unrolls*, on a stricter identity still: a year in day order
+ * round a circle is a row of the life grid rolled up. `YearView` draws both
+ * halves on its own canvas and holds its unmount open with `usePresence`, so
+ * all the shell has to do here is keep the panels out of the way — no fade
+ * over the top of a transition that is already showing you the whole thing.
+ *
+ * Day ⇄ year is neither, and crossfades: a day is not a magnified year and it
+ * is not a rolled-up one either.
+ */
+function unrollsOut(flow: ViewFlow): boolean {
+  return flow.from === "year" && flow.to === "life";
+}
+
+function unrollsIn(flow: ViewFlow): boolean {
+  return flow.from === "life" && flow.to === "year";
 }
 
 /**
@@ -107,46 +124,72 @@ const ZOOM_IN = { duration: 0.8, delay: 0.3, ease: "linear" as const, times: [..
  * that is the whole point, since by then the panel's own props are frozen.
  */
 const PANEL = {
-  initial: (flow: RefObject<ViewFlow>) =>
-    zoomsIn(flow.current)
-      ? { opacity: 0, scale: ZOOM_STEPS[ZOOM_STEPS.length - 1] }
-      : { opacity: 0, scale: 1 },
-  active: (flow: RefObject<ViewFlow>) =>
-    zoomsIn(flow.current)
-      ? {
-          // The dial grows out of the dot it left from, fading up early so it
-          // is a dial arriving rather than a dot inflating.
-          opacity: [0, 1, 1, 1, 1],
-          scale: [...ZOOM_STEPS].reverse(),
-          transition: ZOOM_IN,
-        }
-      : {
-          opacity: 1,
-          scale: 1,
-          // Arriving over a dial that is collapsing: wait for it, or the two
-          // fades cross in the middle and both look like ghosts.
-          transition: {
-            duration: 0.4,
-            delay: zoomsOut(flow.current) ? 0.18 : 0,
-            ease: EASE,
-          },
-        },
-  exit: (flow: RefObject<ViewFlow>) =>
-    zoomsOut(flow.current)
-      ? {
-          // Held opaque until it is genuinely small: a dial that fades while
-          // it is still large looks like it is being switched off, not moved.
-          opacity: [1, 1, 0.9, 0.5, 0],
-          scale: [...ZOOM_STEPS],
-          pointerEvents: "none" as const,
-          transition: ZOOM_OUT,
-        }
-      : {
-          opacity: 0,
-          scale: 0.97,
-          pointerEvents: "none" as const,
-          transition: { duration: 0.3, ease: EASE },
-        },
+  initial: (flow: RefObject<ViewFlow>) => {
+    if (zoomsIn(flow.current)) return { opacity: 0, scale: ZOOM_STEPS[ZOOM_STEPS.length - 1] };
+    // The ring arrives already drawn, on the canvas, exactly over the dots it
+    // is lifting off. Fading it up would dim the one frame that has to match.
+    if (unrollsIn(flow.current)) return { opacity: 1, scale: 1 };
+    return { opacity: 0, scale: 1 };
+  },
+  active: (flow: RefObject<ViewFlow>) => {
+    if (zoomsIn(flow.current)) {
+      // The dial grows out of the dot it left from, fading up early so it is
+      // a dial arriving rather than a dot inflating.
+      return {
+        opacity: [0, 1, 1, 1, 1],
+        scale: [...ZOOM_STEPS].reverse(),
+        transition: ZOOM_IN,
+      };
+    }
+    if (unrollsIn(flow.current)) return { opacity: 1, scale: 1, transition: { duration: 0 } };
+    return {
+      opacity: 1,
+      scale: 1,
+      // Arriving over a dial that is collapsing: wait for it, or the two
+      // fades cross in the middle and both look like ghosts.
+      //
+      // Arriving under an unrolling ring costs more waiting still. The ring
+      // is the same greys the grid is, so against thirty thousand dots the
+      // whole movement is invisible — it has to happen on black, and the grid
+      // comes up as the days settle onto it.
+      transition: {
+        duration: 0.45,
+        delay: unrollsOut(flow.current) ? 0.44 : zoomsOut(flow.current) ? 0.18 : 0,
+        ease: EASE,
+      },
+    };
+  },
+  exit: (flow: RefObject<ViewFlow>) => {
+    if (zoomsOut(flow.current)) {
+      // Held opaque until it is genuinely small: a dial that fades while it
+      // is still large looks like it is being switched off, not moved.
+      return {
+        opacity: [1, 1, 0.9, 0.5, 0],
+        scale: [...ZOOM_STEPS],
+        pointerEvents: "none" as const,
+        transition: ZOOM_OUT,
+      };
+    }
+    if (unrollsOut(flow.current)) {
+      // Neither fades nor shrinks: the canvas inside is drawing the whole
+      // transition, and a fade over it would only take contrast off it.
+      // `usePresence` in `YearView` is what actually holds the unmount.
+      return {
+        opacity: 1,
+        scale: 1,
+        pointerEvents: "none" as const,
+        transition: { duration: UNROLL_OUT_MS / 1000 },
+      };
+    }
+    return {
+      opacity: 0,
+      scale: 0.97,
+      pointerEvents: "none" as const,
+      // Leaving under a ring rolling up: gone by the time the row it lifted
+      // off would be missed, and not before.
+      transition: { duration: unrollsIn(flow.current) ? UNROLL_IN_MS / 1600 : 0.3, ease: EASE },
+    };
+  },
 } as const;
 
 /* ---------------------------------- url ----------------------------------- */
@@ -771,6 +814,8 @@ export default function App() {
                   selected={day}
                   events={visible}
                   calendars={calendars}
+                  stage={stage}
+                  flow={flow}
                   onSelectDay={(next) => actions.goDay(next)}
                 />
               )}

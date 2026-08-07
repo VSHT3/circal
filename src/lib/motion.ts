@@ -39,3 +39,17 @@ export const MOOD_MS = 260;
  * place is a webpage doing an animation.
  */
 export const MODE_MS = 600;
+
+/**
+ * The year ring unrolling into its row of the life grid, and rolling back up.
+ *
+ * Long, like the day zoom, and for the same reason: it is a change of *shape*
+ * rather than of state, and at half a second a circle becoming a line reads
+ * as a glitch instead of as a move. Rolling up is shorter — arriving
+ * somewhere is allowed to be brisker than leaving it.
+ *
+ * Both are here rather than in `YearView` because the shell has to hold the
+ * leaving panel open for exactly as long as the canvas inside it is drawing.
+ */
+export const UNROLL_OUT_MS = 950;
+export const UNROLL_IN_MS = 750;
