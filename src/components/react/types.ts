@@ -154,6 +154,23 @@ export interface EventEditorProps {
   onDraftChange: (draft: Omit<CalEvent, "id">) => void;
 }
 
+export interface ScopeChoicesProps {
+  /** The label above the answers: what the press is about to do. */
+  heading: string;
+  /** Destructive, so the three answers take the danger colour. */
+  danger?: boolean;
+  onPick: (scope: EditScope) => void;
+  onCancel: () => void;
+}
+
+export interface ScopeDialogProps extends Omit<ScopeChoicesProps, "danger"> {
+  /** The event being changed. A gesture is over by the time this appears, so
+   *  the card has to say what it is asking about. */
+  title: string;
+  /** Where the gesture has just put it — the span, in the app's clock. */
+  detail: string;
+}
+
 export interface YearViewProps {
   year: number;
   /** Ticking, but read at day resolution: the face marks today with a pip. */

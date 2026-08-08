@@ -43,19 +43,10 @@ import {
   Switch,
   openDatePicker,
 } from "@/components/react/ui/primitives";
+import { ScopeChoices } from "@/components/react/ScopePrompt";
 import type { EditScope, EventEditorProps } from "@/components/react/types";
 
 const MIN_DURATION_MIN = 5;
-
-/**
- * The three answers, narrowest first: the safe one is the shortest reach, and
- * the one that rewrites a year of history is the furthest.
- */
-const SCOPES: { scope: EditScope; label: string }[] = [
-  { scope: "one", label: "Only this one" },
-  { scope: "future", label: "This and all future" },
-  { scope: "all", label: "The whole series" },
-];
 
 /**
  * A twelve-hour clock field. Free text while focused, normalised on blur or
@@ -895,34 +886,13 @@ export default function EventEditor({
               written. It replaces that row rather than sitting above it — two
               rows of verbs, one of them now inert, is a footer that lies. */}
           {pending ? (
-            <div className="border-t border-hairline px-3.5 py-3">
-              <span className="label text-ink-3">
-                {pending === "save" ? "Save this change to" : "Delete"}
-              </span>
-              <div className="mt-2 flex flex-col gap-1">
-                {SCOPES.map(({ scope, label }, i) => (
-                  <button
-                    key={scope}
-                    autoFocus={i === 0}
-                    type="button"
-                    onClick={() => (pending === "save" ? save(scope) : onDelete(scope))}
-                    className={cn(
-                      "flex h-9 items-center rounded-[9px] border border-hairline bg-surface-2 px-3 text-left text-[14px] transition-colors hover:bg-white/10",
-                      pending === "delete" ? "text-danger" : "text-ink",
-                    )}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-              <button
-                type="button"
-                onClick={() => setPending(null)}
-                className="mt-2.5 flex items-center gap-1.5 px-1 text-[14px] text-ink-2 transition-colors hover:text-ink"
-              >
-                Cancel
-                <Kbd>esc</Kbd>
-              </button>
+            <div className="border-t border-hairline">
+              <ScopeChoices
+                heading={pending === "save" ? "Save this change to" : "Delete"}
+                danger={pending === "delete"}
+                onPick={pending === "save" ? save : onDelete}
+                onCancel={() => setPending(null)}
+              />
             </div>
           ) : (
             <div className="flex items-center gap-2 border-t border-hairline px-3 py-2.5">

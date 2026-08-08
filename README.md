@@ -50,7 +50,7 @@ never how many days there are.
 
 A repeating event is asked what an edit means, at the moment it lands rather
 than as a standing row of buttons: press **Save** or **Delete** on one and the
-footer becomes the question, with three answers.
+editor's footer becomes the question, with three answers.
 
 - **Only this one** — the change becomes its own event, replacing that one
   occurrence and leaving the rule alone. Deleting takes the same shape: the day
@@ -62,9 +62,13 @@ footer becomes the question, with three answers.
 - **The whole series** — the rule itself, every occurrence of it, and the
   exceptions that detached from it.
 
-`esc` backs out of the question and leaves the edit on screen; a second press
-closes the editor. A one-off is never asked — there is only one thing it could
-mean.
+**Dragging one of its arcs on the dial asks the same question**, in a card of
+its own, when you let go. Nothing is written until you answer: the arc holds
+the position you dragged it to while the card is up, and Cancel puts it back.
+
+`esc` backs out of the question — in the editor it leaves the edit on screen
+and a second press closes; on the dial it abandons the drag. A one-off is never
+asked, on either surface: there is only one thing it could mean.
 
 ## The middle of the face
 

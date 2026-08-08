@@ -16,6 +16,7 @@ import {
   colorOf,
   dayAgenda,
   instantKey,
+  repeats,
   type CalEvent,
   type Occurrence,
 } from "@/lib/events";
@@ -31,6 +32,7 @@ import {
   addDays,
   dayKey,
   formatRelativeDay,
+  formatTime,
   fromDayKey,
   isSameDay,
   startOfDay,
@@ -62,6 +64,7 @@ import EventEditor from "./EventEditor";
 import LifeView from "./LifeView";
 import Settings from "./Settings";
 import Sidebar from "./Sidebar";
+import { ScopeDialog } from "./ScopePrompt";
 import Toast from "./Toast";
 import TopBar from "./TopBar";
 import YearView from "./YearView";
@@ -277,6 +280,24 @@ function onOccurrence(draft: Omit<CalEvent, "id">, seedMs: number, at: number) {
   return { start: draft.start + shift, end: draft.end + shift };
 }
 
+/** A drag waiting on its scope. The deltas are the dial's own: an end each for
+ *  a resize, both for a move. */
+interface PendingAdjust {
+  occ: Occurrence;
+  startDeltaMin: number;
+  endDeltaMin: number;
+}
+
+/** Where a pending drag has put its occurrence, in the app's clock — the line
+ *  the scope card prints, because the card covers the readout that would
+ *  otherwise be saying it. */
+function adjustSpan({ occ, startDeltaMin, endDeltaMin }: PendingAdjust, clock: Clock): string {
+  const start = new Date(occ.start.getTime() + startDeltaMin * 60_000);
+  const end = new Date(occ.end.getTime() + endDeltaMin * 60_000);
+  const day = isSameDay(start, occ.start) ? "" : `${formatRelativeDay(start)} · `;
+  return `${day}${formatTime(start, clock)} – ${formatTime(end, clock)}`;
+}
+
 export default function App() {
   const { events, calendars, feeds, settings } = useStore();
   /**
@@ -345,6 +366,14 @@ export default function App() {
    * dial clears it on release, on Escape, and on being unmounted.
    */
   const [preview, setPreview] = useState<DragPreview | null>(null);
+
+  /**
+   * A drag that has landed on a repeating event and is waiting to be told what
+   * it meant. The gesture is over by then and nothing has been written: the
+   * arc holds its new position on `preview` alone, and Cancel is a matter of
+   * dropping that.
+   */
+  const [pendingAdjust, setPendingAdjust] = useState<PendingAdjust | null>(null);
 
   /**
    * Everything the dial draws: what you wrote plus what you subscribed to.
@@ -510,7 +539,7 @@ export default function App() {
    * fired over a half-finished event would be a data loss dressed as a
    * screensaver. Both conditions read as "there is nothing here to interrupt".
    */
-  const busy = paletteOpen || settingsOpen || editor !== null;
+  const busy = paletteOpen || settingsOpen || editor !== null || pendingAdjust !== null;
   useIdleAfter(
     inAmbient || busy || view !== "day" ? 0 : settings.ambientAfter * 60_000,
     useCallback(() => setAmbient("auto"), []),
@@ -839,29 +868,97 @@ export default function App() {
   );
 
   /**
-   * An arc dragged on the dial. The deltas are minutes and they apply to the
-   * event's own instants, so a recurring event moves as a series (the seed
-   * moves, every occurrence follows) and one dragged past midnight lands on
-   * the next day and leaves this one — which is what dragging it there meant.
+   * An arc dragged on the dial, applied. The deltas are minutes. `"all"` puts
+   * them on the event's own instants, so the seed moves and every occurrence
+   * follows it; the other two measure from the occurrence that was actually
+   * under the pointer, and leave the rest of the series where it was.
    *
-   * The view has usually followed it there already: the dial asks for the step
-   * itself as the drag carries the arc through midnight. The notice is for the
-   * case where it could not — a multi-day event's clipped occurrence, whose
-   * visible ends are not the event's own instants — because an arc that leaves
-   * the face without a word reads as a deletion.
+   * An event dragged past midnight leaves the day, and the view has usually
+   * followed it there already: the dial asks for the step itself as the drag
+   * carries the arc through. The notice is for the case where it could not —
+   * a multi-day event's clipped occurrence, whose visible ends are not the
+   * event's own instants — because an arc that leaves the face without a word
+   * reads as a deletion.
    */
-  const adjustOccurrence = useCallback(
-    (occ: Occurrence, startDeltaMin: number, endDeltaMin: number) => {
-      const { event } = occ;
-      const start = event.start + startDeltaMin * 60_000;
-      const end = event.end + endDeltaMin * 60_000;
-      store.update(event.id, { start, end });
-      if (!isSameDay(new Date(start), day)) {
-        notify(`Moved to ${formatRelativeDay(new Date(start))} — ⌘Z to undo`);
+  const commitAdjust = useCallback(
+    (occ: Occurrence, startDeltaMin: number, endDeltaMin: number, scope: EditScope) => {
+      const { id: _id, ...body } = occ.event;
+      const at = occ.start.getTime();
+      const moved = (ms: number, minutes: number) => ms + minutes * 60_000;
+      const start = moved(at, startDeltaMin);
+      const end = moved(occ.end.getTime(), endDeltaMin);
+      // What the write actually landed on, which is what the notice is about:
+      // the series' own seed for a whole-series move, this occurrence for the
+      // two that only touch one.
+      let landed = start;
+      switch (effectiveScope(scope, occ.event.start, at)) {
+        case "all":
+          landed = moved(occ.event.start, startDeltaMin);
+          store.update(occ.event.id, { start: landed, end: moved(occ.event.end, endDeltaMin) });
+          break;
+        case "one":
+          store.create({
+            ...body,
+            ...NEVER,
+            start,
+            end,
+            seriesId: occ.event.id,
+            seriesKey: instantKey(at),
+          });
+          break;
+        case "future":
+          store.splitSeries(occ.event.id, at, { ...body, start, end });
+          break;
+      }
+      if (!isSameDay(new Date(landed), day)) {
+        notify(`Moved to ${formatRelativeDay(new Date(landed))} — ⌘Z to undo`);
       }
     },
     [day],
   );
+
+  /**
+   * The dial's release. A one-off is written there and then — the gesture said
+   * everything it had to say. A repeating event is asked what the drag meant,
+   * the same three ways the editor asks.
+   */
+  const adjustOccurrence = useCallback(
+    (occ: Occurrence, startDeltaMin: number, endDeltaMin: number) => {
+      if (!repeats(occ.event)) {
+        commitAdjust(occ, startDeltaMin, endDeltaMin, "all");
+        return;
+      }
+      setPendingAdjust({ occ, startDeltaMin, endDeltaMin });
+      // The dial drops its preview the moment the pointer lifts. Re-arming it
+      // here is what keeps the arc where the drag left it while the question
+      // is up: springing back to the old position and then jumping again on
+      // the answer reads as the gesture having failed.
+      setPreview({
+        id: occ.event.id,
+        start: occ.event.start + startDeltaMin * 60_000,
+        end: occ.event.end + endDeltaMin * 60_000,
+      });
+    },
+    [commitAdjust],
+  );
+
+  const answerAdjust = useCallback(
+    (scope: EditScope) => {
+      if (!pendingAdjust) return;
+      const { occ, startDeltaMin, endDeltaMin } = pendingAdjust;
+      setPendingAdjust(null);
+      setPreview(null);
+      commitAdjust(occ, startDeltaMin, endDeltaMin, scope);
+    },
+    [pendingAdjust, commitAdjust],
+  );
+
+  /** Nothing was written on release, so abandoning is just dropping the
+   *  preview — and the arc is back where it started. */
+  const cancelAdjust = useCallback(() => {
+    setPendingAdjust(null);
+    setPreview(null);
+  }, []);
 
   return (
     <div
@@ -1025,6 +1122,19 @@ export default function App() {
         actions={actions}
         onSearchLife={setLifeSearch}
       />
+
+      {/* A drag on a repeating arc, waiting to be told what it meant. Its own
+          card rather than the editor's footer: the gesture is finished and
+          there is no panel on screen to ask inside. */}
+      {pendingAdjust && (
+        <ScopeDialog
+          title={pendingAdjust.occ.event.title || "Untitled"}
+          detail={adjustSpan(pendingAdjust, settings.clock)}
+          heading="Apply this change to"
+          onPick={answerAdjust}
+          onCancel={cancelAdjust}
+        />
+      )}
 
       <Toast />
     </div>
