@@ -57,6 +57,7 @@ import {
   Select,
   Toggle,
 } from "@/components/react/ui/primitives";
+import { CalendarMark } from "@/components/react/ui/icons";
 
 const EASE = [0.32, 0.72, 0, 1] as const;
 
@@ -529,11 +530,7 @@ export default function Settings({
                   )}
                   {subscriptions.map((calendar) => (
                     <div key={calendar.id} className="flex items-center gap-2">
-                      <span
-                        aria-hidden
-                        className="size-2.5 shrink-0 rounded-full"
-                        style={{ backgroundColor: calendar.color }}
-                      />
+                      <CalendarMark icon={calendar.icon} color={calendar.color} size={14} />
                       <span className="flex min-w-0 flex-1 flex-col">
                         <span className="truncate text-[13px] text-ink">{calendar.name}</span>
                         <span

@@ -44,6 +44,7 @@ import {
   Switch,
   openDatePicker,
 } from "@/components/react/ui/primitives";
+import { CalendarMark } from "@/components/react/ui/icons";
 import { ScopeChoices } from "@/components/react/ScopePrompt";
 import type { EditScope, EventEditorProps } from "@/components/react/types";
 
@@ -660,10 +661,10 @@ export default function EventEditor({
               </Row>
 
               <Row label="Calendar">
-                <span
-                  aria-hidden
-                  className="size-[9px] shrink-0 rounded-full"
-                  style={{ backgroundColor: calendar?.color ?? PALETTE[0] }}
+                <CalendarMark
+                  icon={calendar?.icon ?? ""}
+                  color={calendar?.color ?? PALETTE[0]}
+                  size={14}
                 />
                 <Select
                   value={draft.calendarId}

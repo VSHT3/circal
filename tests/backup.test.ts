@@ -3,7 +3,7 @@ import "./helpers";
 import { MemoryStorage, calendar, event, ms } from "./helpers";
 import { readEvent, readSettings, readCalendar } from "@/lib/backup";
 import { DEFAULT_SETTINGS } from "@/lib/store";
-import { NEVER, type CalEvent } from "@/lib/events";
+import { ICON_MAX, NEVER, type CalEvent } from "@/lib/events";
 import { placeForZone } from "@/lib/places";
 
 /* ---------------------------------------------------------------------- *
@@ -377,6 +377,22 @@ describe("readCalendar", () => {
       expect(readCalendar({ id: "cal-x", visible: input })?.visible).toBe(expected);
     },
   );
+
+  it.each([
+    { name: "absent", value: undefined, want: "" },
+    { name: "not a string", value: 7, want: "" },
+    { name: "a known Phosphor name", value: "barbell", want: "barbell" },
+    // Kept rather than dropped: an unknown name renders as the dot, and a
+    // backup that has been through an older build should not lose the mark.
+    { name: "an unknown name", value: "unicorn", want: "unicorn" },
+    { name: "an emoji", value: "🎸", want: "🎸" },
+  ])("icon $name", ({ value, want }) => {
+    expect(readCalendar({ id: "cal-x", icon: value })?.icon).toBe(want);
+  });
+
+  it("caps a pasted icon rather than storing an essay", () => {
+    expect(readCalendar({ id: "cal-x", icon: "x".repeat(500) })?.icon).toHaveLength(ICON_MAX);
+  });
 
   it("a feed with a string url produces a feed with fetchedAt reset to 0", () => {
     const result = readCalendar({ id: "cal-x", feed: { url: "https://example.com/f.ics" } });

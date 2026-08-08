@@ -20,6 +20,7 @@ import { EASE } from "@/lib/motion";
 import type { SidebarProps } from "@/components/react/types";
 import { cn } from "@/lib/utils";
 import { IconButton } from "@/components/react/ui/primitives";
+import { CalendarMark } from "@/components/react/ui/icons";
 
 // Monday-first week order — the reference app never starts a row on Sunday.
 const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0];
@@ -127,21 +128,24 @@ export default function Sidebar({
                       )}
                     >
                       <span className="text-[11px] leading-none">{cellDate.getDate()}</span>
-                      {dots.length > 0 && (
-                        <span className="flex items-center gap-[2px]">
-                          {dots.map((occ) => (
-                            <span
-                              key={occ.key}
-                              className="size-[3px] rounded-full"
-                              style={{
-                                backgroundColor: isSelected
-                                  ? "currentColor"
-                                  : colorOf(occ.event, calendars),
-                              }}
-                            />
-                          ))}
-                        </span>
-                      )}
+                      {/* The dot row is always there, empty or not. Mounted
+                          only when a day carries something, the numeral rose
+                          by half a dot on exactly those days and the month
+                          read as a ragged line — the dots are the signal, the
+                          shift was an artefact of them. */}
+                      <span className="flex h-[3px] items-center gap-[2px]">
+                        {dots.map((occ) => (
+                          <span
+                            key={occ.key}
+                            className="size-[3px] rounded-full"
+                            style={{
+                              backgroundColor: isSelected
+                                ? "currentColor"
+                                : colorOf(occ.event, calendars),
+                            }}
+                          />
+                        ))}
+                      </span>
                     </button>
                   );
                 })}
@@ -171,11 +175,12 @@ export default function Sidebar({
                   >
                     <span
                       className={cn(
-                        "size-2.5 shrink-0 rounded-full",
+                        "grid w-[15px] place-items-center",
                         !calendar.visible && "opacity-25",
                       )}
-                      style={{ backgroundColor: calendar.color }}
-                    />
+                    >
+                      <CalendarMark icon={calendar.icon} color={calendar.color} size={14} />
+                    </span>
                     <span
                       className={cn(
                         "truncate text-[12.5px]",

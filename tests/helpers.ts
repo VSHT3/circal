@@ -108,7 +108,14 @@ export function resetIds() {
 }
 
 export function calendar(overrides: Partial<Calendar> = {}): Calendar {
-  return { id: "cal-work", name: "Work", color: "#a3d9e4", visible: true, ...overrides };
+  return {
+    id: "cal-work",
+    name: "Work",
+    color: "#a3d9e4",
+    icon: "",
+    visible: true,
+    ...overrides,
+  };
 }
 
 /**

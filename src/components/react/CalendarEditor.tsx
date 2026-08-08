@@ -14,10 +14,11 @@
 
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useEffect, useState } from "react";
-import { PALETTE } from "@/lib/events";
+import { PALETTE, ICON_MAX, firstGrapheme, isIconName } from "@/lib/events";
 import { cn } from "@/lib/utils";
 import { useFocusTrap } from "@/components/react/hooks";
 import { ColorPicker, FieldRow as Row, Kbd } from "@/components/react/ui/primitives";
+import { CALENDAR_ICONS, CalendarMark } from "@/components/react/ui/icons";
 import type { CalendarEditorProps } from "@/components/react/types";
 
 /** What deleting costs, in a sentence. The count is the point: a calendar
@@ -25,6 +26,79 @@ import type { CalendarEditorProps } from "@/components/react/types";
 function removalNote(holds: number, into: string): string {
   if (holds === 0) return "It holds nothing.";
   return holds === 1 ? `Its one event moves to ${into}.` : `Its ${holds} events move to ${into}.`;
+}
+
+/**
+ * The mark, as three ways of saying the same thing: none, an emoji you type,
+ * or one of the fifty-odd Phosphor glyphs. One row rather than a mode switch,
+ * because they are alternatives and a mode would make you choose twice.
+ *
+ * The grid scrolls at four rows. Fifty-six swatches unrolled is a card twice
+ * the height of everything else in the app, and the fade is conditional on the
+ * overflow being real — a permanent fade over a list that fits reads as a
+ * rendering fault.
+ */
+function IconPicker({
+  icon,
+  color,
+  onChange,
+}: {
+  icon: string;
+  color: string;
+  onChange: (icon: string) => void;
+}) {
+  const emoji = icon !== "" && !isIconName(icon);
+  return (
+    <div className="flex w-full min-w-0 flex-col gap-2 py-1.5">
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          aria-label="No mark, just the colour"
+          aria-pressed={icon === ""}
+          title="No mark"
+          onClick={() => onChange("")}
+          className={cn(
+            "grid size-[26px] shrink-0 place-items-center rounded-[7px] transition-colors hover:bg-white/8",
+            icon === "" && "bg-white/10",
+          )}
+        >
+          <CalendarMark icon="" color={color} size={14} />
+        </button>
+        {/* A divider, so "no mark" and "an emoji" read as two different kinds
+            of answer from the fifty icons under them. */}
+        <span aria-hidden className="h-4 w-px bg-white/15" />
+        <input
+          value={emoji ? icon : ""}
+          onChange={(e) => onChange(firstGrapheme(e.target.value))}
+          placeholder="Emoji"
+          aria-label="Emoji mark"
+          maxLength={ICON_MAX}
+          className={cn(
+            "h-[26px] w-[86px] min-w-0 rounded-[7px] bg-surface-2 px-2 text-[13px] text-ink outline-none placeholder:text-ink-3",
+            emoji && "ring-1 ring-ink/40",
+          )}
+        />
+      </div>
+      <div className="fade-b no-scrollbar grid max-h-[108px] grid-cols-8 gap-1 overflow-y-auto">
+        {CALENDAR_ICONS.map((name) => (
+          <button
+            key={name}
+            type="button"
+            aria-label={name.replace(/-/g, " ")}
+            aria-pressed={icon === name}
+            title={name.replace(/-/g, " ")}
+            onClick={() => onChange(name)}
+            className={cn(
+              "grid size-[26px] place-items-center rounded-[7px] transition-colors hover:bg-white/8",
+              icon === name && "bg-white/10",
+            )}
+          >
+            <CalendarMark icon={name} color={icon === name ? color : "var(--ink-2)"} size={15} />
+          </button>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 export default function CalendarEditor({
@@ -39,6 +113,7 @@ export default function CalendarEditor({
 
   const [name, setName] = useState(target?.name ?? "");
   const [color, setColor] = useState(target?.color ?? PALETTE[0]);
+  const [icon, setIcon] = useState(target?.icon ?? "");
   /** Confirming a delete replaces the footer's verbs rather than stacking a
    *  second card on this one — the same swap the event editor's scope question
    *  makes, and for the same reason. */
@@ -62,12 +137,12 @@ export default function CalendarEditor({
       if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
         e.preventDefault();
         e.stopPropagation();
-        if (trimmed) onSave(trimmed, color);
+        if (trimmed) onSave(trimmed, color, icon);
       }
     }
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [onClose, onSave, trimmed, color]);
+  }, [onClose, onSave, trimmed, color, icon]);
 
   return (
     <AnimatePresence>
@@ -90,12 +165,11 @@ export default function CalendarEditor({
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: reducedMotion ? 0 : 0.18, ease: [0.32, 0.72, 0, 1] }}
         >
+          {/* The header is the mark being chosen, at the size it will be worn.
+              A preview somewhere else in the card would be a second place to
+              look while picking. */}
           <div className="flex items-center gap-2.5 border-b border-hairline px-3.5 py-3">
-            <span
-              aria-hidden
-              className="size-[9px] shrink-0 rounded-full"
-              style={{ backgroundColor: color }}
-            />
+            <CalendarMark icon={icon} color={color} size={16} />
             <input
               autoFocus
               value={name}
@@ -106,8 +180,12 @@ export default function CalendarEditor({
             />
           </div>
 
-          <Row label="Color" last={!feed}>
+          <Row label="Color">
             <ColorPicker value={color} onChange={setColor} />
+          </Row>
+
+          <Row label="Mark" align="top" last={!feed}>
+            <IconPicker icon={icon} color={color} onChange={setIcon} />
           </Row>
 
           {/* A subscription says so, and says where from: the one fact about
@@ -180,7 +258,7 @@ export default function CalendarEditor({
                 <button
                   type="button"
                   disabled={!valid}
-                  onClick={() => onSave(trimmed, color)}
+                  onClick={() => onSave(trimmed, color, icon)}
                   className="flex h-8 items-center gap-1.5 rounded-[9px] border border-hairline bg-surface-2 px-3 text-[14px] text-ink transition-colors hover:bg-white/10 disabled:pointer-events-none disabled:opacity-35"
                 >
                   {target ? "Save" : "Create"}

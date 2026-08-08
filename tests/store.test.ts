@@ -336,10 +336,10 @@ describe("truncateSeries", () => {
 });
 
 describe("addCalendar", () => {
-  it("appends a named calendar in the colour it was given, visible, undoable", async () => {
+  it("appends a named calendar in the colour and mark it was given, visible, undoable", async () => {
     const s = await freshStore();
     const before = s.store.snapshot().calendars.length;
-    const cal = s.store.addCalendar("Studio", "#ff9fb4");
+    const cal = s.store.addCalendar("Studio", "#ff9fb4", "paint-brush");
 
     const snap = s.store.snapshot();
     expect.soft(snap.calendars.length).toBe(before + 1);
@@ -347,6 +347,7 @@ describe("addCalendar", () => {
       id: cal.id,
       name: "Studio",
       color: "#ff9fb4",
+      icon: "paint-brush",
       visible: true,
     });
 
@@ -354,10 +355,11 @@ describe("addCalendar", () => {
     expect(s.store.snapshot().calendars.some((c) => c.id === cal.id)).toBe(false);
   });
 
-  it("walks the palette when no colour is named", async () => {
+  it("walks the palette when no colour is named, and takes no mark", async () => {
     const s = await freshStore();
     const cal = s.store.addCalendar("Studio");
-    expect(PALETTE).toContain(cal.color);
+    expect.soft(PALETTE).toContain(cal.color);
+    expect.soft(cal.icon).toBe("");
   });
 });
 
@@ -573,7 +575,7 @@ describe("undo / redo", () => {
     s.store.setClock("12h");
     s.store.restore({
       events: [],
-      calendars: [{ id: "imported", name: "Imported", color: "#8ecbff", visible: true }],
+      calendars: [{ id: "imported", name: "Imported", color: "#8ecbff", icon: "", visible: true }],
       settings: { ...DEFAULT_SETTINGS, clock: "24h" },
     });
     expect(s.store.snapshot().settings.clock).toBe("24h");
@@ -920,6 +922,57 @@ describe("hydrateEvents", () => {
     expect(hydrated.exdates).toEqual([]);
     expect(hydrated.rdates).toEqual([]);
     expect(hydrated.seriesId).toBe(""); // already a string — untouched, not re-defaulted wrong
+  });
+});
+
+describe("hydrateCalendars", () => {
+  it("fills the mark an old blob lacks, so a stored calendar is never undefined", async () => {
+    const storage = new MemoryStorage();
+    storage.setItem(
+      KEY,
+      JSON.stringify({
+        schema: 2,
+        events: [],
+        // Written before marks existed: colour and nothing else.
+        calendars: [{ id: "personal", name: "Personal", color: "#a3d9e4", visible: true }],
+        feeds: {},
+        settings: {},
+      }),
+    );
+    const s = await freshStore(storage);
+    expect(s.store.snapshot().calendars[0].icon).toBe("");
+  });
+
+  it("leaves a stored mark alone, unknown names included", async () => {
+    const storage = new MemoryStorage();
+    storage.setItem(
+      KEY,
+      JSON.stringify({
+        schema: 2,
+        events: [],
+        calendars: [
+          { id: "a", name: "A", color: "#a3d9e4", icon: "barbell", visible: true },
+          // A name this build does not carry renders as the dot; dropping it
+          // here would lose the mark on a round trip through an older build.
+          { id: "b", name: "B", color: "#a3d9e4", icon: "unicorn", visible: true },
+          { id: "c", name: "C", color: "#a3d9e4", icon: "🎸", visible: true },
+        ],
+        feeds: {},
+        settings: {},
+      }),
+    );
+    const s = await freshStore(storage);
+    expect(s.store.snapshot().calendars.map((c) => c.icon)).toEqual(["barbell", "unicorn", "🎸"]);
+  });
+
+  it("falls back to the seeded calendars when the blob has none", async () => {
+    const storage = new MemoryStorage();
+    storage.setItem(
+      KEY,
+      JSON.stringify({ schema: 2, events: [], calendars: [], feeds: {}, settings: {} }),
+    );
+    const s = await freshStore(storage);
+    expect(s.store.snapshot().calendars.length).toBeGreaterThan(0);
   });
 });
 

@@ -20,6 +20,7 @@ import { dayKey } from "./time";
 import { isRecord } from "./utils";
 import {
   FREQUENCIES,
+  ICON_MAX,
   NEVER,
   recurrenceOf,
   type CalEvent,
@@ -283,13 +284,18 @@ export function readEvent(value: unknown): CalEvent | null {
 
 export function readCalendar(value: unknown): Calendar | null {
   if (!isRecord(value)) return null;
-  const { id, name, color } = value;
+  const { id, name, color, icon } = value;
   if (typeof id !== "string" || !id) return null;
   const feedUrl = isRecord(value.feed) && typeof value.feed.url === "string" ? value.feed.url : "";
   return {
     id,
     name: typeof name === "string" && name ? name : id,
     color: typeof color === "string" && color ? color : "#8ecbff",
+    // Length is the whole check. An icon name this build does not carry
+    // renders as the dot rather than as nothing, so an unknown one is worth
+    // keeping — a backup restored into an older build and back again should
+    // not lose the mark — but an unbounded string here is a paste.
+    icon: typeof icon === "string" ? icon.slice(0, ICON_MAX) : "",
     visible: value.visible !== false,
     ...(feedUrl ? { feed: { url: feedUrl, fetchedAt: 0, error: "" } } : {}),
   };

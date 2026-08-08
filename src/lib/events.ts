@@ -33,12 +33,57 @@ export interface Calendar {
   color: string;
   visible: boolean;
   /**
+   * The calendar's mark: a Phosphor icon name (`"barbell"`), a literal emoji
+   * (`"🏋️"`), or `""` for the plain colour dot. Which of the two it is comes
+   * from its own alphabet — see `isIconName` in `ui/icons.tsx`, the only
+   * place that reads this — so a backup stores the value as itself.
+   *
+   * Only calendars carry one. Colour is what identifies an *event*, and it
+   * can be overridden per event; a mark says which calendar an event is on,
+   * which is a property of the calendar and not of the day.
+   */
+  icon: string;
+  /**
    * Set when this calendar mirrors a remote ICS feed. Its events are pulled
    * whole on refresh and live in `Snapshot.feeds`, not `Snapshot.events` —
    * they are somebody else's data, so they are never edited and never
    * exported as yours.
    */
   feed?: Feed;
+}
+
+/**
+ * Longest a mark may be, in UTF-16 units. A family with four members and three
+ * zero-width joiners is 11 and a flag with a skin-tone modifier gets near it;
+ * past that it is a paste rather than a glyph, and every Phosphor name in the
+ * set is shorter than that anyway.
+ */
+export const ICON_MAX = 16;
+
+/**
+ * Which of the two vocabularies a mark is written in. A Phosphor name is
+ * lowercase ASCII and hyphens; an emoji never is. That is the whole
+ * discriminator, which is why the field needs no prefix and a stored backup
+ * reads as itself.
+ */
+export function isIconName(icon: string): boolean {
+  return /^[a-z0-9-]+$/.test(icon);
+}
+
+/**
+ * The first grapheme of whatever was typed or pasted, for the emoji field.
+ * `Intl.Segmenter` is what keeps a flag, a skin tone or a zero-width-joined
+ * family one character rather than the two or seven code points it is made
+ * of; the spread is the fallback, and it at least keeps surrogate pairs whole.
+ */
+export function firstGrapheme(value: string): string {
+  const text = value.trim();
+  if (!text) return "";
+  if (typeof Intl.Segmenter === "function") {
+    const [first] = new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(text);
+    return first ? first.segment.slice(0, ICON_MAX) : "";
+  }
+  return [...text][0]?.slice(0, ICON_MAX) ?? "";
 }
 
 export interface Feed {

@@ -1057,9 +1057,9 @@ export default function App() {
   }, [editedCalendar, calendars, events]);
 
   const saveCalendar = useCallback(
-    (name: string, color: string) => {
-      if (editedCalendar) store.updateCalendar(editedCalendar.id, { name, color });
-      else store.addCalendar(name, color);
+    (name: string, color: string, icon: string) => {
+      if (editedCalendar) store.updateCalendar(editedCalendar.id, { name, color, icon });
+      else store.addCalendar(name, color, icon);
       setCalendarEditor(null);
     },
     [editedCalendar],

@@ -24,11 +24,16 @@ from the editor's **Color** row: ten digital pastels, or a picker for anything
 else.
 
 Calendars are yours to make. The sidebar's **Calendars** list has a `+` for a
-new one and a pencil on each row for its name and colour, and ⌘P has
-`New calendar…` and `Edit …` for both without reaching for the sidebar.
-Deleting one never deletes what is in it: its events move to the calendar
-that is left, and the notice says how many did. The last calendar stays — an
-event has to be somewhere.
+new one and a pencil on each row, and ⌘P has `New calendar…` and `Edit …` for
+both without reaching for the sidebar. Deleting one never deletes what is in
+it: its events move to the calendar that is left, and the notice says how many
+did. The last calendar stays — an event has to be somewhere.
+
+A calendar can also carry a **mark**: one of fifty-six icons, or any emoji you
+type. It stands wherever the calendar is named — the sidebar, the palette, the
+event editor's **Calendar** row — and it wears the calendar's colour, so the
+shape says which calendar and the colour still says which event. Two channels,
+because ten pastels run out before a taxonomy does.
 
 An event's name is printed along its own arc, inside the stroke — black on its
 own colour, which is the strongest pairing this face has and the only one that

@@ -1,13 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { at, calendar, day, event, ms } from "./helpers";
 import {
+  ICON_MAX,
   PALETTE,
   WAKING,
   colorOf,
   dayAgenda,
+  firstGrapheme,
   freeGaps,
   instantKey,
   inkOn,
+  isIconName,
   occurrencesOn,
   scoreEvent,
   spanLabel,
@@ -557,6 +560,51 @@ describe("colorOf", () => {
   ])("$name", ({ eventColor, calendarId, calendars, expected }) => {
     const e = event({ color: eventColor, calendarId });
     expect(colorOf(e, calendars)).toBe(expected);
+  });
+});
+
+/* ---------------------------------- marks --------------------------------- */
+
+describe("isIconName tells the two mark vocabularies apart", () => {
+  it.each([
+    { name: "a plain Phosphor name", icon: "barbell", want: true },
+    { name: "a hyphenated one", icon: "fork-knife", want: true },
+    { name: "digits are allowed", icon: "number-1", want: true },
+    { name: "no mark at all", icon: "", want: false },
+    { name: "a plain emoji", icon: "🏋", want: false },
+    { name: "an emoji with a variation selector", icon: "🏋️", want: false },
+    { name: "a zero-width-joined family", icon: "👩‍👩‍👧‍👦", want: false },
+    { name: "a flag", icon: "🇯🇵", want: false },
+    // Anything that is neither reads as a name and falls back to the dot,
+    // which is the safe half of the ambiguity.
+    { name: "capitals are not a name", icon: "Barbell", want: false },
+    { name: "a space is not a name", icon: "fork knife", want: false },
+  ])("$name", ({ icon, want }) => {
+    expect(isIconName(icon)).toBe(want);
+  });
+});
+
+describe("firstGrapheme keeps one glyph whole", () => {
+  it.each([
+    { name: "a bare emoji", typed: "🎵", want: "🎵" },
+    { name: "the first of several", typed: "🎵🎸🥁", want: "🎵" },
+    // The cases the naive `[0]` and `[...s][0]` both get wrong: these are one
+    // character to a reader and seven code points to a string.
+    { name: "a ZWJ family stays one", typed: "👩‍👩‍👧‍👦", want: "👩‍👩‍👧‍👦" },
+    { name: "a skin tone stays attached", typed: "👍🏽", want: "👍🏽" },
+    { name: "a flag is one glyph", typed: "🇯🇵", want: "🇯🇵" },
+    { name: "surrounding space is dropped", typed: "  🌱  ", want: "🌱" },
+    { name: "nothing typed is no mark", typed: "   ", want: "" },
+    { name: "a pasted sentence keeps its first character", typed: "hello", want: "h" },
+  ])("$name", ({ typed, want }) => {
+    expect(firstGrapheme(typed)).toBe(want);
+  });
+
+  it("never returns more than a stored mark may hold", () => {
+    // A ZWJ family is 11 UTF-16 units; the cap has to clear it and still bound
+    // whatever a future emoji sequence turns out to be.
+    expect.soft(firstGrapheme("👩‍👩‍👧‍👦").length).toBeLessThanOrEqual(ICON_MAX);
+    expect.soft(firstGrapheme("a".repeat(100)).length).toBeLessThanOrEqual(ICON_MAX);
   });
 });
 

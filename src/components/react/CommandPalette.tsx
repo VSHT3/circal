@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { useFocusTrap } from "@/components/react/hooks";
 import { Kbd } from "@/components/react/ui/primitives";
+import { CalendarMark } from "@/components/react/ui/icons";
 import type { CommandPaletteProps } from "@/components/react/types";
 import { colorOf, freeGaps, scoreEvent, WAKING, type CalEvent } from "@/lib/events";
 import { fuzzyScore } from "@/lib/fuzzy";
@@ -56,7 +57,10 @@ const EASE = [0.32, 0.72, 0, 1] as const;
 interface Row {
   id: string;
   icon?: ReactNode;
-  dot?: string;
+  /** A calendar's own glyph, in whatever colour the row resolved: the shape
+   *  says which calendar, the colour still says which event. Takes the slot
+   *  `icon` would have used, because a row has one thing on its left. */
+  mark?: { icon: string; color: string };
   title: string;
   meta?: ReactNode;
   run: () => void;
@@ -204,7 +208,10 @@ export default function CommandPalette({
       .slice(0, 8)
       .map(({ event }) => ({
         id: `event-${event.id}`,
-        dot: colorOf(event, calendars),
+        mark: {
+          icon: calendars.find((c) => c.id === event.calendarId)?.icon ?? "",
+          color: colorOf(event, calendars),
+        },
         title: event.title,
         meta: (
           <span className="label text-ink-3">
@@ -411,7 +418,7 @@ export default function CommandPalette({
         : []),
       ...calendars.map((cal) => ({
         id: `cmd-cal-${cal.id}`,
-        dot: cal.color,
+        mark: { icon: cal.icon, color: cal.color },
         title: cal.visible ? `Hide ${cal.name}` : `Show ${cal.name}`,
         run: () => {
           actions.toggleCalendar(cal.id);
@@ -432,7 +439,7 @@ export default function CommandPalette({
       },
       ...calendars.map((cal) => ({
         id: `cmd-cal-edit-${cal.id}`,
-        dot: cal.color,
+        mark: { icon: cal.icon, color: cal.color },
         title: `Edit ${cal.name}…`,
         run: () => {
           actions.editCalendar(cal.id);
@@ -590,11 +597,10 @@ export default function CommandPalette({
                             active && "bg-white/8",
                           )}
                         >
-                          {row.dot ? (
-                            <span
-                              className="size-2 shrink-0 rounded-full"
-                              style={{ backgroundColor: row.dot }}
-                            />
+                          {row.mark ? (
+                            <span className="grid w-[15px] shrink-0 place-items-center">
+                              <CalendarMark icon={row.mark.icon} color={row.mark.color} size={13} />
+                            </span>
                           ) : (
                             row.icon
                           )}

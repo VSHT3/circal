@@ -169,7 +169,7 @@ export interface CalendarEditorProps {
    * answer than a verb that fails.
    */
   removal: { holds: number; into: string } | null;
-  onSave: (name: string, color: string) => void;
+  onSave: (name: string, color: string, icon: string) => void;
   onDelete: () => void;
   onClose: () => void;
 }

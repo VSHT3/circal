@@ -310,9 +310,9 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 const DEFAULT_CALENDARS: Calendar[] = [
-  { id: "personal", name: "Personal", color: PALETTE[0], visible: true },
-  { id: "work", name: "Work", color: PALETTE[3], visible: true },
-  { id: "family", name: "Family", color: PALETTE[5], visible: true },
+  { id: "personal", name: "Personal", color: PALETTE[0], icon: "house", visible: true },
+  { id: "work", name: "Work", color: PALETTE[3], icon: "briefcase", visible: true },
+  { id: "family", name: "Family", color: PALETTE[5], icon: "users", visible: true },
 ];
 
 export function newId(): string {
@@ -505,6 +505,21 @@ function hydrateEvents(value: unknown): CalEvent[] {
   });
 }
 
+/**
+ * The same boundary, for calendars. A blob written before marks existed has no
+ * `icon`, and `undefined` would reach `isIconName` as a crash rather than as a
+ * missing glyph. Same unchanged-returns-the-same-array rule and the same
+ * reason: this runs on every cross-tab write.
+ *
+ * No `SCHEMA` bump — nothing stored changed *meaning*, a field arrived.
+ */
+function hydrateCalendars(value: unknown): Calendar[] {
+  if (!Array.isArray(value) || value.length === 0) return DEFAULT_CALENDARS;
+  return (value as Calendar[]).map((calendar) =>
+    typeof calendar.icon === "string" ? calendar : { ...calendar, icon: "" },
+  );
+}
+
 function parse(stored: Partial<Snapshot>): Persisted {
   // A stale schema means the stored values no longer mean what they say.
   const settings =
@@ -514,7 +529,7 @@ function parse(stored: Partial<Snapshot>): Persisted {
   return {
     schema: SCHEMA,
     events: hydrateEvents(stored.events),
-    calendars: stored.calendars?.length ? stored.calendars : DEFAULT_CALENDARS,
+    calendars: hydrateCalendars(stored.calendars),
     // Both of these can be stored *wrong* rather than merely missing, and both
     // draw something broken if they are.
     settings: sane(settings),
@@ -1030,12 +1045,13 @@ export const store = {
    * import already take, so three ways of arriving at a calendar do not
    * disagree about what colour the next one is.
    */
-  addCalendar(name: string, color?: string): Calendar {
+  addCalendar(name: string, color?: string, icon = ""): Calendar {
     const base = fresh();
     const calendar: Calendar = {
       id: newId(),
       name,
       color: color || PALETTE[(base.calendars.length * 3) % PALETTE.length],
+      icon,
       visible: true,
     };
     commit({ ...base, calendars: [...base.calendars, calendar] });
@@ -1043,11 +1059,12 @@ export const store = {
   },
 
   /**
-   * Rename or recolour. A subscription may be renamed here too, and the rename
-   * sticks: `setFeedEvents` only takes the host's name while the calendar is
-   * still carrying the placeholder it was given before the first pull.
+   * Rename, recolour, remark. A subscription may be renamed here too, and the
+   * rename sticks: `setFeedEvents` only takes the host's name while the
+   * calendar is still carrying the placeholder it was given before the first
+   * pull.
    */
-  updateCalendar(id: string, patch: Partial<Pick<Calendar, "name" | "color">>) {
+  updateCalendar(id: string, patch: Partial<Pick<Calendar, "name" | "color" | "icon">>) {
     const base = fresh();
     commit({
       ...base,
@@ -1169,6 +1186,9 @@ export const store = {
       id: newId(),
       name,
       color: PALETTE[(base.calendars.length * 3) % PALETTE.length],
+      // A subscription is somebody else's calendar and there is nothing to
+      // read its subject off; the mark stays the dot until you name one.
+      icon: "",
       visible: true,
       feed: { url, fetchedAt: 0, error: "" },
     };
@@ -1237,6 +1257,7 @@ export const store = {
       id: newId(),
       name,
       color: PALETTE[(base.calendars.length * 3) % PALETTE.length],
+      icon: "",
       visible: true,
     };
     commit({
