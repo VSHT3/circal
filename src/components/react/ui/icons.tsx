@@ -40,7 +40,6 @@
 
 import { useState } from "react";
 import { ICON_MAX, firstGrapheme, isIconName } from "@/lib/events";
-import { useOverflowFade } from "@/components/react/hooks";
 import { cn } from "@/lib/utils";
 
 /**
@@ -635,10 +634,11 @@ export function CalendarMark({
  * empty string standing for a different sentence.
  *
  * The grid scrolls at four rows: 247 swatches unrolled is a card taller than
- * the window. The fade is conditional on there actually being more below —
- * `useOverflowFade` watches the scroll position, not just the row count,
- * because a fade that lingers at the bottom of a list you have finished
- * scrolling reads as a rendering fault exactly as a permanent one does.
+ * the window. **No fade on it** — the fade elsewhere in the app hints that a
+ * list continues, and here it dimmed the glyphs you were choosing between,
+ * which is the one thing this control exists to let you see. A scroll bar's
+ * worth of hint is not worth a row of unreadable icons, and the search box
+ * above is the real answer to a list this long anyway.
  *
  * Search is a second way in, not a replacement for the grid: 247 names are
  * fast to scan when you know the shape and slow when you know the word, so a
@@ -666,7 +666,6 @@ export function MarkPicker({
 }) {
   const emoji = icon !== "" && !isIconName(icon);
   const [query, setQuery] = useState("");
-  const [gridRef, hasMore] = useOverflowFade<HTMLDivElement>();
   const bare = (s: string) => s.replace(/[^a-z0-9]/gi, "").toLowerCase();
   const wanted = bare(query);
   const shown =
@@ -709,13 +708,7 @@ export function MarkPicker({
           className="h-[26px] min-w-0 flex-1 rounded-[7px] bg-surface-2 px-2 text-[13px] text-ink outline-none placeholder:text-ink-3"
         />
       </div>
-      <div
-        ref={gridRef}
-        className={cn(
-          "no-scrollbar grid max-h-[108px] grid-cols-8 gap-1 overflow-y-auto",
-          hasMore && "fade-b",
-        )}
-      >
+      <div className="no-scrollbar grid max-h-[108px] grid-cols-8 gap-1 overflow-y-auto">
         {shown.length === 0 ? (
           <span className="label col-span-8 py-2 text-ink-4">
             No mark called that — try an emoji
