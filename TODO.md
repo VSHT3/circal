@@ -7,14 +7,26 @@ keys, an event can run for as many days as it likes, a drag across the year ring
 dial's hour detent can be counted by ear, editing a repeating event asks which occurrences it
 means, ⌘⌫ deletes the arc you are pointing at, a calendar can be made and named and marked and
 recoloured and deleted without losing what is in it, an event can wear a mark of its own along its
-arc, and there is a test suite — 997 cases over the domain layer, `pnpm test`, in the gate.
+arc, a dated task is a pip on the rim you can tick off, the app can tell you a thing is about to
+start, the sidebar carries the moon, and there is a test suite — 1,048 cases over the domain layer,
+`pnpm test`, in the gate.
 
 Done work is not recorded here. The rationale that outlived it lives in `AGENTS.md`, next to the
 code it constrains.
 
 ## the list, and what I think of it
 
-0. Moonpohases somewhere as an optional eyecandy
+0. ~~Moonphases somewhere as an optional eyecandy~~ — _done, in the sidebar, in two registers._ It
+   is not on the face and it is not going to be: every radius the dial gains costs `PAD` and
+   legibility, and unlike the lightcycle band the moon is not a fact about the _day_. It reads the
+   **selected** day, which is what earns it — arrowing through a week walks the moon through its
+   week. `Minimal` draws the terminator as an ellipse; `Aperture` occults the disc behind a curved
+   window with bites of exactly the moon's own radius, which is the mechanism itself rather than a
+   picture of one, and it is driven by the lit fraction rather than linearly in phase — a real
+   complication's linear disc shows a crescent close to twice as full as the sky's, which is
+   forgivable on a wrist and not two centimetres from a caption printing the true figure. Both are
+   shipped because the question was which register this app wants, and that is worth being able to
+   switch between rather than arguing about.
 1. Intro animation like what animejs has
 2. ~~icons into dial list based on custom or default to calendar icon (which can be set too)~~ —
    _done, and the "default to" turned out to be a setting rather than a default._ A calendar carries
@@ -26,7 +38,10 @@ code it constrains.
    deliberately has none**: its dot is about five pixels, and a legible glyph there would widen
    every row inside a panel with 29 units of clearance to `HAND_INNER`. That is the one surface an
    event's mark does not reach, and it should stay that way until the interior is rethought.
-3. event and stuff search (idk, cmd f)
+3. ~~event and stuff search (idk, cmd f)~~ — _already answered, so struck rather than built._ ⌘P
+   ranks with `fuzzyScore` over title, location and notes, and the life grid lights every matching
+   day of an eighty-year span with the same `scoreEvent` the palette uses. A second search would be
+   a second matcher, and a day could then light for a query the list would not have found.
 4. ~~deleting/modifying a repeating event~~ — _done._ Save and Delete both ask, and the answer is
    `EditScope`: only this one (an override, or an EXDATE), this and all future (`splitRule` cuts the
    series in two), or the whole series. **Export is not a defect** — two VEVENTs with distinct UIDs,
@@ -104,24 +119,40 @@ the real work and the real prerequisite — perhaps 300 careful lines — and sk
 copy of the arc-drawing code, which is how this repo gets its first duplicated convention.
 `faceToPanel` / `polar` / `arcPath` are already scale-free, so the geometry side is ready.
 
-**5. look at sidebar**
+**5. look at sidebar** — _half done, and the half that landed is the opposite of what this said._
 
-Agreed, but the fix is a decision, not a tidy-up: **the sidebar and the centre panel print the same
-agenda twice.** The interior is now "now and next", so the sidebar becomes the full day's log plus
-calendar management — and half of that has landed: the Calendars section now creates, renames,
-recolours and deletes. What is left is the other half. The mini-month earns less than it costs —
-⌘P jumps to a date better than a 7×6 grid of 20px cells does — and that space is where the day's
-full log goes. Mechanically it is still a 260px column that _pushes_ (`Sidebar.tsx`) with no drawer
-mode, so on a phone it is unusable; the tab-order half of that is fixed (`inert`, not `aria-hidden`
-over live children), the drawer half is not.
+The old line here read _"the sidebar and the centre panel print the same agenda twice"_, and
+prescribed the mini-month's removal to make room for the day's full log. Both halves were wrong.
+The duplication was real but narrow — the interior is "now and next", and on any day that is not
+today it prints a date and nothing else — and the mini-month is the one thing in the column the
+interior genuinely cannot do. So: **the agenda went and the mini-month stayed.** What is left is
+Calendars, the month, and the moon.
 
-**6. tasks?**
+What is still open is the mechanical half, which the old line was right about: it is a 260px
+column that _pushes_ (`Sidebar.tsx`) with no drawer mode, so on a phone it is unusable. The
+tab-order half of that is fixed (`inert`, not `aria-hidden` over live children); the drawer half
+is not, and it is now the last plain defect in the app.
 
-The question mark is right. A dated task is a zero-length event and the dial already has an honest
-form for one — the dot-collapse at `Dial.tsx:817`, a pip on the rim at the right minute rather than
-an arc that lies about duration. That part is nearly free. An _undated_ task is a to-do list, and a
-to-do list on a dial is a different product wearing this one as a skin. If you do it: dated only, a
-pip, struck through when done, and no inbox.
+**6. tasks?** — _done, and the question mark answered itself: dated only._
+
+A task is `CalEvent.task` with `end === start`, so the dial's existing sub-cap dot-collapse draws
+it as a pip on the rim at the minute it is due, and it takes no lane. Ticking is per _occurrence_
+(`doneKeys`, the same shape `exdates` has), so a weekly task ticked this Monday is not ticked every
+Monday, and `⌘Z` undoes a tick. Filled while it stands, hollow once it is done, on both the rim and
+the interior's tick target, with the name struck through in the list.
+
+**No inbox, and no undated tasks** — that was the whole of the question mark, and the answer has
+not changed. One thing the flag did cost that was not obvious: `occurrencesOn` had to measure the
+day overlap against `Math.max(duration, 1)`, because an exclusive `end` throws away a task standing
+exactly at midnight.
+
+**7. reminders** — _done, and the honest half of it is the sentence in the panel._
+
+Notifications while the tab is open, at a lead you pick, off until asked for. Tasks included,
+all-day events not, a ticked task silent. It never catches up: a reminder fires in its own minute
+or not at all. Closed-tab reminders need a push service, which needs a server, which is the one
+thing this product has said it will not have — so **Settings says so in words**, which is what the
+review below asked for and is the whole of that item.
 
 **8. zoom in life view**
 
@@ -149,9 +180,10 @@ manifest, and the worm-through-time line from (1) lives on it. One page, not two
 ## review — the code as it stands
 
 The thesis is intact and the instrument is finished. The calendar underneath it is now real —
-RFC 5545 in and out, the interior answering the day, and one typed line making an event. All three
-screens now make the same argument, and the moves between them are geometry. What is left is one
-panel that is hard to read and one DOM-shaped bug.
+RFC 5545 in and out, the interior answering the day, one typed line making an event, and as of this
+pass a dated task and a notification that says it is about to start. All three screens make the
+same argument, and the moves between them are geometry. What is left is one column that does not
+work on a phone, and one screen that does not exist.
 
 ### The year view — settled
 
@@ -192,10 +224,13 @@ are palette rows now.
 
 ### The dial
 
-There is nothing left on the face. The honest omission: **there are no reminders.** A calendar that
-never tells you anything is a viewer. While the tab is open, `Notification` is enough; closed, it
-needs a server, and a server is off-thesis. Say so in the UI rather than leaving the absence
-unexplained.
+There is nothing left on the face. The honest omission is closed: **reminders exist**, in the one
+form this product can honestly ship — while the tab is open — and the panel says so in words
+rather than leaving the absence to be discovered by a missed meeting. Closed-tab reminders need a
+push service, which needs a server, which is off-thesis and stays off it.
+
+The face gained exactly one thing and it cost no radius: a task's pip, which is the sub-cap
+dot-collapse that was already there.
 
 ### Correctness — clear
 
@@ -207,7 +242,7 @@ cursor's ring and the pointer's are one ring and one card.
 
 What is left of that surface is not a defect but a limit: **no DOM in the suite** — no jsdom, no
 component tests, on purpose, because a snapshot of an SVG path is a change-detector that fails on
-every legitimate geometry tweak. That is the honest boundary of what 997 pure-function tests buy
+every legitimate geometry tweak. That is the honest boundary of what 1,048 pure-function tests buy
 you, and the faces stay eye-verified.
 
 ### What not to do
@@ -218,20 +253,21 @@ you, and the faces stay eye-verified.
   different product.
 - **Do not add a ring to the dial.** Every radius costs `PAD` and legibility, and that face already
   carries four plus two bands. The room is in the interior. The year face is a separate object with
-  its own budget, and it is nearly empty — but see what happened to the daylight figure.
+  its own budget, and it is nearly empty — but see what happened to the daylight figure. The moon
+  is the newest test of this rule and it went to the sidebar, which is the answer for anything that
+  is not a fact about the day.
 
 ### If it were one thing
 
 The old five are spent, and so are the month banding, the life search, the year view, the shell's
-clock, the milestones, the hour detent, the year ring's range drag, calendar CRUD and the life
-grid's focus path. The small list is empty.
+clock, the milestones, the hour detent, the year ring's range drag, calendar CRUD, the life grid's
+focus path, tasks, reminders and the moon. The small list has one thing on it: **the sidebar's
+drawer mode**, so the column works on a phone. That is the last plain defect in the app and it is
+an afternoon.
 
-What is left is one big thing: **the week view** (4), and before it the `<Face>` extraction it
-needs. It is the only item that adds a screen rather than finishing one, and it is a week rather
-than an afternoon — `Dial.tsx` is 1,600 lines built around one face filling a viewport, and half of
-this file's rationale lives inside it. Decide up front which of numerals, zone ring, interior and
-bands are opt-in props and which are composed children; do not start it because it sounded good.
-
-After that, the honest smaller ones: **the sidebar's other half** (5) — the day's log where the
-mini-month is, and a drawer mode so the column works on a phone — and **reminders**, or a line in
-the UI admitting there are none.
+What is left after it is one big thing: **the week view** (4), and before it the `<Face>`
+extraction it needs. It is the only item that adds a screen rather than finishing one, and it is a
+week rather than an afternoon — `Dial.tsx` is 1,700 lines built around one face filling a
+viewport, and half of this file's rationale lives inside it. Decide up front which of numerals,
+zone ring, interior and bands are opt-in props and which are composed children; do not start it
+because it sounded good.

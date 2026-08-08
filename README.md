@@ -58,14 +58,46 @@ at a time, for a crowded day — or `Off`.
 A trip, a holiday, a conference. The editor's **Date** row is two dates the
 way the **Time** row is two times, and the second one is the last day the
 event covers — set it and the event runs to there. Every day inside the span
-carries it: the interior and the sidebar print `DAY 3/5` where they would
-otherwise print a start time, because on the third morning of a five-day trip
-the hour it began is not what you came to read.
+carries it: the interior prints `DAY 3/5` where it would otherwise print a
+start time, because on the third morning of a five-day trip the hour it began
+is not what you came to read.
 
 A timed span draws a closed circle on the days in its middle — those days are
 entirely inside the event, and a whole revolution is what the face has to say
 about that. The **All-day** switch changes whether the two ends carry times,
 never how many days there are.
+
+## Tasks
+
+A dated task is an event with no width, so it needs no second model: `⇧⌘N`, or
+the **Task** switch in any editor, collapses the Time row to one field and the
+Date row to one day. On the face it is a pip on the rim at the minute it is
+due — the honest shape for a moment, where an arc would be lying about a
+duration nobody gave it — and it takes no lane, so it never pushes a meeting
+inwards to make room for itself.
+
+Tick it off from the middle of the face: the row carries a mark at its end,
+the name goes through, and the pip on the rim empties out. Filled while it
+stands, hollow once it is done, on both surfaces. A repeating task is ticked
+one occurrence at a time — this Monday, not every Monday — and `⌘Z` undoes a
+tick like any other edit.
+
+There is no inbox and there are no undated tasks. A to-do list with no day on
+it is a different product wearing this one as a skin.
+
+## Reminders
+
+Off until you ask for them, in **Settings** → **Reminders**: a notification
+when something starts, or up to an hour before it. Tasks are included, all-day
+events are not — "ten minutes before midnight" is not what an all-day event
+means — and a task already ticked off says nothing.
+
+**Only while circal is open, in this tab.** Reminders with it closed would
+need a server to push them, and nothing here leaves this browser. The setting
+says so in the panel rather than leaving it to be discovered by a missed
+meeting. Nothing ever catches up either: a reminder fires in its own minute or
+not at all, because a notification for a meeting that started an hour ago is
+worse than none.
 
 ## Editing something that repeats
 
@@ -147,6 +179,27 @@ Two optional annotations, both configured in **Settings** (`⌘,`):
 
 With the lightcycle off — no city, or both halves switched off — the dial is
 exactly as it was: the elapsed day as a ramp of light around the rim.
+
+## The moon
+
+In the sidebar rather than on the face, because every radius the dial gains
+costs legibility and the moon is not a fact about the day the way the light on
+the rim is. It reads the day you have selected, so arrowing through a week
+walks the moon through its week. Off until you ask for it, in **Settings** →
+**Sidebar**, and it comes two ways:
+
+- **Minimal** draws the astronomy: one disc, the terminator as an ellipse over
+  it, in the app's own black and white.
+- **Aperture** draws the horology. The moon rides behind a curved window and is
+  occulted at each end by a circular bite of exactly its own radius, which is
+  the whole mechanism — a disc hidden by an equal disc leaves a lune, and a
+  lune is the shape a crescent moon is. It is the one place here that improves
+  on the thing it copies: a real complication turns at a constant rate and so
+  shows a crescent close to twice as full as the sky's, where this one is
+  driven by the lit fraction and agrees with the figure printed beside it.
+
+Both print the phase's name, how much of it is lit, and how many days to the
+next full or new moon.
 
 ## The year, on one revolution
 
@@ -318,7 +371,7 @@ taking your calendar with it.
 |                     |                                                                               |
 | ------------------- | ----------------------------------------------------------------------------- |
 | `⌘P`                | Command palette — write an event, search, jump to a date, find free time, run |
-| `⌘N`                | New event                                                                     |
+| `⌘N` / `⇧⌘N`        | New event / new task                                                          |
 | `⌘,`                | Settings                                                                      |
 | `⌘Z` / `⇧⌘Z`        | Undo / redo                                                                   |
 | `⌘D` / `⌘Y` / `⌘L`  | Day view / year view / life view                                              |
