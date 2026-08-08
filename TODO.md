@@ -2,8 +2,8 @@
 
 Recurrence is real, the interior answers the day, arcs carry their own names, the dial has an
 ambient mode, ⌘P writes an event in one line and ranks what it finds, the year is a revolution and
-unrolls into the life grid, the life grid names its round days, and there is a test suite — 898
-cases over the domain layer, `pnpm test`, in the gate.
+unrolls into the life grid, the life grid names its round days, an event can run for as many days
+as it likes, and there is a test suite — 922 cases over the domain layer, `pnpm test`, in the gate.
 
 Done work is not recorded here. The rationale that outlived it lives in `AGENTS.md`, next to the
 code it constrains.
@@ -14,7 +14,6 @@ code it constrains.
 1. Intro animation like what animejs has
 2. icons into dial list based on custom or default to calendar icon (which can be set too)
 3. event and stuff search (idk, cmd f)
-4. all day event fix -> an all day event can span accross multiple days, without a beginning/end time
 
 **1. quotes page** — _you are a worm through time, you have no obligations to your former self, be
 the change you wish to see in the world._
@@ -102,7 +101,7 @@ the bottom, or a decade fisheyes in place, and the eighty years stay on screen t
 `drawImage` per frame (`LifeView.tsx:416`), so a second, larger strip is cheap. If you do add true
 zoom, keep the full span as a mini-map or you have lost the argument.
 
-**9. manifest** — _we are used to the linearity of time. However, days are circular. you live your
+**9. manifest** — _we are used to the linearity of time. however, days are circular. you live your
 day just to find yourself at the same time as before._
 
 The best line on the list, and the actual thesis — it is better than the README's opening and it
