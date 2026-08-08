@@ -317,6 +317,11 @@ The range follows the way your hand went rather than the shorter way round, so
 a drag can run the whole revolution; take it all the way from midnight back to
 midnight and the readout says **All day**, because that is what it will make.
 
+Let go and the arc stays where you drew it while you fill the event in, taking
+whatever colour you pick, so you are looking at the shape of the thing while you
+name it. Cancel and it goes; save and the arc that replaces it is in exactly the
+same place, because it is the same arc.
+
 The year ring takes that gesture one scale up. Drag across its rim and every day
 you cross goes white while the middle prints them — **8 – 18 Aug**, eleven days
 — and letting go opens an all-day event running exactly that long. The days stay

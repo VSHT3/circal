@@ -505,9 +505,9 @@ export default function App() {
   );
 
   /**
-   * The open editor's draft, kept on the target so a face behind the modal can
-   * draw the event that does not exist yet — the range you dragged across the
-   * year ring stays lit and answers the swatch you are picking.
+   * The open editor's draft, kept on the target so the face behind the modal can
+   * draw the event that does not exist yet — the range you dragged stays lit and
+   * answers the swatch you are picking.
    *
    * Returning the same target when nothing the faces care about moved is what
    * makes this affordable: React bails out of an identical state value, so
@@ -520,33 +520,45 @@ export default function App() {
       if (
         live.start === next.start &&
         live.end === next.end &&
+        live.allDay === next.allDay &&
         live.color === next.color &&
         live.calendarId === next.calendarId
       ) {
         return open;
       }
-      const { start, end, color, calendarId } = next;
-      return { ...open, live: { start, end, color, calendarId } };
+      const { start, end, allDay, color, calendarId } = next;
+      return { ...open, live: { start, end, allDay, color, calendarId } };
     });
   }, []);
 
   /**
-   * That draft as the year ring wants it: the two days it runs between,
-   * inclusive, and the colour it resolves to now. `end` is exclusive, so the
-   * last day is measured from `end - 1` — the same reason `dayCount` is.
+   * The event about to exist, resolved once for whichever face is behind the
+   * modal — the dial takes it in instants, the year ring in days.
    *
-   * Memoised because a fresh object every render would repaint the ring's
+   * `null` for an existing event: it already has an arc and marks of its own,
+   * and a preview over them would draw the same event twice. Memoised because
+   * the ring repaints on it, and a fresh object every render would repaint that
    * canvas on every clock tick.
    */
-  const editorDraft = useMemo(() => {
-    if (!editor) return null;
+  const pending = useMemo(() => {
+    if (!editor || editor.id !== null) return null;
     const mark = editor.live ?? editor.draft;
-    return {
-      from: startOfDay(new Date(mark.start)),
-      to: startOfDay(new Date(mark.end - 1)),
-      color: colorOf(mark, calendars),
-    };
+    const { start, end, allDay } = mark;
+    return { start, end, allDay, color: colorOf(mark, calendars) };
   }, [editor, calendars]);
+
+  /** The same draft as the year ring wants it: the two days it runs between,
+   *  inclusive. `end` is exclusive, so the last day is measured from `end - 1`
+   *  — the same reason `dayCount` is. */
+  const pendingDays = useMemo(
+    () =>
+      pending && {
+        from: startOfDay(new Date(pending.start)),
+        to: startOfDay(new Date(pending.end - 1)),
+        color: pending.color,
+      },
+    [pending],
+  );
 
   const actions: ShellActions = useMemo(
     () => ({
@@ -869,6 +881,7 @@ export default function App() {
                   calendars={calendars}
                   settings={settings}
                   zonePlace={zonePlace}
+                  pending={pending}
                   onOpen={openOccurrence}
                   onCreate={(startMin, endMin) => openDraft(startMin, endMin, day)}
                   onAdjust={adjustOccurrence}
@@ -887,7 +900,7 @@ export default function App() {
                   settings={settings}
                   stage={stage}
                   flow={flow}
-                  draft={editorDraft}
+                  pending={pendingDays}
                   onSelectDay={(next) => actions.goDay(next)}
                   // A run of whole days, in the minutes `draftEvent` decides
                   // all-day by: the ring gesture and this one hand over to the

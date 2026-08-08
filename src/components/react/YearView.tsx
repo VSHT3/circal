@@ -338,7 +338,7 @@ export default function YearView({
   settings,
   stage,
   flow,
-  draft,
+  pending,
   onSelectDay,
   onCreateSpan,
 }: YearViewProps) {
@@ -640,14 +640,15 @@ export default function YearView({
    * it on every clock tick.
    */
   const drafted = useMemo((): Pending | null => {
-    if (!draft) return null;
-    const slots = draftSlots(draft.from, draft.to, year, days);
-    return slots && { lo: slots[0], hi: slots[1], color: draft.color };
-  }, [draft, year, days]);
+    if (!pending) return null;
+    const slots = draftSlots(pending.from, pending.to, year, days);
+    return slots && { lo: slots[0], hi: slots[1], color: pending.color };
+  }, [pending, year, days]);
 
-  /** The pointer wins while it is down: the range being dragged *is* the draft
-   *  that is about to open, and drawing both would double the same fact. */
-  const pending: Pending | null =
+  /** What the ring lights, in slots. The pointer wins while it is down: the
+   *  range being dragged *is* the draft about to open, and drawing both would
+   *  double the same fact. */
+  const lit: Pending | null =
     range === null ? drafted : { lo: range.lo, hi: range.hi, color: "#ffffff" };
 
   /* -------------------------------- the unroll ---------------------------- */
@@ -783,7 +784,7 @@ export default function YearView({
           box={{ width, height }}
           selected={selectedIndex}
           today={todayIndex}
-          pending={pending}
+          pending={lit}
           at={pointerAt}
           amount={amount}
         />

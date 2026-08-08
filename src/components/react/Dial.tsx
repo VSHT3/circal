@@ -85,6 +85,17 @@ export interface DialProps {
    */
   zonePlace: Place | null;
   /**
+   * The event the open editor is about to create, or `null`. The ghost that
+   * outlives the drag: drawn where the arc will be, in the colour the editor
+   * currently carries, so the range does not vanish the moment the modal
+   * arrives and the picture does not change again on save.
+   *
+   * Instants rather than minutes, because a draft can sit on another day
+   * entirely once its date row has been edited — clipping it to this face is
+   * this component's question and nobody else's.
+   */
+  pending: { start: number; end: number; allDay: boolean; color: string } | null;
+  /**
    * Ambient: the chrome is gone and the face is the whole window, so the dial
    * stops being a surface you work on and becomes one you glance at from
    * across a room. It changes what is drawn, never how it is drawn — four
@@ -128,6 +139,9 @@ const STEP = 15;
  * turned without being watched.
  */
 const HOUR = 60;
+/** How translucent a range still under the pointer is. It has no colour to
+ *  show yet, so it is the one thing on the face drawn in plain white. */
+const GHOST_ALPHA = 0.45;
 /** Width of an arc's invisible hit stroke: the painted arc plus a margin for
  *  the pointer. Also, halved, how far a round cap on one reaches past its own
  *  endpoint — which is what puts a grip outside the body. */
@@ -341,6 +355,7 @@ export default function Dial({
   calendars,
   settings,
   zonePlace,
+  pending,
   ambient,
   onOpen,
   onCreate,
@@ -470,7 +485,37 @@ export default function Dial({
     });
   }, [band, elapsed, clock]);
 
+  /**
+   * The event about to exist: the range under the pointer while a drag is live,
+   * else the draft in the open editor, clipped to this face. One notion rather
+   * than two, so the arc does not vanish at the moment the modal arrives —
+   * white and translucent while it is being drawn, its own colour once it has
+   * one to show.
+   *
+   * `null` for an all-day draft, which gets no arc for the same reason a saved
+   * all-day event gets none: a whole turn says nothing the readout's `All day`
+   * does not say better. A draft that does not reach this day draws nothing
+   * either, and one whose middle covers it draws the closed ring.
+   */
+  const drafted = useMemo(() => {
+    if (!pending || pending.allDay) return null;
+    const from = startOfDay(day);
+    const to = addDays(from, 1);
+    if (pending.end <= from.getTime() || pending.start >= to.getTime()) return null;
+    // `minutesOfDay` at each end rather than elapsed milliseconds: a day is not
+    // always 1440 minutes long, and an arc has to sit at the time it prints.
+    return {
+      start: pending.start <= from.getTime() ? 0 : minutesOfDay(new Date(pending.start)),
+      end: pending.end >= to.getTime() ? MINUTES_PER_DAY : minutesOfDay(new Date(pending.end)),
+      color: pending.color,
+      opacity: 1,
+    };
+  }, [pending, day]);
+
   const ghost = draw ? resolveDraw(draw) : null;
+  /** The pointer wins while it is down: the range being drawn *is* the draft
+   *  about to open, and drawing both would double the same fact. */
+  const about = ghost ? { ...ghost, color: "#ffffff", opacity: GHOST_ALPHA } : drafted;
 
   /**
    * The event a drag has hold of, for the arc's own sake: it is drawn thicker,
@@ -824,8 +869,14 @@ export default function Dial({
           />
         ))}
 
-        {ghost && ghost.end > ghost.start && (
-          <GhostArc clock={clock} start={ghost.start} end={ghost.end} />
+        {about && about.end > about.start && (
+          <GhostArc
+            clock={clock}
+            start={about.start}
+            end={about.end}
+            color={about.color}
+            opacity={about.opacity}
+          />
         )}
 
         {today && (
@@ -1467,18 +1518,36 @@ function EventArc({
 }
 
 /**
- * The range being dragged, on the outermost lane.
+ * The event about to exist, on the outermost lane: the range under the pointer,
+ * or the draft in the open editor once the pointer has let go.
+ *
+ * White and translucent while it is being drawn — there is no colour to show
+ * yet — and the draft's own colour, opaque, once the editor has one. The shape
+ * is identical either way, which is what stops the release and the save from
+ * each looking like the drawing having been thrown away.
  *
  * A whole revolution is a closed ring rather than an arc: the cap inset that
  * makes a short arc tell the truth about its length leaves a gap at midnight
  * once the two ends meet, and a circle drawn with a notch in it reads as a
  * rendering fault rather than as a day.
  */
-function GhostArc({ clock, start, end }: { clock: Clock; start: number; end: number }) {
+function GhostArc({
+  clock,
+  start,
+  end,
+  color,
+  opacity,
+}: {
+  clock: Clock;
+  start: number;
+  end: number;
+  color: string;
+  opacity: number;
+}) {
   const stroke = {
     fill: "none",
-    stroke: "#fff",
-    strokeOpacity: 0.45,
+    stroke: color,
+    strokeOpacity: opacity,
     strokeWidth: DIAL.ARC_WIDTH,
     pointerEvents: "none",
   } as const;

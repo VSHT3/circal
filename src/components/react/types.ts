@@ -33,12 +33,14 @@ export interface ViewFlow {
   day: Date;
 }
 
-/** Where a draft sits and what colour it is: everything a face needs to draw
- *  an event that is still only in the editor. */
+/** Where a draft sits, whether it is all-day, and what colour it is:
+ *  everything a face needs to draw an event that is still only in the editor. */
 export interface DraftMark {
   start: number;
   /** Exclusive, as everywhere. */
   end: number;
+  /** No arc on the dial, exactly as a saved all-day event has none. */
+  allDay: boolean;
   /** The event's own override, `""` for "follow the calendar". */
   color: string;
   calendarId: string;
@@ -172,12 +174,14 @@ export interface YearViewProps {
   stage: LifeStage | null;
   flow: RefObject<ViewFlow>;
   /**
-   * The draft in the open editor, on the days it covers and in the colour it
-   * currently carries — the range you dragged stays lit and answers the swatch
-   * you are picking, rather than reverting the moment the modal arrives.
-   * `null` when no editor is open. Both ends inclusive.
+   * The event the open editor is about to create, on the days it covers and in
+   * the colour it currently carries — the range you dragged stays lit and
+   * answers the swatch you are picking, rather than reverting the moment the
+   * modal arrives. Both ends inclusive. `null` when there is nothing pending,
+   * which includes an existing event: that already has marks on this face, and
+   * a second set over them would draw the same event twice.
    */
-  draft: { from: Date; to: Date; color: string } | null;
+  pending: { from: Date; to: Date; color: string } | null;
   onSelectDay: (day: Date) => void;
   /**
    * A drag across the ring: an all-day event running `days` days from `from`,
