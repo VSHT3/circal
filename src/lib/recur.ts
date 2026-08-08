@@ -683,3 +683,49 @@ function periodStart(rule: Recurrence, seed: Date, offset: number): Date {
       return new Date(seed.getFullYear() + offset, 0, 1);
   }
 }
+
+/* --------------------------------- editing --------------------------------- */
+
+/** A series cut in two: what the original keeps, and what the new series
+ *  starting at the cut takes with it. */
+export interface SeriesSplit {
+  head: Pick<Recurrence, "until" | "exdates" | "rdates">;
+  tail: Pick<Recurrence, "exdates" | "rdates">;
+}
+
+/**
+ * Where to cut a series so that everything from `at` onwards belongs to a new
+ * one — "this and all future events", which every calendar implements as two
+ * series rather than as a per-occurrence patch, because that is what it is.
+ *
+ * The head stops the instant before `at`: `until` is inclusive and bounds a
+ * *start*, so `at - 1` is the last one it may keep. An existing bound wins when
+ * it is earlier, since a split cannot extend a series.
+ *
+ * The two key lists are partitioned rather than left on both halves, and that
+ * is not tidiness. `until` bounds the generated set only — an RDATE past it was
+ * named explicitly and still fires (see `startsBetween`) — so a future RDATE
+ * left on the head fires from both halves, and a future EXDATE not carried
+ * over resurrects a day the user had already skipped.
+ *
+ * A key that spells nothing stays with the head, where it is already inert.
+ */
+export function splitRule(rule: Recurrence, seedMs: number, at: number): SeriesSplit {
+  const seed = new Date(seedMs);
+  const bound = at - 1;
+  const before = (key: string) => {
+    const instant = keyToInstant(key, seed);
+    return instant === null || instant <= bound;
+  };
+  return {
+    head: {
+      until: rule.until > 0 ? Math.min(rule.until, bound) : bound,
+      exdates: rule.exdates.filter(before),
+      rdates: rule.rdates.filter(before),
+    },
+    tail: {
+      exdates: rule.exdates.filter((k) => !before(k)),
+      rdates: rule.rdates.filter((k) => !before(k)),
+    },
+  };
+}

@@ -16,11 +16,14 @@ export {
   REPEATS,
   REPEAT_LABELS,
   instantKey,
+  keyToInstant,
   recurrenceOf,
   repeatUnit,
   repeats,
+  splitRule,
   type Recurrence,
   type Repeat,
+  type SeriesSplit,
   type WeekdayRule,
 } from "./recur";
 

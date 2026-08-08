@@ -48,7 +48,14 @@ import {
   useTypingSound,
   useWakeLock,
 } from "./hooks";
-import type { AmbientMode, EditorTarget, ShellActions, ViewFlow, ViewMode } from "./types";
+import type {
+  AmbientMode,
+  EditScope,
+  EditorTarget,
+  ShellActions,
+  ViewFlow,
+  ViewMode,
+} from "./types";
 import CommandPalette from "./CommandPalette";
 import Dial, { type DragPreview } from "./Dial";
 import EventEditor from "./EventEditor";
@@ -241,6 +248,33 @@ function writeLocation({ day, view }: ViewLocation, mode: "push" | "replace") {
   const url = `${window.location.pathname}?${params}`;
   if (mode === "push") window.history.pushState(null, "", url);
   else window.history.replaceState(null, "", url);
+}
+
+/* --------------------------------- editing --------------------------------- */
+
+/**
+ * The scope an edit actually lands on. Cutting a series at its own first
+ * occurrence would leave a head that generates nothing, so "this and all
+ * future" means "the whole series" there — and the whole series is the answer
+ * that keeps it one event rather than two, one of them dead.
+ */
+function effectiveScope(scope: EditScope, seedMs: number, at: number): EditScope {
+  return scope === "future" && at <= seedMs ? "all" : scope;
+}
+
+/**
+ * A draft's instants moved off the series' seed and onto the occurrence being
+ * edited. The editor hands back the *series'* instants, sitting on its seed's
+ * own day, so without this, changing Tuesday's time writes onto whichever day
+ * the series happens to start on. A draft whose date the user changed by hand
+ * is left where they put it: they named an absolute day, and moving it again
+ * would be answering a question nobody asked.
+ */
+function onOccurrence(draft: Omit<CalEvent, "id">, seedMs: number, at: number) {
+  const seedDay = startOfDay(new Date(seedMs)).getTime();
+  const keptDate = startOfDay(new Date(draft.start)).getTime() === seedDay;
+  const shift = keptDate ? startOfDay(new Date(at)).getTime() - seedDay : 0;
+  return { start: draft.start + shift, end: draft.end + shift };
 }
 
 export default function App() {
@@ -710,15 +744,50 @@ export default function App() {
     if (settingsOpen) cue("opened", channelsRef.current);
   }, [settingsOpen]);
 
-  const commit = useCallback(
-    (draft: Omit<CalEvent, "id">) => {
-      if (editor?.id) {
-        store.update(editor.id, draft);
-      } else {
+  /**
+   * A save, with the scope the editor asked for — one occurrence, this one and
+   * everything after it, or the series entire. Only a repeating event is ever
+   * asked; everything else arrives as `"all"`, which is the only thing it can
+   * mean when there is one occurrence to write to.
+   */
+  const saveEvent = useCallback(
+    (draft: Omit<CalEvent, "id">, scope: EditScope) => {
+      if (!editor) return;
+      if (!editor.id) {
         store.create(draft);
         // Only for a new event. Saving an edit changes something that already
         // existed; this cue is for the one moment something starts to.
         cue("created", channels);
+        setEditor(null);
+        return;
+      }
+      const at = editor.occurrenceStart ?? editor.draft.start;
+      const seedMs = editor.draft.start;
+      switch (effectiveScope(scope, seedMs, at)) {
+        case "all":
+          store.update(editor.id, draft);
+          break;
+        // RECURRENCE-ID's job: the edit becomes its own event rather than a
+        // change to the series, and `NEVER` strips whatever recurrence fields
+        // the draft still carries from the series it was seeded from — an
+        // override is one occurrence, never a second series running alongside
+        // the first.
+        case "one":
+          store.create({
+            ...draft,
+            ...NEVER,
+            ...onOccurrence(draft, seedMs, at),
+            seriesId: editor.id,
+            seriesKey: instantKey(at),
+          });
+          cue("created", channels);
+          break;
+        // Two series, which is what "from here on" is: the old one stops the
+        // instant before this occurrence and this one seeds a new rule.
+        case "future":
+          store.splitSeries(editor.id, at, { ...draft, ...onOccurrence(draft, seedMs, at) });
+          cue("created", channels);
+          break;
       }
       setEditor(null);
     },
@@ -726,52 +795,29 @@ export default function App() {
   );
 
   /**
-   * "Skip this one": the occurrence the editor was opened from — or the
-   * series' own seed, when it was opened some other way — is added to the
-   * series' own EXDATEs. The series still exists; it simply no longer lands
-   * there.
-   *
-   * Only the exclusion is written. Anything else the draft was carrying is
-   * left alone: "this one does not happen" is not an instruction to save the
-   * half-finished edit above it.
+   * A delete, with the same three scopes. "Only this one" writes an EXDATE and
+   * removes nothing: the series still exists, it simply no longer lands there.
    */
-  const skipOccurrence = useCallback(() => {
-    if (!editor?.id) return;
-    const at = editor.occurrenceStart ?? editor.draft.start;
-    store.update(editor.id, { exdates: [...editor.draft.exdates, instantKey(at)] });
-    setEditor(null);
-  }, [editor]);
-
-  /**
-   * "Only this one": the edit becomes its own event — RECURRENCE-ID's job —
-   * rather than a change to the series. `NEVER` strips whatever recurrence
-   * fields the draft still carries from the series it was seeded from: an
-   * override is one occurrence, never a second series running alongside the
-   * first.
-   *
-   * The draft's instants are the *series'*, sitting on its seed's day, so
-   * they are rebased onto the day actually being replaced — otherwise
-   * changing Tuesday's time writes an override onto whichever day the series
-   * happens to start on. A draft whose date the user changed by hand is left
-   * where they put it: they named an absolute day, and moving it again would
-   * be answering a question nobody asked.
-   */
-  const overrideOccurrence = useCallback(
-    (draft: Omit<CalEvent, "id">) => {
-      if (!editor?.id) return;
-      const at = editor.occurrenceStart ?? editor.draft.start;
-      const seedDay = startOfDay(new Date(editor.draft.start)).getTime();
-      const keptDate = startOfDay(new Date(draft.start)).getTime() === seedDay;
-      const shift = keptDate ? startOfDay(new Date(at)).getTime() - seedDay : 0;
-      store.create({
-        ...draft,
-        ...NEVER,
-        start: draft.start + shift,
-        end: draft.end + shift,
-        seriesId: editor.id,
-        seriesKey: instantKey(at),
-      });
-      cue("created", channels);
+  const deleteEvent = useCallback(
+    (scope: EditScope) => {
+      if (editor?.id) {
+        const at = editor.occurrenceStart ?? editor.draft.start;
+        const seedMs = editor.draft.start;
+        switch (effectiveScope(scope, seedMs, at)) {
+          case "all":
+            store.remove(editor.id);
+            break;
+          case "one":
+            store.update(editor.id, { exdates: [...editor.draft.exdates, instantKey(at)] });
+            break;
+          case "future":
+            store.truncateSeries(editor.id, at);
+            break;
+        }
+        // Falling, hollow, and two taps: the one cue that reports something
+        // being taken away rather than put somewhere.
+        cue("deleted", channels);
+      }
       setEditor(null);
     },
     [editor, channels],
@@ -949,19 +995,9 @@ export default function App() {
           target={editor}
           clock={settings.clock}
           calendars={calendars}
-          onSave={commit}
-          onSkipOccurrence={skipOccurrence}
-          onOverrideOccurrence={overrideOccurrence}
+          onSave={saveEvent}
+          onDelete={deleteEvent}
           onDraftChange={trackDraft}
-          onDelete={() => {
-            if (editor.id) {
-              store.remove(editor.id);
-              // Falling, hollow, and two taps: the one cue that reports
-              // something being taken away rather than put somewhere.
-              cue("deleted", channels);
-            }
-            setEditor(null);
-          }}
           onClose={() => setEditor(null)}
         />
       )}

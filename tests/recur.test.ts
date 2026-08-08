@@ -15,6 +15,7 @@ import {
   keyToInstant,
   recurrenceOf,
   repeats,
+  splitRule,
   startsBetween,
   type Recurrence,
 } from "@/lib/recur";
@@ -804,5 +805,83 @@ describe("repeats", () => {
     { name: "daily", repeat: "daily" as const, rdates: [] as string[], expected: true },
   ])("$name → $expected", ({ repeat, rdates, expected }) => {
     expect(repeats(rule({ repeat, rdates }))).toBe(expected);
+  });
+});
+
+/* ---------------------------------------- splitRule ---------------------------------- */
+
+describe("splitRule", () => {
+  const seed = ms("2026-01-05 09:00");
+  const cut = ms("2026-01-19 09:00");
+
+  it("stops the head the instant before the cut, so the two halves cover every day once", () => {
+    const r = rule({ repeat: "daily" });
+    const { head } = splitRule(r, seed, cut);
+    const before = startsBetween({ ...r, ...head }, seed, seed, ms("2026-02-01"));
+    const after = startsBetween(r, cut, cut, ms("2026-02-01"));
+    expect
+      .soft(before)
+      .toOccurOn(Array.from({ length: 14 }, (_, i) => `2026-01-${String(5 + i).padStart(2, "0")}`));
+    expect(after[0]).toBeSameInstantAs("2026-01-19 09:00");
+  });
+
+  it("keeps an existing UNTIL when it is already earlier — a split cannot extend a series", () => {
+    const early = ms("2026-01-12 09:00");
+    const { head } = splitRule(rule({ repeat: "weekly", until: early }), seed, cut);
+    expect(head.until).toBe(early);
+  });
+
+  it("bounds an unbounded series rather than leaving it forever", () => {
+    const { head } = splitRule(rule({ repeat: "weekly" }), seed, cut);
+    expect(head.until).toBe(cut - 1);
+  });
+
+  it("moves a future RDATE to the tail — UNTIL does not bound one, so it would fire twice", () => {
+    const r = rule({ repeat: "weekly", rdates: ["2026-01-07", "2026-03-01"] });
+    const { head, tail } = splitRule(r, seed, cut);
+    expect.soft(head.rdates).toEqual(["2026-01-07"]);
+    expect.soft(tail.rdates).toEqual(["2026-03-01"]);
+    // The proof rather than the field: the head must not still land in March.
+    expect(startsBetween({ ...r, ...head }, seed, ms("2026-02-01"), ms("2026-04-01"))).toEqual([]);
+  });
+
+  it("carries a future EXDATE to the tail — a skipped day stays skipped", () => {
+    const r = rule({ repeat: "daily", exdates: ["2026-01-06", "2026-01-26"] });
+    const { head, tail } = splitRule(r, seed, cut);
+    expect.soft(head.exdates).toEqual(["2026-01-06"]);
+    expect.soft(tail.exdates).toEqual(["2026-01-26"]);
+    // The whole tail, because `toOccurOn` compares the list positionally: a
+    // negated one-day expectation would pass on any list of any other length.
+    expect(startsBetween({ ...r, ...tail }, cut, cut, ms("2026-02-01"))).toOccurOn([
+      "2026-01-19",
+      "2026-01-20",
+      "2026-01-21",
+      "2026-01-22",
+      "2026-01-23",
+      "2026-01-24",
+      "2026-01-25",
+      "2026-01-27",
+      "2026-01-28",
+      "2026-01-29",
+      "2026-01-30",
+      "2026-01-31",
+    ]);
+  });
+
+  it("splits an instant-keyed EXDATE by its own clock, not the seed's day", () => {
+    const r = rule({
+      repeat: "daily",
+      byHour: [9, 15],
+      exdates: [instantKey(ms("2026-01-19 08:00")), instantKey(ms("2026-01-19 15:00"))],
+    });
+    const { head, tail } = splitRule(r, seed, cut);
+    expect.soft(head.exdates).toEqual([instantKey(ms("2026-01-19 08:00"))]);
+    expect(tail.exdates).toEqual([instantKey(ms("2026-01-19 15:00"))]);
+  });
+
+  it("leaves a key it cannot spell with the head, where it is already inert", () => {
+    const { head, tail } = splitRule(rule({ repeat: "daily", exdates: ["not-a-date"] }), seed, cut);
+    expect.soft(head.exdates).toEqual(["not-a-date"]);
+    expect(tail.exdates).toEqual([]);
   });
 });

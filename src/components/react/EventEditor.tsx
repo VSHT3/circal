@@ -43,9 +43,19 @@ import {
   Switch,
   openDatePicker,
 } from "@/components/react/ui/primitives";
-import type { EventEditorProps } from "@/components/react/types";
+import type { EditScope, EventEditorProps } from "@/components/react/types";
 
 const MIN_DURATION_MIN = 5;
+
+/**
+ * The three answers, narrowest first: the safe one is the shortest reach, and
+ * the one that rewrites a year of history is the furthest.
+ */
+const SCOPES: { scope: EditScope; label: string }[] = [
+  { scope: "one", label: "Only this one" },
+  { scope: "future", label: "This and all future" },
+  { scope: "all", label: "The whole series" },
+];
 
 /**
  * A twelve-hour clock field. Free text while focused, normalised on blur or
@@ -422,8 +432,6 @@ export default function EventEditor({
   onSave,
   onDelete,
   onClose,
-  onSkipOccurrence,
-  onOverrideOccurrence,
   onDraftChange,
 }: EventEditorProps) {
   const [draft, setDraft] = useState<Omit<CalEvent, "id">>(target.draft);
@@ -460,8 +468,28 @@ export default function EventEditor({
     onDraftChange(merged);
   }
 
-  function commit() {
-    onSave({ ...draft, title: draft.title.trim() || "New event" });
+  /**
+   * A repeating event cannot be saved or deleted until it has said what the
+   * edit means, so both presses raise the question rather than committing. Every
+   * other target — a one-off, a fresh draft, an already-detached override — has
+   * exactly one answer and is never asked for it.
+   */
+  const repeating = repeats(draft);
+  const scoped = !readOnly && target.id !== null && repeating;
+  const [pending, setPending] = useState<"save" | "delete" | null>(null);
+
+  function save(scope: EditScope) {
+    onSave({ ...draft, title: draft.title.trim() || "New event" }, scope);
+  }
+
+  function askOrSave() {
+    if (scoped) setPending("save");
+    else save("all");
+  }
+
+  function askOrDelete() {
+    if (scoped) setPending("delete");
+    else onDelete("all");
   }
 
   useEffect(() => {
@@ -473,21 +501,25 @@ export default function EventEditor({
         // reaching the shell's own Escape — which by then would see a closed
         // editor and go on to take Escape's next meaning.
         e.stopPropagation();
-        onClose();
+        // The question is a step inside the editor, not a second modal: Escape
+        // backs out of it and leaves the edit on screen, because closing here
+        // would discard work the user has not yet been allowed to save.
+        if (pending) setPending(null);
+        else onClose();
       } else if (readOnly) {
         return;
       } else if (mod && e.key === "Enter") {
         e.preventDefault();
-        commit();
+        askOrSave();
       } else if (mod && e.key === "Backspace" && target.id) {
         e.preventDefault();
-        onDelete();
+        askOrDelete();
       }
     }
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft, target.id, readOnly, onClose, onDelete]);
+  }, [draft, target.id, readOnly, pending, scoped, onClose, onDelete]);
 
   const calendar = calendars.find((c) => c.id === draft.calendarId);
 
@@ -579,7 +611,6 @@ export default function EventEditor({
   /* ------------------------------ recurrence ------------------------------ */
 
   const seed = new Date(draft.start);
-  const repeating = repeats(draft);
   /** Whether the three rows below can actually spell this rule — false for
    *  whatever a subscription sent that they have no control for. */
   const expressible = isExpressible(draft, seed);
@@ -859,78 +890,92 @@ export default function EventEditor({
             </div>
           </fieldset>
 
-          {/* Per-occurrence actions: only a series can be exdated or split,
-              and only when there is something to edit. */}
-          {!readOnly && target.id && repeating && (
-            <div className="flex items-center gap-3 border-t border-hairline px-3.5 py-2 text-[13px] text-ink-2">
+          {/* The footer is one of two things: the ordinary row of verbs, or the
+              question a repeating event has to answer before anything is
+              written. It replaces that row rather than sitting above it — two
+              rows of verbs, one of them now inert, is a footer that lies. */}
+          {pending ? (
+            <div className="border-t border-hairline px-3.5 py-3">
+              <span className="label text-ink-3">
+                {pending === "save" ? "Save this change to" : "Delete"}
+              </span>
+              <div className="mt-2 flex flex-col gap-1">
+                {SCOPES.map(({ scope, label }, i) => (
+                  <button
+                    key={scope}
+                    autoFocus={i === 0}
+                    type="button"
+                    onClick={() => (pending === "save" ? save(scope) : onDelete(scope))}
+                    className={cn(
+                      "flex h-9 items-center rounded-[9px] border border-hairline bg-surface-2 px-3 text-left text-[14px] transition-colors hover:bg-white/10",
+                      pending === "delete" ? "text-danger" : "text-ink",
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
               <button
                 type="button"
-                onClick={onSkipOccurrence}
-                className="transition-colors hover:text-ink"
+                onClick={() => setPending(null)}
+                className="mt-2.5 flex items-center gap-1.5 px-1 text-[14px] text-ink-2 transition-colors hover:text-ink"
               >
-                Skip this one
-              </button>
-              <button
-                type="button"
-                onClick={() => onOverrideOccurrence(draft)}
-                className="transition-colors hover:text-ink"
-              >
-                Only this one
+                Cancel
+                <Kbd>esc</Kbd>
               </button>
             </div>
-          )}
-
-          {/* footer */}
-          <div className="flex items-center gap-2 border-t border-hairline px-3 py-2.5">
-            {readOnly ? (
-              <>
-                <span className="label text-ink-4">
-                  {calendar?.name ?? "Subscription"} · read only
-                </span>
-                <button
-                  autoFocus
-                  type="button"
-                  onClick={onClose}
-                  className="ml-auto flex h-8 items-center gap-1.5 rounded-[9px] border border-hairline bg-surface-2 px-3 text-[14px] text-ink transition-colors hover:bg-white/10"
-                >
-                  Close
-                  <Kbd>esc</Kbd>
-                </button>
-              </>
-            ) : (
-              <>
-                {target.id && (
+          ) : (
+            <div className="flex items-center gap-2 border-t border-hairline px-3 py-2.5">
+              {readOnly ? (
+                <>
+                  <span className="label text-ink-4">
+                    {calendar?.name ?? "Subscription"} · read only
+                  </span>
                   <button
-                    type="button"
-                    onClick={onDelete}
-                    className="flex items-center gap-1.5 rounded-[8px] px-2 py-1 text-[14px] text-danger transition-colors hover:bg-white/6"
-                  >
-                    Delete
-                    <Kbd>⌘</Kbd>
-                    <Kbd>⌫</Kbd>
-                  </button>
-                )}
-                <div className="ml-auto flex items-center gap-3">
-                  <button
+                    autoFocus
                     type="button"
                     onClick={onClose}
-                    className="px-1 text-[14px] text-ink-2 transition-colors hover:text-ink"
+                    className="ml-auto flex h-8 items-center gap-1.5 rounded-[9px] border border-hairline bg-surface-2 px-3 text-[14px] text-ink transition-colors hover:bg-white/10"
                   >
-                    Cancel
+                    Close
+                    <Kbd>esc</Kbd>
                   </button>
-                  <button
-                    type="button"
-                    onClick={commit}
-                    className="flex h-8 items-center gap-1.5 rounded-[9px] border border-hairline bg-surface-2 px-3 text-[14px] text-ink transition-colors hover:bg-white/10"
-                  >
-                    Save
-                    <Kbd>⌘</Kbd>
-                    <Kbd>↵</Kbd>
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
+                </>
+              ) : (
+                <>
+                  {target.id && (
+                    <button
+                      type="button"
+                      onClick={askOrDelete}
+                      className="flex items-center gap-1.5 rounded-[8px] px-2 py-1 text-[14px] text-danger transition-colors hover:bg-white/6"
+                    >
+                      Delete
+                      <Kbd>⌘</Kbd>
+                      <Kbd>⌫</Kbd>
+                    </button>
+                  )}
+                  <div className="ml-auto flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={onClose}
+                      className="px-1 text-[14px] text-ink-2 transition-colors hover:text-ink"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={askOrSave}
+                      className="flex h-8 items-center gap-1.5 rounded-[9px] border border-hairline bg-surface-2 px-3 text-[14px] text-ink transition-colors hover:bg-white/10"
+                    >
+                      Save
+                      <Kbd>⌘</Kbd>
+                      <Kbd>↵</Kbd>
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
         </motion.div>
       </div>
     </AnimatePresence>

@@ -46,6 +46,13 @@ export interface DraftMark {
   calendarId: string;
 }
 
+/**
+ * Which part of a repeating event an edit or a delete lands on. Asked at the
+ * moment of committing rather than offered as standing controls, because it is
+ * a property of the press, not of the event: a one-off never has to answer it.
+ */
+export type EditScope = "one" | "future" | "all";
+
 /** What the editor is currently editing: an existing event, or a new draft. */
 export interface EditorTarget {
   /** `null` while creating — the event does not exist in the store yet. */
@@ -54,10 +61,10 @@ export interface EditorTarget {
   /** Set for an event pulled from a subscription: somebody else's data. */
   readOnly?: boolean;
   /**
-   * The instant of the occurrence the editor was opened from, epoch ms —
-   * what "skip this one" and "only this one" apply to. Unset for a fresh
-   * draft or an event opened without one; those actions then fall back to
-   * the series' own seed, which is the occurrence a bare `openEvent` means.
+   * The instant of the occurrence the editor was opened from, epoch ms — the
+   * one an `EditScope` is measured against. Unset for a fresh draft or an event
+   * opened without one; the scope then falls back to the series' own seed,
+   * which is the occurrence a bare `openEvent` means.
    */
   occurrenceStart?: number;
   /**
@@ -133,20 +140,12 @@ export interface EventEditorProps {
   target: EditorTarget;
   clock: Clock;
   calendars: Calendar[];
-  onSave: (draft: Omit<CalEvent, "id">) => void;
-  /** Only rendered when `target.id` is set. */
-  onDelete: () => void;
+  /** `scope` is `"all"` for anything that does not repeat: there is nothing
+   *  else it could mean, and the editor does not ask. */
+  onSave: (draft: Omit<CalEvent, "id">, scope: EditScope) => void;
+  /** Only reachable when `target.id` is set. */
+  onDelete: (scope: EditScope) => void;
   onClose: () => void;
-  /**
-   * "Skip this one": excludes `target.occurrenceStart` from the series and
-   * changes nothing else. Only rendered for a repeating, editable event.
-   */
-  onSkipOccurrence: () => void;
-  /**
-   * "Only this one": saves the edit as a standalone override of
-   * `target.occurrenceStart`, leaving the series it came from untouched.
-   */
-  onOverrideOccurrence: (draft: Omit<CalEvent, "id">) => void;
   /**
    * The draft as it now stands, on every change that could move or recolour it.
    * The shell keeps it on the target as `live` so the face behind the modal can

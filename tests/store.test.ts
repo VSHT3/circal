@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { at, ms, event, MemoryStorage } from "./helpers";
-import type { CalEvent, Repeat } from "@/lib/events";
+import { instantKey, type CalEvent, type Repeat } from "@/lib/events";
 import { DEFAULT_SETTINGS, LIFE_EXPECTANCY_RANGE } from "@/lib/store";
 import { dayKey } from "@/lib/time";
 import type * as StoreModule from "@/lib/store";
@@ -209,6 +209,129 @@ describe("remove", () => {
     const a = s.store.create(draft(s));
     s.store.remove(a.id);
     expect(s.store.snapshot().events).toEqual([]);
+  });
+});
+
+/* --------------------------- editing a series --------------------------- */
+
+/** A weekly series seeded on Sunday 8 March 2026 at 01:00, and the instants of
+ *  the three occurrences after it. */
+const WEEKLY = {
+  seed: ms("2026-03-08 01:00"),
+  second: ms("2026-03-15 01:00"),
+  third: ms("2026-03-22 01:00"),
+  fourth: ms("2026-03-29 01:00"),
+};
+
+/** An override of `series` on `at`, the way the editor's "only this one" writes
+ *  one: its own event, pointing back at the occurrence it replaces. */
+function override(s: StoreHandle, series: CalEvent, at: number): CalEvent {
+  return s.store.create({
+    ...draft(s),
+    title: `override ${instantKey(at)}`,
+    seriesId: series.id,
+    seriesKey: instantKey(at),
+  });
+}
+
+/** The series' own body, ready to be handed back as the tail of a split. */
+function body(series: CalEvent): Omit<CalEvent, "id"> {
+  const { id: _id, ...rest } = series;
+  return rest;
+}
+
+describe("remove — a series takes its overrides with it", () => {
+  it("deletes the event and every override that detached from it, and nothing else", async () => {
+    const s = await freshStore();
+    const series = s.store.create(draft(s, 60, 120, "weekly"));
+    override(s, series, WEEKLY.second);
+    const unrelated = s.store.create(draft(s, 300, 360));
+
+    s.store.remove(series.id);
+    expect(s.store.snapshot().events.map((e) => e.id)).toEqual([unrelated.id]);
+  });
+});
+
+describe("splitSeries", () => {
+  it("bounds the original at the instant before the cut and seeds a new series there", async () => {
+    const s = await freshStore();
+    const series = s.store.create(draft(s, 60, 120, "weekly"));
+    const tail = s.store.splitSeries(series.id, WEEKLY.third, {
+      ...body(series),
+      start: WEEKLY.third + 60 * 60_000,
+      end: WEEKLY.third + 120 * 60_000,
+    });
+
+    const head = s.store.snapshot().events.find((e) => e.id === series.id);
+    expect.soft(head?.until).toBe(WEEKLY.third - 1);
+    expect.soft(tail?.start).toBe(WEEKLY.third + 60 * 60_000);
+    // A tail is a series, not an override: it repeats, and it points at nothing.
+    expect.soft(tail?.repeat).toBe("weekly");
+    expect.soft(tail?.seriesId).toBe("");
+    expect(tail?.seriesKey).toBe("");
+  });
+
+  it("is one undoable step — the state between the two writes is a series with no future", async () => {
+    const s = await freshStore();
+    const series = s.store.create(draft(s, 60, 120, "weekly"));
+    s.store.splitSeries(series.id, WEEKLY.third, body(series));
+
+    expect(s.store.undo()).toBe(true);
+    expect(s.store.snapshot().events).toEqual([series]);
+  });
+
+  it("re-points an override past the cut at the new series and leaves an earlier one alone", async () => {
+    const s = await freshStore();
+    const series = s.store.create(draft(s, 60, 120, "weekly"));
+    const before = override(s, series, WEEKLY.second);
+    const after = override(s, series, WEEKLY.fourth);
+
+    const tail = s.store.splitSeries(series.id, WEEKLY.third, body(series));
+    const events = s.store.snapshot().events;
+    const seriesOf = (id: string) => events.find((e) => e.id === id)?.seriesId;
+    expect.soft(seriesOf(before.id)).toBe(series.id);
+    expect(seriesOf(after.id)).toBe(tail?.id);
+  });
+
+  it("carries the exclusions past the cut onto the tail, so a skipped day stays skipped", async () => {
+    const s = await freshStore();
+    const series = s.store.create({
+      ...draft(s, 60, 120, "weekly"),
+      exdates: [instantKey(WEEKLY.second), instantKey(WEEKLY.fourth)],
+    });
+    const tail = s.store.splitSeries(series.id, WEEKLY.third, body(series));
+
+    const head = s.store.snapshot().events.find((e) => e.id === series.id);
+    expect.soft(head?.exdates).toEqual([instantKey(WEEKLY.second)]);
+    expect(tail?.exdates).toEqual([instantKey(WEEKLY.fourth)]);
+  });
+
+  it("writes nothing for an id that is not there", async () => {
+    const s = await freshStore();
+    const series = s.store.create(draft(s, 60, 120, "weekly"));
+    expect(s.store.splitSeries("does-not-exist", WEEKLY.third, body(series))).toBeNull();
+    expect(s.store.snapshot().events).toEqual([series]);
+  });
+});
+
+describe("truncateSeries", () => {
+  it("stops the series at the cut and takes the overrides past it with it", async () => {
+    const s = await freshStore();
+    const series = s.store.create(draft(s, 60, 120, "weekly"));
+    const before = override(s, series, WEEKLY.second);
+    override(s, series, WEEKLY.fourth);
+
+    s.store.truncateSeries(series.id, WEEKLY.third);
+    const events = s.store.snapshot().events;
+    expect.soft(events.find((e) => e.id === series.id)?.until).toBe(WEEKLY.third - 1);
+    expect(events.map((e) => e.id)).toEqual([series.id, before.id]);
+  });
+
+  it("writes nothing for an id that is not there", async () => {
+    const s = await freshStore();
+    const series = s.store.create(draft(s, 60, 120, "weekly"));
+    s.store.truncateSeries("does-not-exist", WEEKLY.third);
+    expect(s.store.snapshot().events).toEqual([series]);
   });
 });
 

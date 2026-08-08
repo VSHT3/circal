@@ -4,7 +4,8 @@ Recurrence is real, the interior answers the day, arcs carry their own names, th
 ambient mode, ⌘P writes an event in one line and ranks what it finds, the year is a revolution and
 unrolls into the life grid, the life grid names its round days, an event can run for as many days
 as it likes, a drag across the year ring makes one, the dial's hour detent can be counted by ear,
-and there is a test suite — 931 cases over the domain layer, `pnpm test`, in the gate.
+editing a repeating event asks which occurrences it means, and there is a test suite — 946 cases
+over the domain layer, `pnpm test`, in the gate.
 
 Done work is not recorded here. The rationale that outlived it lives in `AGENTS.md`, next to the
 code it constrains.
@@ -15,8 +16,14 @@ code it constrains.
 1. Intro animation like what animejs has
 2. icons into dial list based on custom or default to calendar icon (which can be set too)
 3. event and stuff search (idk, cmd f)
-4. deleting/modifying a repeating event (give option to pick whether this is just the current one, all future one, or all)
+4. ~~deleting/modifying a repeating event~~ — _done._ Save and Delete both ask, and the answer is
+   `EditScope`: only this one (an override, or an EXDATE), this and all future (`splitRule` cuts the
+   series in two), or the whole series. Two things it left behind: **`RANGE=THISANDFUTURE` is still
+   not read on the way in** — `ics.ts` models only the single-instant RECURRENCE-ID, so a split
+   arriving from a subscription flattens — and **an export writes the two halves as two unrelated
+   VEVENTs**, which is correct but loses the fact that they were one series.
 5. command + delete should delete an event you are hovering over
+6. onboarding, after everything is finalised
 
 **1. quotes page** — _you are a worm through time, you have no obligations to your former self, be
 the change you wish to see in the world._

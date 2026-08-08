@@ -25,7 +25,15 @@
 import { useSyncExternalStore } from "react";
 import { MINUTES_PER_DAY, addDays, startOfDay, type Clock } from "./time";
 import { notify } from "./notify";
-import { NEVER, PALETTE, type CalEvent, type Calendar, type Repeat } from "./events";
+import {
+  NEVER,
+  PALETTE,
+  keyToInstant,
+  splitRule,
+  type CalEvent,
+  type Calendar,
+  type Repeat,
+} from "./events";
 import type { PickedPlace } from "./places";
 
 const KEY = "circal.v1";
@@ -944,9 +952,63 @@ export const store = {
     });
   },
 
+  /**
+   * The event and every override that detached from it — deleting a series
+   * cannot leave its exceptions behind, because an orphaned override is an
+   * ordinary event on the day it replaced, with nothing left to explain it and
+   * no surface that can find it.
+   */
   remove(id: string) {
     const base = fresh();
-    commit({ ...base, events: base.events.filter((e) => e.id !== id) });
+    commit({ ...base, events: base.events.filter((e) => e.id !== id && e.seriesId !== id) });
+  },
+
+  /**
+   * "This and all future events": the series stops the instant before `at` and
+   * a new one starts there carrying `tail`, in one undoable step — two commits
+   * would be two ⌘Z presses for one edit, and the state between them is a
+   * series that has lost its future.
+   *
+   * An override past the cut is re-pointed at the new series rather than
+   * dropped. Its `seriesKey` still names the instant it replaces; leaving it on
+   * the head means nothing suppresses that occurrence any more, so the day
+   * shows the override *and* the new series' own arc.
+   */
+  splitSeries(id: string, at: number, tail: Omit<CalEvent, "id">): CalEvent | null {
+    const base = fresh();
+    const original = base.events.find((e) => e.id === id);
+    if (!original) return null;
+    const split = splitRule(original, original.start, at);
+    const created: CalEvent = { ...tail, ...split.tail, seriesId: "", seriesKey: "", id: newId() };
+    const seed = new Date(original.start);
+    const detached = (e: CalEvent) =>
+      e.seriesId === id && (keyToInstant(e.seriesKey, seed) ?? -Infinity) >= at;
+    commit({
+      ...base,
+      events: [
+        ...base.events.map((e) =>
+          e.id === id ? { ...e, ...split.head } : detached(e) ? { ...e, seriesId: created.id } : e,
+        ),
+        created,
+      ],
+    });
+    return created;
+  },
+
+  /** "Delete this and all future events": the same cut with nothing on the far
+   *  side of it, so the overrides past it go rather than move. */
+  truncateSeries(id: string, at: number) {
+    const base = fresh();
+    const original = base.events.find((e) => e.id === id);
+    if (!original) return;
+    const split = splitRule(original, original.start, at);
+    const seed = new Date(original.start);
+    commit({
+      ...base,
+      events: base.events
+        .filter((e) => !(e.seriesId === id && (keyToInstant(e.seriesKey, seed) ?? -Infinity) >= at))
+        .map((e) => (e.id === id ? { ...e, ...split.head } : e)),
+    });
   },
 
   toggleCalendar(id: string) {

@@ -46,6 +46,26 @@ entirely inside the event, and a whole revolution is what the face has to say
 about that. The **All-day** switch changes whether the two ends carry times,
 never how many days there are.
 
+## Editing something that repeats
+
+A repeating event is asked what an edit means, at the moment it lands rather
+than as a standing row of buttons: press **Save** or **Delete** on one and the
+footer becomes the question, with three answers.
+
+- **Only this one** — the change becomes its own event, replacing that one
+  occurrence and leaving the rule alone. Deleting takes the same shape: the day
+  is excluded, the series is untouched.
+- **This and all future** — the series stops the instant before the occurrence
+  you are standing on and a new one starts there carrying the change. The past
+  keeps the shape it had, which is the point: moving a standup to half past
+  does not move every standup you have already been to.
+- **The whole series** — the rule itself, every occurrence of it, and the
+  exceptions that detached from it.
+
+`esc` backs out of the question and leaves the edit on screen; a second press
+closes the editor. A one-off is never asked — there is only one thing it could
+mean.
+
 ## The middle of the face
 
 The ring says what shape the day is; the middle says the one sentence. It has
