@@ -361,8 +361,12 @@ export const PALETTE = [
 /** Used only when an event points at a calendar that no longer exists. */
 const ORPHAN_COLOR = PALETTE[0];
 
-/** The event's own colour if it has one, else its calendar's. */
-export function colorOf(event: CalEvent, calendars: Calendar[]): string {
+/** The event's own colour if it has one, else its calendar's. Takes only the
+ *  two fields it reads, so a draft that is not an event yet can ask too. */
+export function colorOf(
+  event: Pick<CalEvent, "color" | "calendarId">,
+  calendars: Calendar[],
+): string {
   if (event.color) return event.color;
   return calendars.find((c) => c.id === event.calendarId)?.color ?? ORPHAN_COLOR;
 }

@@ -319,10 +319,12 @@ midnight and the readout says **All day**, because that is what it will make.
 
 The year ring takes that gesture one scale up. Drag across its rim and every day
 you cross goes white while the middle prints them — **8 – 18 Aug**, eleven days
-— and letting go opens an all-day event running exactly that long. It stops dead
-at 31 December rather than rolling into the next year, because the year on screen
-is the year you are drawing in, and a press that never crossed a day is still
-just a click on that day.
+— and letting go opens an all-day event running exactly that long. The days stay
+lit behind the editor and answer the swatch you pick, so you are looking at the
+shape of the thing while you name it; cancel and they go back. It stops dead at
+31 December rather than rolling into the next year, because the year on screen is
+the year you are drawing in, and a press that never crossed a day is still just a
+click on that day.
 
 An arc already on the face is draggable too: grab its middle to move the whole
 event, or either end to move that end alone. The minimum is one fifteen-minute

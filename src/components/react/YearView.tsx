@@ -144,6 +144,29 @@ function resolveSpan({ from, sweep }: Span): { lo: number; hi: number } {
 }
 
 /**
+ * The event about to exist, as slots on the ring: white while the range is
+ * still under the pointer, the draft's own colour once the editor has one to
+ * pick. One notion rather than two, so the picture does not change shape at
+ * the moment the modal arrives — the days it covers are drawn as days that
+ * carry it, which is what they will look like when it is saved.
+ */
+interface Pending {
+  lo: number;
+  hi: number;
+  color: string;
+}
+
+/** The draft's days as slots in the year on screen, or `null` when it does not
+ *  reach into this one. A multi-day event can start in the year before and end
+ *  in the year after, so both ends clip to the ring rather than being trusted. */
+function draftSlots(from: Date, to: Date, year: number, days: number): [number, number] | null {
+  const first = from.getFullYear();
+  const last = to.getFullYear();
+  if (last < year || first > year) return null;
+  return [first < year ? 0 : dayOfYear(from), last > year ? days - 1 : dayOfYear(to)];
+}
+
+/**
  * When the days stop following the flattening curve and start going to the
  * places they actually occupy.
  *
@@ -315,6 +338,7 @@ export default function YearView({
   settings,
   stage,
   flow,
+  draft,
   onSelectDay,
   onCreateSpan,
 }: YearViewProps) {
@@ -606,8 +630,25 @@ export default function YearView({
   const active = hover ?? cursor;
   const activeMark = active === null ? null : marks[active];
   const activeIndex = active ?? selectedIndex ?? 0;
-  /** The range as the ring and the readout want it: two inclusive day slots. */
+  /** The range as the readout wants it: two inclusive day slots, and only ever
+   *  while the pointer is down — the editor prints its own dates once it is up. */
   const range = span === null ? null : resolveSpan(span);
+
+  /**
+   * The draft in the editor, clipped to this year. Memoised because it is what
+   * the ring's canvas repaints on, and a fresh object every render would repaint
+   * it on every clock tick.
+   */
+  const drafted = useMemo((): Pending | null => {
+    if (!draft) return null;
+    const slots = draftSlots(draft.from, draft.to, year, days);
+    return slots && { lo: slots[0], hi: slots[1], color: draft.color };
+  }, [draft, year, days]);
+
+  /** The pointer wins while it is down: the range being dragged *is* the draft
+   *  that is about to open, and drawing both would double the same fact. */
+  const pending: Pending | null =
+    range === null ? drafted : { lo: range.lo, hi: range.hi, color: "#ffffff" };
 
   /* -------------------------------- the unroll ---------------------------- */
 
@@ -742,7 +783,7 @@ export default function YearView({
           box={{ width, height }}
           selected={selectedIndex}
           today={todayIndex}
-          range={range}
+          pending={pending}
           at={pointerAt}
           amount={amount}
         />
@@ -829,7 +870,7 @@ function Ring({
   box,
   selected,
   today,
-  range,
+  pending,
   at,
   amount,
 }: {
@@ -838,8 +879,9 @@ function Ring({
   box: { width: number; height: number };
   selected: number | null;
   today: number | null;
-  /** The range being dragged, inclusive, or `null`. */
-  range: { lo: number; hi: number } | null;
+  /** The event about to exist, or `null`. Drawn on the days it covers as a day
+   *  that carries it: one more thing on the day, in its ink. */
+  pending: Pending | null;
   at: MotionValue<number>;
   amount: MotionValue<number>;
 }) {
@@ -858,6 +900,11 @@ function Ring({
     const face = faceToPanel(box.width, box.height);
     const centre = at.get();
     const strength = amount.get();
+    // The pending range hoisted to two numbers, so the loop is a comparison
+    // rather than a null check three hundred and sixty-five times.
+    const from = pending ? pending.lo : Infinity;
+    const to = pending ? pending.hi : -Infinity;
+    const ink = pending ? pending.color : "";
 
     for (let i = 0; i < days; i++) {
       const mark = marks[i];
@@ -871,8 +918,15 @@ function Ring({
       // the pointer, and the three parts of it lean on the bell by different
       // amounts: the neighbours come along in length and barely at all in
       // width or light, so the emphasis stays on the one day being named.
+      //
+      // A day the pending event covers is drawn as a day that *carries* it —
+      // one more thing on it, in its ink — so the picture does not change shape
+      // when the drag hands over to the editor or when the editor saves. It is
+      // the ghost arc's job in this face's own terms.
+      const carries = i >= from && i <= to;
       const angle = dayAngle(i + shift, days);
-      const grown = mark.outer + YEAR.GROW_OUT * lift ** FALLOFF.length;
+      const base = carries ? markRadius(mark.count + 1) : mark.outer;
+      const grown = base + YEAR.GROW_OUT * lift ** FALLOFF.length;
       const inner = face.at(...radial(YEAR.DAY_INNER, angle));
       const outer = face.at(...radial(grown, angle));
 
@@ -880,7 +934,7 @@ function Ring({
       ctx.beginPath();
       ctx.moveTo(inner.x, inner.y);
       ctx.lineTo(outer.x, outer.y);
-      ctx.strokeStyle = mark.color;
+      ctx.strokeStyle = carries ? ink : mark.color;
       ctx.stroke();
 
       // Light instead of a colour, never over one. An empty day has nothing
@@ -889,13 +943,17 @@ function Ring({
       // spends the only information this face carries on a highlight the
       // growth has already given.
       //
-      // The selection and a range being dragged are the exceptions and are full
-      // white whatever they carry: neither is a hover. One is where the dial
-      // will land and where the unroll leaves from, the other is the shape of
-      // the event about to exist — which is the ghost arc's job on the dial, in
-      // the only ink this face has to draw it with.
-      const held = i === selected || (range !== null && i >= range.lo && i <= range.hi);
-      const white = held ? 1 : mark.count > 0 ? 0 : LIT_HOVER * lift ** FALLOFF.light;
+      // The selection is the exception and is full white whatever it carries:
+      // it is not a hover, it is where the dial will land and where the unroll
+      // leaves from. A pending day takes no light at all — its ink already is
+      // the highlight, and white over a chosen colour would hide the choice.
+      const white = carries
+        ? 0
+        : i === selected
+          ? 1
+          : mark.count > 0
+            ? 0
+            : LIT_HOVER * lift ** FALLOFF.light;
       if (white > 0.004) {
         ctx.globalAlpha = white;
         ctx.strokeStyle = "#fff";
@@ -911,7 +969,7 @@ function Ring({
         ctx.fill();
       }
     }
-  }, [box.width, box.height, days, marks, selected, today, range, at, amount]);
+  }, [box.width, box.height, days, marks, selected, today, pending, at, amount]);
 
   useMotionValueEvent(at, "change", paint);
   useMotionValueEvent(amount, "change", paint);

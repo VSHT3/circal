@@ -424,6 +424,7 @@ export default function EventEditor({
   onClose,
   onSkipOccurrence,
   onOverrideOccurrence,
+  onDraftChange,
 }: EventEditorProps) {
   const [draft, setDraft] = useState<Omit<CalEvent, "id">>(target.draft);
   const reducedMotion = useReducedMotion();
@@ -443,8 +444,20 @@ export default function EventEditor({
     setDraft(target.draft);
   }
 
+  /**
+   * Every change to the draft, and the one place it is reported upward so the
+   * face behind the modal can draw it.
+   *
+   * Merged off the render's own `draft` rather than through the updater form,
+   * because the shell has to be told the same value the field is about to
+   * show and a prop cannot be called from inside an updater — those must stay
+   * pure. Safe because no handler here patches twice in one event; if one ever
+   * needs to, it must merge both partials into a single call.
+   */
   function patch(next: Partial<Omit<CalEvent, "id">>) {
-    setDraft((d) => ({ ...d, ...next }));
+    const merged = { ...draft, ...next };
+    setDraft(merged);
+    onDraftChange(merged);
   }
 
   function commit() {

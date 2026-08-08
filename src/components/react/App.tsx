@@ -11,7 +11,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import type { Clock } from "@/lib/time";
-import { NEVER, dayAgenda, instantKey, type CalEvent, type Occurrence } from "@/lib/events";
+import {
+  NEVER,
+  colorOf,
+  dayAgenda,
+  instantKey,
+  type CalEvent,
+  type Occurrence,
+} from "@/lib/events";
 import { draftEvent, store, useStore } from "@/lib/store";
 import { exportBackup, exportIcs, importFile } from "@/lib/backup";
 import { cue } from "@/lib/feedback";
@@ -497,6 +504,50 @@ export default function App() {
     [defaultCalendar],
   );
 
+  /**
+   * The open editor's draft, kept on the target so a face behind the modal can
+   * draw the event that does not exist yet — the range you dragged across the
+   * year ring stays lit and answers the swatch you are picking.
+   *
+   * Returning the same target when nothing the faces care about moved is what
+   * makes this affordable: React bails out of an identical state value, so
+   * typing a title costs no render at all, let alone a canvas repaint.
+   */
+  const trackDraft = useCallback((next: Omit<CalEvent, "id">) => {
+    setEditor((open) => {
+      if (!open) return open;
+      const live = open.live ?? open.draft;
+      if (
+        live.start === next.start &&
+        live.end === next.end &&
+        live.color === next.color &&
+        live.calendarId === next.calendarId
+      ) {
+        return open;
+      }
+      const { start, end, color, calendarId } = next;
+      return { ...open, live: { start, end, color, calendarId } };
+    });
+  }, []);
+
+  /**
+   * That draft as the year ring wants it: the two days it runs between,
+   * inclusive, and the colour it resolves to now. `end` is exclusive, so the
+   * last day is measured from `end - 1` — the same reason `dayCount` is.
+   *
+   * Memoised because a fresh object every render would repaint the ring's
+   * canvas on every clock tick.
+   */
+  const editorDraft = useMemo(() => {
+    if (!editor) return null;
+    const mark = editor.live ?? editor.draft;
+    return {
+      from: startOfDay(new Date(mark.start)),
+      to: startOfDay(new Date(mark.end - 1)),
+      color: colorOf(mark, calendars),
+    };
+  }, [editor, calendars]);
+
   const actions: ShellActions = useMemo(
     () => ({
       goToday: () => go({ day: startOfDay(new Date()), view: "day" }),
@@ -836,6 +887,7 @@ export default function App() {
                   settings={settings}
                   stage={stage}
                   flow={flow}
+                  draft={editorDraft}
                   onSelectDay={(next) => actions.goDay(next)}
                   // A run of whole days, in the minutes `draftEvent` decides
                   // all-day by: the ring gesture and this one hand over to the
@@ -887,6 +939,7 @@ export default function App() {
           onSave={commit}
           onSkipOccurrence={skipOccurrence}
           onOverrideOccurrence={overrideOccurrence}
+          onDraftChange={trackDraft}
           onDelete={() => {
             if (editor.id) {
               store.remove(editor.id);

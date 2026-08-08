@@ -33,6 +33,17 @@ export interface ViewFlow {
   day: Date;
 }
 
+/** Where a draft sits and what colour it is: everything a face needs to draw
+ *  an event that is still only in the editor. */
+export interface DraftMark {
+  start: number;
+  /** Exclusive, as everywhere. */
+  end: number;
+  /** The event's own override, `""` for "follow the calendar". */
+  color: string;
+  calendarId: string;
+}
+
 /** What the editor is currently editing: an existing event, or a new draft. */
 export interface EditorTarget {
   /** `null` while creating — the event does not exist in the store yet. */
@@ -47,6 +58,18 @@ export interface EditorTarget {
    * the series' own seed, which is the occurrence a bare `openEvent` means.
    */
   occurrenceStart?: number;
+  /**
+   * The draft as the open modal currently has it — where it sits and what
+   * colour it is, so a face behind the editor can draw the event that does not
+   * exist yet. Unset until the first change, which is why every reader falls
+   * back to `draft`.
+   *
+   * Four fields rather than the whole draft on purpose: this updates on every
+   * change in the modal, and a title keystroke must not repaint a ring of 365
+   * marks. It lives on the target so that it dies with it — a preview outliving
+   * the modal it came from is a mark nothing can clear.
+   */
+  live?: DraftMark;
 }
 
 export interface ShellActions {
@@ -122,6 +145,12 @@ export interface EventEditorProps {
    * `target.occurrenceStart`, leaving the series it came from untouched.
    */
   onOverrideOccurrence: (draft: Omit<CalEvent, "id">) => void;
+  /**
+   * The draft as it now stands, on every change that could move or recolour it.
+   * The shell keeps it on the target as `live` so the face behind the modal can
+   * draw the event before it exists — see `EditorTarget.live`.
+   */
+  onDraftChange: (draft: Omit<CalEvent, "id">) => void;
 }
 
 export interface YearViewProps {
@@ -142,6 +171,13 @@ export interface YearViewProps {
    */
   stage: LifeStage | null;
   flow: RefObject<ViewFlow>;
+  /**
+   * The draft in the open editor, on the days it covers and in the colour it
+   * currently carries — the range you dragged stays lit and answers the swatch
+   * you are picking, rather than reverting the moment the modal arrives.
+   * `null` when no editor is open. Both ends inclusive.
+   */
+  draft: { from: Date; to: Date; color: string } | null;
   onSelectDay: (day: Date) => void;
   /**
    * A drag across the ring: an all-day event running `days` days from `from`,
