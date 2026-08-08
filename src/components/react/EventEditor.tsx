@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   NEVER,
   PALETTE,
+  colorOf,
   REPEATS,
   REPEAT_LABELS,
   repeatUnit,
@@ -44,7 +45,7 @@ import {
   Switch,
   openDatePicker,
 } from "@/components/react/ui/primitives";
-import { CalendarMark } from "@/components/react/ui/icons";
+import { CalendarMark, MarkPicker } from "@/components/react/ui/icons";
 import { ScopeChoices } from "@/components/react/ScopePrompt";
 import type { EditScope, EventEditorProps } from "@/components/react/types";
 
@@ -680,6 +681,21 @@ export default function EventEditor({
                   value={draft.color}
                   fallback={calendar?.color ?? PALETTE[0]}
                   onChange={(color) => patch({ color })}
+                />
+              </Row>
+
+              {/* Under Color because it is the same kind of answer about the
+                  same event, and `""` means the same thing in both: follow the
+                  calendar. The two are read apart, though — `markOf` and
+                  `colorOf` — so an event may borrow one and override the
+                  other, and the mark only inherits at all when the setting
+                  says so. */}
+              <Row label="Mark" align="top">
+                <MarkPicker
+                  icon={draft.icon}
+                  color={colorOf(draft, calendars)}
+                  noneLabel="Follow the calendar"
+                  onChange={(icon) => patch({ icon })}
                 />
               </Row>
 

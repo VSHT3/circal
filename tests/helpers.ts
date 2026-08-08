@@ -151,6 +151,7 @@ export function event(
     seriesId: "",
     seriesKey: "",
     color: "",
+    icon: "",
     ...NEVER,
     ...rest,
   };

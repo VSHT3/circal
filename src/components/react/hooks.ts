@@ -196,6 +196,39 @@ export function useElementSize<T extends HTMLElement>(): [RefObject<T | null>, n
 }
 
 /**
+ * Whether a scroll container has more to show below the fold — the truth
+ * `.fade-b` needs to stay honest. A fade painted regardless of scroll
+ * position reads as a rendering fault once you've actually reached the
+ * bottom, and the icon grid's row count is not fixed: filtering it down
+ * changes `scrollHeight` out from under a mount-only measurement, so the
+ * element's own size (via `ResizeObserver`, same instrument as
+ * `useElementSize`) and its scroll offset (a plain listener — no observer
+ * for that) both have to stay live.
+ */
+export function useOverflowFade<T extends HTMLElement>(): [RefObject<T | null>, boolean] {
+  const ref = useRef<T>(null);
+  const [hasMore, setHasMore] = useState(false);
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const measure = () => {
+      setHasMore(el.scrollTop + el.clientHeight < el.scrollHeight - 1);
+    };
+    measure();
+    el.addEventListener("scroll", measure);
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => {
+      el.removeEventListener("scroll", measure);
+      observer.disconnect();
+    };
+  }, []);
+
+  return [ref, hasMore];
+}
+
+/**
  * Global shortcuts. `combo` is `"mod+k"`, `"escape"`, `"arrowleft"` …; `mod` is
  * ⌘ on Apple and Ctrl elsewhere. Handlers are skipped while the user is typing,
  * unless the combo carries a modifier — ⌘↵ must still save from inside a field.

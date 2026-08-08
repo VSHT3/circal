@@ -30,7 +30,8 @@ import {
   polar,
   seamTrim,
 } from "@/lib/dial";
-import { colorOf, inkOn, statusOf, type Calendar, type Occurrence } from "@/lib/events";
+import { colorOf, inkOn, markOf, statusOf, type Calendar, type Occurrence } from "@/lib/events";
+import { MarkGlyph } from "@/components/react/ui/icons";
 import { cue, type Cue } from "@/lib/feedback";
 import { ambientLevel, solarLight, sunTimes, type Place } from "@/lib/sun";
 import {
@@ -390,6 +391,7 @@ export default function Dial({
     zoneDaylight,
     zoneMoonlight,
     arcLabels,
+    inheritMarks,
     ambientDim,
     ambientDaylight,
     ambientMoonlight,
@@ -896,6 +898,7 @@ export default function Dial({
             // to stay a shape when it is read from across a room.
             labels={ambient ? ambientArcLabels : arcLabels}
             color={colorOf(occ.event, calendars)}
+            mark={markOf(occ.event, calendars, inheritMarks)}
             dimmed={today && statusOf(occ, now) === "past"}
             hovered={hovered === occ.key}
             // Somebody else's calendar: it opens, it never moves.
@@ -1369,6 +1372,7 @@ function EventArc({
   clock,
   labels,
   color,
+  mark,
   dimmed,
   hovered,
   locked,
@@ -1382,6 +1386,10 @@ function EventArc({
   /** When this arc prints its name along itself. See `arcLabel`. */
   labels: ArcLabelMode;
   color: string;
+  /** The event's glyph, already resolved through `markOf` — its own, its
+   *  calendar's if inheritance is on, else `""`. Rides before the name when
+   *  the sweep can hold both. */
+  mark: string;
   dimmed: boolean;
   hovered: boolean;
   /** From a subscription: draggable by nobody. */
@@ -1437,7 +1445,7 @@ function EventArc({
   // `off` is the same bargain one step further out: ambient has its own mode
   // and switching into it would otherwise blink every name on the face out at
   // once. Off is now a state of the label rather than its absence.
-  const label = dot ? null : arcLabel(r, paintFrom, paintTo, occ.event.title);
+  const label = dot ? null : arcLabel(r, paintFrom, paintTo, occ.event.title, mark);
   const labelShown = labels === "always" || (labels === "hover" && (hovered || dragging));
 
   /**
@@ -1505,10 +1513,24 @@ function EventArc({
         style={{ transition: `stroke-width ${MOOD}, opacity ${MOOD}` }}
       />
       {label && (
-        <>
+        <g
+          // One opacity for the name and the glyph before it: they are one
+          // label, and fading them separately would read as two.
+          opacity={labelShown ? 1 : 0}
+          aria-hidden={!labelShown}
+          pointerEvents="none"
+          style={{ transition: `opacity ${MOOD}` }}
+        >
           <defs>
             <path id={labelId} d={label.d} />
           </defs>
+          {label.mark && (
+            <g
+              transform={`translate(${label.mark.x} ${label.mark.y}) rotate(${label.mark.rotate})`}
+            >
+              <MarkGlyph icon={mark} color={inkOn(color)} size={label.mark.size} />
+            </g>
+          )}
           <text
             className="font-mono"
             fill={inkOn(color)}
@@ -1521,16 +1543,16 @@ function EventArc({
             // black behind them and the label would vanish at 1.5:1; left
             // alone it softens from about 10:1 to 4.8:1 as the arc under it
             // recedes, which is the hierarchy the dimming was asking for.
-            opacity={labelShown ? 1 : 0}
-            aria-hidden={!labelShown}
-            pointerEvents="none"
-            style={{ transition: `opacity ${MOOD}` }}
           >
-            <textPath href={`#${labelId}`} startOffset="50%" textAnchor="middle">
+            <textPath
+              href={`#${labelId}`}
+              startOffset={`${label.startOffset}%`}
+              textAnchor="middle"
+            >
               {label.text}
             </textPath>
           </text>
-        </>
+        </g>
       )}
       {/* The ends are listed after the body, so where they overlap it they
           win the hit test — a stacking order, not a subtraction. */}

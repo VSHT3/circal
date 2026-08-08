@@ -137,6 +137,11 @@ export interface SidebarProps {
   events: CalEvent[];
   calendars: Calendar[];
   clock: Clock;
+  /** Whether an event with no mark of its own shows its calendar's — the
+   *  `inherit` argument every `markOf` call needs. A scalar rather than the
+   *  whole `Settings` object, the same way `clock` is: a panel that reads two
+   *  fields should not be able to re-render on a thirteenth changing. */
+  inheritMarks: boolean;
   actions: ShellActions;
 }
 
@@ -273,6 +278,8 @@ export interface CommandPaletteProps {
   occurrences: Occurrence[];
   clock: Clock;
   actions: ShellActions;
+  /** As `SidebarProps.inheritMarks` — its event rows resolve a mark too. */
+  inheritMarks: boolean;
   /**
    * Every keystroke, while the life view is the one behind us. The shell holds
    * it rather than this panel because the grid outlives the palette: the

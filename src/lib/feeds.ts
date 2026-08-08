@@ -71,6 +71,7 @@ export async function refreshFeed(calendar: Calendar): Promise<void> {
         seriesId: isOverride ? parentId : "",
         seriesKey: isOverride ? e.recurrenceId : "",
         color: "",
+        icon: "",
       };
     });
     store.setFeedEvents(calendar.id, cached, name);

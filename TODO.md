@@ -6,9 +6,8 @@ unrolls into the life grid, the life grid names its round days and can be walked
 keys, an event can run for as many days as it likes, a drag across the year ring makes one, the
 dial's hour detent can be counted by ear, editing a repeating event asks which occurrences it
 means, ⌘⌫ deletes the arc you are pointing at, a calendar can be made and named and marked and
-recoloured and deleted without losing what is in it, and there is a test suite — 983 cases over the
-domain layer,
-`pnpm test`, in the gate.
+recoloured and deleted without losing what is in it, an event can wear a mark of its own along its
+arc, and there is a test suite — 997 cases over the domain layer, `pnpm test`, in the gate.
 
 Done work is not recorded here. The rationale that outlived it lives in `AGENTS.md`, next to the
 code it constrains.
@@ -17,17 +16,16 @@ code it constrains.
 
 0. Moonpohases somewhere as an optional eyecandy
 1. Intro animation like what animejs has
-2. icons into dial list based on custom or default to calendar icon (which can be set too) — _half
-   done._ **A calendar can be set**: fifty-six vendored Phosphor glyphs or any emoji, in the card,
-   standing wherever the calendar is named. What is not done is the other half of the line — a mark
-   **per event**, overriding its calendar's the way `CalEvent.color` overrides `calendar.color`.
-   The field and the renderer already generalise (`CalendarMark` takes any icon and any colour), so
-   it is one `CalEvent.icon`, one picker row in the event editor, and a `markOf(event, calendars)`
-   beside `colorOf`. The question to answer first is where it may show: the sidebar's agenda and the
-   palette can hold one, but the **dial's arcs cannot** — an arc's interior is spent on the name,
-   and the dot-collapse at fifteen minutes has no room for a glyph. If the answer is "everywhere but
-   the face", say so before building it, because "icons into dial list" is ambiguous about exactly
-   that.
+2. ~~icons into dial list based on custom or default to calendar icon (which can be set too)~~ —
+   _done, and the "default to" turned out to be a setting rather than a default._ A calendar carries
+   a mark (247 searchable Phosphor glyphs or any emoji) and so does an event; `markOf` mirrors
+   `colorOf`'s precedence but **does not inherit unless asked**, because a calendar's glyph repeated
+   down forty arcs of one day says nothing the colour was not already saying —
+   `settings.inheritMarks`, off. On the face the mark rides the arc label in front of the name and
+   is priced at two glyphs of its budget, dropped rather than truncating the title. **`CenterPanel`
+   deliberately has none**: its dot is about five pixels, and a legible glyph there would widen
+   every row inside a panel with 29 units of clearance to `HAND_INNER`. That is the one surface an
+   event's mark does not reach, and it should stay that way until the interior is rethought.
 3. event and stuff search (idk, cmd f)
 4. ~~deleting/modifying a repeating event~~ — _done._ Save and Delete both ask, and the answer is
    `EditScope`: only this one (an override, or an EXDATE), this and all future (`splitRule` cuts the
@@ -209,7 +207,7 @@ cursor's ring and the pointer's are one ring and one card.
 
 What is left of that surface is not a defect but a limit: **no DOM in the suite** — no jsdom, no
 component tests, on purpose, because a snapshot of an SVG path is a change-detector that fails on
-every legitimate geometry tweak. That is the honest boundary of what 983 pure-function tests buy
+every legitimate geometry tweak. That is the honest boundary of what 997 pure-function tests buy
 you, and the faces stay eye-verified.
 
 ### What not to do

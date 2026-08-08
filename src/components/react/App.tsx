@@ -1112,6 +1112,7 @@ export default function App() {
           events={visible}
           calendars={calendars}
           clock={settings.clock}
+          inheritMarks={settings.inheritMarks}
           actions={actions}
         />
 
@@ -1245,6 +1246,7 @@ export default function App() {
         calendars={calendars}
         occurrences={agenda.all}
         clock={settings.clock}
+        inheritMarks={settings.inheritMarks}
         actions={actions}
         onSearchLife={setLifeSearch}
       />

@@ -151,6 +151,7 @@ export default function Settings({
     lifeExpectancy,
     milestones,
     yearQuote,
+    inheritMarks,
   } = settings;
   const reducedMotion = useReducedMotion();
   const [feedUrl, setFeedUrl] = useState("");
@@ -288,6 +289,27 @@ export default function Settings({
                       as a row that has come apart. */}
                     <span className="label text-ink-3">Arc names</span>
                   </div>
+                </FieldRow>
+
+                {/* A mark lives on calendars and events, not on the dial's
+                  geometry — but whether a bare event borrows one is still a
+                  question of what an arc prints, which is the question "Arc
+                  names" answers above, so it sits here rather than opening a
+                  section of its own. Two words, because the `Life` card's own
+                  `Marks` row is about the milestone rings: one label per
+                  meaning, or the panel stops being a map. */}
+                <FieldRow label="Event marks" align="top">
+                  <Toggle
+                    label="Inherit"
+                    name="Bare events show the calendar's mark"
+                    checked={inheritMarks}
+                    onChange={(on) => store.setToggle("inheritMarks", on)}
+                  />
+                  <span className="caption">
+                    Off, an event with no mark of its own is just its colour; on, it borrows the
+                    calendar's — sensible with one calendar per kind of thing, redundant with one
+                    calendar per person
+                  </span>
                 </FieldRow>
 
                 <FieldRow label="2nd ring" align={secondZone ? "top" : "center"}>

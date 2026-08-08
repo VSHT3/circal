@@ -29,11 +29,20 @@ both without reaching for the sidebar. Deleting one never deletes what is in
 it: its events move to the calendar that is left, and the notice says how many
 did. The last calendar stays — an event has to be somewhere.
 
-A calendar can also carry a **mark**: one of fifty-six icons, or any emoji you
-type. It stands wherever the calendar is named — the sidebar, the palette, the
-event editor's **Calendar** row — and it wears the calendar's colour, so the
-shape says which calendar and the colour still says which event. Two channels,
-because ten pastels run out before a taxonomy does.
+A calendar can also carry a **mark**: one of 247 icons — searchable — or any
+emoji you type. It stands wherever the calendar is named: the sidebar, the
+palette, the event editor's **Calendar** row.
+
+An event can carry its own, from the editor's **Mark** row, and then it rides
+along the arc in front of the name. Colour and mark are two channels read
+separately — the mark says what kind of thing this is, the colour still says
+whose day it belongs to — so an event can take a glyph and keep its own hue.
+An event with no mark of its own shows nothing by default; **Settings → Event
+marks → Inherit** makes it borrow its calendar's instead, which is worth
+turning on if you keep one calendar per kind of thing and not otherwise.
+
+On a short arc the mark is dropped and the name kept: two more letters of a
+title say more than a symbol every event on that calendar is wearing.
 
 An event's name is printed along its own arc, inside the stroke — black on its
 own colour, which is the strongest pairing this face has and the only one that

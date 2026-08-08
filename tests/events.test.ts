@@ -11,6 +11,7 @@ import {
   instantKey,
   inkOn,
   isIconName,
+  markOf,
   occurrencesOn,
   scoreEvent,
   spanLabel,
@@ -560,6 +561,54 @@ describe("colorOf", () => {
   ])("$name", ({ eventColor, calendarId, calendars, expected }) => {
     const e = event({ color: eventColor, calendarId });
     expect(colorOf(e, calendars)).toBe(expected);
+  });
+});
+
+/**
+ * `markOf` is deliberately *not* `colorOf`. Colour must inherit — every event
+ * needs one — so `CalEvent.color` is an override on a required field. A mark
+ * is optional at both levels, and inheriting it by default would put the same
+ * three glyphs on forty arcs of one day.
+ */
+describe("markOf inherits only when asked", () => {
+  const cals = [calendar({ id: "cal-work", icon: "briefcase" })];
+
+  it.each([
+    {
+      name: "its own mark wins, inheritance off",
+      icon: "barbell",
+      inherit: false,
+      want: "barbell",
+    },
+    { name: "its own mark wins, inheritance on", icon: "barbell", inherit: true, want: "barbell" },
+    { name: "no mark and no inheritance is no mark", icon: "", inherit: false, want: "" },
+    {
+      name: "no mark with inheritance takes the calendar's",
+      icon: "",
+      inherit: true,
+      want: "briefcase",
+    },
+  ])("$name", ({ icon, inherit, want }) => {
+    expect(markOf(event({ icon, calendarId: "cal-work" }), cals, inherit)).toBe(want);
+  });
+
+  // The default is the setting's default, so a caller that forgets the third
+  // argument gets the conservative answer rather than the surprising one.
+  it("does not inherit when nobody says", () => {
+    expect(markOf(event({ icon: "", calendarId: "cal-work" }), cals)).toBe("");
+  });
+
+  // No `ORPHAN_COLOR` equivalent: a wrong glyph says something specific and a
+  // missing one says nothing, so the orphan gets nothing.
+  it("gives an orphaned event no mark rather than a borrowed one", () => {
+    expect(markOf(event({ icon: "", calendarId: "cal-gone" }), cals, true)).toBe("");
+  });
+
+  it("reads the two channels independently — a borrowed glyph in its own colour", () => {
+    const cal = [calendar({ id: "cal-work", icon: "briefcase", color: "#a3d9e4" })];
+    const e = event({ icon: "", color: "#ff9fb4", calendarId: "cal-work" });
+    expect.soft(markOf(e, cal, true)).toBe("briefcase");
+    expect.soft(colorOf(e, cal)).toBe("#ff9fb4");
   });
 });
 

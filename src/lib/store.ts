@@ -151,6 +151,17 @@ export interface Settings {
    */
   arcLabels: ArcLabelMode;
   /**
+   * Whether an event with no mark of its own borrows its calendar's.
+   *
+   * Off. Colour inherits because every event needs one; a mark does not, and
+   * a face where forty arcs have all picked up the same three glyphs says
+   * nothing colour was not already saying. On, it becomes what it is useful
+   * as: a default for people who keep one calendar per kind of thing. See
+   * `markOf`, which takes this as its `inherit` argument rather than reading
+   * settings itself.
+   */
+  inheritMarks: boolean;
+  /**
    * Whether the centre prints what the day is made of — booked against free.
    * Off: the ring already draws the shape, and this is the sentence version
    * of it, which not everybody wants under their agenda.
@@ -264,6 +275,10 @@ export const DEFAULT_SETTINGS: Settings = {
   // which an unlabelled ring of four coloured ticks loses. Hiding the fix
   // behind an off switch would concede the point.
   arcLabels: "always",
+  // Off, and it is the one mark decision with a default worth arguing about:
+  // see `markOf`. A calendar's glyph repeated down every arc of the day is
+  // decoration, so it is asked for rather than assumed.
+  inheritMarks: false,
   // Off. The ring is already the picture of a day's load; the line under the
   // card is the same fact in words, and words earn their place by being asked
   // for.
@@ -349,6 +364,7 @@ function seed(): CalEvent[] {
     seriesId: "",
     seriesKey: "",
     color: "",
+    icon: "",
     ...extra,
   });
 
@@ -462,6 +478,7 @@ function hydrateEvents(value: unknown): CalEvent[] {
       rdates,
       seriesId,
       seriesKey,
+      icon,
     } = event;
     if (
       typeof interval === "number" &&
@@ -479,7 +496,8 @@ function hydrateEvents(value: unknown): CalEvent[] {
       Array.isArray(exdates) &&
       Array.isArray(rdates) &&
       typeof seriesId === "string" &&
-      typeof seriesKey === "string"
+      typeof seriesKey === "string" &&
+      typeof icon === "string"
     ) {
       return event;
     }
@@ -501,6 +519,7 @@ function hydrateEvents(value: unknown): CalEvent[] {
       rdates: Array.isArray(rdates) ? rdates : [],
       seriesId: typeof seriesId === "string" ? seriesId : "",
       seriesKey: typeof seriesKey === "string" ? seriesKey : "",
+      icon: typeof icon === "string" ? icon : "",
     };
   });
 }
@@ -1373,5 +1392,6 @@ export function draftEvent(
     seriesId: "",
     seriesKey: "",
     color: "",
+    icon: "",
   };
 }

@@ -220,15 +220,47 @@ const ARC_LABEL_PAD = 2;
  */
 const ARC_LABEL_MIN = 5;
 
+/**
+ * How much of the budget a mark takes, in glyphs.
+ *
+ * The glyph is drawn square at `ARC_LABEL_SIZE`, which is 1.67 mono advances,
+ * and it needs a gap after it or it reads as the first letter of the name. Two
+ * is that, rounded to the unit the budget is counted in — the whole point of
+ * counting glyphs rather than units is that one number decides this on every
+ * lane at once.
+ */
+const ARC_MARK_GLYPHS = 2;
+
+/** Where a mark rides on the arc, in viewBox units. The angle is baked into
+ *  `rotate` because a glyph on a ring stands radially, exactly as the letters
+ *  beside it do. */
+export interface ArcMark {
+  x: number;
+  y: number;
+  /** Degrees, for a `rotate()` about `(x, y)`. */
+  rotate: number;
+  /** Side of the square the glyph is drawn in, centred on `(x, y)`. */
+  size: number;
+}
+
 export interface ArcLabel {
   /** Path to set the text on, turned so the glyphs read upright. */
   d: string;
   /** The title, cut to what the sweep can hold. */
   text: string;
+  /**
+   * Where the text sits along that path, as `textPath`'s own percentage. `50`
+   * with nothing before it; pushed along by half the mark's width when there
+   * is one, so that the *pair* is centred rather than the name alone.
+   */
+  startOffset: number;
+  /** The mark before the name, or `null` — no mark, or no room for one. */
+  mark: ArcMark | null;
 }
 
 /**
- * An event's name along its own arc, or `null` when there is no room for one.
+ * An event's name along its own arc, with its mark before it, or `null` when
+ * there is no room for a name at all.
  *
  * `from` and `to` are the arc's *painted* ends — an event's own span, less
  * whatever a neighbouring event's seam claimed, and not the centre line that
@@ -239,19 +271,60 @@ export interface ArcLabel {
  * The budget is in *glyphs*, never in minutes: the same hour is 73 units of
  * paint on the outer lane and 48 on the fifth, so a duration threshold would
  * label an event at the rim and crop the same event two lanes in.
+ *
+ * **A mark never costs the name its last characters.** It rides along only
+ * when what is left still clears `ARC_LABEL_MIN` on its own, so a tight arc
+ * drops the glyph and keeps the word rather than the other way round: the
+ * label exists to say which event this is, and two more letters of the title
+ * do that better than a symbol shared with everything on the same calendar.
  */
-export function arcLabel(r: number, from: number, to: number, title: string): ArcLabel | null {
+export function arcLabel(
+  r: number,
+  from: number,
+  to: number,
+  title: string,
+  mark = "",
+): ArcLabel | null {
   const text = title.trim();
   if (!text) return null;
-  const room = (((to - from) * Math.PI) / 180) * r - 2 * ARC_LABEL_PAD;
+  const length = (((to - from) * Math.PI) / 180) * r;
+  const room = length - 2 * ARC_LABEL_PAD;
   const budget = Math.floor(room / ARC_LABEL_ADVANCE);
-  if (budget < ARC_LABEL_MIN) return null;
+  const marked = mark !== "" && budget - ARC_MARK_GLYPHS >= ARC_LABEL_MIN;
+  const glyphs = marked ? budget - ARC_MARK_GLYPHS : budget;
+  if (glyphs < ARC_LABEL_MIN) return null;
   // The ellipsis is a glyph of the same advance, so a cut title fills the
-  // budget exactly: `budget - 1` characters and the stub.
-  const cut = text.length <= budget ? text : `${text.slice(0, budget - 1).trimEnd()}…`;
+  // budget exactly: `glyphs - 1` characters and the stub.
+  const cut = text.length <= glyphs ? text : `${text.slice(0, glyphs - 1).trimEnd()}…`;
   // Anticlockwise through the bottom half of the face, where a clockwise path
   // hangs every glyph upside down. The flip has to land somewhere, and at the
   // three and nine o'clock boundaries the text is vertical either way.
   const mid = ((((from + to) / 2) % 360) + 360) % 360;
-  return { d: arcPath(r, from, to, mid > 90 && mid < 270), text: cut };
+  const back = mid > 90 && mid < 270;
+  const d = arcPath(r, from, to, back);
+  if (!marked) return { d, text: cut, startOffset: 50, mark: null };
+
+  // The run is `mark + text`, centred on the path's own midpoint. The text
+  // takes everything after the mark's slot, so its centre moves out by half
+  // that slot — which is all `startOffset` is.
+  const markWidth = ARC_MARK_GLYPHS * ARC_LABEL_ADVANCE;
+  const textWidth = cut.length * ARC_LABEL_ADVANCE;
+  // The glyph sits at the *start* of its slot rather than in the middle of it,
+  // so the two units the slot has spare all land between it and the first
+  // letter. Centred, that slack was split, and half of it read as a symbol
+  // stuck to the D of "Design".
+  const lead = (markWidth + textWidth) / 2 - ARC_LABEL_SIZE / 2;
+  // A distance along the path is a distance along the circumference, so it is
+  // an angle; which way it leans depends on which way the path was drawn.
+  const lean = ((lead / r) * 180) / Math.PI;
+  const at = (from + to) / 2 + (back ? lean : -lean);
+  const { x, y } = polar(r, at);
+  return {
+    d,
+    text: cut,
+    startOffset: 50 + (markWidth / 2 / length) * 100,
+    // A glyph on a ring stands radially, the same way the letters do — and on
+    // the flipped path it is upside down for the same reason they are.
+    mark: { x, y, rotate: back ? at + 180 : at, size: ARC_LABEL_SIZE },
+  };
 }

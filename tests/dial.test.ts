@@ -180,6 +180,67 @@ describe("arcLabel decides by glyphs, not by minutes", () => {
   });
 });
 
+describe("arcLabel makes room for a mark without costing the name", () => {
+  // Two glyphs, the gap included — see ARC_MARK_GLYPHS. Asserted through the
+  // public answer rather than the constant, so the trade stays visible.
+  const MARK_COST = 2;
+
+  it("takes the mark's glyphs out of the title's budget", () => {
+    const plain = arcLabel(DIAL.LANE, 0, 90, "x".repeat(80));
+    const marked = arcLabel(DIAL.LANE, 0, 90, "x".repeat(80), "barbell");
+    expect.soft(marked?.text).toHaveLength((plain?.text.length ?? 0) - MARK_COST);
+    expect.soft(marked?.mark).not.toBeNull();
+  });
+
+  // The rule the whole feature turns on: a symbol shared with everything on
+  // one calendar is worth less than the last two characters of a name.
+  it("drops the mark rather than the name when the arc is tight", () => {
+    const half = angleAt(30) - angleAt(0);
+    const marked = arcLabel(DIAL.LANE, 0, half, "Standup", "barbell");
+    expect.soft(marked).not.toBeNull();
+    expect.soft(marked?.mark).toBeNull();
+    // And it kept every glyph it would have had with no mark asked for.
+    expect.soft(marked?.text).toBe(arcLabel(DIAL.LANE, 0, half, "Standup")?.text);
+  });
+
+  it("leaves an unmarked label centred, and pushes a marked one along", () => {
+    expect.soft(arcLabel(DIAL.LANE, 0, 90, "Lunch")?.startOffset).toBe(50);
+    expect.soft(arcLabel(DIAL.LANE, 0, 90, "Lunch", "🍜")?.startOffset).toBeGreaterThan(50);
+  });
+
+  it("puts the mark on the arc's own radius", () => {
+    const at = arcLabel(DIAL.LANE, 0, 90, "Lunch", "fork-knife")?.mark;
+    expect(at).not.toBeUndefined();
+    // The glyph rides inside the stroke exactly as the name does — it costs no
+    // radius, which is the whole claim the label already makes for itself.
+    expect(Math.hypot((at?.x ?? 0) - DIAL.C, (at?.y ?? 0) - DIAL.C)).toBeCloseTo(DIAL.LANE, 6);
+  });
+
+  /**
+   * The mark leads the name, and "leads" is a fact about *reading* order, not
+   * about the sweep: the label reverses its path through the bottom half so
+   * the glyphs stay upright, and the mark has to reverse with it. The top and
+   * the bottom are the two places where reading order is horizontal, so at
+   * both of them leading means sitting to the left — even though at the top
+   * that is the smaller angle and at the bottom it is the larger one.
+   */
+  it.each([
+    { name: "above the horizontal", from: 0, to: 90, mid: 45, upright: true },
+    { name: "through the bottom", from: 160, to: 200, mid: 180, upright: false },
+  ])("keeps the mark left of the name $name", ({ from, to, mid, upright }) => {
+    const at = arcLabel(DIAL.LANE, from, to, "Dinner", "fork-knife")?.mark;
+    expect.soft(at?.x).toBeLessThan(polar(DIAL.LANE, mid).x);
+    // And it is turned the same way the letters beside it are: radially on the
+    // clockwise path, and half a turn over on the one that had to flip.
+    expect.soft(Math.abs((at?.rotate ?? 0) - mid) < 90).toBe(upright);
+  });
+
+  it("ignores a mark on an arc that gets no label at all", () => {
+    const quarter = angleAt(15) - angleAt(0);
+    expect(arcLabel(DIAL.LANE - 4 * DIAL.LANE_STEP, 0, quarter, "Standup", "barbell")).toBeNull();
+  });
+});
+
 describe("arcLabel turns its path through the bottom of the face", () => {
   /** Sweep flag of the first arc command — 1 clockwise, 0 anticlockwise. */
   function direction(d: string): string | undefined {

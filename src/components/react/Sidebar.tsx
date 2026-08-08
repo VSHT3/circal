@@ -7,7 +7,7 @@
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { ChevronLeft, ChevronRight, Pencil, Plus } from "lucide-react";
 import { useMemo, useState } from "react";
-import { colorOf, occurrencesOn, spanLabel, statusOf } from "@/lib/events";
+import { colorOf, markOf, occurrencesOn, spanLabel, statusOf } from "@/lib/events";
 import {
   addMonths,
   formatDuration,
@@ -33,6 +33,7 @@ export default function Sidebar({
   events,
   calendars,
   clock,
+  inheritMarks,
   actions,
 }: SidebarProps) {
   const reducedMotion = useReducedMotion();
@@ -209,6 +210,7 @@ export default function Sidebar({
                 occurrences.map((occ) => {
                   const status = statusOf(occ, now);
                   const color = colorOf(occ.event, calendars);
+                  const mark = markOf(occ.event, calendars, inheritMarks);
                   const durationMin = (occ.end.getTime() - occ.start.getTime()) / 60_000;
                   const span = spanLabel(occ);
                   const timeLabel = occ.event.allDay
@@ -241,11 +243,22 @@ export default function Sidebar({
                       />
                       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                         <span className="flex items-center gap-1.5">
-                          {status === "now" && (
+                          {status === "now" ? (
                             <span
                               className="size-[5px] shrink-0 animate-pulse rounded-full"
                               style={{ backgroundColor: color }}
                             />
+                          ) : (
+                            // Only when there is one. `CalendarMark` answers a
+                            // plain dot for no mark, which is right where it
+                            // stands *for* a calendar — but this row already
+                            // carries its colour as the spine down its left
+                            // edge, and a second dot two millimetres away is
+                            // the same fact twice. The pulse keeps the seat
+                            // while an event runs: it says something this one
+                            // moment only, and a mark says the same thing all
+                            // day.
+                            mark !== "" && <CalendarMark icon={mark} color={color} size={12} />
                           )}
                           <span className="truncate text-[13px] text-ink">{occ.event.title}</span>
                         </span>

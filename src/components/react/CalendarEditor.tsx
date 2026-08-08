@@ -14,11 +14,11 @@
 
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useEffect, useState } from "react";
-import { PALETTE, ICON_MAX, firstGrapheme, isIconName } from "@/lib/events";
+import { PALETTE } from "@/lib/events";
 import { cn } from "@/lib/utils";
 import { useFocusTrap } from "@/components/react/hooks";
 import { ColorPicker, FieldRow as Row, Kbd } from "@/components/react/ui/primitives";
-import { CALENDAR_ICONS, CalendarMark } from "@/components/react/ui/icons";
+import { CalendarMark, MarkPicker } from "@/components/react/ui/icons";
 import type { CalendarEditorProps } from "@/components/react/types";
 
 /** What deleting costs, in a sentence. The count is the point: a calendar
@@ -26,79 +26,6 @@ import type { CalendarEditorProps } from "@/components/react/types";
 function removalNote(holds: number, into: string): string {
   if (holds === 0) return "It holds nothing.";
   return holds === 1 ? `Its one event moves to ${into}.` : `Its ${holds} events move to ${into}.`;
-}
-
-/**
- * The mark, as three ways of saying the same thing: none, an emoji you type,
- * or one of the fifty-odd Phosphor glyphs. One row rather than a mode switch,
- * because they are alternatives and a mode would make you choose twice.
- *
- * The grid scrolls at four rows. Fifty-six swatches unrolled is a card twice
- * the height of everything else in the app, and the fade is conditional on the
- * overflow being real — a permanent fade over a list that fits reads as a
- * rendering fault.
- */
-function IconPicker({
-  icon,
-  color,
-  onChange,
-}: {
-  icon: string;
-  color: string;
-  onChange: (icon: string) => void;
-}) {
-  const emoji = icon !== "" && !isIconName(icon);
-  return (
-    <div className="flex w-full min-w-0 flex-col gap-2 py-1.5">
-      <div className="flex items-center gap-2">
-        <button
-          type="button"
-          aria-label="No mark, just the colour"
-          aria-pressed={icon === ""}
-          title="No mark"
-          onClick={() => onChange("")}
-          className={cn(
-            "grid size-[26px] shrink-0 place-items-center rounded-[7px] transition-colors hover:bg-white/8",
-            icon === "" && "bg-white/10",
-          )}
-        >
-          <CalendarMark icon="" color={color} size={14} />
-        </button>
-        {/* A divider, so "no mark" and "an emoji" read as two different kinds
-            of answer from the fifty icons under them. */}
-        <span aria-hidden className="h-4 w-px bg-white/15" />
-        <input
-          value={emoji ? icon : ""}
-          onChange={(e) => onChange(firstGrapheme(e.target.value))}
-          placeholder="Emoji"
-          aria-label="Emoji mark"
-          maxLength={ICON_MAX}
-          className={cn(
-            "h-[26px] w-[86px] min-w-0 rounded-[7px] bg-surface-2 px-2 text-[13px] text-ink outline-none placeholder:text-ink-3",
-            emoji && "ring-1 ring-ink/40",
-          )}
-        />
-      </div>
-      <div className="fade-b no-scrollbar grid max-h-[108px] grid-cols-8 gap-1 overflow-y-auto">
-        {CALENDAR_ICONS.map((name) => (
-          <button
-            key={name}
-            type="button"
-            aria-label={name.replace(/-/g, " ")}
-            aria-pressed={icon === name}
-            title={name.replace(/-/g, " ")}
-            onClick={() => onChange(name)}
-            className={cn(
-              "grid size-[26px] place-items-center rounded-[7px] transition-colors hover:bg-white/8",
-              icon === name && "bg-white/10",
-            )}
-          >
-            <CalendarMark icon={name} color={icon === name ? color : "var(--ink-2)"} size={15} />
-          </button>
-        ))}
-      </div>
-    </div>
-  );
 }
 
 export default function CalendarEditor({
@@ -185,7 +112,12 @@ export default function CalendarEditor({
           </Row>
 
           <Row label="Mark" align="top" last={!feed}>
-            <IconPicker icon={icon} color={color} onChange={setIcon} />
+            <MarkPicker
+              icon={icon}
+              color={color}
+              noneLabel="No mark, just the colour"
+              onChange={setIcon}
+            />
           </Row>
 
           {/* A subscription says so, and says where from: the one fact about

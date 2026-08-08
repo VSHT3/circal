@@ -126,6 +126,17 @@ export interface CalEvent extends Recurrence {
    * recolouring the calendar then still moves them.
    */
   color: string;
+  /**
+   * Overrides the calendar's mark for this event alone, in the same two
+   * vocabularies and with the same precedence as `color`: empty means "follow
+   * the calendar", so remarking a calendar still moves every event that never
+   * asked for its own.
+   *
+   * The two channels are read independently — `markOf` and `colorOf` — so an
+   * event may take its calendar's glyph in a colour of its own, or the other
+   * way round, and neither answer implies the other.
+   */
+  icon: string;
 }
 
 /** One concrete appearance of an event on one day, clipped to that day. */
@@ -417,6 +428,36 @@ export function colorOf(
 ): string {
   if (event.color) return event.color;
   return calendars.find((c) => c.id === event.calendarId)?.color ?? ORPHAN_COLOR;
+}
+
+/**
+ * An event's mark: its own, and *only* its own unless inheritance is asked for.
+ *
+ * This is deliberately **not** `colorOf`'s rule. Colour inherits because every
+ * event must have one — a calendar without a colour cannot be drawn — so the
+ * fallback is the only thing that makes `CalEvent.color` an override rather
+ * than a requirement. A mark is different: no mark is a perfectly good answer,
+ * and a face where every arc has picked up its calendar's glyph is a face
+ * wearing the same three symbols forty times, which says nothing that colour
+ * was not already saying.
+ *
+ * So `inherit` defaults to `false` and comes from `settings.inheritMarks`,
+ * which is off. Turn it on and a calendar's mark becomes a default its events
+ * take unless they name their own — which is the useful reading when you have
+ * one calendar per kind of thing.
+ *
+ * An event whose calendar is gone has no mark rather than an orphan glyph:
+ * there is no equivalent of `ORPHAN_COLOR` here, because a wrong icon says
+ * something specific and a missing one says nothing.
+ */
+export function markOf(
+  event: Pick<CalEvent, "icon" | "calendarId">,
+  calendars: Calendar[],
+  inherit = false,
+): string {
+  if (event.icon) return event.icon;
+  if (!inherit) return "";
+  return calendars.find((c) => c.id === event.calendarId)?.icon ?? "";
 }
 
 /**

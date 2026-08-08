@@ -114,9 +114,11 @@ export function readSettings(value: unknown): Settings {
     arcLabels: (typeof value.arcLabels === "string"
       ? value.arcLabels
       : DEFAULT_SETTINGS.arcLabels) as Settings["arcLabels"],
+    // Off unless the backup says so — the same reading its default takes, and
+    // an inherited mark arriving unasked would remark every arc on the face.
+    inheritMarks: value.inheritMarks === true,
     // Off unless the backup says otherwise: absent means it was written
     // before the line existed, and it is not a line to arrive unasked.
-    // `sane()` is what pins the position to one the panel can place.
     totals: value.totals === true,
     totalsAt: (typeof value.totalsAt === "string"
       ? value.totalsAt
@@ -279,6 +281,7 @@ export function readEvent(value: unknown): CalEvent | null {
     seriesId: typeof value.seriesId === "string" ? value.seriesId : "",
     seriesKey: typeof value.seriesKey === "string" ? value.seriesKey : "",
     color: typeof value.color === "string" ? value.color : "",
+    icon: typeof value.icon === "string" ? value.icon.slice(0, ICON_MAX) : "",
   };
 }
 
@@ -375,6 +378,9 @@ function importIcs(text: string, filename: string) {
         seriesId: isOverride && parentId ? parentId : "",
         seriesKey: isOverride && parentId ? e.recurrenceId : "",
         color: "",
+        // An .ics carries no mark of its own; the imported calendar's is the
+        // whole answer until somebody sets one.
+        icon: "",
       };
     }),
   );
