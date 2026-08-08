@@ -1,6 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 
 import { keyDown, keyUp } from "@/lib/keys";
+import { dueReminders, reminderText } from "@/lib/remind";
+import type { CalEvent, Calendar } from "@/lib/events";
+import type { Clock } from "@/lib/time";
 
 /**
  * The wall clock, aligned to the boundary of its own period so the readout
@@ -402,6 +405,61 @@ export function useTypingSound(enabled: boolean) {
       window.removeEventListener("blur", onBlur);
     };
   }, []);
+}
+
+/**
+ * Notifications for what is about to start, driven off the shell's minute
+ * tick — which is exactly the right clock for this, because a reminder is a
+ * statement about a minute and nothing finer would ever be read.
+ *
+ * Everything about *which* occurrences are due is in `lib/remind.ts` and
+ * tested there; this is the external-system half and nothing else: the
+ * permission gate, the `Notification` itself, and the set of keys already
+ * raised.
+ *
+ * `fired` is a ref because it must survive every render and no render depends
+ * on it. It is belt and braces with the notification's own `tag`, which lets
+ * the platform collapse a duplicate: in development React invokes an effect
+ * twice, and one alarm arriving twice is the failure people uninstall over.
+ */
+export function useReminders(options: {
+  enabled: boolean;
+  now: Date;
+  events: CalEvent[];
+  calendars: Calendar[];
+  lead: number;
+  clock: Clock;
+  /** Clicking the notification lands on the event. */
+  onOpen: (event: CalEvent) => void;
+}) {
+  const { enabled, now } = options;
+  const latest = useRef(options);
+  latest.current = options;
+  const fired = useRef(new Set<string>());
+
+  useEffect(() => {
+    if (!enabled) return;
+    // Never `requestPermission` from here: the browsers that matter only
+    // honour it inside a user gesture, and the settings switch is that
+    // gesture. Unanswered or denied, this does nothing at all.
+    if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+
+    const { events, calendars, lead, clock, onOpen } = latest.current;
+    // Safe at any size: an occurrence can only come due inside one one-minute
+    // window, and every key in here is from a window that has closed.
+    if (fired.current.size > 256) fired.current.clear();
+
+    for (const reminder of dueReminders(events, calendars, now, lead, fired.current)) {
+      fired.current.add(reminder.key);
+      const { title, body } = reminderText(reminder, clock);
+      const note = new Notification(title, { body, tag: reminder.key, icon: "/icon-192.png" });
+      note.onclick = () => {
+        window.focus();
+        onOpen(reminder.event);
+        note.close();
+      };
+    }
+  }, [now, enabled]);
 }
 
 const MODIFIERS = new Set(["Shift", "Control", "Alt", "Meta", "CapsLock"]);

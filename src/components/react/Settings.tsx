@@ -23,6 +23,8 @@ import { Download, RefreshCw, Trash2, Upload, X } from "lucide-react";
 import { refreshFeed } from "@/lib/feeds";
 import { canVibrate } from "@/lib/feedback";
 import { formatCount, formatLifeDate, lifeSpan } from "@/lib/life";
+import { notify } from "@/lib/notify";
+import { REMIND_LEADS } from "@/lib/remind";
 import {
   AMBIENT_DELAYS,
   LIFE_EXPECTANCY_RANGE,
@@ -96,6 +98,13 @@ const TOTALS_LABELS = [
 ];
 const TOTALS_OPTIONS = TOTALS_POSITIONS.map((value, i) => ({ value, label: TOTALS_LABELS[i] }));
 
+/** The lead times, as the row prints them. `0` is the only one that is not a
+ *  duration, and it is the one that says what the whole feature is for. */
+const REMIND_OPTIONS = REMIND_LEADS.map((minutes) => ({
+  value: String(minutes),
+  label: minutes === 0 ? "As it starts" : `${minutes} min before`,
+}));
+
 function relativeAge(at: number): string {
   if (!at) return "never pulled";
   const minutes = Math.round((Date.now() - at) / 60_000);
@@ -152,6 +161,9 @@ export default function Settings({
     milestones,
     yearQuote,
     inheritMarks,
+    moonPhase,
+    remind,
+    remindLead,
   } = settings;
   const reducedMotion = useReducedMotion();
   const [feedUrl, setFeedUrl] = useState("");
@@ -179,6 +191,30 @@ export default function Settings({
 
   function pickPlace(zone: string) {
     store.setPlace(zone ? placeForZone(zone) : null);
+  }
+
+  /**
+   * Turning reminders on is the one switch here that has to ask somebody
+   * else. Both Chrome and Safari require the prompt to come out of a user
+   * gesture, which is why this hangs off the switch rather than off an
+   * effect watching the setting — and the setting only goes on if the answer
+   * came back `granted`, so a blocked site cannot end up with a switch that
+   * says it is on and a browser that will not deliver.
+   */
+  async function toggleRemind(on: boolean) {
+    if (!on) {
+      store.setToggle("remind", false);
+      return;
+    }
+    if (typeof Notification === "undefined") {
+      notify("This browser has no notifications", "error");
+      return;
+    }
+    const granted =
+      Notification.permission === "granted" ||
+      (await Notification.requestPermission()) === "granted";
+    store.setToggle("remind", granted);
+    if (!granted) notify("Notifications are blocked for this site", "error");
   }
 
   async function pull(calendar: Calendar) {
@@ -461,6 +497,30 @@ export default function Settings({
                 </FieldRow>
               </Section>
 
+              {/* Its own card, because the sidebar is its own surface. The
+                  moon is the one thing in this app that draws something the
+                  calendar does not contain, and filing it under Face would
+                  claim it is on the dial — the one place the "do not add a
+                  ring" rule says it may never be. */}
+              <Section title="Sidebar">
+                <FieldRow label="Moon" align="top" last>
+                  <Segmented
+                    value={moonPhase}
+                    onChange={store.setMoonPhase}
+                    options={[
+                      { id: "off" as const, label: "Off" },
+                      { id: "minimal" as const, label: "Minimal" },
+                      { id: "aperture" as const, label: "Aperture" },
+                    ]}
+                  />
+                  <span className="caption">
+                    The phase of the selected day. Minimal draws the terminator; Aperture rides the
+                    disc behind a window and lets its lobes cut the crescent, which is what the
+                    mechanism on a wrist does
+                  </span>
+                </FieldRow>
+              </Section>
+
               <Section title="Year">
                 <FieldRow label="Quote" align="top" last>
                   <input
@@ -517,6 +577,37 @@ export default function Settings({
                   <span className="caption">
                     Rings the round days: the ten-thousandth, the twenty-thousandth, the midpoint.
                     Click one for what it means
+                  </span>
+                </FieldRow>
+              </Section>
+
+              <Section title="Reminders">
+                <FieldRow label="Notify" align="top" last>
+                  <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
+                    <Toggle
+                      label="On"
+                      name="Notify before an event starts"
+                      checked={remind}
+                      onChange={(on) => void toggleRemind(on)}
+                    />
+                    {remind && (
+                      <Select
+                        value={String(remindLead)}
+                        onChange={(next) => store.setRemindLead(Number(next))}
+                        label="How much warning"
+                        options={REMIND_OPTIONS}
+                      />
+                    )}
+                  </div>
+                  {/* Said out loud, because the absence is the interesting
+                      part: a calendar that never tells you anything is a
+                      viewer, and the reason this one only speaks while it is
+                      open is the same reason it has no account. Leaving that
+                      to be discovered is how a missed meeting becomes a bug
+                      report. */}
+                  <span className="caption">
+                    Only while circal is open, in this tab. Reminders with it closed would need a
+                    server to push them, and nothing here leaves this browser
                   </span>
                 </FieldRow>
               </Section>

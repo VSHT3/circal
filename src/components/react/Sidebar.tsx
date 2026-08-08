@@ -1,26 +1,26 @@
 /* ------------------------------------------------------------------ *
  * Left panel: mini month picker, the calendars — visibility, and the
- * card that makes and edits them — and the selected day's agenda.
+ * card that makes and edits them — and the moon.
+ *
+ * No agenda. The dial's interior answers the day, and the day is on screen
+ * beside this column: a second list of the same occurrences two hundred
+ * pixels to its left was the same fact twice, and it was the fact this
+ * column had least room for.
+ *
  * Collapses to zero width so the dial re-centres.
  * ------------------------------------------------------------------ */
 
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { ChevronLeft, ChevronRight, Pencil, Plus } from "lucide-react";
 import { useMemo, useState } from "react";
-import { colorOf, markOf, occurrencesOn, spanLabel, statusOf } from "@/lib/events";
-import {
-  addMonths,
-  formatDuration,
-  formatRelativeDay,
-  formatTimeShort,
-  isSameDay,
-  WEEKDAYS,
-} from "@/lib/time";
+import { colorOf, occurrencesOn } from "@/lib/events";
+import { addMonths, isSameDay, WEEKDAYS } from "@/lib/time";
 import { EASE } from "@/lib/motion";
 import type { SidebarProps } from "@/components/react/types";
 import { cn } from "@/lib/utils";
 import { IconButton } from "@/components/react/ui/primitives";
 import { CalendarMark } from "@/components/react/ui/icons";
+import MoonPanel from "@/components/react/MoonPanel";
 
 // Monday-first week order — the reference app never starts a row on Sunday.
 const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0];
@@ -29,11 +29,9 @@ export default function Sidebar({
   open,
   day,
   now,
-  occurrences,
   events,
   calendars,
-  clock,
-  inheritMarks,
+  moonPhase,
   actions,
 }: SidebarProps) {
   const reducedMotion = useReducedMotion();
@@ -202,81 +200,13 @@ export default function Sidebar({
               ))}
             </section>
 
-            <section className="flex w-full shrink-0 flex-col gap-1">
-              <span className="label text-ink-3">{formatRelativeDay(day, now)}</span>
-              {occurrences.length === 0 ? (
-                <span className="label text-ink-4">Nothing scheduled</span>
-              ) : (
-                occurrences.map((occ) => {
-                  const status = statusOf(occ, now);
-                  const color = colorOf(occ.event, calendars);
-                  const mark = markOf(occ.event, calendars, inheritMarks);
-                  const durationMin = (occ.end.getTime() - occ.start.getTime()) / 60_000;
-                  const span = spanLabel(occ);
-                  const timeLabel = occ.event.allDay
-                    ? "ALL DAY"
-                    : `${formatTimeShort(occ.start, clock)}–${formatTimeShort(occ.end, clock)}`;
-                  // A row inside one day reads `9:00–10:00 · 1h`. A row inside a
-                  // longer span leads with where in it you are, and spends the
-                  // second slot on the span's own clock times rather than on a
-                  // duration — `120h` is a true thing to say about five days and
-                  // a useless one, and an all-day span has no times to print at
-                  // all, so it says nothing twice.
-                  const meta = span
-                    ? occ.event.allDay
-                      ? null
-                      : timeLabel
-                    : formatDuration(durationMin);
-                  return (
-                    <button
-                      key={occ.key}
-                      type="button"
-                      onClick={() => actions.openEvent(occ.event)}
-                      className={cn(
-                        "flex items-stretch gap-2 rounded-[8px] px-1.5 py-1 text-left transition-colors hover:bg-white/6",
-                        status === "past" && "opacity-40",
-                      )}
-                    >
-                      <span
-                        className="w-[2px] shrink-0 self-stretch rounded-full"
-                        style={{ backgroundColor: color }}
-                      />
-                      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                        <span className="flex items-center gap-1.5">
-                          {status === "now" ? (
-                            <span
-                              className="size-[5px] shrink-0 animate-pulse rounded-full"
-                              style={{ backgroundColor: color }}
-                            />
-                          ) : (
-                            // Only when there is one. `CalendarMark` answers a
-                            // plain dot for no mark, which is right where it
-                            // stands *for* a calendar — but this row already
-                            // carries its colour as the spine down its left
-                            // edge, and a second dot two millimetres away is
-                            // the same fact twice. The pulse keeps the seat
-                            // while an event runs: it says something this one
-                            // moment only, and a mark says the same thing all
-                            // day.
-                            mark !== "" && <CalendarMark icon={mark} color={color} size={12} />
-                          )}
-                          <span className="truncate text-[13px] text-ink">{occ.event.title}</span>
-                        </span>
-                        <span className="label text-[10px] text-ink-3">
-                          {span ?? (status === "now" ? "NOW" : timeLabel)}
-                          {meta && (
-                            <>
-                              {" "}
-                              <span className="text-ink-4">·</span> {meta}
-                            </>
-                          )}
-                        </span>
-                      </span>
-                    </button>
-                  );
-                })
-              )}
-            </section>
+            {/* Last, and quiet. The mini-month is navigation and the calendar
+                list is data; this is the one thing in the column that is
+                neither — so it sits at the foot of it, the way a complication
+                sits at the foot of a dial. It reads the *selected* day, which
+                is what makes it worth having: arrowing through a week walks
+                the moon through its week. */}
+            <MoonPanel day={day} style={moonPhase} />
           </motion.div>
         )}
       </AnimatePresence>

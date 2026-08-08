@@ -12,6 +12,7 @@ import {
   CalendarDays,
   CalendarSearch,
   Circle,
+  CircleDot,
   Clock3,
   Download,
   Grid2x2,
@@ -240,6 +241,22 @@ export default function CommandPalette({
         ),
         run: () => {
           actions.newEvent();
+          onClose();
+        },
+      },
+      {
+        id: "cmd-new-task",
+        icon: <CircleDot {...CHROME_ICON_PROPS} />,
+        title: "New task",
+        meta: (
+          <>
+            <Kbd>⌘</Kbd>
+            <Kbd>⇧</Kbd>
+            <Kbd>N</Kbd>
+          </>
+        ),
+        run: () => {
+          actions.newTask();
           onClose();
         },
       },

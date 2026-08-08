@@ -59,6 +59,8 @@ export interface CenterPanelProps {
   hovered: string | null;
   onHover: (key: string | null) => void;
   onOpen: (occ: Occurrence) => void;
+  /** Tick a task off, or back on. Only ever called for `occ.event.task`. */
+  onToggleDone: (occ: Occurrence) => void;
 }
 
 /** Height of one agenda row, in SVG user units. The card is sized in these. */
@@ -154,6 +156,7 @@ export default function CenterPanel({
   hovered,
   onHover,
   onOpen,
+  onToggleDone,
 }: CenterPanelProps) {
   const today = isSameDay(day, now);
   const reducedMotion = useReducedMotion();
@@ -166,12 +169,19 @@ export default function CenterPanel({
    * its row leaves the readout saying what it was saying.
    */
   const peeked = occurrences.find((occ) => occ.key === hovered && !occ.event.allDay) ?? null;
+  /** And of those, the ones that are a moment rather than a span. A task has
+   *  one instant, so `01:15 – 01:15 · 0m` is three ways of saying nothing. */
+  const peekedTask = peeked?.event.task ? peeked : null;
 
   // The readout answers "where am I", and that is a different question while
   // dragging (the range being drawn), while pointing at an arc (that arc's
   // span), on today (the time) and on any other day (the date). The first two
   // are the same question asked twice, so they are printed the same way.
-  const span = drag ?? (peeked ? { start: peeked.startMin, end: peeked.endMin } : null);
+  const span =
+    drag ?? (peeked && !peekedTask ? { start: peeked.startMin, end: peeked.endMin } : null);
+  /** Whether the readout is answering about something else rather than about
+   *  now, which is what it shrinks for. */
+  const aside = span !== null || peekedTask !== null;
   let value: string;
   let suffix: string;
   if (drag && drag.end - drag.start >= MINUTES_PER_DAY) {
@@ -185,6 +195,9 @@ export default function CenterPanel({
     const to = formatTimeShort(atMinutes(day, span.end), clock);
     value = `${from} – ${to}`;
     suffix = formatDuration(span.end - span.start);
+  } else if (peekedTask) {
+    value = formatTimeShort(peekedTask.start, clock);
+    suffix = "DUE";
   } else if (today) {
     const parts = splitTime(now, clock);
     value = parts.time;
@@ -275,7 +288,7 @@ export default function CenterPanel({
           <span
             className="font-medium text-ink"
             style={{
-              fontSize: `${(span ? 32 : 54) * u}px`,
+              fontSize: `${(aside ? 32 : 54) * u}px`,
               letterSpacing: "-0.03em",
               fontVariantNumeric: "tabular-nums",
               transition: `${MOOD} font-size`,
@@ -287,7 +300,7 @@ export default function CenterPanel({
             <span
               className="font-medium text-ink-2"
               style={{
-                fontSize: `${(span ? 18 : 26) * u}px`,
+                fontSize: `${(aside ? 18 : 26) * u}px`,
                 transition: `${MOOD} font-size`,
               }}
             >
@@ -390,9 +403,7 @@ export default function CenterPanel({
                             ease: EASE,
                           }}
                         >
-                          <button
-                            type="button"
-                            onClick={() => onOpen(occ)}
+                          <div
                             onMouseEnter={() => onHover(occ.key)}
                             onMouseLeave={() => onHover(null)}
                             className={cn(
@@ -405,24 +416,38 @@ export default function CenterPanel({
                               // there, so the gap is the only thing separating the
                               // name from the wait, rather than a column of space.
                               gap: `${(ambient ? 9 : 6) * u}px`,
-                              paddingInline: `\${6 * u}px`,
+                              paddingInline: `${6 * u}px`,
                               transition: `${MOOD} gap, ${MOOD} padding-inline`,
                             }}
                           >
-                            <span
-                              className={cn("shrink-0 rounded-full", running && "animate-pulse")}
+                            {/* A row is a button unless it also has to carry a
+                          tick, and then it is two: a control inside a control
+                          is not a thing HTML has, and a task whose row opened
+                          the editor every time you tried to complete it would
+                          be a task nobody completes. */}
+                            <button
+                              type="button"
+                              onClick={() => onOpen(occ)}
+                              className="flex h-full min-w-0 flex-1 items-center"
                               style={{
-                                width: `${(lead ? 5.5 : 4.5) * u}px`,
-                                height: `${(lead ? 5.5 : 4.5) * u}px`,
-                                background: color,
-                                opacity: running || lead ? 1 : 0.75,
-                                boxShadow: imminent
-                                  ? `0 0 0 \${1.2 * u}px #000, 0 0 0 \${2.4 * u}px ${color}59`
-                                  : undefined,
-                                transition: `${MOOD} width, ${MOOD} height, ${MOOD} opacity`,
+                                gap: `${(ambient ? 9 : 6) * u}px`,
+                                transition: `${MOOD} gap`,
                               }}
-                            />
-                            {/* The headline spends its width on the name and the
+                            >
+                              <span
+                                className={cn("shrink-0 rounded-full", running && "animate-pulse")}
+                                style={{
+                                  width: `${(lead ? 5.5 : 4.5) * u}px`,
+                                  height: `${(lead ? 5.5 : 4.5) * u}px`,
+                                  background: color,
+                                  opacity: running || lead ? 1 : 0.75,
+                                  boxShadow: imminent
+                                    ? `0 0 0 ${1.2 * u}px #000, 0 0 0 ${2.4 * u}px ${color}59`
+                                    : undefined,
+                                  transition: `${MOOD} width, ${MOOD} height, ${MOOD} opacity`,
+                                }}
+                              />
+                              {/* The headline spends its width on the name and the
                           wait. What time it starts is on the ring — that is
                           what the ring is for — and how long until it is not.
 
@@ -433,52 +458,86 @@ export default function CenterPanel({
                           `Sleeper train` most of its letters — measured, not
                           guessed — and a name is worth more than a position
                           the row below the fold already prints. */}
-                            {!lead && (
+                              {!lead && (
+                                <span
+                                  className="shrink-0 font-mono font-medium text-ink-2 uppercase"
+                                  style={{
+                                    fontSize: `${10.5 * u}px`,
+                                    letterSpacing: "0.1em",
+                                    transition: `${MOOD} font-size`,
+                                  }}
+                                >
+                                  {span ??
+                                    (running
+                                      ? "Now"
+                                      : occ.event.allDay
+                                        ? "All day"
+                                        : formatTimeShort(occ.start, clock).replace(" ", "\u2009"))}
+                                </span>
+                              )}
                               <span
-                                className="shrink-0 font-mono font-medium text-ink-2 uppercase"
+                                className={cn(
+                                  "truncate font-mono font-medium text-ink uppercase",
+                                  lead && "leading-none",
+                                  // The strike is the primary signal that a task
+                                  // is done — the pip beside it is the control,
+                                  // and a control is not an announcement.
+                                  occ.done && "text-ink-3 line-through",
+                                )}
                                 style={{
-                                  fontSize: `\${10.5 * u}px`,
-                                  letterSpacing: "0.1em",
+                                  fontSize: `${(lead ? 13 : 10.5) * u}px`,
+                                  letterSpacing: lead ? "0.04em" : "0.08em",
                                   transition: `${MOOD} font-size`,
                                 }}
                               >
-                                {span ??
-                                  (running
-                                    ? "Now"
-                                    : occ.event.allDay
-                                      ? "All day"
-                                      : formatTimeShort(occ.start, clock).replace(" ", "\u2009"))}
+                                {occ.event.title}
                               </span>
+                              <span
+                                className={cn(
+                                  "ml-auto shrink-0 font-mono",
+                                  // The wait is the headline's whole point, so it is
+                                  // not printed at the meta column's usual whisper.
+                                  lead ? "text-ink-2" : "text-ink-3",
+                                )}
+                                style={{ fontSize: `${10 * u}px`, transition: `${MOOD} font-size` }}
+                              >
+                                {running
+                                  ? `ends in ${formatDuration((occ.end.getTime() - now.getTime()) / 60000)}`
+                                  : lead
+                                    ? untilText(until)
+                                    : ""}
+                              </span>
+                            </button>
+                            {occ.event.task && (
+                              <button
+                                type="button"
+                                aria-pressed={occ.done}
+                                aria-label={
+                                  occ.done
+                                    ? `Mark “${occ.event.title}” not done`
+                                    : `Mark “${occ.event.title}” done`
+                                }
+                                onClick={() => onToggleDone(occ)}
+                                className="grid shrink-0 place-items-center rounded-full transition-colors hover:bg-white/10"
+                                style={{ width: `${13 * u}px`, height: `${13 * u}px` }}
+                              >
+                                {/* Filled while it stands, hollow once it is
+                            done — the same two shapes the pip on the rim
+                            takes, so the mark you tick and the mark you see
+                            on the face are one mark. */}
+                                <span
+                                  className="rounded-full"
+                                  style={{
+                                    width: `${7 * u}px`,
+                                    height: `${7 * u}px`,
+                                    background: occ.done ? "transparent" : color,
+                                    boxShadow: occ.done ? `inset 0 0 0 ${1.4 * u}px ${color}` : "",
+                                    opacity: occ.done ? 0.8 : 1,
+                                  }}
+                                />
+                              </button>
                             )}
-                            <span
-                              className={cn(
-                                "truncate font-mono font-medium text-ink uppercase",
-                                lead && "leading-none",
-                              )}
-                              style={{
-                                fontSize: `${(lead ? 13 : 10.5) * u}px`,
-                                letterSpacing: lead ? "0.04em" : "0.08em",
-                                transition: `${MOOD} font-size`,
-                              }}
-                            >
-                              {occ.event.title}
-                            </span>
-                            <span
-                              className={cn(
-                                "ml-auto shrink-0 font-mono",
-                                // The wait is the headline's whole point, so it is
-                                // not printed at the meta column's usual whisper.
-                                lead ? "text-ink-2" : "text-ink-3",
-                              )}
-                              style={{ fontSize: `${10 * u}px`, transition: `${MOOD} font-size` }}
-                            >
-                              {running
-                                ? `ends in ${formatDuration((occ.end.getTime() - now.getTime()) / 60000)}`
-                                : lead
-                                  ? untilText(until)
-                                  : ""}
-                            </span>
-                          </button>
+                          </div>
                         </motion.div>
                       );
                     })}

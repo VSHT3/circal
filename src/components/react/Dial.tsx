@@ -95,7 +95,7 @@ export interface DialProps {
    * entirely once its date row has been edited — clipping it to this face is
    * this component's question and nobody else's.
    */
-  pending: { start: number; end: number; allDay: boolean; color: string } | null;
+  pending: { start: number; end: number; allDay: boolean; task: boolean; color: string } | null;
   /**
    * Ambient: the chrome is gone and the face is the whole window, so the dial
    * stops being a surface you work on and becomes one you glance at from
@@ -129,6 +129,10 @@ export interface DialProps {
    * change.
    */
   onDelete: (occ: Occurrence) => void;
+  /** Tick the task under the pointer off, or back on. Straight through to the
+   *  store — a task has one occurrence's worth of state and no scope to ask
+   *  about, because ticking Monday off has never meant ticking every Monday. */
+  onToggleDone: (occ: Occurrence) => void;
   /**
    * The drag in flight, per fifteen-minute step, and `null` the moment it ends.
    * The dial does not draw from it: it hands it up so that the agenda it is
@@ -377,6 +381,7 @@ export default function Dial({
   onCreate,
   onAdjust,
   onDelete,
+  onToggleDone,
   onPreview,
   onStepDay,
 }: DialProps) {
@@ -541,7 +546,7 @@ export default function Dial({
     if (!pending || pending.allDay) return null;
     const from = startOfDay(day);
     const to = addDays(from, 1);
-    if (pending.end <= from.getTime() || pending.start >= to.getTime()) return null;
+    if (pending.end < from.getTime() || pending.start >= to.getTime()) return null;
     // `minutesOfDay` at each end rather than elapsed milliseconds: a day is not
     // always 1440 minutes long, and an arc has to sit at the time it prints.
     return {
@@ -549,13 +554,15 @@ export default function Dial({
       end: pending.end >= to.getTime() ? MINUTES_PER_DAY : minutesOfDay(new Date(pending.end)),
       color: pending.color,
       opacity: 1,
+      task: pending.task,
     };
   }, [pending, day]);
 
   const ghost = draw ? resolveDraw(draw) : null;
   /** The pointer wins while it is down: the range being drawn *is* the draft
-   *  about to open, and drawing both would double the same fact. */
-  const about = ghost ? { ...ghost, color: "#ffffff", opacity: GHOST_ALPHA } : drafted;
+   *  about to open, and drawing both would double the same fact. A drag never
+   *  draws a task — a gesture with a length in it is asking for a span. */
+  const about = ghost ? { ...ghost, color: "#ffffff", opacity: GHOST_ALPHA, task: false } : drafted;
 
   /**
    * The event a drag has hold of, for the arc's own sake: it is drawn thicker,
@@ -910,13 +917,14 @@ export default function Dial({
           />
         ))}
 
-        {about && about.end > about.start && (
+        {about && (about.task || about.end > about.start) && (
           <GhostArc
             clock={clock}
             start={about.start}
             end={about.end}
             color={about.color}
             opacity={about.opacity}
+            task={about.task}
           />
         )}
 
@@ -946,6 +954,7 @@ export default function Dial({
         hovered={hovered}
         onHover={setHovered}
         onOpen={onOpen}
+        onToggleDone={onToggleDone}
       />
     </div>
   );
@@ -1435,6 +1444,8 @@ function EventArc({
   const head = closed ? from : paintFrom + inset;
   const tail = closed ? to : paintTo - inset;
   const d = dot ? arcPath(r, (from + to) / 2, (from + to) / 2 + 0.001) : arcPath(r, head, tail);
+  /** Where a task's pip sits: the same point the dot path is centred on. */
+  const taskPoint = polar(r, (from + to) / 2);
 
   // A label lives *inside* the stroke, so it costs no radius and reads the
   // same on every lane. It is mounted whenever the sweep can hold one and
@@ -1502,16 +1513,35 @@ function EventArc({
 
   return (
     <g onPointerEnter={() => onHover(occ.key)} onPointerLeave={() => onHover(null)}>
-      <path
-        d={d}
-        fill="none"
-        stroke={color}
-        strokeWidth={hovered || dragging ? width + 3 : width}
-        strokeLinecap="round"
-        opacity={dimmed && !hovered && !dragging ? 0.42 : 1}
-        pointerEvents="none"
-        style={{ transition: `stroke-width ${MOOD}, opacity ${MOOD}` }}
-      />
+      {occ.event.task ? (
+        // A task is a notch in the rim, and its two states are the face's own
+        // vocabulary: ink is light, so an open one is a filled pip and a done
+        // one is that pip emptied out — the favicon's two shapes, at 14 units.
+        // Not a tick: at this size a glyph is a smudge, and the pip already
+        // has a state to be in.
+        <circle
+          cx={taskPoint.x}
+          cy={taskPoint.y}
+          r={(hovered || dragging ? width + 3 : width) / 2 - (occ.done ? 1.6 : 0)}
+          fill={occ.done ? "none" : color}
+          stroke={occ.done ? color : "none"}
+          strokeWidth={3.2}
+          opacity={occ.done ? 0.7 : dimmed && !hovered && !dragging ? 0.42 : 1}
+          pointerEvents="none"
+          style={{ transition: `r ${MOOD}, opacity ${MOOD}` }}
+        />
+      ) : (
+        <path
+          d={d}
+          fill="none"
+          stroke={color}
+          strokeWidth={hovered || dragging ? width + 3 : width}
+          strokeLinecap="round"
+          opacity={dimmed && !hovered && !dragging ? 0.42 : 1}
+          pointerEvents="none"
+          style={{ transition: `stroke-width ${MOOD}, opacity ${MOOD}` }}
+        />
+      )}
       {label && (
         <g
           // One opacity for the name and the glyph before it: they are one
@@ -1597,12 +1627,15 @@ function GhostArc({
   end,
   color,
   opacity,
+  task,
 }: {
   clock: Clock;
   start: number;
   end: number;
   color: string;
   opacity: number;
+  /** A draft that is a moment rather than a span. */
+  task: boolean;
 }) {
   const stroke = {
     fill: "none",
@@ -1611,6 +1644,24 @@ function GhostArc({
     strokeWidth: DIAL.ARC_WIDTH,
     pointerEvents: "none",
   } as const;
+
+  // A task is a moment, so its ghost is the pip it is about to become rather
+  // than an arc of no length — without this, flipping the editor's Task switch
+  // makes the draft disappear off the face, which reads as the drawing having
+  // been thrown away. The one shape a `GhostArc` draws that is not an arc.
+  if (task) {
+    const at = polar(DIAL.LANE, angleAt(start, clock));
+    return (
+      <circle
+        cx={at.x}
+        cy={at.y}
+        r={DIAL.ARC_WIDTH / 2}
+        fill={color}
+        fillOpacity={opacity}
+        pointerEvents="none"
+      />
+    );
+  }
 
   if (end - start >= MINUTES_PER_DAY) {
     return <circle cx={DIAL.C} cy={DIAL.C} r={DIAL.LANE} {...stroke} />;

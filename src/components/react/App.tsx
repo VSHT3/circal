@@ -20,7 +20,7 @@ import {
   type CalEvent,
   type Occurrence,
 } from "@/lib/events";
-import { draftEvent, store, useStore } from "@/lib/store";
+import { draftEvent, store, taskDraft, useStore } from "@/lib/store";
 import { exportBackup, exportIcs, importFile } from "@/lib/backup";
 import { cue } from "@/lib/feedback";
 import { placeForZone } from "@/lib/places";
@@ -47,6 +47,7 @@ import {
   useIdleAfter,
   useNow,
   useOnInput,
+  useReminders,
   useTypingSound,
   useWakeLock,
 } from "./hooks";
@@ -601,13 +602,14 @@ export default function App() {
         live.start === next.start &&
         live.end === next.end &&
         live.allDay === next.allDay &&
+        live.task === next.task &&
         live.color === next.color &&
         live.calendarId === next.calendarId
       ) {
         return open;
       }
-      const { start, end, allDay, color, calendarId } = next;
-      return { ...open, live: { start, end, allDay, color, calendarId } };
+      const { start, end, allDay, task, color, calendarId } = next;
+      return { ...open, live: { start, end, allDay, task, color, calendarId } };
     });
   }, []);
 
@@ -623,8 +625,8 @@ export default function App() {
   const pending = useMemo(() => {
     if (!editor || editor.id !== null) return null;
     const mark = editor.live ?? editor.draft;
-    const { start, end, allDay } = mark;
-    return { start, end, allDay, color: colorOf(mark, calendars) };
+    const { start, end, allDay, task } = mark;
+    return { start, end, allDay, task, color: colorOf(mark, calendars) };
   }, [editor, calendars]);
 
   /** The same draft as the year ring wants it: the two days it runs between,
@@ -634,7 +636,9 @@ export default function App() {
     () =>
       pending && {
         from: startOfDay(new Date(pending.start)),
-        to: startOfDay(new Date(pending.end - 1)),
+        // A task is one day, and `end - 1` on a zero-width instant would name
+        // the day before it.
+        to: startOfDay(new Date(Math.max(pending.start, pending.end - 1))),
         color: pending.color,
       },
     [pending],
@@ -676,6 +680,17 @@ export default function App() {
         // quick-add: two ways of adding an event must not disagree about when.
         const start = defaultStart(day, DEFAULT_DURATION);
         openDraft(start, start + DEFAULT_DURATION, day);
+      },
+      newTask: () => {
+        setPaletteOpen(false);
+        setAmbient("off");
+        // The same hour ⌘N opens on, with no width. `defaultStart` is asked
+        // for a duration of zero because a task has none, which on today is
+        // the next quarter hour and on any other day is nine o'clock.
+        setEditor({
+          id: null,
+          draft: taskDraft(day, defaultStart(day, 0), defaultCalendar),
+        });
       },
       newEventAt: (startMin: number, endMin: number) => openDraft(startMin, endMin, day),
       quickAdd: (spec) => {
@@ -759,6 +774,7 @@ export default function App() {
     {
       "mod+p": () => setPaletteOpen((open) => !open),
       "mod+n": actions.newEvent,
+      "mod+shift+n": actions.newTask,
       "mod+y": () => actions.setView("year"),
       "mod+d": () => actions.setView("day"),
       "mod+b": actions.toggleSidebar,
@@ -779,6 +795,31 @@ export default function App() {
   // setting called Sound, because a user who turned the dial quiet did not
   // ask for a keyboard.
   useTypingSound(settings.tickSound);
+
+  /**
+   * The one thing in circal that speaks first. Driven off the same minute
+   * tick everything else is — a reminder is a claim about a minute, and a
+   * finer clock would only make the same claim more often.
+   *
+   * Clicking one lands on the event: the day first, then the editor, in that
+   * order, because opening an editor over a day three weeks from the one it
+   * belongs to is an answer with no context behind it.
+   */
+  useReminders({
+    enabled: settings.remind,
+    now,
+    events: visible,
+    calendars,
+    lead: settings.remindLead,
+    clock: settings.clock,
+    onOpen: useCallback(
+      (event: CalEvent) => {
+        go({ day: startOfDay(new Date(event.start)), view: "day" });
+        actions.openEvent(event);
+      },
+      [go, actions],
+    ),
+  });
 
   /**
    * A panel arriving says so, from wherever it was opened — ⌘P, the top bar,
@@ -1034,6 +1075,18 @@ export default function App() {
   }, []);
 
   /**
+   * A task ticked off, from the interior or from the editor.
+   *
+   * No `EditScope` question, and that is not an oversight: a repeating task's
+   * ticks are per occurrence by construction (`doneKeys` holds the instants),
+   * so "this one" is the only answer the gesture could have. Nothing to ask,
+   * nothing to split.
+   */
+  const toggleDone = useCallback((occ: Occurrence) => {
+    store.toggleDone(occ.event.id, occ.start);
+  }, []);
+
+  /**
    * The calendar card's subject, resolved from the store rather than copied
    * into the state that opened it: a rename landing from another tab updates
    * the card under you, and a calendar deleted out from under it takes the
@@ -1108,11 +1161,9 @@ export default function App() {
           open={sidebarOpen && !inAmbient}
           day={day}
           now={now}
-          occurrences={agenda.all}
           events={visible}
           calendars={calendars}
-          clock={settings.clock}
-          inheritMarks={settings.inheritMarks}
+          moonPhase={settings.moonPhase}
           actions={actions}
         />
 
@@ -1154,6 +1205,7 @@ export default function App() {
                   onCreate={(startMin, endMin) => openDraft(startMin, endMin, day)}
                   onAdjust={adjustOccurrence}
                   onDelete={deleteOccurrence}
+                  onToggleDone={toggleDone}
                   onPreview={setPreview}
                   onStepDay={step}
                   ambient={inAmbient}

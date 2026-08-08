@@ -4,7 +4,7 @@ import type { RefObject } from "react";
 import type { Clock } from "@/lib/time";
 import type { CalEvent, Calendar, Occurrence } from "@/lib/events";
 import type { LifeStage } from "@/lib/life";
-import type { Settings } from "@/lib/store";
+import type { MoonStyle, Settings } from "@/lib/store";
 import type { QuickAdd } from "@/lib/quickadd";
 
 export type ViewMode = "day" | "year" | "life";
@@ -41,6 +41,9 @@ export interface DraftMark {
   end: number;
   /** No arc on the dial, exactly as a saved all-day event has none. */
   allDay: boolean;
+  /** A pip rather than an arc, and the reason the mark cannot simply be
+   *  derived from `start === end`: the switch is what says so. */
+  task: boolean;
   /** The event's own override, `""` for "follow the calendar". */
   color: string;
   calendarId: string;
@@ -86,6 +89,10 @@ export interface ShellActions {
   goDay: (day: Date) => void;
   setView: (view: ViewMode) => void;
   newEvent: () => void;
+  /** A dated task on the selected day, at the same hour ⌘N would open on: a
+   *  task and an event are the same question about a different width, so they
+   *  must not disagree about when. */
+  newTask: () => void;
   /** A draft over an explicit range on the selected day — the free-time rows. */
   newEventAt: (startMin: number, endMin: number) => void;
   /**
@@ -132,16 +139,14 @@ export interface SidebarProps {
   open: boolean;
   day: Date;
   now: Date;
-  /** The selected day's agenda, all-day first, lanes already assigned. */
-  occurrences: Occurrence[];
   events: CalEvent[];
   calendars: Calendar[];
-  clock: Clock;
-  /** Whether an event with no mark of its own shows its calendar's — the
-   *  `inherit` argument every `markOf` call needs. A scalar rather than the
-   *  whole `Settings` object, the same way `clock` is: a panel that reads two
-   *  fields should not be able to re-render on a thirteenth changing. */
-  inheritMarks: boolean;
+  /**
+   * How the moon is drawn at the foot of the column, or `off`. A scalar
+   * rather than the whole `Settings` object: this panel reads one field of
+   * it, and it should not be able to re-render on a twenty-eighth changing.
+   */
+  moonPhase: MoonStyle;
   actions: ShellActions;
 }
 
