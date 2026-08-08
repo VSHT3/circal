@@ -9,8 +9,8 @@
  * clean sine among these clicks sounds like a notification from a different
  * application: mechanisms have bodies, and bodies ring dirty and briefly.
  *
- * So a cue is a list of strikes on one impulse. A detent is one strike-pair
- * at t=0; the longer cues are the same thing hit two or three times a few
+ * So a cue is a list of strikes on one impulse. A detent is one hit at t=0;
+ * the longer cues are the same thing hit two or three times a few
  * tens of milliseconds apart, with the *order of the pitches* carrying the
  * meaning. Up is completion, down is removal, and a bright hit before a dull
  * one is something letting go.
@@ -46,7 +46,7 @@ const MIN_GAP_MS = 22;
 const BURST_SECONDS = 0.003;
 
 /** Everything the app can say. */
-export type Cue = "step" | "slide" | "opened" | "created" | "deleted";
+export type Cue = "step" | "stepHour" | "slide" | "slideHour" | "opened" | "created" | "deleted";
 
 interface Strike {
   hz: number;
@@ -105,11 +105,21 @@ interface Sound {
 }
 
 /**
- * Five cues, now out of two mechanisms.
+ * Seven cues, out of two mechanisms.
  *
  * `step` is an edge landing on a mark. `slide` is the same mechanism an
  * octave down, longer and softer — it reads as weight, which is exactly the
  * difference between moving one end of an event and moving all of it.
+ *
+ * `stepHour` and `slideHour` are those two on a deeper notch: the same
+ * partials at three-quarters the level with a body a fifth below them, longer
+ * than either. A drag crosses four of them an hour, so the hour has to be
+ * *the same click* — a different pitch class would read as a second
+ * mechanism, and then the ear is identifying objects instead of counting. The
+ * accent is a property of where the grip landed and not of how far it has
+ * come, because that is what a detent physically is: the notch is cut in the
+ * ring, so an event whose edge sits at 9:07 crosses no hour marks and
+ * honestly says so.
  *
  * `created` and `deleted` are struck three times:
  *
@@ -140,6 +150,16 @@ const SOUNDS: Record<Cue, Sound> = {
     buzz: 8,
     gated: true,
   },
+  stepHour: {
+    strikes: [
+      { hz: 1250, q: 6, level: 1.15, decay: 0.02 },
+      { hz: 1950, q: 8, level: 0.55, decay: 0.009 },
+      { hz: 4200, q: 16, level: 0.4, decay: 0.005 },
+    ],
+    contact: { hz: 1500, level: 0.34 },
+    buzz: 12,
+    gated: true,
+  },
   slide: {
     strikes: [
       { hz: 920, q: 6, level: 0.9, decay: 0.014 },
@@ -147,6 +167,16 @@ const SOUNDS: Record<Cue, Sound> = {
     ],
     contact: { hz: 900, level: 0.16 },
     buzz: 5,
+    gated: true,
+  },
+  slideHour: {
+    strikes: [
+      { hz: 600, q: 4.5, level: 0.9, decay: 0.026 },
+      { hz: 920, q: 6, level: 0.62, decay: 0.014 },
+      { hz: 1900, q: 11, level: 0.2, decay: 0.007 },
+    ],
+    contact: { hz: 800, level: 0.17 },
+    buzz: 8,
     gated: true,
   },
   opened: {
