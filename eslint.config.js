@@ -25,10 +25,10 @@ export default defineConfig([
 
   {
     // Every `autoFocus` call site is a modal overlay — the ⌘K palette, the
-    // event editor, and the scope question both of those and the dial ask.
-    // WAI-ARIA requires focus to move into a modal when it opens, so the
-    // blanket ban is wrong exactly here.
-    files: ["src/components/react/{CommandPalette,EventEditor,ScopePrompt}.tsx"],
+    // event editor, the calendar card, and the scope question both of those
+    // and the dial ask. WAI-ARIA requires focus to move into a modal when it
+    // opens, so the blanket ban is wrong exactly here.
+    files: ["src/components/react/{CalendarEditor,CommandPalette,EventEditor,ScopePrompt}.tsx"],
     rules: { "jsx-a11y/no-autofocus": "off" },
   },
 

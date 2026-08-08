@@ -104,6 +104,13 @@ export interface DialProps {
    * Every gesture still works.
    */
   ambient: boolean;
+  /**
+   * Something is on top of the face — an editor, the palette, settings, a
+   * scope question. The dial keeps its gestures (nothing can reach them
+   * anyway) but gives up its shortcuts: the editor has a ⌘⌫ of its own, and
+   * two handlers on one press delete two different events.
+   */
+  covered: boolean;
   onOpen: (occ: Occurrence) => void;
   onCreate: (startMin: number, endMin: number) => void;
   /**
@@ -114,6 +121,13 @@ export interface DialProps {
    * dragging it there meant.
    */
   onAdjust: (occ: Occurrence, startDeltaMin: number, endDeltaMin: number) => void;
+  /**
+   * ⌘⌫ over an arc. The dial owns the hover, so it owns the key — the same
+   * reason Escape's gesture-abandon lives here rather than in the shell. It
+   * never fires for a subscription's occurrence: that arc opens, it does not
+   * change.
+   */
+  onDelete: (occ: Occurrence) => void;
   /**
    * The drag in flight, per fifteen-minute step, and `null` the moment it ends.
    * The dial does not draw from it: it hands it up so that the agenda it is
@@ -357,9 +371,11 @@ export default function Dial({
   zonePlace,
   pending,
   ambient,
+  covered,
   onOpen,
   onCreate,
   onAdjust,
+  onDelete,
   onPreview,
   onStepDay,
 }: DialProps) {
@@ -449,6 +465,28 @@ export default function Dial({
       cancelAdjust();
     },
   });
+
+  /**
+   * ⌘⌫ deletes the arc under the pointer — the editor's own Delete shortcut,
+   * one layer out, so the key means one thing wherever an event is in front of
+   * you. The dial owns the hover, so it owns the press; what a delete means to
+   * a *repeating* event is the shell's question, so the occurrence goes up
+   * rather than the store being written to from here.
+   *
+   * ⌦ answers to the same handler: a full-size keyboard has both, and on one
+   * of them the key labelled Delete is the one this is not.
+   */
+  const deleteHovered = () => {
+    // Never mid-gesture: the drag in flight is about to write to this same arc,
+    // and a press that both deletes and commits is neither.
+    if (draw || adjust || !hovered) return;
+    const occ = occurrences.find((o) => o.key === hovered);
+    // Somebody else's calendar: that arc opens, it does not change.
+    if (!occ || feedIds.has(occ.event.calendarId)) return;
+    setHovered(null);
+    onDelete(occ);
+  };
+  useHotkeys({ "mod+backspace": deleteHovered, "mod+delete": deleteHovered }, !covered);
 
   /**
    * SVG has no conic gradient, so the elapsed ring is drawn as a chain of

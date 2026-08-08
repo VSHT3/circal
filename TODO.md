@@ -2,10 +2,12 @@
 
 Recurrence is real, the interior answers the day, arcs carry their own names, the dial has an
 ambient mode, ⌘P writes an event in one line and ranks what it finds, the year is a revolution and
-unrolls into the life grid, the life grid names its round days, an event can run for as many days
-as it likes, a drag across the year ring makes one, the dial's hour detent can be counted by ear,
-editing a repeating event asks which occurrences it means, and there is a test suite — 946 cases
-over the domain layer, `pnpm test`, in the gate.
+unrolls into the life grid, the life grid names its round days and can be walked with the arrow
+keys, an event can run for as many days as it likes, a drag across the year ring makes one, the
+dial's hour detent can be counted by ear, editing a repeating event asks which occurrences it
+means, ⌘⌫ deletes the arc you are pointing at, a calendar can be made and named and recoloured and
+deleted without losing what is in it, and there is a test suite — 955 cases over the domain layer,
+`pnpm test`, in the gate.
 
 Done work is not recorded here. The rationale that outlived it lives in `AGENTS.md`, next to the
 code it constrains.
@@ -30,7 +32,10 @@ code it constrains.
    inherits the parent's rule, with `splitRule`'s partitioned lists, when it brought no RRULE. Worth
    doing the day a feed turns up carrying one — nothing mainstream emits it, Thunderbird still
    renders it wrong, and today it lands as a single-instance override, which is wrong but not lossy.
-5. command + delete should delete an event you are hovering over
+5. ~~command + delete should delete an event you are hovering over~~ — _done._ ⌘⌫ (and ⌦) on the
+   dial, off while a panel covers the face and off mid-drag, silent on a subscription's arc. A
+   repeating one gets the same `ScopeDialog` a drag gets, in danger colour. It always toasts: a
+   destructive single keystroke with no receipt is a key nobody presses twice.
 6. onboarding, after everything is finalised
 
 **1. quotes page** — _you are a worm through time, you have no obligations to your former self, be
@@ -52,11 +57,11 @@ and a date, where the dial's centre prints a whole sentence about the day.
 
 **3. group ui**
 
-Reading this as grouping calendars. Premature: you cannot create, rename, recolour or delete a local
-calendar from any surface in the app — `Sidebar.tsx:131-159` only toggles visibility, and
-`store.addCalendarWithEvents`/`removeCalendar` are wired to import and feed-removal alone. Colour is
-the only category encoding this product has, and the user cannot make one. Ship calendar CRUD;
-groups only start paying rent past about eight calendars, and you cannot get to eight.
+Reading this as grouping calendars. **Calendar CRUD shipped** — the sidebar's list has a `+` and a
+pencil per row, ⌘P has `New calendar…` and `Edit …`, and `CalendarEditor.tsx` is name plus colour
+plus a delete that _moves_ the events rather than taking them with it. So the argument that blocked
+this is gone and the one that remains is arithmetic: groups start paying rent past about eight
+calendars. Wait until somebody has eight.
 
 **4. week view — seven dials, not seven columns**
 
@@ -94,11 +99,12 @@ copy of the arc-drawing code, which is how this repo gets its first duplicated c
 
 Agreed, but the fix is a decision, not a tidy-up: **the sidebar and the centre panel print the same
 agenda twice.** The interior is now "now and next", so the sidebar becomes the full day's log plus
-calendar management, and that is a coherent split. Also: the mini-month earns less than it costs —
-⌘P jumps to a date better than a 7×6 grid of 20px cells does — and that space is where calendar CRUD
-goes. Mechanically it is a 260px column that _pushes_ (`Sidebar.tsx:58`) with no drawer mode, so on
-a phone it is unusable, and it sets `aria-hidden` while leaving its children mounted at `w-0`, so
-closed-sidebar content is still in the tab order.
+calendar management — and half of that has landed: the Calendars section now creates, renames,
+recolours and deletes. What is left is the other half. The mini-month earns less than it costs —
+⌘P jumps to a date better than a 7×6 grid of 20px cells does — and that space is where the day's
+full log goes. Mechanically it is still a 260px column that _pushes_ (`Sidebar.tsx`) with no drawer
+mode, so on a phone it is unusable; the tab-order half of that is fixed (`inert`, not `aria-hidden`
+over live children), the drawer half is not.
 
 **6. tasks?**
 
@@ -158,8 +164,8 @@ be told which month was busy. `settings.yearQuote` is a line the user writes, sh
 
 The strongest concept in the app, and searching it is now the thing no other calendar can do —
 ⌘P lights every matching day and the thread stays lit after the palette closes. Milestones landed:
-day 10,000, the midpoint, day 20,000, each a ring on its dot and a card of prose behind it, and the
-three buttons are also the first focus path the grid has ever had.
+day 10,000, the midpoint, day 20,000, each a ring on its dot and a card of prose behind it. And the
+field itself is now walkable: one tab stop, arrows for a cursor, `↵` to open the day.
 
 - **Drag a range** → "4,182 days". The distance maths already exists (`formatDistance`).
 - **The card's `Go to this day` is load-bearing**, because the hit areas cost those three days their
@@ -170,9 +176,10 @@ three buttons are also the first focus path the grid has ever had.
 Quick-add shipped — a sentence, its repetition included — and results are ranked with a forgiving
 match rather than filtered by substring. What is still missing there is cheap and unglamorous:
 **recency ranking** (nothing records what you opened, so the tiebreak is still nearness to the day
-on screen — it wants a stored `openedAt` and therefore a schema bump), **duplicate event** (no such
-action anywhere, and the decision is where it lives: the editor, the palette, or a modifier-drag on
-the arc), and calendar CRUD (see (3)).
+on screen — it wants a stored `openedAt` and therefore a schema bump) and **duplicate event** (no
+such action anywhere, and the decision is where it lives: the editor, the palette, or a
+modifier-drag on the arc). Calendar CRUD is no longer on this list — `New calendar…` and `Edit …`
+are palette rows now.
 
 ### The dial
 
@@ -181,16 +188,18 @@ never tells you anything is a viewer. While the tab is open, `Notification` is e
 needs a server, and a server is off-thesis. Say so in the UI rather than leaving the absence
 unexplained.
 
-### Correctness — one open
+### Correctness — clear
 
-| what                             | where and why                                                                                                                                                                                                                                                                                                                                                                                               |
-| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Life grid is invisible to AT** | The milestone buttons gave it three tab stops, which is three more than it had and nowhere near an answer: `role="img"`, one label, 30,000 dots, no cursor. The year ring does it right — one `sr-only` listbox, arrows for a cursor, labels that say whether the day carries anything — and the same shape is what the grid wants. 30,000 options is not it. A row-and-column cursor, or a year at a time. |
+The life grid's focus path landed and the table it was the only row of is empty. One `sr-only`
+listbox, `aria-activedescendant`, options that are the days of the cursor's calendar _year_ and are
+rebuilt as it crosses into the next — 366 nodes rather than thirty thousand — and the canvas
+dropped to `aria-hidden`, because two nodes describing one field is a field described twice. The
+cursor's ring and the pointer's are one ring and one card.
 
-DOM-shaped, which is exactly the surface the suite does not cover: no DOM, no jsdom, no component
-tests, on purpose — a snapshot of an SVG path is a change-detector that fails on every legitimate
-geometry tweak. That is the honest boundary of what 931 pure-function tests buy you, and the faces
-stay eye-verified.
+What is left of that surface is not a defect but a limit: **no DOM in the suite** — no jsdom, no
+component tests, on purpose, because a snapshot of an SVG path is a change-detector that fails on
+every legitimate geometry tweak. That is the honest boundary of what 955 pure-function tests buy
+you, and the faces stay eye-verified.
 
 ### What not to do
 
@@ -205,11 +214,15 @@ stay eye-verified.
 ### If it were one thing
 
 The old five are spent, and so are the month banding, the life search, the year view, the shell's
-clock, the milestones, the hour detent and the year ring's range drag. What is left:
+clock, the milestones, the hour detent, the year ring's range drag, calendar CRUD and the life
+grid's focus path. The small list is empty.
 
-1. **A focus path into the life grid** — the last DOM-shaped bug, and the suite covers none of that
-   surface. The year ring's listbox is the pattern. `[medium / small]`
+What is left is one big thing: **the week view** (4), and before it the `<Face>` extraction it
+needs. It is the only item that adds a screen rather than finishing one, and it is a week rather
+than an afternoon — `Dial.tsx` is 1,600 lines built around one face filling a viewport, and half of
+this file's rationale lives inside it. Decide up front which of numerals, zone ring, interior and
+bands are opt-in props and which are composed children; do not start it because it sounded good.
 
-And the one big thing, which is not in that list because it is not small: **the week view** (4), and
-before it the `<Face>` extraction it needs. Everything above is an afternoon; that is a week, and it
-is the only item left that adds a screen rather than finishing one.
+After that, the honest smaller ones: **the sidebar's other half** (5) — the day's log where the
+mini-month is, and a drawer mode so the column works on a phone — and **reminders**, or a line in
+the UI admitting there are none.

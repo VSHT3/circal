@@ -1011,6 +1011,8 @@ export const store = {
     });
   },
 
+  /* ------------------------------ calendars ------------------------------- */
+
   toggleCalendar(id: string) {
     const base = fresh();
     commit(
@@ -1020,6 +1022,70 @@ export const store = {
       },
       false,
     );
+  },
+
+  /**
+   * A calendar of one's own. The colour is the caller's when it named one, and
+   * otherwise the next step round the palette — the same walk a feed and an
+   * import already take, so three ways of arriving at a calendar do not
+   * disagree about what colour the next one is.
+   */
+  addCalendar(name: string, color?: string): Calendar {
+    const base = fresh();
+    const calendar: Calendar = {
+      id: newId(),
+      name,
+      color: color || PALETTE[(base.calendars.length * 3) % PALETTE.length],
+      visible: true,
+    };
+    commit({ ...base, calendars: [...base.calendars, calendar] });
+    return calendar;
+  },
+
+  /**
+   * Rename or recolour. A subscription may be renamed here too, and the rename
+   * sticks: `setFeedEvents` only takes the host's name while the calendar is
+   * still carrying the placeholder it was given before the first pull.
+   */
+  updateCalendar(id: string, patch: Partial<Pick<Calendar, "name" | "color">>) {
+    const base = fresh();
+    commit({
+      ...base,
+      calendars: base.calendars.map((c) => (c.id === id ? { ...c, ...patch } : c)),
+    });
+  },
+
+  /**
+   * Removes a calendar and *keeps* its events. A subscription's payload lives
+   * in `feeds` and goes with it, but the user's own events are moved to the
+   * first calendar still standing: a calendar is a label, and deleting a label
+   * is not a way to ask for a year of appointments to be deleted with it.
+   *
+   * `null` when it may not go — the last calendar that is not a feed stays,
+   * because every new event needs somewhere to be written and a `calendarId`
+   * nothing resolves is an event with no colour and no visibility switch.
+   */
+  removeCalendar(id: string): { into: Calendar | null; moved: number } | null {
+    const base = fresh();
+    const target = base.calendars.find((c) => c.id === id);
+    if (!target) return null;
+    const rest = base.calendars.filter((c) => c.id !== id);
+    const into = rest.find((c) => !c.feed) ?? null;
+    if (!target.feed && !into) return null;
+    const moved = base.events.filter((e) => e.calendarId === id).length;
+    if (moved > 0 && !into) return null;
+    const { [id]: _dropped, ...feeds } = base.feeds;
+    dropFeed(id);
+    commit({
+      ...base,
+      calendars: rest,
+      events:
+        moved === 0 || !into
+          ? base.events
+          : base.events.map((e) => (e.calendarId === id ? { ...e, calendarId: into.id } : e)),
+      feeds,
+    });
+    return { into, moved };
   },
 
   /* ------------------------------- settings ------------------------------- */
@@ -1108,20 +1174,6 @@ export const store = {
     };
     commit({ ...base, calendars: [...base.calendars, calendar] }, false);
     return calendar;
-  },
-
-  removeCalendar(id: string) {
-    const base = fresh();
-    const { [id]: _dropped, ...feeds } = base.feeds;
-    dropFeed(id);
-    commit({
-      ...base,
-      calendars: base.calendars.filter((c) => c.id !== id),
-      // The user's own events are never orphaned by removing a feed, and a
-      // feed's events live only in `feeds`, so this is the whole cleanup.
-      events: base.events.filter((e) => e.calendarId !== id),
-      feeds,
-    });
   },
 
   /**

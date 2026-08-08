@@ -5,7 +5,7 @@
 
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Calendar as CalendarIcon, Clock as ClockIcon } from "lucide-react";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   NEVER,
   PALETTE,
@@ -35,6 +35,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useFocusTrap } from "@/components/react/hooks";
 import {
+  ColorPicker,
   DateField,
   FieldRow as Row,
   Kbd,
@@ -149,94 +150,6 @@ function DayField({
         className="absolute inset-0 cursor-pointer opacity-0"
       />
     </span>
-  );
-}
-
-/**
- * One swatch. A plain `<button>` for the presets, and for "custom" a hidden
- * `<input type="color">` filling the same circle — the OS picker is better
- * than anything hand-rolled and it is already keyboard- and screen-reader-
- * addressable.
- */
-function Swatch({
-  color,
-  selected,
-  label,
-  onSelect,
-  children,
-}: {
-  color: string;
-  selected: boolean;
-  label: string;
-  onSelect?: () => void;
-  children?: ReactNode;
-}) {
-  return (
-    <span
-      className={cn(
-        "relative grid size-[22px] place-items-center rounded-full transition-shadow",
-        selected && "ring-2 ring-ink/70 ring-offset-2 ring-offset-[var(--surface)]",
-      )}
-    >
-      <button
-        type="button"
-        aria-label={label}
-        aria-pressed={selected}
-        title={label}
-        onClick={onSelect}
-        className="size-[18px] rounded-full"
-        style={{ background: color }}
-      />
-      {children}
-    </span>
-  );
-}
-
-/** Presets, the calendar default, and an any-colour picker. */
-function ColorPicker({
-  value,
-  fallback,
-  onChange,
-}: {
-  value: string;
-  fallback: string;
-  onChange: (color: string) => void;
-}) {
-  const custom = value !== "" && !PALETTE.includes(value as (typeof PALETTE)[number]);
-  return (
-    <div className="flex flex-wrap items-center gap-2 py-2">
-      <Swatch
-        color={fallback}
-        selected={value === ""}
-        label="Use the calendar's colour"
-        onSelect={() => onChange("")}
-      />
-      {/* A divider, so "inherit the calendar" reads as a different kind of
-          choice from the ten literal colours next to it. */}
-      <span aria-hidden className="h-4 w-px bg-white/15" />
-      {PALETTE.map((preset) => (
-        <Swatch
-          key={preset}
-          color={preset}
-          selected={value === preset}
-          label={preset}
-          onSelect={() => onChange(preset)}
-        />
-      ))}
-      <Swatch
-        color={custom ? value : "conic-gradient(#ff9fb4,#ffdf8c,#8bf0b8,#8ecbff,#c79bff,#ff9fb4)"}
-        selected={custom}
-        label="Custom colour"
-      >
-        <input
-          type="color"
-          aria-label="Custom colour"
-          value={custom ? value : fallback}
-          onChange={(e) => onChange(e.target.value)}
-          className="absolute inset-0 cursor-pointer opacity-0"
-        />
-      </Swatch>
-    </div>
   );
 }
 

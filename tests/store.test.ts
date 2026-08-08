@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { at, ms, event, MemoryStorage } from "./helpers";
-import { instantKey, type CalEvent, type Repeat } from "@/lib/events";
+import { instantKey, PALETTE, type CalEvent, type Repeat } from "@/lib/events";
 import { DEFAULT_SETTINGS, LIFE_EXPECTANCY_RANGE } from "@/lib/store";
 import { dayKey } from "@/lib/time";
 import type * as StoreModule from "@/lib/store";
@@ -335,19 +335,114 @@ describe("truncateSeries", () => {
   });
 });
 
+describe("addCalendar", () => {
+  it("appends a named calendar in the colour it was given, visible, undoable", async () => {
+    const s = await freshStore();
+    const before = s.store.snapshot().calendars.length;
+    const cal = s.store.addCalendar("Studio", "#ff9fb4");
+
+    const snap = s.store.snapshot();
+    expect.soft(snap.calendars.length).toBe(before + 1);
+    expect.soft(snap.calendars.at(-1)).toEqual({
+      id: cal.id,
+      name: "Studio",
+      color: "#ff9fb4",
+      visible: true,
+    });
+
+    expect(s.store.undo()).toBe(true);
+    expect(s.store.snapshot().calendars.some((c) => c.id === cal.id)).toBe(false);
+  });
+
+  it("walks the palette when no colour is named", async () => {
+    const s = await freshStore();
+    const cal = s.store.addCalendar("Studio");
+    expect(PALETTE).toContain(cal.color);
+  });
+});
+
+describe("updateCalendar", () => {
+  it("renames and recolours, and leaves the rest of the calendar alone", async () => {
+    const s = await freshStore();
+    const before = s.store.snapshot().calendars[0];
+    s.store.updateCalendar(before.id, { name: "Renamed", color: "#8bf0b8" });
+
+    const after = s.store.snapshot().calendars[0];
+    expect.soft(after).toEqual({ ...before, name: "Renamed", color: "#8bf0b8" });
+  });
+
+  it("survives a feed pull that would otherwise rename it", async () => {
+    const s = await freshStore();
+    const cal = s.store.addFeed("https://example.com/feed.ics", s.hostLabel("https://example.com"));
+    s.store.updateCalendar(cal.id, { name: "Mine" });
+    s.store.setFeedEvents(cal.id, [], "What the host calls it");
+    expect(s.store.snapshot().calendars.find((c) => c.id === cal.id)?.name).toBe("Mine");
+  });
+
+  it("writes nothing for an id that is not there", async () => {
+    const s = await freshStore();
+    const before = s.store.snapshot().calendars;
+    s.store.updateCalendar("does-not-exist", { name: "Renamed" });
+    expect(s.store.snapshot().calendars).toEqual(before);
+  });
+});
+
 describe("removeCalendar", () => {
-  it("removes the calendar, all its own events, and its cached feed entry", async () => {
+  it("drops the calendar and its cached feed entry", async () => {
     const s = await freshStore();
     const cal = s.store.addFeed("https://example.com/feed.ics", "Feed");
     s.store.setFeedEvents(cal.id, [event({ title: "cached feed event" })]);
-    const owned = s.store.create({ ...draft(s), calendarId: cal.id });
     expect(s.store.snapshot().feeds[cal.id]).toBeDefined(); // sanity: it was cached
 
     s.store.removeCalendar(cal.id);
     const snap = s.store.snapshot();
-    expect(snap.calendars.some((c) => c.id === cal.id)).toBe(false);
-    expect(snap.events.some((e) => e.id === owned.id)).toBe(false);
-    expect(snap.feeds[cal.id]).toBeUndefined();
+    expect.soft(snap.calendars.some((c) => c.id === cal.id)).toBe(false);
+    expect.soft(snap.feeds[cal.id]).toBeUndefined();
+  });
+
+  // The whole point of the rewrite: a calendar is a label, and deleting a
+  // label is not a way to ask for a year of appointments to be deleted too.
+  it("moves its own events to the first calendar left, and says how many", async () => {
+    const s = await freshStore();
+    const [first, second] = s.store.snapshot().calendars;
+    const kept = s.store.create({ ...draft(s), calendarId: second.id });
+    const other = s.store.create({ ...draft(s), calendarId: first.id });
+
+    const gone = s.store.removeCalendar(second.id);
+    expect.soft(gone).toEqual({ into: expect.objectContaining({ id: first.id }), moved: 1 });
+
+    const snap = s.store.snapshot();
+    expect.soft(snap.events.find((e) => e.id === kept.id)?.calendarId).toBe(first.id);
+    expect.soft(snap.events.find((e) => e.id === other.id)?.calendarId).toBe(first.id);
+  });
+
+  it("refuses to remove the last calendar that is not a feed", async () => {
+    const s = await freshStore();
+    const locals = s.store.snapshot().calendars.filter((c) => !c.feed);
+    for (const c of locals.slice(0, -1)) s.store.removeCalendar(c.id);
+
+    const last = s.store.snapshot().calendars.filter((c) => !c.feed);
+    expect.soft(last.length).toBe(1);
+    expect.soft(s.store.removeCalendar(last[0].id)).toBeNull();
+    expect.soft(s.store.snapshot().calendars.some((c) => c.id === last[0].id)).toBe(true);
+  });
+
+  it("still removes a subscription when it is the only calendar left", async () => {
+    const s = await freshStore();
+    const locals = s.store.snapshot().calendars.filter((c) => !c.feed);
+    const feed = s.store.addFeed("https://example.com/feed.ics", "Feed");
+    // Every local one but the last, then the last — which is refused — leaves
+    // one local and one feed, and the feed must still be removable.
+    for (const c of locals.slice(0, -1)) s.store.removeCalendar(c.id);
+    expect(s.store.removeCalendar(feed.id)).not.toBeNull();
+    expect(s.store.snapshot().calendars.some((c) => c.id === feed.id)).toBe(false);
+  });
+
+  it("returns null for an id that is not there", async () => {
+    const s = await freshStore();
+    const before = s.store.snapshot().calendars;
+    expect.soft(s.store.removeCalendar("does-not-exist")).toBeNull();
+    expect.soft(s.store.snapshot().calendars).toEqual(before);
   });
 });
 

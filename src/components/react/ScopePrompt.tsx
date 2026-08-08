@@ -67,7 +67,14 @@ export function ScopeChoices({ heading, danger, onPick, onCancel }: ScopeChoices
 
 /** The same question with a card around it, for a gesture that has already
  *  finished — a drag on the dial, which has no panel of its own to ask in. */
-export function ScopeDialog({ title, detail, heading, onPick, onCancel }: ScopeDialogProps) {
+export function ScopeDialog({
+  title,
+  detail,
+  heading,
+  danger,
+  onPick,
+  onCancel,
+}: ScopeDialogProps) {
   const reducedMotion = useReducedMotion();
   // Mounted only while it is open, so the trap is always armed.
   const dialog = useFocusTrap<HTMLDivElement>(true);
@@ -113,7 +120,7 @@ export function ScopeDialog({ title, detail, heading, onPick, onCancel }: ScopeD
           <div className="truncate text-[15px] font-medium text-ink">{title}</div>
           <div className="mt-0.5 text-[13px] text-ink-2">{detail}</div>
         </div>
-        <ScopeChoices heading={heading} onPick={onPick} onCancel={onCancel} />
+        <ScopeChoices heading={heading} danger={danger} onPick={onPick} onCancel={onCancel} />
       </motion.div>
     </div>
   );

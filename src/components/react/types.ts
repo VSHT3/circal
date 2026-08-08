@@ -103,6 +103,10 @@ export interface ShellActions {
   toggleAmbient: () => void;
   openEvent: (event: CalEvent) => void;
   toggleCalendar: (id: string) => void;
+  /** The calendar card, empty. Colour is the only category encoding this app
+   *  has, so making one is a first-class verb rather than a settings chore. */
+  newCalendar: () => void;
+  editCalendar: (id: string) => void;
   openPalette: () => void;
   openSettings: () => void;
   setClock: (clock: Clock) => void;
@@ -154,6 +158,22 @@ export interface EventEditorProps {
   onDraftChange: (draft: Omit<CalEvent, "id">) => void;
 }
 
+export interface CalendarEditorProps {
+  /** The calendar being edited, or `null` for one that does not exist yet. */
+  target: Calendar | null;
+  /**
+   * What deleting would cost — how many of your own events it holds, and the
+   * calendar they would move to — or `null` when it may not be deleted at all.
+   * The last calendar that is not a feed stays, because every new event needs
+   * somewhere to be written; a disabled verb with the reason on it is a better
+   * answer than a verb that fails.
+   */
+  removal: { holds: number; into: string } | null;
+  onSave: (name: string, color: string) => void;
+  onDelete: () => void;
+  onClose: () => void;
+}
+
 export interface ScopeChoicesProps {
   /** The label above the answers: what the press is about to do. */
   heading: string;
@@ -163,7 +183,7 @@ export interface ScopeChoicesProps {
   onCancel: () => void;
 }
 
-export interface ScopeDialogProps extends Omit<ScopeChoicesProps, "danger"> {
+export interface ScopeDialogProps extends ScopeChoicesProps {
   /** The event being changed. A gesture is over by the time this appears, so
    *  the card has to say what it is asking about. */
   title: string;

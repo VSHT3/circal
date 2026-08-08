@@ -418,6 +418,27 @@ export default function CommandPalette({
           onClose();
         },
       })),
+      // The only keyboard path to a calendar's name and colour: the sidebar's
+      // pencil is a pointer affordance, and the sidebar is not on screen at
+      // all on a phone.
+      {
+        id: "cmd-new-calendar",
+        icon: <Plus {...CHROME_ICON_PROPS} />,
+        title: "New calendar…",
+        run: () => {
+          actions.newCalendar();
+          onClose();
+        },
+      },
+      ...calendars.map((cal) => ({
+        id: `cmd-cal-edit-${cal.id}`,
+        dot: cal.color,
+        title: `Edit ${cal.name}…`,
+        run: () => {
+          actions.editCalendar(cal.id);
+          onClose();
+        },
+      })),
     ];
     // Ranked, not filtered, and only once there is a query: with the box empty
     // this list's own order is the answer — New event first, calendars last.

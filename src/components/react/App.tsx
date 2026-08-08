@@ -58,6 +58,7 @@ import type {
   ViewFlow,
   ViewMode,
 } from "./types";
+import CalendarEditor from "./CalendarEditor";
 import CommandPalette from "./CommandPalette";
 import Dial, { type DragPreview } from "./Dial";
 import EventEditor from "./EventEditor";
@@ -280,20 +281,35 @@ function onOccurrence(draft: Omit<CalEvent, "id">, seedMs: number, at: number) {
   return { start: draft.start + shift, end: draft.end + shift };
 }
 
-/** A drag waiting on its scope. The deltas are the dial's own: an end each for
- *  a resize, both for a move. */
-interface PendingAdjust {
-  occ: Occurrence;
-  startDeltaMin: number;
-  endDeltaMin: number;
-}
+/**
+ * A gesture that has landed on a repeating event and is waiting to be told
+ * what it meant. Nothing has been written by the time it appears: a move holds
+ * its new position on `preview` alone, and a delete has touched nothing at
+ * all, so cancelling either is a matter of dropping this.
+ *
+ * One union and one card rather than a state each, because the question is the
+ * same question — two copies of it would be two vocabularies for one press,
+ * which is the mistake `ScopeChoices` exists to prevent.
+ */
+type ScopeAsk =
+  | {
+      kind: "move";
+      occ: Occurrence;
+      /** The dial's own deltas: an end each for a resize, both for a move. */
+      startDeltaMin: number;
+      endDeltaMin: number;
+    }
+  | { kind: "delete"; occ: Occurrence };
 
-/** Where a pending drag has put its occurrence, in the app's clock — the line
- *  the scope card prints, because the card covers the readout that would
- *  otherwise be saying it. */
-function adjustSpan({ occ, startDeltaMin, endDeltaMin }: PendingAdjust, clock: Clock): string {
-  const start = new Date(occ.start.getTime() + startDeltaMin * 60_000);
-  const end = new Date(occ.end.getTime() + endDeltaMin * 60_000);
+/** Where the pending gesture leaves its occurrence, in the app's clock — the
+ *  line the scope card prints, because the card covers the readout that would
+ *  otherwise be saying it. A delete moves nothing, so it prints where the
+ *  occurrence already is. */
+function askSpan(ask: ScopeAsk, clock: Clock): string {
+  const { occ } = ask;
+  const shift = ask.kind === "move" ? ask : { startDeltaMin: 0, endDeltaMin: 0 };
+  const start = new Date(occ.start.getTime() + shift.startDeltaMin * 60_000);
+  const end = new Date(occ.end.getTime() + shift.endDeltaMin * 60_000);
   const day = isSameDay(start, occ.start) ? "" : `${formatRelativeDay(start)} · `;
   return `${day}${formatTime(start, clock)} – ${formatTime(end, clock)}`;
 }
@@ -367,13 +383,13 @@ export default function App() {
    */
   const [preview, setPreview] = useState<DragPreview | null>(null);
 
-  /**
-   * A drag that has landed on a repeating event and is waiting to be told what
-   * it meant. The gesture is over by then and nothing has been written: the
-   * arc holds its new position on `preview` alone, and Cancel is a matter of
-   * dropping that.
-   */
-  const [pendingAdjust, setPendingAdjust] = useState<PendingAdjust | null>(null);
+  /** A move or a delete on a repeating event, waiting on its scope. */
+  const [ask, setAsk] = useState<ScopeAsk | null>(null);
+
+  /** The calendar card's target: an id to edit, or `null` for a new one. The
+   *  calendar itself is resolved from the store every render, so one edited in
+   *  another tab simply updates under the card. */
+  const [calendarEditor, setCalendarEditor] = useState<{ id: string | null } | null>(null);
 
   /**
    * Everything the dial draws: what you wrote plus what you subscribed to.
@@ -539,7 +555,8 @@ export default function App() {
    * fired over a half-finished event would be a data loss dressed as a
    * screensaver. Both conditions read as "there is nothing here to interrupt".
    */
-  const busy = paletteOpen || settingsOpen || editor !== null || pendingAdjust !== null;
+  const busy =
+    paletteOpen || settingsOpen || editor !== null || ask !== null || calendarEditor !== null;
   useIdleAfter(
     inAmbient || busy || view !== "day" ? 0 : settings.ambientAfter * 60_000,
     useCallback(() => setAmbient("auto"), []),
@@ -638,6 +655,16 @@ export default function App() {
       },
       setClock: (clock: Clock) => store.setClock(clock),
       toggleCalendar: (id: string) => store.toggleCalendar(id),
+      newCalendar: () => {
+        setPaletteOpen(false);
+        setAmbient("off");
+        setCalendarEditor({ id: null });
+      },
+      editCalendar: (id: string) => {
+        setPaletteOpen(false);
+        setAmbient("off");
+        setCalendarEditor({ id });
+      },
       openEvent: (event: CalEvent) => {
         const { id, ...draft } = event;
         setPaletteOpen(false);
@@ -928,7 +955,7 @@ export default function App() {
         commitAdjust(occ, startDeltaMin, endDeltaMin, "all");
         return;
       }
-      setPendingAdjust({ occ, startDeltaMin, endDeltaMin });
+      setAsk({ kind: "move", occ, startDeltaMin, endDeltaMin });
       // The dial drops its preview the moment the pointer lifts. Re-arming it
       // here is what keeps the arc where the drag left it while the question
       // is up: springing back to the old position and then jumping again on
@@ -942,23 +969,120 @@ export default function App() {
     [commitAdjust],
   );
 
-  const answerAdjust = useCallback(
-    (scope: EditScope) => {
-      if (!pendingAdjust) return;
-      const { occ, startDeltaMin, endDeltaMin } = pendingAdjust;
-      setPendingAdjust(null);
-      setPreview(null);
-      commitAdjust(occ, startDeltaMin, endDeltaMin, scope);
+  /**
+   * A delete, applied. The same three scopes the editor's Delete has, because
+   * it is the same delete: "only this one" writes an EXDATE and removes
+   * nothing — the series still exists, it simply no longer lands there.
+   *
+   * It always says so. The editor's Delete is two deliberate presses inside a
+   * modal; this one can be a single keystroke over an arc, and a destructive
+   * key with no receipt is a key nobody presses twice.
+   */
+  const removeOccurrence = useCallback(
+    (occ: Occurrence, scope: EditScope) => {
+      const at = occ.start.getTime();
+      switch (effectiveScope(scope, occ.event.start, at)) {
+        case "all":
+          store.remove(occ.event.id);
+          break;
+        case "one":
+          store.update(occ.event.id, { exdates: [...occ.event.exdates, instantKey(at)] });
+          break;
+        case "future":
+          store.truncateSeries(occ.event.id, at);
+          break;
+      }
+      cue("deleted", channels);
+      notify(`Deleted “${occ.event.title || "Untitled"}” — ⌘Z to undo`);
     },
-    [pendingAdjust, commitAdjust],
+    [channels],
   );
 
-  /** Nothing was written on release, so abandoning is just dropping the
-   *  preview — and the arc is back where it started. */
-  const cancelAdjust = useCallback(() => {
-    setPendingAdjust(null);
+  /** ⌘⌫ over an arc. A one-off goes; a repeating one is asked what the press
+   *  meant, in the same card a drag gets. */
+  const deleteOccurrence = useCallback(
+    (occ: Occurrence) => {
+      if (feedIds.has(occ.event.calendarId)) return;
+      if (repeats(occ.event)) {
+        setAsk({ kind: "delete", occ });
+        return;
+      }
+      removeOccurrence(occ, "all");
+    },
+    [feedIds, removeOccurrence],
+  );
+
+  const answerAsk = useCallback(
+    (scope: EditScope) => {
+      if (!ask) return;
+      setAsk(null);
+      setPreview(null);
+      if (ask.kind === "delete") {
+        removeOccurrence(ask.occ, scope);
+        return;
+      }
+      commitAdjust(ask.occ, ask.startDeltaMin, ask.endDeltaMin, scope);
+    },
+    [ask, commitAdjust, removeOccurrence],
+  );
+
+  /** Nothing was written while the question was up, so abandoning is just
+   *  dropping the preview — and the arc is back where it started. */
+  const cancelAsk = useCallback(() => {
+    setAsk(null);
     setPreview(null);
   }, []);
+
+  /**
+   * The calendar card's subject, resolved from the store rather than copied
+   * into the state that opened it: a rename landing from another tab updates
+   * the card under you, and a calendar deleted out from under it takes the
+   * card with it — `open` is false the moment the id resolves to nothing.
+   */
+  const editedCalendar = calendarEditor?.id
+    ? (calendars.find((c) => c.id === calendarEditor.id) ?? null)
+    : null;
+  const calendarCardOpen = calendarEditor !== null && (!calendarEditor.id || !!editedCalendar);
+
+  /** What deleting that calendar would cost, or `null` when it may not go.
+   *  The rule is the store's — the last calendar that is not a feed stays —
+   *  and it is mirrored here so the verb can be disabled rather than fail. */
+  const calendarRemoval = useMemo(() => {
+    if (!editedCalendar) return null;
+    const into = calendars.find((c) => c.id !== editedCalendar.id && !c.feed);
+    if (!editedCalendar.feed && !into) return null;
+    const holds = events.filter((e) => e.calendarId === editedCalendar.id).length;
+    if (holds > 0 && !into) return null;
+    return { holds, into: into?.name ?? "" };
+  }, [editedCalendar, calendars, events]);
+
+  const saveCalendar = useCallback(
+    (name: string, color: string) => {
+      if (editedCalendar) store.updateCalendar(editedCalendar.id, { name, color });
+      else store.addCalendar(name, color);
+      setCalendarEditor(null);
+    },
+    [editedCalendar],
+  );
+
+  /**
+   * The card's Delete. The events are not deleted with it — `removeCalendar`
+   * moves them to the calendar that is left — so the notice says where they
+   * went: a colour disappearing off the face otherwise reads as a day's work
+   * having gone with it.
+   */
+  const removeEditedCalendar = useCallback(() => {
+    if (!editedCalendar) return;
+    const gone = store.removeCalendar(editedCalendar.id);
+    setCalendarEditor(null);
+    if (!gone) return;
+    cue("deleted", channels);
+    notify(
+      gone.moved > 0
+        ? `Removed “${editedCalendar.name}” — ${gone.moved} event${gone.moved === 1 ? "" : "s"} moved to ${gone.into?.name} · ⌘Z to undo`
+        : `Removed “${editedCalendar.name}” — ⌘Z to undo`,
+    );
+  }, [editedCalendar, channels]);
 
   return (
     <div
@@ -1028,9 +1152,11 @@ export default function App() {
                   onOpen={openOccurrence}
                   onCreate={(startMin, endMin) => openDraft(startMin, endMin, day)}
                   onAdjust={adjustOccurrence}
+                  onDelete={deleteOccurrence}
                   onPreview={setPreview}
                   onStepDay={step}
                   ambient={inAmbient}
+                  covered={busy}
                 />
               )}
               {view === "year" && (
@@ -1123,16 +1249,27 @@ export default function App() {
         onSearchLife={setLifeSearch}
       />
 
-      {/* A drag on a repeating arc, waiting to be told what it meant. Its own
-          card rather than the editor's footer: the gesture is finished and
-          there is no panel on screen to ask inside. */}
-      {pendingAdjust && (
+      {calendarCardOpen && (
+        <CalendarEditor
+          target={editedCalendar}
+          removal={calendarRemoval}
+          onSave={saveCalendar}
+          onDelete={removeEditedCalendar}
+          onClose={() => setCalendarEditor(null)}
+        />
+      )}
+
+      {/* A move or a delete on a repeating arc, waiting to be told what it
+          meant. Its own card rather than the editor's footer: the gesture is
+          finished and there is no panel on screen to ask inside. */}
+      {ask && (
         <ScopeDialog
-          title={pendingAdjust.occ.event.title || "Untitled"}
-          detail={adjustSpan(pendingAdjust, settings.clock)}
-          heading="Apply this change to"
-          onPick={answerAdjust}
-          onCancel={cancelAdjust}
+          title={ask.occ.event.title || "Untitled"}
+          detail={askSpan(ask, settings.clock)}
+          heading={ask.kind === "delete" ? "Delete" : "Apply this change to"}
+          danger={ask.kind === "delete"}
+          onPick={answerAsk}
+          onCancel={cancelAsk}
         />
       )}
 

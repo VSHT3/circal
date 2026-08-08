@@ -1,10 +1,11 @@
 /* ------------------------------------------------------------------ *
- * Left panel: mini month picker, calendar visibility toggles and the
- * selected day's agenda. Collapses to zero width so the dial re-centres.
+ * Left panel: mini month picker, the calendars — visibility, and the
+ * card that makes and edits them — and the selected day's agenda.
+ * Collapses to zero width so the dial re-centres.
  * ------------------------------------------------------------------ */
 
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Pencil, Plus } from "lucide-react";
 import { useMemo, useState } from "react";
 import { colorOf, occurrencesOn, spanLabel, statusOf } from "@/lib/events";
 import {
@@ -55,7 +56,12 @@ export default function Sidebar({
 
   return (
     <div
-      aria-hidden={!open}
+      // `inert`, not `aria-hidden`: the panel is held mounted while it leaves,
+      // and for those 180 ms `aria-hidden` would be sitting over live tab
+      // stops — a keyboard user tabbing into controls nobody can see. `inert`
+      // takes the focus and the accessibility tree together, which is the one
+      // thing "this column is closed" actually means.
+      inert={!open}
       className={cn(
         "h-full shrink-0 border-r border-hairline bg-void transition-[width] duration-[220ms]",
         open ? "w-[260px]" : "w-0 overflow-hidden",
@@ -143,32 +149,50 @@ export default function Sidebar({
             </section>
 
             <section className="flex w-full shrink-0 flex-col gap-1">
-              <span className="label text-ink-3">Calendars</span>
+              <div className="flex items-center justify-between">
+                <span className="label text-ink-3">Calendars</span>
+                <IconButton label="New calendar" onClick={actions.newCalendar} className="size-6">
+                  <Plus size={13} strokeWidth={1.75} />
+                </IconButton>
+              </div>
+              {/* Two verbs on one row, so it cannot be one button: the row is
+                  the visibility switch and the pencil opens the calendar
+                  itself. The pencil is hidden until the row is pointed at or
+                  something in it takes focus — a column of them reads as a
+                  toolbar, and this list is mostly used for its switches. */}
               {calendars.map((calendar) => (
-                <button
-                  key={calendar.id}
-                  type="button"
-                  role="switch"
-                  aria-checked={calendar.visible}
-                  onClick={() => actions.toggleCalendar(calendar.id)}
-                  className="flex h-7 items-center gap-2 rounded-[8px] px-1.5 transition-colors hover:bg-white/6"
-                >
-                  <span
-                    className={cn(
-                      "size-2.5 shrink-0 rounded-full",
-                      !calendar.visible && "opacity-25",
-                    )}
-                    style={{ backgroundColor: calendar.color }}
-                  />
-                  <span
-                    className={cn(
-                      "truncate text-[12.5px]",
-                      calendar.visible ? "text-ink" : "text-ink-3",
-                    )}
+                <div key={calendar.id} className="group flex items-center gap-1">
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={calendar.visible}
+                    onClick={() => actions.toggleCalendar(calendar.id)}
+                    className="flex h-7 min-w-0 flex-1 items-center gap-2 rounded-[8px] px-1.5 transition-colors hover:bg-white/6"
                   >
-                    {calendar.name}
-                  </span>
-                </button>
+                    <span
+                      className={cn(
+                        "size-2.5 shrink-0 rounded-full",
+                        !calendar.visible && "opacity-25",
+                      )}
+                      style={{ backgroundColor: calendar.color }}
+                    />
+                    <span
+                      className={cn(
+                        "truncate text-[12.5px]",
+                        calendar.visible ? "text-ink" : "text-ink-3",
+                      )}
+                    >
+                      {calendar.name}
+                    </span>
+                  </button>
+                  <IconButton
+                    label={`Edit ${calendar.name}`}
+                    onClick={() => actions.editCalendar(calendar.id)}
+                    className="size-6 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                  >
+                    <Pencil size={12} strokeWidth={1.75} />
+                  </IconButton>
+                </div>
               ))}
             </section>
 

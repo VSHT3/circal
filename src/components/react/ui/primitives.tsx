@@ -12,6 +12,7 @@
 
 import { ChevronsUpDown } from "lucide-react";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
+import { PALETTE } from "@/lib/events";
 import { cn } from "@/lib/utils";
 
 /** A keyboard chip. Renders the glyph, never the word ("⌘", not "Cmd"). */
@@ -420,5 +421,105 @@ export function NumberField({
       />
       {suffix && <span className="label text-ink-3">{suffix}</span>}
     </span>
+  );
+}
+
+/**
+ * One swatch. A plain `<button>` for the presets, and for "custom" a hidden
+ * `<input type="color">` filling the same circle — the OS picker is better
+ * than anything hand-rolled and it is already keyboard- and screen-reader-
+ * addressable.
+ */
+function Swatch({
+  color,
+  selected,
+  label,
+  onSelect,
+  children,
+}: {
+  color: string;
+  selected: boolean;
+  label: string;
+  onSelect?: () => void;
+  children?: ReactNode;
+}) {
+  return (
+    <span
+      className={cn(
+        "relative grid size-[22px] place-items-center rounded-full transition-shadow",
+        selected && "ring-2 ring-ink/70 ring-offset-2 ring-offset-[var(--surface)]",
+      )}
+    >
+      <button
+        type="button"
+        aria-label={label}
+        aria-pressed={selected}
+        title={label}
+        onClick={onSelect}
+        className="size-[18px] rounded-full"
+        style={{ background: color }}
+      />
+      {children}
+    </span>
+  );
+}
+
+/**
+ * The ten presets and an any-colour picker.
+ *
+ * `fallback` is the inheritance case and it is optional, because only an event
+ * inherits: `""` means "follow the calendar" and the extra swatch stands for
+ * it. A calendar's own colour has nothing above it to fall back to, so the
+ * swatch and its divider are simply absent there rather than present and
+ * meaningless.
+ */
+export function ColorPicker({
+  value,
+  fallback,
+  onChange,
+}: {
+  value: string;
+  fallback?: string;
+  onChange: (color: string) => void;
+}) {
+  const custom = value !== "" && !PALETTE.includes(value as (typeof PALETTE)[number]);
+  return (
+    <div className="flex flex-wrap items-center gap-2 py-2">
+      {fallback !== undefined && (
+        <>
+          <Swatch
+            color={fallback}
+            selected={value === ""}
+            label="Use the calendar's colour"
+            onSelect={() => onChange("")}
+          />
+          {/* A divider, so "inherit the calendar" reads as a different kind of
+              choice from the ten literal colours next to it. */}
+          <span aria-hidden className="h-4 w-px bg-white/15" />
+        </>
+      )}
+      {PALETTE.map((preset) => (
+        <Swatch
+          key={preset}
+          color={preset}
+          selected={value === preset}
+          label={preset}
+          onSelect={() => onChange(preset)}
+        />
+      ))}
+      <Swatch
+        color={custom ? value : "conic-gradient(#ff9fb4,#ffdf8c,#8bf0b8,#8ecbff,#c79bff,#ff9fb4)"}
+        selected={custom}
+        label="Custom colour"
+      >
+        <input
+          type="color"
+          aria-label="Custom colour"
+          value={custom ? value : (fallback ?? PALETTE[0])}
+          onChange={(e) => onChange(e.target.value)}
+          className="absolute inset-0 cursor-pointer opacity-0"
+        />
+      </Swatch>
+    </div>
   );
 }

@@ -23,6 +23,13 @@ Events take their colour from their calendar. Any one event can override that
 from the editor's **Color** row: ten digital pastels, or a picker for anything
 else.
 
+Calendars are yours to make. The sidebar's **Calendars** list has a `+` for a
+new one and a pencil on each row for its name and colour, and ⌘P has
+`New calendar…` and `Edit …` for both without reaching for the sidebar.
+Deleting one never deletes what is in it: its events move to the calendar
+that is left, and the notice says how many did. The last calendar stays — an
+event has to be somewhere.
+
 An event's name is printed along its own arc, inside the stroke — black on its
 own colour, which is the strongest pairing this face has and the only one that
 works on every lane. A name appears only where the arc can hold one: about
@@ -63,8 +70,9 @@ editor's footer becomes the question, with three answers.
   exceptions that detached from it.
 
 **Dragging one of its arcs on the dial asks the same question**, in a card of
-its own, when you let go. Nothing is written until you answer: the arc holds
-the position you dragged it to while the card is up, and Cancel puts it back.
+its own, when you let go — and so does **⌘⌫ over an arc you are pointing at**.
+Nothing is written until you answer: a dragged arc holds the position you
+dragged it to while the card is up, and Cancel puts it back.
 
 `esc` backs out of the question — in the editor it leaves the edit on screen
 and a second press closes; on the dial it abandons the drag. A one-off is never
@@ -185,6 +193,13 @@ digit turns every couple of seconds, because a life is long enough that six
 would leave it sitting still for half a minute. Hover a dot for its date, how
 far off it is and what is on it; click one to open that day on the dial.
 
+It is one tab stop too, the same way the year ring is. Tab to the field and
+the arrows move a cursor across it — a day at a time, a week with up/down, a
+whole year with page up and down, `home` and `end` for the two ends of the
+life — with the same card the pointer gets following it, and `↵` opening that
+day on the dial. `←` and `→` still step the year whenever the grid does not
+have focus.
+
 A few days are named. The ten-thousandth, the twenty-thousandth, the midpoint
 of the estimate: each one takes a thin ring, and clicking it says what the
 number is for. Three marks on thirty thousand dots, which is a constellation
@@ -298,6 +313,7 @@ taking your calendar with it.
 | `T`                 | Today                                                                         |
 | `F` / `⇧F`          | Ambient — chrome away, and with the screen as well                            |
 | `⌘↵` / `⌘⌫` / `esc` | Save / delete / cancel in the editor                                          |
+| `⌘⌫`                | Delete the arc you are pointing at, on the dial                               |
 
 Type a duration into `⌘P` — `45m`, `1h30`, `free 20` — and the palette lists
 the gaps in the day that fit it. Picking one opens a draft already filling the

@@ -34,6 +34,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   type RefObject,
 } from "react";
@@ -48,6 +49,7 @@ import {
 import { Search, X } from "lucide-react";
 import { colorOf, occurrencesOn, scoreEvent, type CalEvent, type Calendar } from "@/lib/events";
 import {
+  dayTally,
   dim,
   formatAge,
   formatCount,
@@ -71,7 +73,7 @@ import {
   type Milestone,
 } from "@/lib/life";
 import { LIFE_EXPECTANCY_RANGE, store } from "@/lib/store";
-import { WEEKDAYS, dayKey, fromDayKey, isSameDay, startOfDay } from "@/lib/time";
+import { WEEKDAYS, addDays, dayKey, fromDayKey, isSameDay, startOfDay } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import type { LifeViewProps, ViewFlow } from "@/components/react/types";
 import { useHotkeys, useNow } from "@/components/react/hooks";
@@ -334,15 +336,42 @@ function formatDistance(date: Date, today: Date): string {
   const days = Math.round((startOfDay(date).getTime() - today.getTime()) / DAY_MS);
   if (days === 0) return "today";
   const size = Math.abs(days);
-  const amount =
-    size < 31
-      ? `${size} day${size === 1 ? "" : "s"}`
-      : size < 365
-        ? `${Math.round(size / 30.44)} months`
-        : // Whole years lose the decimal: "23.0 years ago" reads as a rounding
-          // artefact, where "1.5 years" is genuinely more than "2".
-          `${(size / 365.25).toFixed(1).replace(/\.0$/, "")} years`;
+  const amount = size < 31 ? `${size} day${size === 1 ? "" : "s"}` : years(size);
   return days > 0 ? `in ${amount}` : `${amount} ago`;
+}
+
+/** A month count under a year, and otherwise years to one decimal. Whole years
+ *  lose the decimal — "23.0 years ago" reads as a rounding artefact, where
+ *  "1.5 years" is genuinely more than "2" — and losing it is also the one case
+ *  that can come out singular, which the label is now spoken aloud enough to
+ *  care about. */
+function years(size: number): string {
+  if (size < 365) return `${Math.round(size / 30.44)} months`;
+  const figure = (size / 365.25).toFixed(1).replace(/\.0$/, "");
+  return `${figure} year${figure === "1" ? "" : "s"}`;
+}
+
+/** Whole years lived on `date` — the one figure that turns a date eighty rows
+ *  down into something a reader can place. */
+function ageOn(date: Date, birth: Date): number {
+  const whole = date.getFullYear() - birth.getFullYear();
+  const early =
+    date.getMonth() < birth.getMonth() ||
+    (date.getMonth() === birth.getMonth() && date.getDate() < birth.getDate());
+  return Math.max(0, early ? whole - 1 : whole);
+}
+
+/**
+ * One day, spoken. `load` is an exact count for the day the cursor is standing
+ * on, and otherwise whether the field paints anything there: `density` knows
+ * dated events and yearly rules, which is exactly what is drawn, and expanding
+ * recurrence for 366 days to fill a list nobody is reading straight through is
+ * a frame spent on nothing.
+ */
+function dayOptionLabel(date: Date, today: Date, birth: Date, load: number | boolean): string {
+  const when = `${WEEKDAYS[date.getDay()]}, ${formatLifeDate(date)}, age ${ageOn(date, birth)}, ${formatDistance(date, today)}`;
+  if (typeof load === "boolean") return `${when}, ${load ? "has events" : "nothing"}`;
+  return load === 0 ? `${when}, nothing` : `${when}, ${load} event${load === 1 ? "" : "s"}`;
 }
 
 /* ---------------------------------- shell --------------------------------- */
@@ -693,7 +722,6 @@ function LifeGrid({
   const dotOf = (date: Date) => lifeDot(layout, span, date);
 
   const todayDot = dotOf(today);
-  const hoverDot = hover ? dotOf(hover.date) : null;
   const selectedDot = isSameDay(selected, today) ? null : dotOf(selected);
   /** One rule per decade of age, on the line that decade's year starts. */
   const rules = Math.floor((layout.years - 1) / DECADE) + 1;
@@ -705,12 +733,127 @@ function LifeGrid({
     return date ? { date, at } : null;
   }
 
+  /* --------------------------- the keyboard path -------------------------- */
+
+  /**
+   * The grid's cursor, and the only way into it that is not a pointer.
+   *
+   * Off-screen and real, exactly as the year ring does it — but a life is
+   * thirty thousand days, and a listbox of thirty thousand options is a wall
+   * rather than a path. The options are one calendar *year* at a time, rebuilt
+   * as the cursor crosses into the next: a row of this grid already is a
+   * calendar year, so the year is the unit every label here speaks in, and 366
+   * nodes is a list somebody can actually browse.
+   *
+   * `null` until a key is pressed, so the ring does not appear over a grid
+   * nobody has touched. The seed is the day the shell is pointing at, which is
+   * the day the dial was on.
+   */
+  const [cursor, setCursor] = useState<Date | null>(null);
+  const [listFocused, setListFocused] = useState(false);
+
+  /** Inside the life, both ends included. Every move goes through it, so the
+   *  cursor cannot leave the field the labels are describing. */
+  const clampDay = (date: Date): Date => {
+    const at = startOfDay(date);
+    if (at < span.birth) return span.birth;
+    if (at > span.death) return span.death;
+    return at;
+  };
+
+  const cursorDay = cursor ?? clampDay(dotOf(selected) ? selected : today);
+  const cursorDot = dotOf(cursorDay);
+  /** The cursor answers the same question the pointer does, so it goes through
+   *  the same two things that answer it: the ring in the overlay, and the tip. */
+  const active: Hover | null =
+    hover ?? (listFocused && cursorDot ? { date: cursorDay, ...cursorDot } : null);
+  const activeDot = active ? dotOf(active.date) : null;
+
+  /** This year's days, clipped to the life. Rebuilt only when the cursor
+   *  crosses a year, which is what keeps the list 366 nodes rather than
+   *  thirty thousand. */
+  const cursorYear = cursorDay.getFullYear();
+  const options = useMemo(() => {
+    const first = new Date(cursorYear, 0, 1);
+    const last = new Date(cursorYear, 11, 31);
+    const to = last > span.death ? span.death : last;
+    const out: Date[] = [];
+    for (let d = startOfDay(first < span.birth ? span.birth : first); d <= to; d = addDays(d, 1)) {
+      out.push(d);
+    }
+    return out;
+  }, [cursorYear, span]);
+  const activeIndex = Math.max(
+    0,
+    options.findIndex((d) => isSameDay(d, cursorDay)),
+  );
+
+  /**
+   * What the active day carries, counted properly. The other options read
+   * their answer off `density`, which is what the field is actually painted
+   * from — but that map only knows dated events and yearly rules, and the day
+   * you are standing on deserves the same expansion the hover tip gets.
+   */
+  const activeTally = useMemo(
+    () => dayTally(events, calendars, cursorDay),
+    [events, calendars, cursorDay],
+  );
+
+  /**
+   * ← → a day, ↑ ↓ a week — the columns are real Monday-to-Sunday weeks, so
+   * seven days is straight up or down — and Page a year, which is one row of
+   * this grid and lands on the same date. Home and End are the two ends of the
+   * life, because at this scale they are the only two landmarks that need no
+   * counting.
+   */
+  const onKeyDown = (e: ReactKeyboardEvent<HTMLUListElement>) => {
+    const DAYS: Record<string, number> = {
+      ArrowRight: 1,
+      ArrowLeft: -1,
+      ArrowDown: 7,
+      ArrowUp: -7,
+    };
+    if (e.key in DAYS) {
+      // ← and → step the year for the shell in this view. Inside the grid they
+      // belong to the grid, so the press must not also reach the window.
+      e.preventDefault();
+      e.stopPropagation();
+      setCursor(clampDay(addDays(cursorDay, DAYS[e.key])));
+      return;
+    }
+    if (e.key === "PageDown" || e.key === "PageUp") {
+      e.preventDefault();
+      e.stopPropagation();
+      const step = e.key === "PageDown" ? 1 : -1;
+      setCursor(
+        clampDay(
+          new Date(cursorDay.getFullYear() + step, cursorDay.getMonth(), cursorDay.getDate()),
+        ),
+      );
+      return;
+    }
+    if (e.key === "Home" || e.key === "End") {
+      e.preventDefault();
+      e.stopPropagation();
+      setCursor(e.key === "Home" ? span.birth : span.death);
+      return;
+    }
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      setOpenKey(null);
+      onSelectDay(cursorDay);
+    }
+  };
+
   return (
     <>
       <canvas
         ref={canvasRef}
-        role="img"
-        aria-label={`Your life in days, one dot per day, ${formatCount(span.days)} of them`}
+        // The picture, and only the picture. The listbox below says what is in
+        // it and is the one thing here that can be navigated; two nodes
+        // describing one field is a field described twice, and the canvas is
+        // the half of it that cannot be read out.
+        aria-hidden
         className="absolute inset-0 h-full w-full touch-none"
         onPointerMove={(e) => {
           const hit = locate(e);
@@ -817,10 +960,13 @@ function LifeGrid({
               opacity={0.45}
             />
           )}
-          {hoverDot && (
+          {/* The pointer's ring and the keyboard's are one ring: they answer
+              the same question, and two marks on this field at once would be
+              two cursors. */}
+          {activeDot && (
             <circle
-              cx={hoverDot.x}
-              cy={hoverDot.y}
+              cx={activeDot.x}
+              cy={activeDot.y}
               r={Math.max(layout.radius * 2.8, 3.6)}
               fill="none"
               stroke="var(--ink)"
@@ -831,10 +977,40 @@ function LifeGrid({
         </svg>
       </motion.div>
 
-      {/* Hit areas, and the grid's only focus path. Real buttons rather than
-          pointer handling on the canvas: four of them is a tab order somebody
-          can actually use, where thirty thousand dots is not. The ring itself
-          is drawn in the overlay above, so the button is a target and nothing
+      {/*
+        The keyboard, and everything that is not a pointer. One tab stop with a
+        cursor inside it — the year ring's shape, at the one scale where the
+        options cannot all exist at once, so they are this year's and the list
+        is rebuilt as the cursor leaves it.
+      */}
+      <ul
+        role="listbox"
+        tabIndex={0}
+        aria-label={`Your life in days, ${formatCount(span.days)} of them. Arrows move a day, up and down a week, page keys a year`}
+        aria-activedescendant={`life-day-${activeIndex}`}
+        className="sr-only"
+        onFocus={() => setListFocused(true)}
+        onBlur={() => setListFocused(false)}
+        onKeyDown={onKeyDown}
+      >
+        {/* No handler of their own: the list is clipped to a pixel, so a
+            pointer never reaches an option. Choosing is Enter, on the box. */}
+        {options.map((date, i) => (
+          <li key={i} id={`life-day-${i}`} role="option" aria-selected={i === activeIndex}>
+            {dayOptionLabel(
+              date,
+              today,
+              span.birth,
+              i === activeIndex ? activeTally.count : density.has(dayKey(date)),
+            )}
+          </li>
+        ))}
+      </ul>
+
+      {/* Hit areas for the named days. Real buttons rather than pointer
+          handling on the canvas: four of them is a tab order somebody can
+          actually use, where thirty thousand dots is not. The ring itself is
+          drawn in the overlay above, so the button is a target and nothing
           else. */}
       {marks.map(({ mark, at }) => (
         <button
@@ -864,8 +1040,8 @@ function LifeGrid({
         />
       )}
 
-      {hover && (
-        <DayTip hover={hover} today={today} events={events} calendars={calendars} box={box} />
+      {active && (
+        <DayTip hover={active} today={today} events={events} calendars={calendars} box={box} />
       )}
     </>
   );
