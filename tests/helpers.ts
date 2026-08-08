@@ -152,6 +152,8 @@ export function event(
     seriesKey: "",
     color: "",
     icon: "",
+    task: false,
+    doneKeys: [],
     ...NEVER,
     ...rest,
   };

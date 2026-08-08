@@ -42,6 +42,18 @@ export interface IcsEvent extends Recurrence {
   location: string;
   url: string;
   notes: string;
+  /**
+   * circal's own two extensions, read back off `X-CIRCAL-TASK` and
+   * `X-CIRCAL-DONE`. RFC 5545 §3.8.8.2 is the sanctioned way to carry
+   * something the standard has no property for, and a task here is a VEVENT
+   * of zero length rather than a VTODO: it has a day and a minute, which is
+   * the half of VTODO circal models, and every consumer that ignores the X-
+   * lines still shows it on the right day at the right time.
+   *
+   * `false` / `[]` for every VEVENT circal did not write.
+   */
+  task: boolean;
+  doneKeys: string[];
 }
 
 /* --------------------------------- text ----------------------------------- */
@@ -225,7 +237,11 @@ export function toIcs(events: CalEvent[], name: string): string {
       lines.push(`DTEND;VALUE=DATE:${dateStamp(new Date(event.end))}`);
     } else {
       lines.push(`DTSTART:${utcStamp(new Date(event.start))}`);
-      lines.push(`DTEND:${utcStamp(new Date(event.end))}`);
+      // No DTEND on a task. §3.6.1 requires DTEND to be strictly later than
+      // DTSTART, and the same section says a DATE-TIME DTSTART on its own
+      // means an event that ends when it starts — so the spec-legal spelling
+      // of a zero-length event is to leave the property out.
+      if (!event.task) lines.push(`DTEND:${utcStamp(new Date(event.end))}`);
     }
     if (overrides) {
       // Matches this VEVENT's own DTSTART value type, as RFC requires.
@@ -246,6 +262,11 @@ export function toIcs(events: CalEvent[], name: string): string {
     const seed = new Date(event.start);
     lines.push(...recurDateLines("EXDATE", event.exdates, seed));
     lines.push(...recurDateLines("RDATE", event.rdates, seed));
+    // One comma list rather than a line each, which is what EXDATE's own
+    // multi-value form does — and a done key contains no comma, so it needs
+    // no escaping beyond that.
+    if (event.task) lines.push("X-CIRCAL-TASK:TRUE");
+    if (event.doneKeys.length > 0) lines.push(`X-CIRCAL-DONE:${event.doneKeys.join(",")}`);
     lines.push("END:VEVENT");
   }
   lines.push("END:VCALENDAR");
@@ -544,13 +565,22 @@ function buildEvent(block: Block): IcsEvent | null {
   const dtstart = parseDateProp(props.DTSTART);
   if (!dtstart) return null;
 
+  const task = props["X-CIRCAL-TASK"]?.value.toUpperCase() === "TRUE";
   let end: number;
   const dtend = parseDateProp(props.DTEND);
   if (dtend) {
     end = dtend.ms;
   } else {
     const duration = props.DURATION ? parseDuration(props.DURATION.value) : null;
-    end = dtstart.ms + (duration ?? (dtstart.allDay ? 86_400_000 : 3_600_000));
+    // §3.6.1: a DATE-TIME DTSTART with neither DTEND nor DURATION is an event
+    // that ends at the instant it starts — which is exactly what a task is,
+    // and why circal writes one that way rather than emitting `DTEND` equal to
+    // `DTSTART` (the RFC requires DTEND to be strictly later). The hour-long
+    // fallback stays for everybody else's VEVENTs: it is what a reader expects
+    // of a meeting sent without an end, and reading *those* as zero-length
+    // would collapse them onto the rim.
+    const fallback = task ? 0 : dtstart.allDay ? 86_400_000 : 3_600_000;
+    end = dtstart.ms + (duration ?? fallback);
   }
 
   // A UID is required by RFC 5545, so this fallback only fires on a
@@ -574,6 +604,10 @@ function buildEvent(block: Block): IcsEvent | null {
     location: props.LOCATION ? unescapeText(props.LOCATION.value) : "",
     url: props.URL ? unescapeText(props.URL.value) : "",
     notes: props.DESCRIPTION ? unescapeText(props.DESCRIPTION.value) : "",
+    task,
+    doneKeys: (props["X-CIRCAL-DONE"]?.value ?? "")
+      .split(",")
+      .filter((k) => /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(k)),
     ...readRecurrence(block, dtstart.ms),
   };
 }

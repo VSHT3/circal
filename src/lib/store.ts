@@ -30,10 +30,12 @@ import {
   PALETTE,
   keyToInstant,
   splitRule,
+  toggleDoneKey,
   type CalEvent,
   type Calendar,
   type Repeat,
 } from "./events";
+import { REMIND_LEADS } from "./remind";
 import type { PickedPlace } from "./places";
 
 const KEY = "circal.v1";
@@ -81,6 +83,9 @@ const FEED_BUDGET = 2_000_000;
  * Still 2 through the `clock` default going to `24h`, too. A default is what a
  * blob says when it says nothing; every blob that already exists says `12h` or
  * `24h` out loud, and neither of those changed meaning.
+ * Still 2 through `task`, `doneKeys`, `moonPhase`, `remind` and `remindLead`
+ * as well: five more fields, filled in on read, none of them a change to what
+ * anything already stored means.
  */
 const SCHEMA = 2;
 
@@ -126,6 +131,24 @@ export type ArcLabelMode = (typeof ARC_LABEL_MODES)[number];
 export const AMBIENT_DELAYS = [0, 1, 2, 5, 10, 30, 60] as const;
 
 export type AmbientDelay = (typeof AMBIENT_DELAYS)[number];
+
+/**
+ * How the sidebar draws the moon, and it is a genuine choice of register
+ * rather than a size. `minimal` is the app's own voice: one disc, the
+ * terminator as a second disc in the background colour, a caption. `aperture`
+ * is the watchmaker's — a slice of night sky behind an arched window, the
+ * disc riding through it, a few stars.
+ *
+ * Both are offered because neither is obviously right here. Every other piece
+ * of chrome in circal is greyscale and flat, which argues for `minimal`; but
+ * the moon is the one complication that is a *picture* rather than a
+ * measurement, and the dial's own lightcycle band already broke the greyscale
+ * rule for the same reason. `off` is the default: chrome does not appear
+ * unasked.
+ */
+export const MOON_STYLES = ["off", "minimal", "aperture"] as const;
+
+export type MoonStyle = (typeof MOON_STYLES)[number];
 
 export interface Settings {
   /** Which face the dial wears — see `lib/dial.ts`. */
@@ -224,6 +247,27 @@ export interface Settings {
   /** Names along the arcs, in ambient. Its own mode, because 11px mono is
    *  read from a chair and this face is read from across a room. */
   ambientArcLabels: ArcLabelMode;
+  /**
+   * The sidebar's moon, and in which register. See `MOON_STYLES`.
+   *
+   * It lives in the sidebar rather than on the face because of the rule that
+   * governs this app's one instrument: every radius the dial gains costs
+   * `PAD` and legibility, and the moon is not a fact about the *day* the way
+   * the lightcycle band is. It is the one complication here that is pure
+   * eyecandy, and eyecandy belongs in the column you can close.
+   */
+  moonPhase: MoonStyle;
+  /**
+   * Notifications for what is about to start, while this tab is open.
+   *
+   * Deliberately the whole feature. Reminders with the tab *closed* need a
+   * push service, which needs a server, which is the one thing this product
+   * has said it will not have — so the panel says so in words rather than
+   * leaving the absence to be discovered.
+   */
+  remind: boolean;
+  /** Minutes of warning, from `REMIND_LEADS`. `0` fires as it starts. */
+  remindLead: number;
 }
 
 /** The switches: every field of `Settings` that is a plain boolean. */
@@ -322,6 +366,16 @@ export const DEFAULT_SETTINGS: Settings = {
   // Off, for the reason `arcLabels` defaults to `always`: the argument is
   // legibility, and at this distance the label is the illegible part.
   ambientArcLabels: "off",
+  // Off. It is the only thing in this app that draws something the calendar
+  // does not contain, so it has to be asked for by name.
+  moonPhase: "off",
+  // Off, and it is the one default here that is a promise rather than a
+  // preference: nothing in circal has ever interrupted anybody, and the first
+  // thing that can must be switched on deliberately.
+  remind: false,
+  // Ten minutes. Long enough to walk somewhere, short enough that the thing
+  // is still the next thing when it lands.
+  remindLead: 10,
 };
 
 const DEFAULT_CALENDARS: Calendar[] = [
@@ -365,6 +419,8 @@ function seed(): CalEvent[] {
     seriesKey: "",
     color: "",
     icon: "",
+    task: false,
+    doneKeys: [],
     ...extra,
   });
 
@@ -372,6 +428,9 @@ function seed(): CalEvent[] {
     make("Morning run", "personal", at(7, 15), at(8, 0), { repeat: "daily" }),
     make("Cas", "personal", at(10, 45), at(11, 30), { location: "Kitchen table" }),
     make("Packing", "personal", at(13, 15), at(13, 50)),
+    // One task in the seed, because a pip on the rim is not a shape anybody
+    // guesses at: the demo day has to contain the thing the feature is.
+    make("Water the plants", "personal", at(18, 30), at(18, 30), { task: true }),
     make("Design review", "work", at(14, 0), at(16, 20), { location: "Studio" }),
     make("Sync with Anna", "work", at(14, 15), at(15, 15), { url: "https://meet.example.com/x" }),
     make("Call home", "family", at(21, 10), at(21, 40)),
@@ -444,6 +503,15 @@ function sane(settings: Settings): Settings {
     ambientAfter: (AMBIENT_DELAYS as readonly number[]).includes(settings.ambientAfter)
       ? settings.ambientAfter
       : DEFAULT_SETTINGS.ambientAfter,
+    moonPhase: MOON_STYLES.includes(settings.moonPhase)
+      ? settings.moonPhase
+      : DEFAULT_SETTINGS.moonPhase,
+    // A lead off the list is a warning the panel cannot show, and unlike a
+    // stale ambient delay this one is a notification arriving at a time
+    // nothing on screen ever named.
+    remindLead: REMIND_LEADS.includes(settings.remindLead)
+      ? settings.remindLead
+      : DEFAULT_SETTINGS.remindLead,
   };
 }
 
@@ -479,6 +547,8 @@ function hydrateEvents(value: unknown): CalEvent[] {
       seriesId,
       seriesKey,
       icon,
+      task,
+      doneKeys,
     } = event;
     if (
       typeof interval === "number" &&
@@ -497,7 +567,9 @@ function hydrateEvents(value: unknown): CalEvent[] {
       Array.isArray(rdates) &&
       typeof seriesId === "string" &&
       typeof seriesKey === "string" &&
-      typeof icon === "string"
+      typeof icon === "string" &&
+      typeof task === "boolean" &&
+      Array.isArray(doneKeys)
     ) {
       return event;
     }
@@ -520,6 +592,8 @@ function hydrateEvents(value: unknown): CalEvent[] {
       seriesId: typeof seriesId === "string" ? seriesId : "",
       seriesKey: typeof seriesKey === "string" ? seriesKey : "",
       icon: typeof icon === "string" ? icon : "",
+      task: task === true,
+      doneKeys: Array.isArray(doneKeys) ? doneKeys : [],
     };
   });
 }
@@ -987,6 +1061,24 @@ export const store = {
   },
 
   /**
+   * Tick one occurrence of a task off, or back on.
+   *
+   * By occurrence, not by event: a weekly task ticked this Monday is not
+   * ticked every Monday, and `doneKeys` is the list that says which. Recorded
+   * in history like any other edit — a tick is a keystroke away and ⌘Z is the
+   * only way back from the wrong one.
+   */
+  toggleDone(id: string, at: Date | number) {
+    const base = fresh();
+    commit({
+      ...base,
+      events: base.events.map((e) =>
+        e.id === id ? { ...e, doneKeys: toggleDoneKey(e.doneKeys, at) } : e,
+      ),
+    });
+  },
+
+  /**
    * The event and every override that detached from it — deleting a series
    * cannot leave its exceptions behind, because an orphaned override is an
    * ordinary event on the day it replaced, with nothing left to explain it and
@@ -1144,6 +1236,17 @@ export const store = {
   setAmbientArcLabels(ambientArcLabels: ArcLabelMode) {
     const base = fresh();
     commit({ ...base, settings: { ...base.settings, ambientArcLabels } }, false);
+  },
+
+  setMoonPhase(moonPhase: MoonStyle) {
+    const base = fresh();
+    commit({ ...base, settings: { ...base.settings, moonPhase } }, false);
+  },
+
+  /** Minutes of warning before an event starts; `0` fires as it does. */
+  setRemindLead(remindLead: number) {
+    const base = fresh();
+    commit({ ...base, settings: sane({ ...base.settings, remindLead }) }, false);
   },
 
   /** Minutes of stillness before the dial takes the window; `0` is never. */
@@ -1393,5 +1496,21 @@ export function draftEvent(
     seriesKey: "",
     color: "",
     icon: "",
+    task: false,
+    doneKeys: [],
   };
+}
+
+/**
+ * The same draft as a task: one minute of the day rather than a span, so
+ * `start === end`.
+ *
+ * A function of its own rather than a fifth argument to `draftEvent`, because
+ * everything that file's comment above says about spans — the all-day
+ * threshold, the multi-day rounding, the exclusive midnight — is exactly what
+ * a task does not have. Two shapes, two constructors; the editor's Task
+ * switch converts between them.
+ */
+export function taskDraft(day: Date, startMin: number, calendarId: string): Omit<CalEvent, "id"> {
+  return { ...draftEvent(day, startMin, startMin, calendarId), task: true };
 }

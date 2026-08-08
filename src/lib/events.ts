@@ -137,6 +137,30 @@ export interface CalEvent extends Recurrence {
    * way round, and neither answer implies the other.
    */
   icon: string;
+  /**
+   * A dated task: a moment rather than a span, so `end === start` and the
+   * dial draws the pip it already draws for anything shorter than its own
+   * cap — a mark at the right minute instead of an arc that lies about a
+   * duration nobody gave it.
+   *
+   * An explicit field rather than "`end === start`, therefore a task": a
+   * degenerate span is an arithmetic coincidence, and typing data by one is
+   * how a five-minute event dragged to nothing silently becomes a to-do.
+   * Undated tasks are deliberately not modelled — a list with no day on it
+   * is a different product wearing this one as a skin.
+   */
+  task: boolean;
+  /**
+   * The occurrences that have been ticked off, as `instantKey`s.
+   *
+   * A list on the event rather than a boolean, for the reason `exdates` is
+   * one: a repeating task is completed one occurrence at a time, and a flag
+   * on the series would tick every Monday at once. Always the datetime form,
+   * even for an all-day task — the two forms `exdates` carries exist because
+   * EXDATE has two RFC value types, and nothing outside this app writes
+   * these.
+   */
+  doneKeys: string[];
 }
 
 /** One concrete appearance of an event on one day, clipped to that day. */
@@ -167,6 +191,13 @@ export interface Occurrence {
    */
   dayIndex: number;
   dayCount: number;
+  /**
+   * Whether *this* occurrence of a task has been ticked off. Resolved here
+   * rather than at each surface because `dayAgenda` is the one read path onto
+   * a day, and `doneKeys` is a list lookup no renderer should be doing.
+   * Always `false` on an ordinary event.
+   */
+  done: boolean;
   /** 0 = outermost ring. Assigned by `packLanes`. */
   lane: number;
 }
@@ -238,12 +269,18 @@ export function occurrencesOn(events: CalEvent[], calendars: Calendar[], day: Da
     if (hidden.has(event.calendarId)) continue;
 
     const duration = Math.max(event.end - event.start, 0);
+    // A task has no duration, and every overlap test below is written against
+    // an exclusive `end`: at zero width `end <= dayStart` throws away a task
+    // standing exactly at midnight. One millisecond of notional width is what
+    // makes "an instant belongs to the day it starts on" fall out of the same
+    // arithmetic as everything else, rather than needing a branch.
+    const span = Math.max(duration, 1);
     // In milliseconds rather than in days: `start + duration > dayStart` is
     // the whole overlap test, so the window is tight by construction and needs
     // no DST reasoning. A flat day back was enough while nothing was longer
     // than one, and a five-day holiday from a feed then vanished on its third
     // morning.
-    const from = dayStart.getTime() - Math.min(duration, lookbackCap(event.repeat));
+    const from = dayStart.getTime() - Math.min(span, lookbackCap(event.repeat));
     const skip = replaced.get(event.id);
 
     for (const at of startsBetween(event, event.start, from, dayEnd.getTime())) {
@@ -253,7 +290,7 @@ export function occurrencesOn(events: CalEvent[], calendars: Calendar[], day: Da
 
       const start = new Date(at);
       const end = new Date(at + duration);
-      if (end <= dayStart || start >= dayEnd) continue;
+      if (at + span <= dayStart.getTime() || start >= dayEnd) continue;
 
       const continuesBefore = start < dayStart;
       const continuesAfter = end > dayEnd;
@@ -277,6 +314,10 @@ export function occurrencesOn(events: CalEvent[], calendars: Calendar[], day: Da
         continuesAfter,
         dayIndex: daysBetween(firstDay, dayStart) + 1,
         dayCount: daysBetween(firstDay, lastDay) + 1,
+        // A tick is per occurrence, so it is looked up per occurrence. The
+        // list is empty on everything that is not a task, which is almost
+        // every event in the store.
+        done: event.doneKeys.length > 0 && event.doneKeys.includes(instantKey(start)),
         lane: 0,
       });
     }
@@ -302,6 +343,12 @@ function packLanes(occurrences: Occurrence[], pad = 6): Occurrence[] {
   const laneEnds: number[] = [];
   return occurrences.map((occ) => {
     if (occ.event.allDay) return occ;
+    // A task is a notch in the rim, not an occupant of it: it takes no lane
+    // and pushes nothing out of one. Packed like an arc it would either be
+    // buried under the meeting it happens during, or push that meeting inward
+    // to make room for a mark two units wide — and a pip on the outer ring
+    // during a booked hour is the honest picture of a task during a meeting.
+    if (occ.event.task) return occ;
     let lane = laneEnds.findIndex((end) => end <= occ.startMin + pad);
     if (lane === -1) lane = laneEnds.length;
     laneEnds[lane] = occ.endMin;
@@ -319,6 +366,19 @@ export function dayAgenda(events: CalEvent[], calendars: Calendar[], day: Date) 
   const allDay = all.filter((o) => o.event.allDay);
   const timed = packLanes(all.filter((o) => !o.event.allDay));
   return { timed, allDay, all: [...allDay, ...timed] };
+}
+
+/* ---------------------------------- tasks --------------------------------- */
+
+/**
+ * `doneKeys` with one occurrence ticked or un-ticked. The key's shape lives
+ * here rather than at the two call sites — the store's commit and the
+ * editor's switch — so a tick from the dial and a tick from the modal cannot
+ * disagree about which occurrence they meant.
+ */
+export function toggleDoneKey(keys: string[], at: Date | number): string[] {
+  const key = instantKey(at);
+  return keys.includes(key) ? keys.filter((k) => k !== key) : [...keys, key];
 }
 
 /* ------------------------------- free time -------------------------------- */

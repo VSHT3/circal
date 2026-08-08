@@ -156,6 +156,17 @@ export function readSettings(value: unknown): Settings {
     ambientArcLabels: (typeof value.ambientArcLabels === "string"
       ? value.ambientArcLabels
       : DEFAULT_SETTINGS.ambientArcLabels) as Settings["ambientArcLabels"],
+    // Both of these appear because the user asked for them, so an absent one
+    // is off rather than on — the opposite reading from the dial switches
+    // above, and for the opposite reason: one is a thing the face already
+    // drew, these are things that were never there. `sane()` pins the two
+    // that are picked off a list.
+    moonPhase: (typeof value.moonPhase === "string"
+      ? value.moonPhase
+      : DEFAULT_SETTINGS.moonPhase) as Settings["moonPhase"],
+    remind: value.remind === true,
+    remindLead:
+      typeof value.remindLead === "number" ? value.remindLead : DEFAULT_SETTINGS.remindLead,
   };
 }
 
@@ -258,6 +269,20 @@ function readRecurrence(value: Record<string, unknown>): Recurrence {
 }
 
 /**
+ * `instantKey`'s form, which is the only one a done key is ever written in.
+ * EXDATE carries a day-only form too because DATE is one of its RFC value
+ * types; nothing outside this app writes a `doneKeys` entry, so a key that is
+ * not a full instant matches no occurrence and is dropped.
+ */
+const INSTANT_KEY = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/;
+
+function readDoneKeys(value: unknown): string[] {
+  return Array.isArray(value)
+    ? [...new Set(value.filter((k): k is string => typeof k === "string" && INSTANT_KEY.test(k)))]
+    : [];
+}
+
+/**
  * A backup is external input, so nothing is trusted: every field is checked
  * and anything unreadable is dropped rather than allowed to become an event
  * with a `NaN` start, which renders as an arc of the whole day.
@@ -266,7 +291,13 @@ export function readEvent(value: unknown): CalEvent | null {
   if (!isRecord(value)) return null;
   const { id, title, calendarId, start, end } = value;
   if (typeof start !== "number" || typeof end !== "number") return null;
-  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null;
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
+  // A task is the one shape whose `end` is allowed to equal its `start`: it is
+  // a moment, not a span. Everything else with no width is a corrupt record —
+  // it draws as an arc of the whole day or as nothing, and both are worse than
+  // dropping it.
+  const task = value.task === true;
+  if (task ? end < start : end <= start) return null;
   return {
     id: typeof id === "string" && id ? id : `${start}-${Math.random().toString(36).slice(2, 8)}`,
     title: typeof title === "string" ? title : "Untitled",
@@ -282,6 +313,11 @@ export function readEvent(value: unknown): CalEvent | null {
     seriesKey: typeof value.seriesKey === "string" ? value.seriesKey : "",
     color: typeof value.color === "string" ? value.color : "",
     icon: typeof value.icon === "string" ? value.icon.slice(0, ICON_MAX) : "",
+    task,
+    // The same instant-key check EXDATE gets, and the same reason: a key this
+    // does not spell matches no occurrence, so it is a row of dead weight that
+    // survives every future export.
+    doneKeys: readDoneKeys(value.doneKeys),
   };
 }
 
@@ -381,6 +417,11 @@ function importIcs(text: string, filename: string) {
         // An .ics carries no mark of its own; the imported calendar's is the
         // whole answer until somebody sets one.
         icon: "",
+        // Only from an .ics circal itself wrote. Nothing else has a way to say
+        // "this VEVENT is a task", and reading a zero-length VEVENT as one
+        // would turn every other producer's instantaneous event into a to-do.
+        task: e.task,
+        doneKeys: e.doneKeys,
       };
     }),
   );
