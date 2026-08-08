@@ -18,10 +18,18 @@ code it constrains.
 3. event and stuff search (idk, cmd f)
 4. ~~deleting/modifying a repeating event~~ — _done._ Save and Delete both ask, and the answer is
    `EditScope`: only this one (an override, or an EXDATE), this and all future (`splitRule` cuts the
-   series in two), or the whole series. Two things it left behind: **`RANGE=THISANDFUTURE` is still
-   not read on the way in** — `ics.ts` models only the single-instant RECURRENCE-ID, so a split
-   arriving from a subscription flattens — and **an export writes the two halves as two unrelated
-   VEVENTs**, which is correct but loses the fact that they were one series.
+   series in two), or the whole series. **Export is not a defect** — two VEVENTs with distinct UIDs,
+   the first bounded by UNTIL, is what Google and Apple emit and what the ecosystem reads. A
+   `RELATED-TO` on the tail would need a back-pointer field on `CalEvent` to write a line nothing
+   here reads. **Import of `RANGE=THISANDFUTURE` is the one real gap**, and it is bounded: the param
+   is already parsed (`props["RECURRENCE-ID"].params.RANGE`) and `splitRule` already exists, so it is
+   a post-pass in `fromIcs` — there, not in a consumer, because `feeds.ts` and `backup.ts` each link
+   overrides themselves. Three things it has to get right: chained splits fold left (the second
+   override's instant belongs to the first split's tail by then); the promoted tail needs its own
+   stable uid (`uid#recurrence-id`) or it collides with its parent in both consumers' keys; and it
+   inherits the parent's rule, with `splitRule`'s partitioned lists, when it brought no RRULE. Worth
+   doing the day a feed turns up carrying one — nothing mainstream emits it, Thunderbird still
+   renders it wrong, and today it lands as a single-instance override, which is wrong but not lossy.
 5. command + delete should delete an event you are hovering over
 6. onboarding, after everything is finalised
 
