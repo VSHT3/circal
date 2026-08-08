@@ -143,6 +143,13 @@ export interface YearViewProps {
   stage: LifeStage | null;
   flow: RefObject<ViewFlow>;
   onSelectDay: (day: Date) => void;
+  /**
+   * A drag across the ring: an all-day event running `days` days from `from`,
+   * both ends inclusive. It is the dial's own ring gesture one scale up — a
+   * range of minutes becomes a timed event, a range of days becomes a
+   * multi-day one — and the shell turns both into a draft in the editor.
+   */
+  onCreateSpan: (from: Date, days: number) => void;
 }
 
 export interface LifeViewProps {

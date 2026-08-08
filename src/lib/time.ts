@@ -325,12 +325,14 @@ export function formatTimeShort(d: Date, clock: Clock = "12h"): string {
     : `${h}:${`${d.getMinutes()}`.padStart(2, "0")} ${suffix}`;
 }
 
+/** `AUG` — the three letters every date row in the app names a month by. */
+function shortMonth(d: Date): string {
+  return MONTHS[d.getMonth()].slice(0, 3);
+}
+
 /** `WEDNESDAY · AUG 5` — the header. Caller applies the letterspacing. */
 export function formatDayHeader(d: Date): { weekday: string; date: string } {
-  return {
-    weekday: WEEKDAYS[d.getDay()],
-    date: `${MONTHS[d.getMonth()].slice(0, 3)} ${d.getDate()}`,
-  };
+  return { weekday: WEEKDAYS[d.getDay()], date: `${shortMonth(d)} ${d.getDate()}` };
 }
 
 /** Relative label for the date row of the editor: Today / Tomorrow / Aug 12. */
@@ -339,7 +341,25 @@ export function formatRelativeDay(d: Date, today = new Date()): string {
   if (diff === 0) return "Today";
   if (diff === 1) return "Tomorrow";
   if (diff === -1) return "Yesterday";
-  return `${MONTHS[d.getMonth()].slice(0, 3)} ${d.getDate()}`;
+  return `${shortMonth(d)} ${d.getDate()}`;
+}
+
+/**
+ * `8 – 14 Aug`, `28 Aug – 3 Sep` — a run of whole days, both ends inclusive,
+ * as the year ring prints the range being dragged.
+ *
+ * The month is named once when the two ends share it and the year only when
+ * they do not, so the common case is the shortest thing that is unambiguous:
+ * the face is already telling you which year you are in.
+ */
+export function formatDayRange(from: Date, to: Date): string {
+  const a = `${from.getDate()} ${shortMonth(from)}`;
+  const b = `${to.getDate()} ${shortMonth(to)}`;
+  if (from.getFullYear() !== to.getFullYear()) {
+    return `${a} ${from.getFullYear()} – ${b} ${to.getFullYear()}`;
+  }
+  if (from.getMonth() === to.getMonth()) return `${from.getDate()} – ${b}`;
+  return `${a} – ${b}`;
 }
 
 /** `40m`, `1h`, `2h 15m` — durations in the agenda and the "ends in" meta. */

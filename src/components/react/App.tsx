@@ -19,7 +19,15 @@ import { placeForZone } from "@/lib/places";
 import { refreshFeed, refreshStaleFeeds } from "@/lib/feeds";
 import { notify } from "@/lib/notify";
 import { DEFAULT_DURATION, defaultStart } from "@/lib/quickadd";
-import { addDays, dayKey, formatRelativeDay, fromDayKey, isSameDay, startOfDay } from "@/lib/time";
+import {
+  MINUTES_PER_DAY,
+  addDays,
+  dayKey,
+  formatRelativeDay,
+  fromDayKey,
+  isSameDay,
+  startOfDay,
+} from "@/lib/time";
 import { LIFE_META_H, lifeDot, lifeStage } from "@/lib/life";
 import { EASE, MODE_MS, UNROLL_IN_MS, UNROLL_OUT_MS } from "@/lib/motion";
 import { cn } from "@/lib/utils";
@@ -829,6 +837,10 @@ export default function App() {
                   stage={stage}
                   flow={flow}
                   onSelectDay={(next) => actions.goDay(next)}
+                  // A run of whole days, in the minutes `draftEvent` decides
+                  // all-day by: the ring gesture and this one hand over to the
+                  // same function, and the editor cannot tell which drew it.
+                  onCreateSpan={(from, days) => openDraft(0, days * MINUTES_PER_DAY, from)}
                 />
               )}
               {view === "life" && (

@@ -952,6 +952,34 @@ describe("draftEvent", () => {
       expect.soft(drafted.end).toBe(dayStart + endMin * 60_000);
     }
   });
+
+  // A drag across the year ring: whole revolutions, as many all-day days as it
+  // covered. The dial can only ever hand over exactly one — its sweep is
+  // clamped to the day — so everything past 1440 arrives from that gesture.
+  it.each([
+    { name: "two days", days: 2 },
+    { name: "seven days", days: 7 },
+    { name: "a whole ordinary year", days: 365 },
+  ])("$name of ring drag becomes that many all-day days", async ({ days }) => {
+    const s = await freshStore();
+    const dayStart = at("2026-03-08").getTime();
+    const drafted = s.draftEvent(at("2026-03-08"), 0, days * 1440, "personal");
+    expect.soft(drafted.allDay).toBe(true);
+    expect.soft(drafted.start).toBe(dayStart);
+    // `end` is exclusive, so a two-day event ends at the third midnight.
+    expect.soft(drafted.end).toBe(dayStart + days * 1440 * 60_000);
+  });
+
+  // A span that crosses a DST boundary is still whole days: the instants are
+  // built from minutes off local midnight, so the event is 23 or 25 hours of
+  // elapsed time and nobody downstream cares — `dayAgenda` clips by day.
+  it("a span across a spring-forward keeps both ends on a local midnight", async () => {
+    const s = await freshStore();
+    const drafted = s.draftEvent(at("2026-03-28"), 0, 3 * 1440, "personal");
+    expect.soft(new Date(drafted.start).getHours()).toBe(0);
+    expect.soft(new Date(drafted.end).getHours()).toBe(0);
+    expect.soft(dayKey(new Date(drafted.end))).toBe("2026-03-31");
+  });
 });
 
 describe("newId", () => {

@@ -23,7 +23,7 @@
  * ------------------------------------------------------------------ */
 
 import { useSyncExternalStore } from "react";
-import { MINUTES_PER_DAY, startOfDay, type Clock } from "./time";
+import { MINUTES_PER_DAY, addDays, startOfDay, type Clock } from "./time";
 import { notify } from "./notify";
 import { NEVER, PALETTE, type CalEvent, type Calendar, type Repeat } from "./events";
 import type { PickedPlace } from "./places";
@@ -1193,12 +1193,25 @@ export const store = {
 };
 
 /**
- * A blank event on `day`, used by ⌘N and by drag-to-create on the dial.
+ * A blank event on `day`, used by ⌘N, by drag-to-create on the dial, and by a
+ * drag across the year ring.
  *
  * A span that covers the whole revolution is an all-day event, not a
  * twenty-four-hour appointment: a ring drawn from midnight back round to
  * midnight is the gesture for "this day", and an arc that is the entire face
  * says nothing an all-day event does not say better.
+ *
+ * More than one revolution is that same rule at the year's scale — as many
+ * all-day days as the span covers. The dial can only ever hand over exactly
+ * one (its sweep is clamped to the day), so anything past 1440 arrives from a
+ * drag across the year ring, and rounding is what keeps the dial's own
+ * fractional overshoot landing on one day rather than two.
+ *
+ * The all-day end is calendar arithmetic and not `base + n × 1440 minutes`,
+ * because a day is not always 1440 minutes long: a span across a
+ * spring-forward is 23 hours, and adding the minutes lands `end` at 23:00 on
+ * the last evening rather than on the midnight after it. `end` is exclusive
+ * and has to *be* a midnight, or the last day of a trip drops off the dial.
  */
 export function draftEvent(
   day: Date,
@@ -1208,12 +1221,14 @@ export function draftEvent(
   repeat: Repeat = "never",
 ): Omit<CalEvent, "id"> {
   const base = startOfDay(day).getTime();
-  const allDay = endMin - startMin >= MINUTES_PER_DAY;
+  const span = endMin - startMin;
+  const allDay = span >= MINUTES_PER_DAY;
+  const days = Math.round(span / MINUTES_PER_DAY);
   return {
     title: "",
     calendarId,
     start: allDay ? base : base + startMin * 60_000,
-    end: base + (allDay ? MINUTES_PER_DAY : endMin) * 60_000,
+    end: allDay ? addDays(startOfDay(day), days).getTime() : base + endMin * 60_000,
     allDay,
     location: "",
     url: "",

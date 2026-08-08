@@ -48,8 +48,8 @@ import {
   YEAR,
   dateOfYear,
   dayAngle,
+  dayAtPoint,
   dayOfYear,
-  dayOfYearAt,
   daysInYear,
   faceToPanel,
   magnify,
@@ -58,13 +58,12 @@ import {
   ringDelta,
   spread,
   unroller,
-  yearAtPoint,
   type Vec,
 } from "@/lib/year";
-import { MONTHS, WEEKDAYS } from "@/lib/time";
+import { MONTHS, WEEKDAYS, clamp, daysBetween, formatDayRange } from "@/lib/time";
 import { UNROLL_IN_MS, UNROLL_OUT_MS } from "@/lib/motion";
 import { cue } from "@/lib/feedback";
-import { useElementSize } from "./hooks";
+import { useElementSize, useHotkeys } from "./hooks";
 import { cn } from "@/lib/utils";
 
 /** The accent, spelled out — an SVG `fill` cannot read a Tailwind token. */
@@ -124,6 +123,27 @@ interface Mark {
 }
 
 /**
+ * A range being dragged across the ring, in day slots — the dial's `Draw` at
+ * the year's scale, and the same three fields for the same reason: two
+ * positions on a ring do not say which way round the pointer travelled, so the
+ * sweep is accumulated per pointer event rather than measured from the grab.
+ */
+interface Span {
+  /** The day the press landed on. */
+  from: number;
+  /** The day the pointer was last seen on. */
+  at: number;
+  /** Signed days swept since the grab; clockwise positive. */
+  sweep: number;
+}
+
+/** The two ends of a drag, in the order the year has them. Both inclusive: a
+ *  range of one day is a day, not a zero-length nothing. */
+function resolveSpan({ from, sweep }: Span): { lo: number; hi: number } {
+  return sweep >= 0 ? { lo: from, hi: from + sweep } : { lo: from + sweep, hi: from };
+}
+
+/**
  * When the days stop following the flattening curve and start going to the
  * places they actually occupy.
  *
@@ -159,8 +179,9 @@ const CHROME_MS = 260;
 /* ------------------------------- the readout ------------------------------- */
 
 /**
- * What the centre says, in the dial's order: the day being pointed at, else
- * the year itself. The ring is the shape of the year; this is the sentence.
+ * What the centre says, in the dial's order: the range being dragged, else the
+ * day being pointed at, else the year itself. The ring is the shape of the
+ * year; this is the sentence.
  *
  * The resting state is the year and not the selected day, because the
  * selected day is already drawn — a readout repeating the white mark six
@@ -175,6 +196,7 @@ const CHROME_MS = 260;
 function Readout({
   year,
   date,
+  span,
   tally,
   today,
   quote,
@@ -182,11 +204,34 @@ function Readout({
 }: {
   year: number;
   date: Date | null;
+  /** The range under a live drag, both ends inclusive. */
+  span: { from: Date; to: Date } | null;
   tally: Mark | null;
   today: Date;
   quote: string;
   u: number;
 }) {
+  // A range, printed the way the dial prints one: the value and its size, and
+  // nothing above them. The hovered day carries a weekday because a day has
+  // one; a run of days has no single fact of that kind, and inventing a label
+  // for the sake of the third line is how a readout starts saying nothing.
+  if (span) {
+    const days = daysBetween(span.from, span.to) + 1;
+    return (
+      <Centre u={u}>
+        <span
+          className="font-medium text-ink tabular-nums"
+          style={{ fontSize: `${38 * u}px`, lineHeight: 1, letterSpacing: "-0.025em" }}
+        >
+          {formatDayRange(span.from, span.to)}
+        </span>
+        <span className="text-ink-2 tabular-nums" style={{ fontSize: `${14 * u}px` }}>
+          {days} days
+        </span>
+      </Centre>
+    );
+  }
+
   if (!date) {
     return (
       <Centre u={u}>
@@ -271,6 +316,7 @@ export default function YearView({
   stage,
   flow,
   onSelectDay,
+  onCreateSpan,
 }: YearViewProps) {
   const reducedMotion = useReducedMotion();
   const [stageRef, width, height] = useElementSize<HTMLDivElement>();
@@ -393,18 +439,26 @@ export default function YearView({
   /* ------------------------------ interaction ----------------------------- */
 
   /**
-   * Which day a pointer event lands on. `null` off the ring — the corners of
+   * Where a pointer event is, in the two terms this face asks in: which day
+   * the angle names, and whether the radius is on the ring at all.
+   *
+   * Both, rather than `null` off the ring, because the two gestures want
+   * different answers. A hover is only a hover over the marks — the corners of
    * a square panel are not pointing at December, and neither is the empty
-   * middle.
+   * middle — but once the ring has been *grabbed*, the angle is the whole of
+   * the question and the corners are on it too, exactly as the dial's whole
+   * face is the gesture surface once a drag has the capture.
    */
   const locate = useCallback(
-    (e: ReactPointerEvent<SVGSVGElement>): number | null => {
+    (e: ReactPointerEvent<SVGSVGElement>): { day: number; onRing: boolean } | null => {
       const ctm = e.currentTarget.getScreenCTM();
       if (!ctm) return null;
       const { x, y } = new DOMPoint(e.clientX, e.clientY).matrixTransform(ctm.inverse());
       const r = Math.hypot(x - DIAL.C, y - DIAL.C);
-      if (r < YEAR.TODAY_RING - 30 || r > YEAR.MONTH) return null;
-      return dayOfYearAt(yearAtPoint(x, y, days), days);
+      return {
+        day: dayAtPoint(x, y, days),
+        onRing: r >= YEAR.TODAY_RING - 30 && r <= YEAR.MONTH,
+      };
     },
     [days],
   );
@@ -419,24 +473,99 @@ export default function YearView({
    */
   const ticked = useRef<number | null>(null);
 
+  /** The range being drawn, or `null`. See `Span`. */
+  const [span, setSpan] = useState<Span | null>(null);
+
+  /**
+   * Escape abandons a range in flight, from here rather than the shell's
+   * hotkeys for the reason the dial's does: a drag is the one thing on this
+   * face you can start by accident, and before this the only way out of one
+   * was to let go, which made the event. The capture is left alone — the
+   * release that follows finds no span and does nothing.
+   *
+   * Armed only while there is a range, as the life view's milestone card is:
+   * `useHotkeys` calls `preventDefault` on any combo it has a handler for, and
+   * an always-on Escape here would be swallowing the key for every panel that
+   * opens over this view.
+   */
+  useHotkeys({ escape: () => setSpan(null) }, span !== null);
+
   const onMove = (e: ReactPointerEvent<SVGSVGElement>) => {
-    const day = locate(e);
-    if (day === null) {
+    const hit = locate(e);
+    if (span) {
+      if (!hit || hit.day === span.at) return;
+      // The sweep is clamped and the pointer is not, exactly as the dial's ring
+      // drag is: a range that has run to 31 December stops dead there and
+      // starts following back the instant the pointer turns. Rolling into the
+      // next year would have to commit a day to change the `year` prop, and
+      // committing is what leaves this view — the same reason the arrows clamp.
+      const sweep = clamp(
+        span.sweep + ringDelta(hit.day, span.at, days),
+        -span.from,
+        days - 1 - span.from,
+      );
+      const moved = sweep !== span.sweep;
+      setSpan({ ...span, at: hit.day, sweep });
+      setHover(hit.day);
+      ticked.current = hit.day;
+      slideTo(hit.day);
+      // `step` rather than the hover's `slide`: an edge landing on a mark is
+      // what that cue is, and a range being drawn has one in hand. A range
+      // pinned at the end of the year goes quiet, which is the feedback that
+      // says there is no more year.
+      if (moved) cue("step", channels);
+      return;
+    }
+    if (!hit || !hit.onRing) {
       setHover(null);
       ticked.current = null;
       return;
     }
-    setHover(day);
-    if (day !== ticked.current) {
+    setHover(hit.day);
+    if (hit.day !== ticked.current) {
       const arriving = ticked.current === null;
-      ticked.current = day;
-      slideTo(day, arriving);
+      ticked.current = hit.day;
+      slideTo(hit.day, arriving);
       // The quieter of the two drag cues, and gated like them: crossing a day
       // is the same event as crossing a detent. A slow read is one tick per
       // day; a fast sweep is a rip, which is what running a finger along a
       // comb does and is the right answer for a ring of 365 teeth.
       cue("slide", channels);
     }
+  };
+
+  const onDown = (e: ReactPointerEvent<SVGSVGElement>) => {
+    if (e.button !== 0) return;
+    const hit = locate(e);
+    if (!hit || !hit.onRing) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    // Focus moves to the list so the arrows carry on from where the pointer
+    // stopped, rather than starting again at the selection.
+    setCursor(hit.day);
+    listRef.current?.focus();
+    setSpan({ from: hit.day, at: hit.day, sweep: 0 });
+  };
+
+  /**
+   * The release. A press that never crossed a day is a click and a click names
+   * the day and leaves for it, which is the grammar this face already had — and
+   * the same rule the dial's arcs follow, where a press that moved nothing
+   * opens the event instead of writing to it.
+   *
+   * Anything wider is a range, and a range of days is a multi-day event: the
+   * ring gesture one scale up. It hands over to the editor rather than writing
+   * straight through, because an event still needs a name.
+   */
+  const onUp = () => {
+    if (!span) return;
+    const { lo, hi } = resolveSpan(span);
+    setSpan(null);
+    if (span.sweep === 0) {
+      onSelectDay(dateOfYear(year, lo));
+      return;
+    }
+    cue("opened", channels);
+    onCreateSpan(dateOfYear(year, lo), hi - lo + 1);
   };
 
   /**
@@ -477,6 +606,8 @@ export default function YearView({
   const active = hover ?? cursor;
   const activeMark = active === null ? null : marks[active];
   const activeIndex = active ?? selectedIndex ?? 0;
+  /** The range as the ring and the readout want it: two inclusive day slots. */
+  const range = span === null ? null : resolveSpan(span);
 
   /* -------------------------------- the unroll ---------------------------- */
 
@@ -542,18 +673,15 @@ export default function YearView({
         role="presentation"
         onPointerMove={onMove}
         onPointerLeave={() => {
+          // Not while a range is in flight: the capture keeps the events coming
+          // and the gesture is still on, wherever the pointer has got to.
+          if (span) return;
           setHover(null);
           ticked.current = null;
         }}
-        onPointerDown={(e) => {
-          const day = locate(e);
-          if (day === null) return;
-          // Focus moves to the list so the arrows carry on from where the
-          // pointer stopped, rather than starting again at the selection.
-          setCursor(day);
-          listRef.current?.focus();
-          onSelectDay(dateOfYear(year, day));
-        }}
+        onPointerDown={onDown}
+        onPointerUp={onUp}
+        onPointerCancel={() => setSpan(null)}
       >
         <defs>
           <radialGradient id="year-glow">
@@ -614,6 +742,7 @@ export default function YearView({
           box={{ width, height }}
           selected={selectedIndex}
           today={todayIndex}
+          range={range}
           at={pointerAt}
           amount={amount}
         />
@@ -650,6 +779,7 @@ export default function YearView({
         <Readout
           year={year}
           date={active === null ? null : dateOfYear(year, active)}
+          span={range && { from: dateOfYear(year, range.lo), to: dateOfYear(year, range.hi) }}
           tally={activeMark}
           today={today}
           quote={settings.yearQuote}
@@ -699,6 +829,7 @@ function Ring({
   box,
   selected,
   today,
+  range,
   at,
   amount,
 }: {
@@ -707,6 +838,8 @@ function Ring({
   box: { width: number; height: number };
   selected: number | null;
   today: number | null;
+  /** The range being dragged, inclusive, or `null`. */
+  range: { lo: number; hi: number } | null;
   at: MotionValue<number>;
   amount: MotionValue<number>;
 }) {
@@ -754,10 +887,15 @@ function Ring({
       // to say with its fill, so the magnifier lights it; a day with events
       // is already saying it, and washing that to white to announce a hover
       // spends the only information this face carries on a highlight the
-      // growth has already given. The selection is the exception and is full
-      // white whatever it carries: it is not a hover, it is where the dial
-      // will land and where the unroll leaves from.
-      const white = i === selected ? 1 : mark.count > 0 ? 0 : LIT_HOVER * lift ** FALLOFF.light;
+      // growth has already given.
+      //
+      // The selection and a range being dragged are the exceptions and are full
+      // white whatever they carry: neither is a hover. One is where the dial
+      // will land and where the unroll leaves from, the other is the shape of
+      // the event about to exist — which is the ghost arc's job on the dial, in
+      // the only ink this face has to draw it with.
+      const held = i === selected || (range !== null && i >= range.lo && i <= range.hi);
+      const white = held ? 1 : mark.count > 0 ? 0 : LIT_HOVER * lift ** FALLOFF.light;
       if (white > 0.004) {
         ctx.globalAlpha = white;
         ctx.strokeStyle = "#fff";
@@ -773,7 +911,7 @@ function Ring({
         ctx.fill();
       }
     }
-  }, [box.width, box.height, days, marks, selected, today, at, amount]);
+  }, [box.width, box.height, days, marks, selected, today, range, at, amount]);
 
   useMotionValueEvent(at, "change", paint);
   useMotionValueEvent(amount, "change", paint);

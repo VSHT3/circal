@@ -8,6 +8,7 @@ import {
   daysBetween,
   daysInMonth,
   dayKey,
+  formatDayRange,
   formatDuration,
   formatOffset,
   formatRelativeDay,
@@ -296,6 +297,46 @@ describe("formatRelativeDay", () => {
     { name: "far in the past", stamp: "2026-01-03 10:00", expected: "Jan 3" },
   ])("$name", ({ stamp, expected }) => {
     expect.soft(formatRelativeDay(at(stamp), today)).toBe(expected);
+  });
+});
+
+describe("formatDayRange", () => {
+  it.each([
+    {
+      name: "names the month once when both ends share it",
+      from: "2026-08-08",
+      to: "2026-08-14",
+      expected: "8 – 14 Aug",
+    },
+    {
+      name: "names both months when the range crosses one",
+      from: "2026-08-28",
+      to: "2026-09-03",
+      expected: "28 Aug – 3 Sep",
+    },
+    {
+      name: "a single day is still a range, printed once",
+      from: "2026-08-08",
+      to: "2026-08-08",
+      expected: "8 – 8 Aug",
+    },
+    // The year ring clamps a drag inside one year, so this is the shape the
+    // formatter has to be honest about rather than the one it is asked for.
+    {
+      name: "names both years when the range crosses one",
+      from: "2026-12-28",
+      to: "2027-01-03",
+      expected: "28 Dec 2026 – 3 Jan 2027",
+    },
+  ])("$name", ({ from, to, expected }) => {
+    expect.soft(formatDayRange(day(from), day(to))).toBe(expected);
+  });
+
+  // The readout prints the length beside the range, and the two must agree:
+  // both ends are inclusive, so a Sunday-to-Saturday drag is seven days and
+  // not six. This is the arithmetic the year view does on `daysBetween`.
+  it("is inclusive of both ends, as the day count beside it assumes", () => {
+    expect(daysBetween(day("2026-08-08"), day("2026-08-14")) + 1).toBe(7);
   });
 });
 
