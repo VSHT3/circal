@@ -113,7 +113,8 @@ something you read rather than count. Months are named outside the ring, today
 is a pip just inside it, and the day you came in on is a white mark.
 
 The middle prints the year until you point at a day, and then prints that day
-— its date, and what is on it. Click a mark to open that day on the dial.
+— its date, and what is on it. Click a mark to open that day on the dial, or
+drag across the rim to take a run of them.
 
 A day is a third of a degree wide, which is smaller than the pointer, so the
 ring magnifies rather than merely highlighting. The day under the pointer
@@ -316,6 +317,13 @@ The range follows the way your hand went rather than the shorter way round, so
 a drag can run the whole revolution; take it all the way from midnight back to
 midnight and the readout says **All day**, because that is what it will make.
 
+The year ring takes that gesture one scale up. Drag across its rim and every day
+you cross goes white while the middle prints them — **8 – 18 Aug**, eleven days
+— and letting go opens an all-day event running exactly that long. It stops dead
+at 31 December rather than rolling into the next year, because the year on screen
+is the year you are drawing in, and a press that never crossed a day is still
+just a click on that day.
+
 An arc already on the face is draggable too: grab its middle to move the whole
 event, or either end to move that end alone. The minimum is one fifteen-minute
 step, ends stop dead there, and a move that passes midnight lands on the next
@@ -325,12 +333,14 @@ a click being a press that never crossed a step, so an end held against the
 minimum is still a drag however long it stays there and releasing it opens
 nothing.
 
-`Esc` abandons a drag in flight — the range or the moved arc goes back to where
-it was and nothing opens. It is the one gesture you can start by accident, and
-letting go used to be the only way out of it.
+`Esc` abandons a drag in flight — the range, the moved arc or the run of days
+goes back to where it was and nothing opens. It is the one gesture you can start
+by accident, and letting go used to be the only way out of it.
 
 Every drag moves in fifteen-minute steps and each step **clicks**: a
 three-millisecond synthesised detent, plus a tap on hardware with a vibrator.
+Every fourth one lands on a whole hour and lands deeper for it — the same click
+on a bigger notch — so a drag can be counted by ear without watching the face.
 Moving a whole event sounds lower and rounder than moving one of its ends, so
 you can hear which one you grabbed. Three longer cues come out of the same
 mechanism, struck two or three times instead of once — letting go of a new range

@@ -3,7 +3,8 @@
 Recurrence is real, the interior answers the day, arcs carry their own names, the dial has an
 ambient mode, ⌘P writes an event in one line and ranks what it finds, the year is a revolution and
 unrolls into the life grid, the life grid names its round days, an event can run for as many days
-as it likes, and there is a test suite — 922 cases over the domain layer, `pnpm test`, in the gate.
+as it likes, a drag across the year ring makes one, the dial's hour detent can be counted by ear,
+and there is a test suite — 931 cases over the domain layer, `pnpm test`, in the gate.
 
 Done work is not recorded here. The rationale that outlived it lives in `AGENTS.md`, next to the
 code it constrains.
@@ -14,6 +15,8 @@ code it constrains.
 1. Intro animation like what animejs has
 2. icons into dial list based on custom or default to calendar icon (which can be set too)
 3. event and stuff search (idk, cmd f)
+4. deleting/modifying a repeating event (give option to pick whether this is just the current one, all future one, or all)
+5. command + delete should delete an event you are hovering over
 
 **1. quotes page** — _you are a worm through time, you have no obligations to your former self, be
 the change you wish to see in the world._
@@ -131,11 +134,6 @@ for one draft, with sunrise and sunset as two curves round the year — the one 
 draw, and never what anybody came to a calendar to find out. If it ever comes back it belongs
 behind a switch, beside the dial's own lightcycle, not as the face's furniture.
 
-What it still could use, in order:
-
-- **Drag an arc of the ring** to select a range of days, the way a drag on the dial selects a range
-  of minutes. The maths is `dayAtPoint` twice and the readout already knows how to print a span.
-
 The middle now carries a line, and it is not the sentence this list used to ask for. A year-scale
 summary — busiest month, longest empty run — is the obvious thing to compute and the wrong thing to
 print: the dial's interior answers a day because you are living in it, and nobody opens a year to
@@ -163,13 +161,10 @@ the arc), and calendar CRUD (see (3)).
 
 ### The dial
 
-- **Hear the hour.** Every 15-minute detent in a drag clicks identically; give every fourth one a
-  different resonance and you can count hours by ear without looking, which is exactly the
-  affordance a physical dial has. `SOUNDS` is already parameterised for it. **[medium / small]**
-
-And the honest omission: **there are no reminders.** A calendar that never tells you anything is a
-viewer. While the tab is open, `Notification` is enough; closed, it needs a server, and a server is
-off-thesis. Say so in the UI rather than leaving the absence unexplained.
+There is nothing left on the face. The honest omission: **there are no reminders.** A calendar that
+never tells you anything is a viewer. While the tab is open, `Notification` is enough; closed, it
+needs a server, and a server is off-thesis. Say so in the UI rather than leaving the absence
+unexplained.
 
 ### Correctness — one open
 
@@ -179,7 +174,7 @@ off-thesis. Say so in the UI rather than leaving the absence unexplained.
 
 DOM-shaped, which is exactly the surface the suite does not cover: no DOM, no jsdom, no component
 tests, on purpose — a snapshot of an SVG path is a change-detector that fails on every legitimate
-geometry tweak. That is the honest boundary of what 898 pure-function tests buy you, and the faces
+geometry tweak. That is the honest boundary of what 931 pure-function tests buy you, and the faces
 stay eye-verified.
 
 ### What not to do
@@ -192,17 +187,13 @@ stay eye-verified.
   carries four plus two bands. The room is in the interior. The year face is a separate object with
   its own budget, and it is nearly empty — but see what happened to the daylight figure.
 
-### If it were three things
+### If it were one thing
 
 The old five are spent, and so are the month banding, the life search, the year view, the shell's
-clock and the milestones. What is left, in order:
+clock, the milestones, the hour detent and the year ring's range drag. What is left:
 
 1. **A focus path into the life grid** — the last DOM-shaped bug, and the suite covers none of that
    surface. The year ring's listbox is the pattern. `[medium / small]`
-2. **Hear the hour** — every fourth detent a different resonance, so a drag can be counted by ear.
-   `SOUNDS` is already parameterised for it. `[medium / small]`
-3. **Drag an arc of the year ring** to select a range of days. `dayAtPoint` twice, and the readout
-   already knows how to print a span. `[medium / small]`
 
 And the one big thing, which is not in that list because it is not small: **the week view** (4), and
 before it the `<Face>` extraction it needs. Everything above is an afternoon; that is a week, and it
