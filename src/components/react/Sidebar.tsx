@@ -6,7 +6,7 @@
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useMemo, useState } from "react";
-import { colorOf, occurrencesOn, statusOf } from "@/lib/events";
+import { colorOf, occurrencesOn, spanLabel, statusOf } from "@/lib/events";
 import {
   addMonths,
   formatDuration,
@@ -181,9 +181,21 @@ export default function Sidebar({
                   const status = statusOf(occ, now);
                   const color = colorOf(occ.event, calendars);
                   const durationMin = (occ.end.getTime() - occ.start.getTime()) / 60_000;
+                  const span = spanLabel(occ);
                   const timeLabel = occ.event.allDay
                     ? "ALL DAY"
                     : `${formatTimeShort(occ.start, clock)}–${formatTimeShort(occ.end, clock)}`;
+                  // A row inside one day reads `9:00–10:00 · 1h`. A row inside a
+                  // longer span leads with where in it you are, and spends the
+                  // second slot on the span's own clock times rather than on a
+                  // duration — `120h` is a true thing to say about five days and
+                  // a useless one, and an all-day span has no times to print at
+                  // all, so it says nothing twice.
+                  const meta = span
+                    ? occ.event.allDay
+                      ? null
+                      : timeLabel
+                    : formatDuration(durationMin);
                   return (
                     <button
                       key={occ.key}
@@ -209,8 +221,13 @@ export default function Sidebar({
                           <span className="truncate text-[13px] text-ink">{occ.event.title}</span>
                         </span>
                         <span className="label text-[10px] text-ink-3">
-                          {status === "now" ? "NOW" : timeLabel}{" "}
-                          <span className="text-ink-4">·</span> {formatDuration(durationMin)}
+                          {span ?? (status === "now" ? "NOW" : timeLabel)}
+                          {meta && (
+                            <>
+                              {" "}
+                              <span className="text-ink-4">·</span> {meta}
+                            </>
+                          )}
                         </span>
                       </span>
                     </button>

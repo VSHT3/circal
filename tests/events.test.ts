@@ -10,6 +10,7 @@ import {
   inkOn,
   occurrencesOn,
   scoreEvent,
+  spanLabel,
   statusOf,
   type Gap,
 } from "@/lib/events";
@@ -104,6 +105,104 @@ describe("occurrencesOn: the exclusive end at midnight", () => {
 
   it("does not also appear on the day it would naively roll onto", () => {
     expect(occurrencesOn([e], [cal], day("2026-03-09"))).toHaveLength(0);
+  });
+});
+
+describe("occurrencesOn: an event longer than a day", () => {
+  // The bug this covers: the query looked back exactly one day for a start, so
+  // anything longer than about forty-eight hours existed on its first two days
+  // and then vanished. Every multi-day holiday a subscription delivers is this
+  // shape, and `lifeDensity` was already colouring the days the dial denied.
+  const holiday = event({
+    id: "kyoto",
+    start: "2026-03-05",
+    end: "2026-03-10",
+    allDay: true,
+  });
+
+  it.each([
+    { stamp: "2026-03-04", present: false },
+    { stamp: "2026-03-05", present: true },
+    { stamp: "2026-03-06", present: true },
+    { stamp: "2026-03-07", present: true },
+    { stamp: "2026-03-08", present: true },
+    { stamp: "2026-03-09", present: true },
+    { stamp: "2026-03-10", present: false },
+  ])("$stamp: $present", ({ stamp, present }) => {
+    expect(occurrencesOn([holiday], [cal], day(stamp))).toHaveLength(present ? 1 : 0);
+  });
+
+  it("numbers each day inside the span", () => {
+    const seen = ["2026-03-05", "2026-03-06", "2026-03-07", "2026-03-08", "2026-03-09"].map(
+      (stamp) => occurrencesOn([holiday], [cal], day(stamp))[0],
+    );
+    expect(seen.map((occ) => occ?.dayIndex)).toEqual([1, 2, 3, 4, 5]);
+    expect(seen.map((occ) => occ?.dayCount)).toEqual([5, 5, 5, 5, 5]);
+  });
+
+  it("fills a middle day from midnight to midnight, continuing both ways", () => {
+    const [occ] = occurrencesOn([holiday], [cal], day("2026-03-07"));
+    expect.soft(occ?.startMin).toBe(0);
+    expect.soft(occ?.endMin).toBe(1440);
+    expect.soft(occ?.continuesBefore).toBe(true);
+    expect.soft(occ?.continuesAfter).toBe(true);
+  });
+
+  it("clips a timed span to each of the four days it touches", () => {
+    // Friday evening to Monday morning: the two ends are partial days and the
+    // two in between are whole revolutions.
+    const trip = event({ start: "2026-03-06 18:00", end: "2026-03-09 09:00" });
+    const spans = ["2026-03-06", "2026-03-07", "2026-03-08", "2026-03-09"].map((stamp) => {
+      const [occ] = occurrencesOn([trip], [cal], day(stamp));
+      return [occ?.startMin, occ?.endMin, occ?.dayIndex, occ?.dayCount];
+    });
+    expect(spans).toEqual([
+      [1080, 1440, 1, 4],
+      [0, 1440, 2, 4],
+      [0, 1440, 3, 4],
+      [0, 540, 4, 4],
+    ]);
+  });
+
+  it("finds the middle of a later instance of a repeating multi-day event", () => {
+    // The lookback is the recurrence window too, so a rule whose instances are
+    // longer than a day has to be expanded from far enough back.
+    const shift = event({
+      start: "2026-03-02 20:00",
+      end: "2026-03-05 06:00",
+      repeat: "weekly",
+    });
+    // Third instance starts Monday the 16th and runs to Thursday the 19th, so
+    // both of these days are well past the old one-day window.
+    const [middle] = occurrencesOn([shift], [cal], day("2026-03-18"));
+    expect.soft(middle?.dayIndex).toBe(3);
+    expect.soft(middle?.dayCount).toBe(4);
+    expect.soft(middle?.endMin).toBe(1440);
+
+    const [tail] = occurrencesOn([shift], [cal], day("2026-03-19"));
+    expect.soft(tail?.dayIndex).toBe(4);
+    expect.soft(tail?.endMin).toBe(360);
+  });
+
+  it("says 1 of 1 for anything inside a single day", () => {
+    const [occ] = occurrencesOn(
+      [event({ start: "2026-03-08 09:00", end: "2026-03-08 10:30" })],
+      [cal],
+      day("2026-03-08"),
+    );
+    expect(occ?.dayIndex).toBe(1);
+    expect(occ?.dayCount).toBe(1);
+  });
+
+  it("says 1 of 1 for an event ending exactly at the next midnight", () => {
+    // `end` is exclusive: an all-day event covers one day, not two.
+    const [occ] = occurrencesOn(
+      [event({ start: "2026-03-08", end: "2026-03-09", allDay: true })],
+      [cal],
+      day("2026-03-08"),
+    );
+    expect(occ?.dayIndex).toBe(1);
+    expect(occ?.dayCount).toBe(1);
   });
 });
 
@@ -509,6 +608,22 @@ describe("statusOf", () => {
     },
   ])("$name is $expected", ({ now, expected }) => {
     expect(statusOf(occ!, now())).toBe(expected);
+  });
+});
+
+describe("spanLabel", () => {
+  const on = (stamp: string, e: ReturnType<typeof event>) =>
+    occurrencesOn([e], [cal], day(stamp))[0]!;
+
+  it("says nothing about an event inside one day", () => {
+    expect(spanLabel(on("2026-03-08", event({ start: "2026-03-08 09:00" })))).toBeNull();
+  });
+
+  it("names the position and the length of a longer span", () => {
+    const holiday = event({ start: "2026-03-05", end: "2026-03-10", allDay: true });
+    expect(spanLabel(on("2026-03-05", holiday))).toBe("Day 1/5");
+    expect(spanLabel(on("2026-03-07", holiday))).toBe("Day 3/5");
+    expect(spanLabel(on("2026-03-09", holiday))).toBe("Day 5/5");
   });
 });
 

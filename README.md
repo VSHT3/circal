@@ -32,6 +32,20 @@ than a threshold — the same half hour is 38 units of paint on the outer lane
 and 24 four lanes in. The **Arc names** setting takes `Always`, `Hover` — one
 at a time, for a crowded day — or `Off`.
 
+## Events longer than a day
+
+A trip, a holiday, a conference. The editor's **Date** row is two dates the
+way the **Time** row is two times, and the second one is the last day the
+event covers — set it and the event runs to there. Every day inside the span
+carries it: the interior and the sidebar print `DAY 3/5` where they would
+otherwise print a start time, because on the third morning of a five-day trip
+the hour it began is not what you came to read.
+
+A timed span draws a closed circle on the days in its middle — those days are
+entirely inside the event, and a whole revolution is what the face has to say
+about that. The **All-day** switch changes whether the two ends carry times,
+never how many days there are.
+
 ## The middle of the face
 
 The ring says what shape the day is; the middle says the one sentence. It has

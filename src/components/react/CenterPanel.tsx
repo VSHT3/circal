@@ -13,7 +13,15 @@
  * ------------------------------------------------------------------ */
 
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { WAKING, colorOf, freeGaps, statusOf, type Calendar, type Occurrence } from "@/lib/events";
+import {
+  WAKING,
+  colorOf,
+  freeGaps,
+  spanLabel,
+  statusOf,
+  type Calendar,
+  type Occurrence,
+} from "@/lib/events";
 import {
   MINUTES_PER_DAY,
   MONTHS,
@@ -358,6 +366,12 @@ export default function CenterPanel({
                       // running", and two ways of saying different things with the
                       // same signal is one way of saying neither.
                       const imminent = lead && !running && until <= IMMINENT_MS;
+                      // Where this day sits in a span longer than one, and null
+                      // for everything else. It outranks both the start time and
+                      // "Now": on the third morning of a five-day trip, neither a
+                      // clock time from three days ago nor the word "now" is the
+                      // thing you came to the interior to read.
+                      const span = spanLabel(occ);
 
                       return (
                         // The row's own height is the wrapper's, so one leaving
@@ -410,7 +424,15 @@ export default function CenterPanel({
                             />
                             {/* The headline spends its width on the name and the
                           wait. What time it starts is on the ring — that is
-                          what the ring is for — and how long until it is not. */}
+                          what the ring is for — and how long until it is not.
+
+                          That holds for a multi-day span too, though not for
+                          the same reason: its arc is a whole turn with nothing
+                          to read off, but its wait already says `ends in 45h`,
+                          which is the fact. A `DAY 2/4` column here costs
+                          `Sleeper train` most of its letters — measured, not
+                          guessed — and a name is worth more than a position
+                          the row below the fold already prints. */}
                             {!lead && (
                               <span
                                 className="shrink-0 font-mono font-medium text-ink-2 uppercase"
@@ -420,11 +442,12 @@ export default function CenterPanel({
                                   transition: `${MOOD} font-size`,
                                 }}
                               >
-                                {running
-                                  ? "Now"
-                                  : occ.event.allDay
-                                    ? "All day"
-                                    : formatTimeShort(occ.start, clock).replace(" ", "\u2009")}
+                                {span ??
+                                  (running
+                                    ? "Now"
+                                    : occ.event.allDay
+                                      ? "All day"
+                                      : formatTimeShort(occ.start, clock).replace(" ", "\u2009"))}
                               </span>
                             )}
                             <span

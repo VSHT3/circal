@@ -23,6 +23,7 @@ import {
   addDays,
   atMinutes,
   dayKey,
+  daysBetween,
   formatRelativeDay,
   formatTime,
   fromDayKey,
@@ -45,7 +46,6 @@ import {
 import type { EventEditorProps } from "@/components/react/types";
 
 const MIN_DURATION_MIN = 5;
-const DAY_MS = 86_400_000;
 
 /**
  * A twelve-hour clock field. Free text while focused, normalised on blur or
@@ -110,6 +110,44 @@ function TimeField({
         clock === "24h" ? "w-[56px]" : "w-[76px]",
       )}
     />
+  );
+}
+
+/**
+ * A day, as a value you can click, printed in the app's relative voice.
+ *
+ * The editor's own rather than the shared `DateField`: that one is a chip on
+ * `bg-surface-2`, and these two sit in a row beside the `TimeField`s and have
+ * to read as the same kind of control. The invisible `input[type=date]` and
+ * the explicit `showPicker` are the same trick for the same reason — clicking
+ * the field of a date input opens nothing in Chrome or Safari.
+ */
+function DayField({
+  value,
+  onChange,
+  label,
+}: {
+  value: Date;
+  onChange: (next: string) => void;
+  label: string;
+}) {
+  return (
+    <span className="relative inline-flex min-w-0 rounded-[6px] px-1 py-0.5 transition-colors focus-within:bg-white/8 hover:bg-white/6">
+      <span className="truncate">{formatRelativeDay(value)}</span>
+      <input
+        type="date"
+        aria-label={label}
+        value={dayKey(value)}
+        onChange={(e) => onChange(e.target.value)}
+        onClick={(e) => openDatePicker(e.currentTarget)}
+        onKeyDown={(e) => {
+          if (e.key !== "Enter" && e.key !== " ") return;
+          e.preventDefault();
+          openDatePicker(e.currentTarget);
+        }}
+        className="absolute inset-0 cursor-pointer opacity-0"
+      />
+    </span>
   );
 }
 
@@ -247,6 +285,17 @@ function endOfDay(day: Date): number {
   const end = startOfDay(day);
   end.setHours(23, 59, 59, 999);
   return end.getTime();
+}
+
+/**
+ * What a native date field is naming, or `null` while it is not naming
+ * anything. `input[type=date]` reports a cleared field and a half-typed one
+ * identically, and `fromDayKey` would turn either into an Invalid Date.
+ */
+function parseDay(value: string): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const picked = fromDayKey(value);
+  return Number.isNaN(picked.getTime()) ? null : picked;
 }
 
 /**
@@ -429,19 +478,40 @@ export default function EventEditor({
 
   const calendar = calendars.find((c) => c.id === draft.calendarId);
 
+  /**
+   * The last day the draft actually covers. `end` is exclusive, so an event
+   * finishing at midnight ends on the day before the instant names it — and
+   * every edit below that has to think about "the far end of this span" wants
+   * that day rather than the instant.
+   */
+  const lastDay = startOfDay(new Date(draft.end - 1));
+
   function handleDateChange(value: string) {
-    if (!value) return;
-    const [y, m, d] = value.split("-").map(Number);
-    if (!y || !m || !d) return;
-    const picked = startOfDay(new Date(y, m - 1, d));
-    const deltaDays = Math.round(
-      (picked.getTime() - startOfDay(new Date(draft.start)).getTime()) / DAY_MS,
-    );
-    if (deltaDays === 0) return;
+    const picked = parseDay(value);
+    if (!picked) return;
+    // The first date moves the whole event: its span is set by the second one.
+    const delta = daysBetween(new Date(draft.start), picked);
+    if (delta === 0) return;
     patch({
-      start: addDays(new Date(draft.start), deltaDays).getTime(),
-      end: addDays(new Date(draft.end), deltaDays).getTime(),
+      start: addDays(new Date(draft.start), delta).getTime(),
+      end: addDays(new Date(draft.end), delta).getTime(),
     });
+  }
+
+  function handleEndDateChange(value: string) {
+    const picked = parseDay(value);
+    if (!picked) return;
+    // The field names the last day the event *touches*, so the edit is a shift
+    // of `end` by however far that day moved. One expression covers both
+    // kinds: a timed span keeps the clock time it ended at, and an all-day one
+    // keeps its exclusive midnight.
+    const delta = daysBetween(lastDay, picked);
+    if (delta === 0) return;
+    const next = addDays(new Date(draft.end), delta).getTime();
+    // The picker will happily name a day before the start. That is not a span,
+    // and refusing it is better than silently dragging the start along.
+    if (next < draft.start + MIN_DURATION_MIN * 60_000) return;
+    patch({ end: next });
   }
 
   function handleStartTime(minutes: number) {
@@ -450,38 +520,46 @@ export default function EventEditor({
   }
 
   function handleEndTime(minutes: number) {
-    // The end is anchored to the *start's* day, then rolled forward if that
-    // would put it before the start — that is how 11 PM → 1 AM stays one event.
-    let next = atMinutes(new Date(draft.start), minutes);
+    // Anchored to the *last* day the event covers rather than to its first, so
+    // retyping one time on a multi-day span does not collapse it. Rolled
+    // forward when that would put it before the start — which is how
+    // 11 PM → 1 AM stays one event on a span only a day long.
+    let next = atMinutes(lastDay, minutes);
     if (next.getTime() < draft.start + MIN_DURATION_MIN * 60_000) next = addDays(next, 1);
     patch({ end: next.getTime() });
   }
 
   /**
-   * The timed span this event had before All-day was switched on, so switching
-   * it back off returns it rather than resetting to 9–10am. A ref rather than
-   * state: nothing renders from it, and it must survive the two `patch` calls
-   * without causing a third render.
+   * The two clock times this event had before All-day was switched on, so
+   * switching it back off returns them rather than resetting to 9–10am. Times
+   * rather than a duration, because the span in *days* is the date row's to
+   * own now and reapplying a stored duration would overrule it.
    *
-   * Seeded from the draft on the way in, so an event that arrives all-day
-   * still has a sensible pair of times to fall back to.
+   * A ref rather than state: nothing renders from it, and it must survive the
+   * `patch` without causing a second render. `null` until All-day is switched
+   * on from a timed event, which is the only moment there is anything to
+   * remember.
    */
-  const timedSpan = useRef<{ startMin: number; durationMs: number } | null>(null);
+  const timedSpan = useRef<{ startMin: number; endMin: number } | null>(null);
 
   function handleAllDayToggle(next: boolean) {
-    const day = startOfDay(new Date(draft.start));
+    const firstDay = startOfDay(new Date(draft.start));
     if (next) {
       if (!draft.allDay) {
         timedSpan.current = {
           startMin: minutesOfDay(new Date(draft.start)),
-          durationMs: draft.end - draft.start,
+          endMin: minutesOfDay(new Date(draft.end)),
         };
       }
-      patch({ allDay: true, start: day.getTime(), end: addDays(day, 1).getTime() });
+      // The span in days survives the toggle. Collapsing a five-day trip onto
+      // its first day because somebody flipped a switch is deleting four days.
+      patch({ allDay: true, start: firstDay.getTime(), end: addDays(lastDay, 1).getTime() });
     } else {
-      const remembered = timedSpan.current ?? { startMin: 9 * 60, durationMs: 3_600_000 };
-      const start = atMinutes(day, remembered.startMin).getTime();
-      patch({ allDay: false, start, end: start + remembered.durationMs });
+      const remembered = timedSpan.current ?? { startMin: 9 * 60, endMin: 10 * 60 };
+      const start = atMinutes(firstDay, remembered.startMin).getTime();
+      let end = atMinutes(lastDay, remembered.endMin);
+      if (end.getTime() < start + MIN_DURATION_MIN * 60_000) end = addDays(end, 1);
+      patch({ allDay: false, start, end: end.getTime() });
     }
   }
 
@@ -587,22 +665,21 @@ export default function EventEditor({
             )}
           >
             <div className="no-scrollbar flex-1 overflow-y-auto">
+              {/* Two dates, the way the Time row is two times — the second one
+                  is the last day the event covers, and it is the only control
+                  in the app that can make an event span several. Both are
+                  always shown: on a single-day event they simply name the same
+                  day, and hiding the one that reaches the state is worse than
+                  printing it twice. */}
               <Row label="Date">
                 <CalendarIcon size={14} className="shrink-0 text-ink-2" />
-                <span>{formatRelativeDay(new Date(draft.start))}</span>
-                <input
-                  type="date"
-                  aria-label="Date"
-                  value={dayKey(new Date(draft.start))}
-                  onChange={(e) => handleDateChange(e.target.value)}
-                  onClick={(e) => openDatePicker(e.currentTarget)}
-                  onKeyDown={(e) => {
-                    if (e.key !== "Enter" && e.key !== " ") return;
-                    e.preventDefault();
-                    openDatePicker(e.currentTarget);
-                  }}
-                  className="absolute inset-0 cursor-pointer opacity-0"
+                <DayField
+                  label="First day"
+                  value={new Date(draft.start)}
+                  onChange={handleDateChange}
                 />
+                <span className="text-ink-3">–</span>
+                <DayField label="Last day" value={lastDay} onChange={handleEndDateChange} />
               </Row>
 
               <Row label="Time" disabled={draft.allDay}>

@@ -7,8 +7,8 @@
  * ------------------------------------------------------------------ */
 
 import { fuzzyScore } from "./fuzzy";
-import { MINUTES_PER_DAY, addDays, minutesOfDay, startOfDay } from "./time";
-import { instantKey, startsBetween, type Recurrence } from "./recur";
+import { MINUTES_PER_DAY, addDays, daysBetween, minutesOfDay, startOfDay } from "./time";
+import { instantKey, startsBetween, type Recurrence, type Repeat } from "./recur";
 
 export {
   FREQUENCIES,
@@ -96,6 +96,18 @@ export interface Occurrence {
   endMin: number;
   continuesBefore: boolean;
   continuesAfter: boolean;
+  /**
+   * Where this day sits inside the occurrence's whole span, 1-based, and how
+   * many days that span covers. `1 of 1` for anything inside a single day.
+   *
+   * `continuesBefore` / `continuesAfter` say only *that* an occurrence runs
+   * past the day; a five-day holiday then prints an identical row on all five
+   * of them. This is the position the row needs to say `Day 3 of 5`, and it
+   * belongs here rather than in each surface because `dayAgenda` is the one
+   * read path onto a day.
+   */
+  dayIndex: number;
+  dayCount: number;
   /** 0 = outermost ring. Assigned by `packLanes`. */
   lane: number;
 }
@@ -120,10 +132,41 @@ function overridesIn(events: CalEvent[]): Map<string, Set<string>> {
   return out;
 }
 
+const DAY_MS = 86_400_000;
+const MAX_SPAN_MS = 366 * DAY_MS;
+
+/** Frequencies dense enough that a wider window loses the day it is asking
+ *  about — see `lookbackCap`. */
+const DENSE = new Set<Repeat>(["secondly", "minutely", "hourly"]);
+
+/**
+ * How far back a day's query will look for a start, given the rule.
+ *
+ * An event is on a day when it is *running* during it, so the exact lookback
+ * is the event's own duration — and for a one-off that costs nothing, because
+ * the window is only ever asked for a single instant however wide it is.
+ *
+ * A rule pays per period, and the lookback *is* its expansion window, so it is
+ * capped. A year for the ordinary frequencies: expanding a weekly rule over
+ * however many years the longest event in the store happens to span, on every
+ * day render, is not a cost a day view should carry. A day for the sub-daily
+ * three, and for a sharper reason — `startsBetween` caps what it returns and
+ * keeps the *earliest* instants it found, so a wider window for a minutely
+ * rule answers with last week's occurrences and the day vanishes rather than
+ * gains its missing copies. Such a rule overlaps itself anyway: more
+ * simultaneous copies than the dial has lanes, and the ones a day's window
+ * finds already cover the whole face.
+ */
+function lookbackCap(repeat: Repeat): number {
+  if (repeat === "never") return Infinity;
+  return DENSE.has(repeat) ? DAY_MS : MAX_SPAN_MS;
+}
+
 /**
  * Every occurrence visible on `day`, clipped to it. An event that runs past
- * midnight is emitted on both days, which is why the previous day is scanned
- * too: its tail belongs to this day's dial.
+ * midnight is emitted on every day it touches, which is why earlier days are
+ * scanned too: the tail of something that began on Monday belongs to
+ * Wednesday's dial as much as to Monday's.
  */
 export function occurrencesOn(events: CalEvent[], calendars: Calendar[], day: Date): Occurrence[] {
   const hidden = new Set(calendars.filter((c) => !c.visible).map((c) => c.id));
@@ -135,10 +178,13 @@ export function occurrencesOn(events: CalEvent[], calendars: Calendar[], day: Da
   for (const event of events) {
     if (hidden.has(event.calendarId)) continue;
 
-    const duration = event.end - event.start;
-    // The previous day is scanned too: an event running past midnight has its
-    // tail on this day's dial, and its start belongs to yesterday.
-    const from = addDays(dayStart, -1).getTime();
+    const duration = Math.max(event.end - event.start, 0);
+    // In milliseconds rather than in days: `start + duration > dayStart` is
+    // the whole overlap test, so the window is tight by construction and needs
+    // no DST reasoning. A flat day back was enough while nothing was longer
+    // than one, and a five-day holiday from a feed then vanished on its third
+    // morning.
+    const from = dayStart.getTime() - Math.min(duration, lookbackCap(event.repeat));
     const skip = replaced.get(event.id);
 
     for (const at of startsBetween(event, event.start, from, dayEnd.getTime())) {
@@ -152,6 +198,11 @@ export function occurrencesOn(events: CalEvent[], calendars: Calendar[], day: Da
 
       const continuesBefore = start < dayStart;
       const continuesAfter = end > dayEnd;
+      // `end` is exclusive, so an occurrence finishing at midnight ends on the
+      // day before — measuring the last day from `end - 1` is what keeps a
+      // one-day event at `1 of 1` instead of claiming two.
+      const firstDay = startOfDay(start);
+      const lastDay = startOfDay(new Date(Math.max(at, at + duration - 1)));
       out.push({
         key: `${event.id}@${instantKey(start)}`,
         event,
@@ -165,6 +216,8 @@ export function occurrencesOn(events: CalEvent[], calendars: Calendar[], day: Da
         endMin: end >= dayEnd ? MINUTES_PER_DAY : minutesOfDay(end),
         continuesBefore,
         continuesAfter,
+        dayIndex: daysBetween(firstDay, dayStart) + 1,
+        dayCount: daysBetween(firstDay, lastDay) + 1,
         lane: 0,
       });
     }
@@ -349,4 +402,18 @@ export function inkOn(color: string): string {
 export function statusOf(occ: Occurrence, now: Date): "past" | "now" | "upcoming" {
   if (now >= occ.end) return "past";
   return now >= occ.start ? "now" : "upcoming";
+}
+
+/**
+ * Where an occurrence sits inside its own span — `Day 3/5` — and `null` for
+ * anything living inside a single day, which is almost everything.
+ *
+ * One function rather than two, because the interior and the sidebar are the
+ * same agenda at two sizes and this is the fact neither of them could say:
+ * without it a five-day holiday prints an identical row on all five of its
+ * days. Both surfaces uppercase it in CSS, so it is written in the app's own
+ * voice here and shouted there.
+ */
+export function spanLabel(occ: Occurrence): string | null {
+  return occ.dayCount > 1 ? `Day ${occ.dayIndex}/${occ.dayCount}` : null;
 }
