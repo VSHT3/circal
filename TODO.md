@@ -111,13 +111,25 @@ The version to build:
 - On a phone it cannot be a row. Scroll-snap the faces horizontally; a wrapped 4+3 grid of circles
   _is_ the version that concedes the argument.
 
-Two costs to accept before starting. **It is a fourth scale** — "one idea at three scales" becomes
-four, and the README's thesis paragraph needs rewriting rather than extending. And **`Dial.tsx` is
-built around one face filling a viewport**: doing this properly means extracting a `<Face>` that the
-dial and the strip both render, with numerals, zone ring and interior as opt-in. That extraction is
-the real work and the real prerequisite — perhaps 300 careful lines — and skipping it means a second
-copy of the arc-drawing code, which is how this repo gets its first duplicated convention.
-`faceToPanel` / `polar` / `arcPath` are already scale-free, so the geometry side is ready.
+**The `<Face>` extraction is done.** `Face.tsx` is the drawing — geometry, both bands, ticks,
+numerals, arcs, labels, ghost, now-hand — with every ring outside the arcs opt-in and off by
+default, and `Dial.tsx` is that face with all of them switched on plus `CenterPanel` and the
+gestures. A face given no `onGrab`/`onHover` draws no hit strokes, which is the reduced face
+already: the strip passes `day`, `now`, the agenda and nothing else. Two things the split had to
+fix on the way, both invisible with one face on screen and both fatal with seven — the glow and
+the now-hand gradient had hardcoded ids, and `url(#…)` resolves to the first match in the
+document. Verified by diffing the rendered SVG against the previous build: byte-identical on a
+past day and a future one, and the ring drag, arc drag, hover, undo, both bands, the zone ring
+and ambient all driven by hand.
+
+One cost is left to accept before the strip itself. **It is a fourth scale** — "one idea at three
+scales" becomes four, and the README's thesis paragraph needs rewriting rather than extending.
+
+Two corrections to the plan above. **⌘W is not available**: it closes the tab in Chrome, Safari
+and Firefox and a page cannot `preventDefault` it, unlike every other view key this app binds.
+And **day ⇄ week is a zoom, not a crossfade** — the strip's face for the day you are on growing
+into the whole dial is the move day ⇄ life already makes, one step less far, and `ZOOM_STEPS`
+exists. Week ⇄ year and week ⇄ life are the crossfades.
 
 **5. look at sidebar** — _done, and the half that landed is the opposite of what this said._
 
@@ -279,9 +291,8 @@ a second answer to a question already answered, on a channel firing fifteen time
 lessons worth keeping. Anything tuned by rendering one event has not been tuned. And a signal
 nobody noticed was missing was not carrying anything.
 
-What is left is one big thing: **the week view** (4), and before it the `<Face>`
-extraction it needs. It is the only item that adds a screen rather than finishing one, and it is a
-week rather than an afternoon — `Dial.tsx` is 1,700 lines built around one face filling a
-viewport, and half of this file's rationale lives inside it. Decide up front which of numerals,
-zone ring, interior and bands are opt-in props and which are composed children; do not start it
-because it sounded good.
+What is left is one big thing: **the week view** (4). The `<Face>` extraction it needed is done —
+`Dial.tsx` is 1,700 lines no longer, and the strip's reduced face is `<Face>` with nothing switched
+on — so what remains is the strip itself: seven faces at one rotation, one shared readout, the
+zoom in and out of the day, and the README's thesis paragraph. It is still the only item that adds
+a screen rather than finishing one.
