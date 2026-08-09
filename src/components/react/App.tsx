@@ -187,27 +187,40 @@ const STEP_IN = {
 };
 
 /**
- * What a panel does when it arrives and when it leaves. Both are dynamic
- * variants, so they are resolved against `flow.current` at the moment the
- * animation starts rather than at the render that scheduled it — for `exit`
- * that is the whole point, since by then the panel's own props are frozen.
+ * What a panel does when it arrives and when it leaves.
+ *
+ * Only `exit` is a *variant*, and it is the one that has to be: a panel that
+ * is leaving has props frozen at its last render, which is one render too
+ * early to know what is arriving, so the answer is resolved from the flow
+ * *ref* at the moment the exit starts.
+ *
+ * `initial` and `active` are the opposite case, and take the flow by value:
+ * they are resolved during the render that schedules them and handed over as
+ * plain objects. As variant labels they were re-resolved on every render of
+ * whichever panel carried them — including the panel on its way out, which by
+ * then reads a flow saying the *other* panel is arriving. So the leaving panel
+ * started the arriving one's `active` on itself, which cancelled its own
+ * `exit` and left it mounted at full opacity for ever: ⌘E then ⌘D put a dial
+ * on top of a week strip that never went away. Frozen props are what stop
+ * that — the object the leaving panel holds is the one it resolved before the
+ * flow moved, so there is nothing for motion to re-run.
  */
 const PANEL = {
-  initial: (flow: RefObject<ViewFlow>) => {
-    if (zoomsIn(flow.current)) return { opacity: 0, scale: ZOOM_STEPS[ZOOM_STEPS.length - 1] };
-    if (stepsIn(flow.current)) {
+  initial: (flow: ViewFlow) => {
+    if (zoomsIn(flow)) return { opacity: 0, scale: ZOOM_STEPS[ZOOM_STEPS.length - 1] };
+    if (stepsIn(flow)) {
       // Already the size and in the place of the face it is growing out of,
       // so the first frame of the dial *is* the last frame of that face.
-      const { scale, dx, dy } = flow.current.face;
+      const { scale, dx, dy } = flow.face;
       return { opacity: 0, scale, x: dx, y: dy };
     }
     // The ring arrives already drawn, on the canvas, exactly over the dots it
     // is lifting off. Fading it up would dim the one frame that has to match.
-    if (unrollsIn(flow.current)) return { opacity: 1, scale: 1 };
+    if (unrollsIn(flow)) return { opacity: 1, scale: 1 };
     return { opacity: 0, scale: 1 };
   },
-  active: (flow: RefObject<ViewFlow>) => {
-    if (zoomsIn(flow.current)) {
+  active: (flow: ViewFlow) => {
+    if (zoomsIn(flow)) {
       // The dial grows out of the dot it left from, fading up early so it is
       // a dial arriving rather than a dot inflating.
       return {
@@ -216,10 +229,10 @@ const PANEL = {
         transition: ZOOM_IN,
       };
     }
-    if (stepsIn(flow.current)) {
+    if (stepsIn(flow)) {
       return { opacity: [0, 1, 1], scale: 1, x: 0, y: 0, transition: STEP_IN };
     }
-    if (unrollsIn(flow.current)) return { opacity: 1, scale: 1, transition: { duration: 0 } };
+    if (unrollsIn(flow)) return { opacity: 1, scale: 1, transition: { duration: 0 } };
     return {
       opacity: 1,
       scale: 1,
@@ -234,8 +247,8 @@ const PANEL = {
       // The week is the exception, and waits for nothing: the dial is landing
       // *on* one of its faces, so that face has to already be there.
       transition: {
-        duration: stepsOut(flow.current) ? STEP_MS : 0.45,
-        delay: unrollsOut(flow.current) ? 0.44 : zoomsOut(flow.current) ? 0.18 : 0,
+        duration: stepsOut(flow) ? STEP_MS : 0.45,
+        delay: unrollsOut(flow) ? 0.44 : zoomsOut(flow) ? 0.18 : 0,
         ease: EASE,
       },
     };
@@ -617,6 +630,16 @@ export default function App() {
   const flow = useRef<ViewFlow>({ from: view, to: view, day, face });
 
   /**
+   * The same change, by value, for the panel that is *arriving*. `initial` and
+   * `active` are resolved during render — the hooks lint rejects reading a ref
+   * there, and rightly: the value they need is one a re-render has to
+   * reproduce exactly, or motion restarts the arrival every time the shell
+   * renders for any other reason. Written by the flow's own two writers.
+   */
+  const [cameFrom, setCameFrom] = useState<ViewMode>(view);
+  const arrival: ViewFlow = { from: cameFrom, to: view, day, face };
+
+  /**
    * The face frame, kept on the flow ref because the element that applies it
    * is the one leaving. Written from an effect rather than during render —
    * the same bargain `channels` makes — and carried across every wholesale
@@ -633,12 +656,23 @@ export default function App() {
     // Derived and written outside the state updater: an updater has to be
     // pure, and StrictMode runs it twice.
     const merged = { ...current.current, ...next };
+    // A jump to where you already are is not a jump. `t` is the one that makes
+    // this reachable — it keeps the view, so on today it names the location
+    // already on screen — and pushing there would bury the back button under
+    // entries for a page that never changed, on top of handing every panel a
+    // fresh `Date` for the same midnight.
+    if (
+      merged.view === current.current.view &&
+      merged.day.getTime() === current.current.day.getTime()
+    )
+      return;
     flow.current = {
       from: current.current.view,
       to: merged.view,
       day: merged.day,
       face: faceFrame.current,
     };
+    setCameFrom(current.current.view);
     current.current = merged;
     writeLocation(merged, mode);
     setLocation(merged);
@@ -654,6 +688,7 @@ export default function App() {
         day: restored.day,
         face: faceFrame.current,
       };
+      setCameFrom(current.current.view);
       current.current = restored;
       setLocation(restored);
     };
@@ -813,7 +848,13 @@ export default function App() {
 
   const actions: ShellActions = useMemo(
     () => ({
-      goToday: () => go({ day: startOfDay(new Date()), view: "day" }),
+      // Today keeps the view it was asked in. It is the middle of the `‹ Today
+      // ›` group and its two neighbours step the picture without leaving it, so
+      // a button between them that jumps to the dial is the odd one out — and
+      // in the week that jump is a zoom onto a face you were already looking
+      // at. This names *when*, not *what*: `goDay` is the one that names a day
+      // in order to go and look at it.
+      goToday: () => go({ day: startOfDay(new Date()) }),
       // Naming a day means you want to look at it: the year grid is never the
       // answer to "go to Dec 25", and one call is one history entry.
       goDay: (next: Date) => go({ day: startOfDay(next), view: "day" }),
@@ -1379,9 +1420,12 @@ export default function App() {
               className="absolute inset-0 p-2"
               style={{ transformOrigin: origin }}
               custom={flow}
-              variants={reducedMotion ? undefined : PANEL}
-              initial="initial"
-              animate="active"
+              // Only `exit` is a label: see `PANEL`. The other two are
+              // resolved here, so the panel that is leaving carries the answer
+              // it had before the flow moved rather than re-deriving the
+              // arriving panel's.
+              initial={reducedMotion ? false : PANEL.initial(arrival)}
+              animate={reducedMotion ? undefined : PANEL.active(arrival)}
               exit="exit"
             >
               {view === "day" && (
