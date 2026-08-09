@@ -23,7 +23,7 @@
  * ------------------------------------------------------------------ */
 
 import { useSyncExternalStore } from "react";
-import { MINUTES_PER_DAY, addDays, startOfDay, type Clock } from "./time";
+import { MINUTES_PER_DAY, addDays, addMonths, startOfDay, type Clock } from "./time";
 import { notify } from "./notify";
 import {
   NEVER,
@@ -394,10 +394,18 @@ export function newId(): string {
  * A first run against an empty dial teaches nothing, so seed one plausible
  * day — anchored on *today* rather than a fixed date, so the shape (a morning
  * gap, a stacked afternoon, a late call) is legible whenever it is opened.
+ *
+ * Every line here earns its place by being a shape nobody guesses at: the
+ * afternoon stack is the only thing that says lanes exist, the pip at half
+ * six is the only thing that says a task does, the run is a rule with both an
+ * interval and a bound on it, and the trip is the multi-day all-day span that
+ * the dial deliberately draws nothing for.
  */
 function seed(): CalEvent[] {
-  const base = startOfDay(new Date()).getTime();
+  const today = startOfDay(new Date());
+  const base = today.getTime();
   const at = (h: number, m = 0) => base + (h * 60 + m) * 60_000;
+  const tomorrow = addDays(today, 1);
   const make = (
     title: string,
     calendarId: string,
@@ -425,15 +433,44 @@ function seed(): CalEvent[] {
   });
 
   return [
-    make("Morning run", "personal", at(7, 15), at(8, 0), { repeat: "daily" }),
+    // Every other day, and it stops. A plain `daily` forever gave every day of
+    // the year a mark, so the year ring read as a wall with no empty day left
+    // in it — and an unbounded rule is also the one shape the editor's own
+    // controls cannot show you being used.
+    make("Morning run", "personal", at(7, 15), at(8, 0), {
+      repeat: "daily",
+      interval: 2,
+      // Inclusive, and it bounds a *start*: the last run is the last
+      // on-interval morning inside the month.
+      until: addMonths(today, 1).getTime(),
+      icon: "person-simple-run",
+    }),
     make("Cas", "personal", at(10, 45), at(11, 30), { location: "Kitchen table" }),
-    make("Packing", "personal", at(13, 15), at(13, 50)),
+    // The trip's colour rather than Personal's, because it is the trip. That
+    // is the whole of what an event's own colour is for — a calendar is one
+    // label and this is not a second one — and it is invisible as a feature
+    // until two events on one calendar disagree about it.
+    make("Packing", "personal", at(13, 15), at(13, 50), { color: PALETTE[6] }),
     // One task in the seed, because a pip on the rim is not a shape anybody
     // guesses at: the demo day has to contain the thing the feature is.
     make("Water the plants", "personal", at(18, 30), at(18, 30), { task: true }),
     make("Design review", "work", at(14, 0), at(16, 20), { location: "Studio" }),
-    make("Sync with Anna", "work", at(14, 15), at(15, 15), { url: "https://meet.example.com/x" }),
+    // Sky, not the Work violet under it: two arcs of one colour on adjacent
+    // lanes are told apart by radius alone, and this pair is the only place
+    // the face says anything about overlapping at all.
+    make("Sync with Anna", "work", at(14, 15), at(15, 15), {
+      url: "https://meet.example.com/x",
+      color: PALETTE[1],
+    }),
     make("Call home", "family", at(21, 10), at(21, 40)),
+    // A week from tomorrow, and the only event here with no arc anywhere: an
+    // all-day span is `Day 3/7` where the time column goes, seven lit marks on
+    // the year ring and seven dots in the grid, and nothing at all on a dial.
+    make("Trip", "personal", tomorrow.getTime(), addDays(tomorrow, 7).getTime(), {
+      allDay: true,
+      color: PALETTE[6],
+      icon: "suitcase-rolling",
+    }),
   ];
 }
 

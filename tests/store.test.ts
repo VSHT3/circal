@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { at, ms, event, MemoryStorage } from "./helpers";
 import { instantKey, PALETTE, type CalEvent, type Repeat } from "@/lib/events";
 import { DEFAULT_SETTINGS, LIFE_EXPECTANCY_RANGE } from "@/lib/store";
-import { dayKey } from "@/lib/time";
+import { addDays, addMonths, dayKey, daysBetween, startOfDay } from "@/lib/time";
 import type * as StoreModule from "@/lib/store";
 import type * as NotifyModule from "@/lib/notify";
 
@@ -1009,11 +1009,38 @@ describe("seed()", () => {
     withWindow(() => s.subscribe(() => {}));
 
     const today = dayKey(new Date());
-    // Every seeded event belongs to today — the shape (a morning gap, a
-    // stacked afternoon, a late call) is only legible if it is *this* day.
+    // Every event of the demo *day* belongs to today — the shape (a morning
+    // gap, a stacked afternoon, a late call) is only legible if it is *this*
+    // day. The trip is the one that is deliberately not on it.
     for (const e of s.store.snapshot().events) {
+      if (e.allDay) continue;
       expect.soft(dayKey(new Date(e.start)), `"${e.title}" is not on today`).toBe(today);
     }
+  });
+
+  it("bounds the repeating run at a month, every other day", async () => {
+    const s = await freshStore();
+    withWindow(() => s.subscribe(() => {}));
+
+    const run = s.store.snapshot().events.find((e) => e.repeat !== "never");
+    // An unbounded daily rule gave every day of the year a mark, which is a
+    // year ring with no empty day left in it for the magnifier to light.
+    expect(run?.interval).toBe(2);
+    expect(run?.until).toBe(addMonths(startOfDay(new Date()), 1).getTime());
+  });
+
+  it("puts the all-day trip a week from tomorrow", async () => {
+    const s = await freshStore();
+    withWindow(() => s.subscribe(() => {}));
+
+    const trip = s.store.snapshot().events.find((e) => e.allDay);
+    const tomorrow = addDays(startOfDay(new Date()), 1);
+    expect(trip?.start).toBe(tomorrow.getTime());
+    // `end` is exclusive, so seven days is the midnight after the seventh —
+    // and it is built with `addDays`, never `7 × 1440` minutes, or a spring
+    // forward inside the week lands it an hour short and drops the last day.
+    expect(trip?.end).toBe(addDays(tomorrow, 7).getTime());
+    expect(daysBetween(new Date(trip!.start), new Date(trip!.end - 1))).toBe(6);
   });
 
   it("does not seed over a stored blob", async () => {
