@@ -20,7 +20,7 @@
 
 import { colorOf, occurrencesOn, type CalEvent, type Calendar } from "./events";
 import { startsBetween } from "./recur";
-import { MONTHS, addDays, dayKey, daysInMonth, fromDayKey, startOfDay } from "./time";
+import { MONTHS, addDays, dayKey, daysInMonth, fromDayKey, mondayOffset, startOfDay } from "./time";
 
 const DAY_MS = 86_400_000;
 const WEEK = 7;
@@ -213,13 +213,6 @@ export function lifeStage(
 
   const span = lifeSpan(start, expectancyYears);
   return { span, layout: lifeLayout(box.width, box.height, span), box };
-}
-
-/** Monday-first weekday of `date` — 0 for Monday, 6 for Sunday. It is what
- *  makes any seven adjacent columns of the grid a real week: a year starts as
- *  many blank slots in as its 1 January is deep into its own. */
-export function mondayOffset(date: Date): number {
-  return (date.getDay() + 6) % WEEK;
 }
 
 /** 0 for 1 January. Rounded for the same DST reason as `lifeSpan`. */

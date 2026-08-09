@@ -35,9 +35,11 @@ import {
   formatTime,
   fromDayKey,
   isSameDay,
+  mondayOffset,
   startOfDay,
 } from "@/lib/time";
 import { LIFE_META_H, lifeDot, lifeStage } from "@/lib/life";
+import { weekFaceCentre, weekStage, weekZoomScale } from "@/lib/week";
 import { EASE, MODE_MS, UNROLL_IN_MS, UNROLL_OUT_MS } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import {
@@ -58,6 +60,7 @@ import type {
   ShellActions,
   ViewFlow,
   ViewMode,
+  ZoomFrame,
 } from "./types";
 import CalendarEditor from "./CalendarEditor";
 import CommandPalette from "./CommandPalette";
@@ -70,6 +73,7 @@ import { ScopeDialog } from "./ScopePrompt";
 import Toast from "./Toast";
 import TopBar from "./TopBar";
 import YearView from "./YearView";
+import WeekView from "./WeekView";
 
 /* ------------------------------- transitions ------------------------------- */
 
@@ -126,6 +130,25 @@ function unrollsIn(flow: ViewFlow): boolean {
 }
 
 /**
+ * Day ⇄ week zooms too, and on the same identity: the strip's face for the day
+ * you are on *is* the dial, four times smaller. Crossfading it would be the one
+ * transition in the app that throws away a geometric relationship it has.
+ *
+ * It is a separate pair from the life zoom because the distance is different by
+ * two orders of magnitude — 1 → ~0.22 rather than 1 → 0.008 — so it takes one
+ * eased tween where `ZOOM_STEPS`' geometric ladder would read as a stutter.
+ * Week ⇄ year and week ⇄ life are crossfades: a week is not a magnified year
+ * and a row of the life grid is not seven dials.
+ */
+function stepsOut(flow: ViewFlow): boolean {
+  return flow.from === "day" && flow.to === "week";
+}
+
+function stepsIn(flow: ViewFlow): boolean {
+  return flow.from === "week" && flow.to === "day";
+}
+
+/**
  * The dial's scale, from full to the size of one dot, in five geometric steps.
  *
  * Interpolating scale linearly is what makes most "zoom" animations feel
@@ -145,6 +168,25 @@ const ZOOM_OUT = { duration: 0.85, ease: "linear" as const, times: [...ZOOM_OUT_
 const ZOOM_IN = { duration: 0.8, delay: 0.3, ease: "linear" as const, times: [...ZOOM_IN_TIMES] };
 
 /**
+ * The week's step, which is a zoom of about four times rather than of two
+ * orders of magnitude — so one eased tween, not a ladder. The dial holds full
+ * opacity for most of the way and gives up only at the end, over the face it
+ * has landed on: it is the same day at two sizes, and the handover should read
+ * as one shape settling rather than as two pictures crossing.
+ */
+const STEP_MS = 0.52;
+const STEP_OUT = {
+  duration: STEP_MS,
+  ease: EASE,
+  opacity: { duration: STEP_MS, times: [0, 0.72, 1], ease: "linear" as const },
+};
+const STEP_IN = {
+  duration: STEP_MS,
+  ease: EASE,
+  opacity: { duration: STEP_MS, times: [0, 0.3, 1], ease: "linear" as const },
+};
+
+/**
  * What a panel does when it arrives and when it leaves. Both are dynamic
  * variants, so they are resolved against `flow.current` at the moment the
  * animation starts rather than at the render that scheduled it — for `exit`
@@ -153,6 +195,12 @@ const ZOOM_IN = { duration: 0.8, delay: 0.3, ease: "linear" as const, times: [..
 const PANEL = {
   initial: (flow: RefObject<ViewFlow>) => {
     if (zoomsIn(flow.current)) return { opacity: 0, scale: ZOOM_STEPS[ZOOM_STEPS.length - 1] };
+    if (stepsIn(flow.current)) {
+      // Already the size and in the place of the face it is growing out of,
+      // so the first frame of the dial *is* the last frame of that face.
+      const { scale, dx, dy } = flow.current.face;
+      return { opacity: 0, scale, x: dx, y: dy };
+    }
     // The ring arrives already drawn, on the canvas, exactly over the dots it
     // is lifting off. Fading it up would dim the one frame that has to match.
     if (unrollsIn(flow.current)) return { opacity: 1, scale: 1 };
@@ -168,6 +216,9 @@ const PANEL = {
         transition: ZOOM_IN,
       };
     }
+    if (stepsIn(flow.current)) {
+      return { opacity: [0, 1, 1], scale: 1, x: 0, y: 0, transition: STEP_IN };
+    }
     if (unrollsIn(flow.current)) return { opacity: 1, scale: 1, transition: { duration: 0 } };
     return {
       opacity: 1,
@@ -179,8 +230,11 @@ const PANEL = {
       // is the same greys the grid is, so against thirty thousand dots the
       // whole movement is invisible — it has to happen on black, and the grid
       // comes up as the days settle onto it.
+      //
+      // The strip is the exception, and waits for nothing: the dial is landing
+      // *on* one of its faces, so that face has to already be there.
       transition: {
-        duration: 0.45,
+        duration: stepsOut(flow.current) ? STEP_MS : 0.45,
         delay: unrollsOut(flow.current) ? 0.44 : zoomsOut(flow.current) ? 0.18 : 0,
         ease: EASE,
       },
@@ -197,6 +251,20 @@ const PANEL = {
         transition: ZOOM_OUT,
       };
     }
+    if (stepsOut(flow.current)) {
+      // Scaled and translated rather than scaled about a `transform-origin`,
+      // because the origin on this panel belongs to the life zoom — see
+      // `originPoint`, which is what corrects `dx`/`dy` for it.
+      const { scale, dx, dy } = flow.current.face;
+      return {
+        opacity: [1, 1, 0],
+        scale,
+        x: dx,
+        y: dy,
+        pointerEvents: "none" as const,
+        transition: STEP_OUT,
+      };
+    }
     if (unrollsOut(flow.current)) {
       // Neither fades nor shrinks: the canvas inside is drawing the whole
       // transition, and a fade over it would only take contrast off it.
@@ -208,13 +276,23 @@ const PANEL = {
         transition: { duration: UNROLL_OUT_MS / 1000 },
       };
     }
+    // The strip leaving under a dial that is growing out of one of its faces
+    // keeps its scale: shrinking by 3% would drag that face out from under
+    // the shape claiming to be it. Everything else settles back as it goes.
     return {
       opacity: 0,
-      scale: 0.97,
+      scale: stepsIn(flow.current) ? 1 : 0.97,
       pointerEvents: "none" as const,
       // Leaving under a ring rolling up: gone by the time the row it lifted
       // off would be missed, and not before.
-      transition: { duration: unrollsIn(flow.current) ? UNROLL_IN_MS / 1600 : 0.3, ease: EASE },
+      transition: {
+        duration: unrollsIn(flow.current)
+          ? UNROLL_IN_MS / 1600
+          : stepsIn(flow.current)
+            ? STEP_MS
+            : 0.3,
+        ease: EASE,
+      },
     };
   },
 } as const;
@@ -227,7 +305,7 @@ interface ViewLocation {
 }
 
 /** The views that are named in the URL — `day` is the one that is not. */
-const VIEWS = ["year", "life"] as const;
+const VIEWS = ["week", "year", "life"] as const;
 
 function readLocation(): ViewLocation {
   const params = new URLSearchParams(window.location.search);
@@ -449,6 +527,14 @@ export default function App() {
     [settings.birth, settings.lifeExpectancy, stageWidth, stageHeight],
   );
 
+  /** The week strip, resolved against the same box and for the same reason:
+   *  the dial has to know which face it is shrinking onto before the strip
+   *  that draws that face exists. */
+  const weekBox = useMemo(
+    () => weekStage(day, stageWidth - 2 * PANEL_PAD, stageHeight - 2 * PANEL_PAD),
+    [day, stageWidth, stageHeight],
+  );
+
   /**
    * Whether the sidebar can afford to push, measured rather than guessed at
    * with a breakpoint.
@@ -481,6 +567,36 @@ export default function App() {
     : "center";
 
   /**
+   * Where the zoom meets the strip: the same day's face, as a transform of the
+   * whole panel.
+   *
+   * The panel already carries a `transform-origin` — the life dot — and the
+   * dial has to land on its face whatever that origin happens to be, so the
+   * translation is solved for rather than assumed. Under `scale(s)` about an
+   * origin `o`, a point `c` lands at `o + (c - o) * s`; putting the panel's
+   * own centre on the face's centre `f` therefore needs `t = f - o - (c - o) * s`.
+   * One panel, one origin, two zooms that both land exactly.
+   */
+  const face = useMemo<ZoomFrame>(() => {
+    if (!weekBox) return { scale: 1, dx: 0, dy: 0 };
+    const { layout, box } = weekBox;
+    const centre = weekFaceCentre(layout, mondayOffset(day));
+    // Border-box coordinates throughout: `transform-origin` resolves against
+    // the padded box, and the panel's padding is what `PANEL_PAD` names.
+    const scale = weekZoomScale(layout, box.width, box.height);
+    const f = { x: PANEL_PAD + centre.x, y: PANEL_PAD + centre.y };
+    const o = originPoint
+      ? { x: PANEL_PAD + originPoint.x, y: PANEL_PAD + LIFE_META_H + originPoint.y }
+      : { x: stageWidth / 2, y: stageHeight / 2 };
+    const c = { x: stageWidth / 2, y: stageHeight / 2 };
+    return {
+      scale,
+      dx: f.x - o.x - (c.x - o.x) * scale,
+      dy: f.y - o.y - (c.y - o.y) * scale,
+    };
+  }, [weekBox, day, originPoint, stageWidth, stageHeight]);
+
+  /**
    * The location as of *now*, not as of the render this callback was made in.
    *
    * `goDay` and `openEvent` fire back to back from the palette, and with the
@@ -498,13 +614,31 @@ export default function App() {
    * life view's `usePresence` — and a leaving element's props are frozen at its
    * last render, which is one render too early to know what is arriving.
    */
-  const flow = useRef<ViewFlow>({ from: view, to: view, day });
+  const flow = useRef<ViewFlow>({ from: view, to: view, day, face });
+
+  /**
+   * The face frame, kept on the flow ref because the element that applies it
+   * is the one leaving. Written from an effect rather than during render —
+   * the same bargain `channels` makes — and carried across every wholesale
+   * reassignment of `flow.current` below, which is why it also lives in a ref
+   * of its own.
+   */
+  const faceFrame = useRef(face);
+  useEffect(() => {
+    faceFrame.current = face;
+    flow.current.face = face;
+  }, [face]);
 
   const go = useCallback((next: Partial<ViewLocation>, mode: "push" | "replace" = "push") => {
     // Derived and written outside the state updater: an updater has to be
     // pure, and StrictMode runs it twice.
     const merged = { ...current.current, ...next };
-    flow.current = { from: current.current.view, to: merged.view, day: merged.day };
+    flow.current = {
+      from: current.current.view,
+      to: merged.view,
+      day: merged.day,
+      face: faceFrame.current,
+    };
     current.current = merged;
     writeLocation(merged, mode);
     setLocation(merged);
@@ -514,7 +648,12 @@ export default function App() {
   useEffect(() => {
     const onPopState = () => {
       const restored = readLocation();
-      flow.current = { from: current.current.view, to: restored.view, day: restored.day };
+      flow.current = {
+        from: current.current.view,
+        to: restored.view,
+        day: restored.day,
+        face: faceFrame.current,
+      };
       current.current = restored;
       setLocation(restored);
     };
@@ -758,15 +897,20 @@ export default function App() {
       // Stepping replaces rather than pushes: a held arrow key must not fill
       // the history stack with days you scrolled past.
       //
-      // A year in the two grid views, a day on the dial. Both grids draw a
-      // year per row or per block, so a step of a day would move the selection
-      // by less than it takes to see.
+      // One screenful each time: a day on the dial, a week on the strip, a
+      // year in the two grid views. The unit is whatever the view draws, so a
+      // step always moves the picture by exactly the picture — on the strip a
+      // step of a day would slide the same seven faces along by one, which is
+      // a different week only in the sense that it is not the one you asked
+      // for.
       go(
         {
           day:
             from.view === "day"
               ? addDays(from.day, delta)
-              : new Date(from.day.getFullYear() + delta, from.day.getMonth(), from.day.getDate()),
+              : from.view === "week"
+                ? addDays(from.day, delta * 7)
+                : new Date(from.day.getFullYear() + delta, from.day.getMonth(), from.day.getDate()),
         },
         "replace",
       );
@@ -813,6 +957,13 @@ export default function App() {
       "mod+shift+n": actions.newTask,
       "mod+y": () => actions.setView("year"),
       "mod+d": () => actions.setView("day"),
+      // ⌘E rather than the obvious ⌘W: Chrome, Safari and Firefox all close
+      // the tab on ⌘W and none of them deliver the keydown, so a page cannot
+      // take it. ⌘E is the same class as ⌘D, ⌘Y, ⌘L and ⌘P — a menu
+      // equivalent, which this app already overrides four times over — and the
+      // segment in the top bar prints the chip, so the mnemonic is not what
+      // anybody finds it by.
+      "mod+e": () => actions.setView("week"),
       "mod+b": actions.toggleSidebar,
       "mod+l": () => actions.setView("life"),
       "mod+,": actions.openSettings,
@@ -1251,6 +1402,17 @@ export default function App() {
                   onStepDay={step}
                   ambient={inAmbient}
                   covered={shaded}
+                />
+              )}
+              {view === "week" && (
+                <WeekView
+                  stage={weekBox}
+                  now={now}
+                  selected={day}
+                  events={visible}
+                  calendars={calendars}
+                  settings={settings}
+                  onSelectDay={(next) => actions.goDay(next)}
                 />
               )}
               {view === "year" && (

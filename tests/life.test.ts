@@ -16,7 +16,6 @@ import {
   lifeStage,
   lifeStats,
   lifeYearRange,
-  mondayOffset,
   type LifeSpan,
 } from "@/lib/life";
 import { LIFE_EXPECTANCY_RANGE } from "@/lib/store";
@@ -104,17 +103,6 @@ describe("lifeCellAt is the exact inverse of lifeDotX/lifeDotY", () => {
     },
   ])("returns null for $name", ({ x, y }) => {
     expect(lifeCellAt(layout, span, x(), y())).toBeNull();
-  });
-});
-
-/* ------------------------------ mondayOffset ----------------------------- */
-
-describe("mondayOffset", () => {
-  it.each([
-    { name: "1 Jan 1990 is a Monday", date: new Date(1990, 0, 1), want: 0 },
-    { name: "1 Jan 2023 is a Sunday", date: new Date(2023, 0, 1), want: 6 },
-  ])("$name -> offset $want", ({ date, want }) => {
-    expect(mondayOffset(date)).toBe(want);
   });
 });
 

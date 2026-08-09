@@ -17,10 +17,12 @@ import {
   fromDayKey,
   isSameDay,
   minutesOfDay,
+  mondayOffset,
   parseClock,
   snap,
   splitTime,
   startOfDay,
+  startOfWeek,
   zoneOffset,
   zonedToUtc,
 } from "@/lib/time";
@@ -87,6 +89,47 @@ describe("addDays across DST", () => {
   it("adds exactly 24h on an ordinary day", () => {
     const before = at("2026-06-01 10:00");
     expect(addDays(before, 1).getTime() - before.getTime()).toBe(86_400_000);
+  });
+});
+
+describe("mondayOffset / startOfWeek", () => {
+  // 2026-08-09 is a Sunday, so it belongs to the week that began on the 3rd —
+  // the trap a `getDay()`-based implementation falls into, since Sunday is 0
+  // and a naive subtraction sends it forward six days instead of back one.
+  it.each([
+    { on: "2026-08-03", weekday: "Monday", offset: 0 },
+    { on: "2026-08-06", weekday: "Thursday", offset: 3 },
+    { on: "2026-08-09", weekday: "Sunday", offset: 6 },
+  ])("$weekday is offset $offset and belongs to the week of Aug 3", ({ on, offset }) => {
+    expect.soft(mondayOffset(day(on))).toBe(offset);
+    expect.soft(startOfWeek(day(on))).toBeSameInstantAs(day("2026-08-03"));
+  });
+
+  // The life grid's columns are built on this: a year starts as many blank
+  // slots in as its 1 January is deep into its own week.
+  it.each([
+    { name: "1 Jan 1990 is a Monday", date: day("1990-01-01"), want: 0 },
+    { name: "1 Jan 2023 is a Sunday", date: day("2023-01-01"), want: 6 },
+  ])("$name -> offset $want", ({ date, want }) => {
+    expect(mondayOffset(date)).toBe(want);
+  });
+
+  it("takes a time of day down to the week's own midnight", () => {
+    expect(startOfWeek(at("2026-08-09 23:59"))).toBeSameInstantAs(day("2026-08-03"));
+  });
+
+  it("is idempotent, and seven of them is one week back", () => {
+    const monday = startOfWeek(day("2026-08-06"));
+    expect(startOfWeek(monday)).toBeSameInstantAs(monday);
+    expect(startOfWeek(addDays(monday, -1))).toBeSameInstantAs(addDays(monday, -7));
+  });
+
+  // Berlin springs forward on 2026-03-29, a Sunday — so the week containing it
+  // is 167 hours long and a millisecond walk back lands at 01:00 on the 23rd.
+  it("lands on local midnight through a spring-forward week", () => {
+    const out = startOfWeek(day("2026-03-29"));
+    expect(out).toBeSameInstantAs(day("2026-03-23"));
+    expect(minutesOfDay(out)).toBe(0);
   });
 });
 

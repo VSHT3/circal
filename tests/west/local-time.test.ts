@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { at, day } from "../helpers";
 import { lifeFraction, lifeMilestones, lifeSpan } from "@/lib/life";
-import { addDays, atMinutes, dayKey, fromDayKey, minutesOfDay, startOfDay } from "@/lib/time";
+import {
+  addDays,
+  atMinutes,
+  dayKey,
+  fromDayKey,
+  minutesOfDay,
+  startOfDay,
+  startOfWeek,
+} from "@/lib/time";
 
 /* ------------------------------------------------------------------ *
  * Re-runs the zone-sensitive invariants from tests/time.test.ts under
@@ -46,6 +54,35 @@ describe("startOfDay + addDays across the US DST transitions", () => {
   it("startOfDay lands on local midnight either side of the US transition", () => {
     expect(startOfDay(at("2026-03-08 15:00"))).toBeSameInstantAs(day("2026-03-08"));
     expect(startOfDay(at("2026-11-01 15:00"))).toBeSameInstantAs(day("2026-11-01"));
+  });
+});
+
+describe("startOfWeek across the US DST transitions", () => {
+  // US spring-forward, 2026-03-08, is a Sunday — the last day of its week and
+  // the one a Monday-first walk has to step back six days from. That week is
+  // 167 hours long, so a millisecond walk lands at 01:00 on the Monday, and
+  // west of UTC an hour before midnight is the day before.
+  it.each([
+    { name: "the spring-forward Sunday", on: "2026-03-08", monday: "2026-03-02" },
+    { name: "the fall-back Sunday", on: "2026-11-01", monday: "2026-10-26" },
+  ])("puts $name on the Monday of $monday, at local midnight", ({ on, monday }) => {
+    const out = startOfWeek(day(on));
+    expect.soft(out).toBeSameInstantAs(day(monday));
+    expect.soft(dayKey(out)).toBe(monday);
+    expect.soft(minutesOfDay(out)).toBe(0);
+  });
+
+  it("agrees with addDays for every day of a transition week", () => {
+    const monday = startOfWeek(day("2026-03-08"));
+    for (let i = 0; i < 7; i += 1) {
+      expect.soft(startOfWeek(addDays(monday, i))).toBeSameInstantAs(monday);
+    }
+  });
+
+  // A late-evening instant on the Sunday: the trap is reading UTC fields,
+  // which west of UTC have already rolled into Monday and start a new week.
+  it("keeps a Sunday evening in the week that is ending, not the one starting", () => {
+    expect(startOfWeek(at("2026-03-08 23:30"))).toBeSameInstantAs(day("2026-03-02"));
   });
 });
 

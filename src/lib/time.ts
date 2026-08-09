@@ -57,6 +57,30 @@ export function addDays(d: Date, n: number): Date {
   return out;
 }
 
+/**
+ * Monday-first weekday: 0 for Monday, 6 for Sunday.
+ *
+ * The app's one answer to "which day of the week is this". The life grid's
+ * columns are built on it (a year starts as many blank slots in as its 1
+ * January is deep into its own week), the mini-month's grid is, and so is the
+ * week strip — three surfaces you navigate between, which have to agree about
+ * where a week starts or the moves between them stop lining up.
+ */
+export function mondayOffset(d: Date): number {
+  return (d.getDay() + 6) % 7;
+}
+
+/**
+ * The Monday on or before `d`, at local midnight.
+ *
+ * Steps with `addDays` rather than subtracting milliseconds: a week that
+ * crosses a DST transition is 167 or 169 hours long, and a millisecond walk
+ * lands an hour off midnight — which keys the wrong day west of UTC.
+ */
+export function startOfWeek(d: Date): Date {
+  return addDays(startOfDay(d), -mondayOffset(d));
+}
+
 export function addMonths(d: Date, n: number): Date {
   const out = new Date(d.getFullYear(), d.getMonth() + n, 1);
   out.setDate(Math.min(d.getDate(), daysInMonth(out.getFullYear(), out.getMonth())));

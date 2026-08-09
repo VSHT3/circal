@@ -6,6 +6,7 @@ import {
   WAKING,
   colorOf,
   dayAgenda,
+  dayLoad,
   firstGrapheme,
   freeGaps,
   instantKey,
@@ -18,6 +19,7 @@ import {
   statusOf,
   type Gap,
 } from "@/lib/events";
+import { MINUTES_PER_DAY } from "@/lib/time";
 
 const cal = calendar();
 
@@ -530,6 +532,50 @@ describe("freeGaps", () => {
   it.each(rows)("$name", ({ events, min, expected }) => {
     const gaps = freeGaps(build(events), min, WAKING.from, WAKING.to);
     expect(gaps).toEqual(expected);
+  });
+});
+
+describe("dayLoad", () => {
+  const load = (specs: Array<{ start: string; end: string; allDay?: boolean }>) =>
+    dayLoad(
+      occurrencesOn(
+        specs.map((s) => event(s)),
+        [cal],
+        day("2026-03-08"),
+      ),
+    );
+
+  // The distinction the return type exists for: a day with nothing timed on it
+  // has no answer, which is not the same as an answer of zero.
+  it("is null for an empty day and for one carrying only an all-day event", () => {
+    expect(load([])).toBeNull();
+    expect(load([{ start: "2026-03-08 00:00", end: "2026-03-09 00:00", allDay: true }])).toBeNull();
+  });
+
+  // The whole reason it goes through `freeGaps`: two events on one hour are
+  // one hour booked. Summing durations would say two.
+  it("merges overlapping events rather than summing their durations", () => {
+    const overlapping = load([
+      { start: "2026-03-08 09:00", end: "2026-03-08 11:00" },
+      { start: "2026-03-08 10:00", end: "2026-03-08 12:00" },
+    ]);
+    expect(overlapping?.booked).toBe(180);
+  });
+
+  // Booked is the whole revolution, free is only `WAKING`, and they are
+  // deliberately not complements: nobody reads "nineteen hours free" as an
+  // offer. An event outside the waking window is booked and costs no free.
+  it("counts a night event as booked without taking it off the free window", () => {
+    const night = load([{ start: "2026-03-08 05:00", end: "2026-03-08 06:00" }]);
+    expect(night?.booked).toBe(60);
+    expect(night?.free).toBe(WAKING.to - WAKING.from);
+  });
+
+  it("does not sum to a day, or to anything", () => {
+    const some = load([{ start: "2026-03-08 09:00", end: "2026-03-08 10:00" }])!;
+    expect(some.booked).toBe(60);
+    expect(some.free).toBe(WAKING.to - WAKING.from - 60);
+    expect(some.booked + some.free).not.toBe(MINUTES_PER_DAY);
   });
 });
 

@@ -4,10 +4,11 @@ import type { RefObject } from "react";
 import type { Clock } from "@/lib/time";
 import type { CalEvent, Calendar, Occurrence } from "@/lib/events";
 import type { LifeStage } from "@/lib/life";
+import type { WeekStage } from "@/lib/week";
 import type { MoonStyle, Settings } from "@/lib/store";
 import type { QuickAdd } from "@/lib/quickadd";
 
-export type ViewMode = "day" | "year" | "life";
+export type ViewMode = "day" | "week" | "year" | "life";
 
 /**
  * How ambient was entered, because that is what decides how it leaves. Asked
@@ -31,6 +32,25 @@ export interface ViewFlow {
   to: ViewMode;
   /** The selected day *after* the change — which day the zoom is about. */
   day: Date;
+  /** Where that day's face in the week strip is, as a transform of the whole
+   *  panel. Carried here for the same reason the rest of this is: the element
+   *  that has to apply it is the dial on its way out. */
+  face: ZoomFrame;
+}
+
+/**
+ * A panel scaled down onto a smaller copy of itself somewhere else in the box.
+ *
+ * `dx`/`dy` are a translation of the panel's *centre*, already corrected for
+ * whatever `transform-origin` the panel is carrying — the life zoom needs that
+ * origin to be its own dot, and the week zoom has to land correctly regardless
+ * of it. `App.originPoint` does the arithmetic once, so nothing downstream has
+ * to know which of the two is in force.
+ */
+export interface ZoomFrame {
+  scale: number;
+  dx: number;
+  dy: number;
 }
 
 /** Where a draft sits, whether it is all-day, and what colour it is:
@@ -242,6 +262,28 @@ export interface YearViewProps {
    * multi-day one — and the shell turns both into a draft in the editor.
    */
   onCreateSpan: (from: Date, days: number) => void;
+}
+
+export interface WeekViewProps {
+  /**
+   * The strip's geometry, resolved by the shell — which needs the same layout
+   * to know where the dial has to zoom *to* before the strip is mounted, the
+   * same contract `LifeStage` has. `null` before the panel is measured.
+   */
+  stage: WeekStage | null;
+  /** Ticking. Only today's face draws a ramp or a hand, so the rest of the
+   *  strip is indifferent to it. */
+  now: Date;
+  /** The day the strip is *about*: its face carries the selection ring, and it
+   *  is the face the zoom leaves from and lands on. */
+  selected: Date;
+  events: CalEvent[];
+  calendars: Calendar[];
+  /** Whole: the strip reads the clock, the arc marks and both tick channels. */
+  settings: Settings;
+  /** Name a day — which leaves this view for the dial, exactly as the year
+   *  ring's click does. */
+  onSelectDay: (day: Date) => void;
 }
 
 export interface LifeViewProps {

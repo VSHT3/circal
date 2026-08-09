@@ -429,6 +429,29 @@ export function freeGaps(
   return gaps;
 }
 
+/**
+ * What a day is made of: minutes spoken for, and minutes still on offer.
+ *
+ * The two are measured against *different* windows on purpose. Booked is the
+ * whole revolution — a six o'clock run is time spent — while free is only
+ * `WAKING`, because "nineteen hours free" is not an offer. They do not sum to
+ * anything and nobody adds them.
+ *
+ * Both come out of `freeGaps`, which already merges overlaps: two events on
+ * the same hour are one hour booked, not two. `null` for a day with nothing
+ * timed on it, which is how a caller tells "nothing booked" from "no answer" —
+ * an all-day event is context, and it books no hours.
+ */
+export function dayLoad(occurrences: Occurrence[]): { booked: number; free: number } | null {
+  if (!occurrences.some((occ) => !occ.event.allDay)) return null;
+  const idle = (from: number, to: number) =>
+    freeGaps(occurrences, 1, from, to).reduce((sum, gap) => sum + (gap.end - gap.start), 0);
+  return {
+    booked: MINUTES_PER_DAY - idle(0, MINUTES_PER_DAY),
+    free: idle(WAKING.from, WAKING.to),
+  };
+}
+
 /* --------------------------------- search --------------------------------- */
 
 /**

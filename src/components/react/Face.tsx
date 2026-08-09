@@ -98,6 +98,12 @@ export interface FaceProps {
 
   /** The soft disc behind the track. */
   glow?: boolean;
+  /** The unlit rim: one faint circle where the elapsed ramp and the band both
+   *  go. The dial does not need it — its ticks and numerals already say where
+   *  the rim is — but a face with none of those has nothing to place its arcs
+   *  against, and floating arcs are not a dial. Drawn at the ramp's own floor
+   *  brightness, so on today the ramp reads as this ring lighting up. */
+  track?: boolean;
   /** Half-hour marks on the rim. */
   ticks?: boolean;
   /** The hours: all twenty-four, the four the face is navigated by, or none.
@@ -214,6 +220,7 @@ export default function Face({
   calendars,
   clock,
   glow = false,
+  track = false,
   ticks = false,
   numerals = "none",
   elapsed = false,
@@ -336,6 +343,29 @@ export default function Face({
           </defs>
           <circle cx={DIAL.C} cy={DIAL.C} r={DIAL.TRACK} fill={`url(#${glowId})`} />
         </>
+      )}
+
+      {track && (
+        <circle
+          cx={DIAL.C}
+          cy={DIAL.C}
+          r={DIAL.TRACK}
+          fill="none"
+          // Translucent, not one of `grey`'s opaque shades, and that is the
+          // one place on this face where the difference matters the other way
+          // round. `TRACK_WIDTH` is three units — two fifths of a pixel on a
+          // face drawn seven to a row — so the rim only exists at all as the
+          // antialiased fraction of a pixel the browser rounds it into, and an
+          // opaque grey has no fraction to give. Nothing overlaps it, so there
+          // is no alpha here to compound.
+          //
+          // The value is chosen at strip size, where it lands at about the
+          // ramp's own floor once that rounding is done.
+          stroke="#fff"
+          strokeOpacity={0.28}
+          strokeWidth={DIAL.TRACK_WIDTH}
+          pointerEvents="none"
+        />
       )}
 
       <AnimatePresence initial={false}>

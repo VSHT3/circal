@@ -201,6 +201,35 @@ walks the moon through its week. Off until you ask for it, in **Settings** →
 Both print the phase's name, how much of it is lit, and how many days to the
 next full or new moon.
 
+## The week, as seven dials
+
+`⌘E` is the one thing the rest of this cannot answer: what does my week look
+like. The year ring says how _busy_ a day was and never _when_; a column of
+text says when and gives up the shape. Seven faces do both, and they are not a
+grid — they are the same instrument at a different count, so nothing is
+conceded.
+
+The whole idea is that all seven sit at the **same rotation**. A ten o'clock
+meeting is at the same angle on every face, so a standup every weekday is a
+radial column straight across the strip and the Friday you keep giving away is
+a gap in it. That is a pattern you see rather than a list you read, and it is
+free: angle is already time.
+
+Each face is reduced to what carries at that size — the rim and the arcs, with
+the ramp of light and the hand on today alone. No numerals, no second zone, no
+interior. One readout under the strip, which names the week until you point at
+a day and then names the day. Pointing at a face grows it and ticks, the way
+the year ring's days do; clicking one opens it on the dial, and the dial grows
+out of the very face you clicked.
+
+Seven faces is seven tab stops, so this one needs no cursor of its own: tab
+through the week and `↵` opens the day you are on. `←` and `→` step a whole
+week, because a step should move the picture by exactly the picture.
+
+On a phone the seven cannot be a row that fits, so the strip scrolls and snaps
+and opens on the day you came in from. A wrapped block of circles would be the
+grid this view exists not to be.
+
 ## The year, on one revolution
 
 `⌘Y` is the same instrument asked a bigger question. One revolution is one
@@ -368,19 +397,19 @@ taking your calendar with it.
 
 ## Interaction
 
-|                     |                                                                               |
-| ------------------- | ----------------------------------------------------------------------------- |
-| `⌘P`                | Command palette — write an event, search, jump to a date, find free time, run |
-| `⌘N` / `⇧⌘N`        | New event / new task                                                          |
-| `⌘,`                | Settings                                                                      |
-| `⌘Z` / `⇧⌘Z`        | Undo / redo                                                                   |
-| `⌘D` / `⌘Y` / `⌘L`  | Day view / year view / life view                                              |
-| `⌘B`                | Sidebar                                                                       |
-| `←` `→`             | Previous / next day (year in the year and life views)                         |
-| `T`                 | Today                                                                         |
-| `F` / `⇧F`          | Ambient — chrome away, and with the screen as well                            |
-| `⌘↵` / `⌘⌫` / `esc` | Save / delete / cancel in the editor                                          |
-| `⌘⌫`                | Delete the arc you are pointing at, on the dial                               |
+|                           |                                                                                   |
+| ------------------------- | --------------------------------------------------------------------------------- |
+| `⌘P`                      | Command palette — write an event, search, jump to a date, find free time, run     |
+| `⌘N` / `⇧⌘N`              | New event / new task                                                              |
+| `⌘,`                      | Settings                                                                          |
+| `⌘Z` / `⇧⌘Z`              | Undo / redo                                                                       |
+| `⌘D` / `⌘E` / `⌘Y` / `⌘L` | Day / week / year / life view. `⌘E` and not `⌘W`, which no browser will hand over |
+| `⌘B`                      | Sidebar                                                                           |
+| `←` `→`                   | Previous / next day (a week in the week view, a year in the year and life views)  |
+| `T`                       | Today                                                                             |
+| `F` / `⇧F`                | Ambient — chrome away, and with the screen as well                                |
+| `⌘↵` / `⌘⌫` / `esc`       | Save / delete / cancel in the editor                                              |
+| `⌘⌫`                      | Delete the arc you are pointing at, on the dial                                   |
 
 Type a duration into `⌘P` — `45m`, `1h30`, `free 20` — and the palette lists
 the gaps in the day that fit it. Picking one opens a draft already filling the

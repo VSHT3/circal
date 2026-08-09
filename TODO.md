@@ -8,8 +8,8 @@ dial's fifteen-minute grid clicks under the pointer, editing a repeating event a
 occurrences it means, ⌘⌫ deletes the arc you are pointing at, a calendar can be made and named and
 marked and recoloured and deleted without losing what is in it, an event can wear a mark of its own
 along its arc, a dated task is a pip on the rim you can tick off, the app can tell you a thing is
-about to start, the sidebar carries the moon, and there is a test suite — 1,048 cases over the
-domain layer, `pnpm test`, in the gate.
+about to start, the sidebar carries the moon, the week is seven of the same face at one rotation,
+and there is a test suite — 1,079 cases over the domain layer, `pnpm test`, in the gate.
 
 Done work is not recorded here. The rationale that outlived it lives in `AGENTS.md`, next to the
 code it constrains.
@@ -87,49 +87,43 @@ plus a delete that _moves_ the events rather than taking them with it. So the ar
 this is gone and the one that remains is arithmetic: groups start paying rent past about eight
 calendars. Wait until somebody has eight.
 
-**4. week view — seven dials, not seven columns**
+**4. week view — seven dials, not seven columns** — _done._
 
-In. The old line here read _"no week view: the circle is the argument, a seven-column grid concedes
-it"_ — and that argument does not survive the counter-proposal, because **seven dials are not a
-grid.** They are the same instrument at a different count, and nothing is conceded.
+The old line here read _"no week view: the circle is the argument, a seven-column grid concedes
+it"_, and it did not survive the counter-proposal: **seven dials are not a grid.** They are the
+same instrument at a different count, and nothing is conceded. What it was hiding is that circal
+could not answer "what does my week look like" — ⌘Y says how _busy_ a day was and never _when_ —
+and angle-is-time answers it for nothing.
 
-The gap is real and the old line was hiding it: **circal cannot answer "what does my week look
-like."** ⌘Y says how _busy_ each day is — mark length is a count — and never _when_. That is the one
-question this product cannot answer today, and angle-is-time answers it for free.
+`⌘E`, and the whole idea is that all seven sit at the same rotation. Verified rather than assumed:
+a standup at 09:30 on five weekdays draws at an identical angle on all five faces and is absent on
+the other two, which is the radial column this was for. Each face is `<Face>` with `track`, its
+arcs, and `elapsed`/`hand` on today alone. One readout under the strip, naming the week at rest
+and the day under the pointer. Read-only: no drag targets on seven faces, and the dial is one
+keystroke away.
 
-The version to build:
+Four things the build decided that the plan above got wrong or left open.
 
-- **All seven faces at the same rotation.** This is the whole idea. A ten o'clock meeting sits at
-  the same angle on every face, so the week reads as a _pattern_ — a recurring thing is a radial
-  column across the strip. It is the one thing a seven-column grid is genuinely good at, and it
-  survives the translation to dials intact.
-- **A reduced face**: track, event arcs, and the elapsed ring plus now-hand on today alone. No
-  numerals, no zone ring, no interior. One shared legend, and one shared readout under the strip
-  printing the hovered day's sentence — the centre panel's voice, once, not seven times.
-- **Hover grows a face and click is ⌘D on that day** — the year ring's grammar, unchanged.
-- ⌘W. It crossfades with everything: a week is not a magnified anything.
-- On a phone it cannot be a row. Scroll-snap the faces horizontally; a wrapped 4+3 grid of circles
-  _is_ the version that concedes the argument.
+**⌘W is not available**, to any web page, in any browser — it closes the tab and the keydown is
+never delivered. ⌘E, and the chip in the segment is how anybody finds it anyway.
 
-**The `<Face>` extraction is done.** `Face.tsx` is the drawing — geometry, both bands, ticks,
-numerals, arcs, labels, ghost, now-hand — with every ring outside the arcs opt-in and off by
-default, and `Dial.tsx` is that face with all of them switched on plus `CenterPanel` and the
-gestures. A face given no `onGrab`/`onHover` draws no hit strokes, which is the reduced face
-already: the strip passes `day`, `now`, the agenda and nothing else. Two things the split had to
-fix on the way, both invisible with one face on screen and both fatal with seven — the glow and
-the now-hand gradient had hardcoded ids, and `url(#…)` resolves to the first match in the
-document. Verified by diffing the rendered SVG against the previous build: byte-identical on a
-past day and a future one, and the ring drag, arc drag, hover, undo, both bands, the zone ring
-and ambient all driven by hand.
+**Day ⇄ week is a zoom, not a crossfade.** The strip's face for the day you are on _is_ the dial
+four times smaller, so crossfading would have been the one transition in the app that throws away
+a geometric relationship it actually has. It could not use `transform-origin`, though — the panel
+already carries one for the life zoom — so it solves for a translation instead: `t = f - o - (c -
+o) * s`. Week ⇄ year and week ⇄ life are the crossfades.
 
-One cost is left to accept before the strip itself. **It is a fourth scale** — "one idea at three
-scales" becomes four, and the README's thesis paragraph needs rewriting rather than extending.
+**The readout belongs inside the group, not at the foot of the panel.** Seven circles in a row are
+a seventh of the width tall, so a landscape window leaves a great deal of black under them, and a
+sentence alone in it is a caption for the window rather than a readout for the strip.
 
-Two corrections to the plan above. **⌘W is not available**: it closes the tab in Chrome, Safari
-and Firefox and a page cannot `preventDefault` it, unlike every other view key this app binds.
-And **day ⇄ week is a zoom, not a crossfade** — the strip's face for the day you are on growing
-into the whole dial is the move day ⇄ life already makes, one step less far, and `ZOOM_STEPS`
-exists. Week ⇄ year and week ⇄ life are the crossfades.
+**A fourth segment costs the top bar all three of its breakpoints.** The wordmark now goes at
+1430, the readout at 1220 and the `‹ Today ›` stepper at 480 — the last being new, because below
+that the three groups no longer fit a phone at all. Swept 360→1600 for overflows and collisions.
+
+What it deliberately does not have: an interior, arc labels (11px mono at a seventh of the width
+is a smudge), a lightcycle band, and any way to edit. If a week ever needs to be edited, the
+honest move is to open the day.
 
 **5. look at sidebar** — _done, and the half that landed is the opposite of what this said._
 
@@ -291,8 +285,11 @@ a second answer to a question already answered, on a channel firing fifteen time
 lessons worth keeping. Anything tuned by rendering one event has not been tuned. And a signal
 nobody noticed was missing was not carrying anything.
 
-What is left is one big thing: **the week view** (4). The `<Face>` extraction it needed is done —
-`Dial.tsx` is 1,700 lines no longer, and the strip's reduced face is `<Face>` with nothing switched
-on — so what remains is the strip itself: seven faces at one rotation, one shared readout, the
-zoom in and out of the day, and the README's thesis paragraph. It is still the only item that adds
-a screen rather than finishing one.
+**The big one is spent too.** The week view shipped, and with it the `<Face>` extraction under it,
+so the app is now one idea at four scales and the README says so. What is left on this list is the
+manifest page (9), the worm-through-time line in the life view's empty state (1), the life grid's
+focus-without-zoom (8), a drag-range on the life grid, duplicate-event, recency ranking in ⌘P, and
+`RANGE=THISANDFUTURE` on import — and then (6) onboarding and (1) the intro animation, which were
+always last and now genuinely are.
+
+There is no item left that adds a screen. Everything above finishes one.

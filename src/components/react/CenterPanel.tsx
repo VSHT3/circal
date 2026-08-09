@@ -14,9 +14,8 @@
 
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
-  WAKING,
   colorOf,
-  freeGaps,
+  dayLoad,
   spanLabel,
   statusOf,
   type Calendar,
@@ -122,24 +121,6 @@ const CORNERS: Record<Exclude<TotalsPosition, "center">, string> = {
 function untilText(ms: number): string {
   if (ms < 60_000) return `in ${Math.max(1, Math.floor(ms / 1000))}s`;
   return `in ${formatDuration(Math.floor(ms / 60_000))}`;
-}
-
-/**
- * What the day is made of. Booked is measured against the whole revolution —
- * a six o'clock run is time spoken for — while free is measured against
- * `WAKING`, since the hours you would not book in were never on offer.
- *
- * Both come out of `freeGaps`, which already merges overlaps: two events on
- * the same hour are one hour booked, not two.
- */
-function dayLoad(occurrences: Occurrence[]): { booked: number; free: number } | null {
-  if (!occurrences.some((occ) => !occ.event.allDay)) return null;
-  const idle = (from: number, to: number) =>
-    freeGaps(occurrences, 1, from, to).reduce((sum, gap) => sum + (gap.end - gap.start), 0);
-  return {
-    booked: MINUTES_PER_DAY - idle(0, MINUTES_PER_DAY),
-    free: idle(WAKING.from, WAKING.to),
-  };
 }
 
 export default function CenterPanel({
