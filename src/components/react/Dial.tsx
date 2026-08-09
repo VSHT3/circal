@@ -151,13 +151,6 @@ export interface DialProps {
 const CLICK_DURATION = 60;
 /** Drag granularity. Matches what a fifteen-minute arc can actually show. */
 const STEP = 15;
-/**
- * The deeper notch. Every fourth `STEP` lands on a whole hour and sounds
- * different, so a drag can be counted by ear: four clicks and a knock is an
- * hour, which is the affordance a physical dial has and the reason it can be
- * turned without being watched.
- */
-const HOUR = 60;
 /** How translucent a range still under the pointer is. It has no colour to
  *  show yet, so it is the one thing on the face drawn in plain white. */
 const GHOST_ALPHA = 0.45;
@@ -305,19 +298,6 @@ function clampDelta({ occ, grip }: Adjust, delta: number): number {
 /** The two deltas the grip applies: an end each for a resize, both for a move. */
 function deltas({ grip, delta }: Adjust): { start: number; end: number } {
   return { start: grip === "end" ? 0 : delta, end: grip === "start" ? 0 : delta };
-}
-
-/**
- * The instant the grip is sitting on: the end being dragged, or the start of an
- * event being moved whole. This is what the detent is measured against, because
- * a notch is a position on the ring and not a distance travelled — an event
- * whose edge sits at 9:07 crosses no hour marks, and saying so is honest.
- *
- * It runs outside the day when a drag has crossed midnight, which the hour test
- * survives: 1440 and −60 are both on the hour.
- */
-function gripMinute({ occ, grip, delta }: Adjust): number {
-  return (grip === "end" ? occ.endMin : occ.startMin) + delta;
 }
 
 /**
@@ -640,21 +620,20 @@ export default function Dial({
   }
 
   /**
-   * A detent, at the minute the grip landed on — including the one a drag
-   * starts on, because the grab is a detent too and it is the user gesture
-   * that lets the audio context start at all.
+   * A detent, at every fifteen-minute step the grip lands on — including the
+   * one a drag starts on, because the grab is a detent too and it is the user
+   * gesture that lets the audio context start at all.
    *
-   * Every fourth one is a whole hour and takes the deeper notch, which is what
-   * makes a drag countable without looking at the face.
+   * One click, and the hour is not accented. The centre of the face is
+   * printing the span in words for the whole of the gesture, so counting
+   * hours by ear answers a question already answered — on a channel that
+   * fires fifteen times a second, where a second signal is noise.
    *
    * `whole` is the heavier of the two cues — all of an event moving rather
-   * than one end of it — and it is accented the same way, because the notch
-   * belongs to the ring and not to what is being dragged over it.
+   * than one end of it — and that is the only thing this chooses between.
    */
-  function detent(minute: number, whole = false) {
-    const hour = minute % HOUR === 0;
-    if (whole) say(hour ? "slideHour" : "slide");
-    else say(hour ? "stepHour" : "step");
+  function detent(whole = false) {
+    say(whole ? "slide" : "step");
   }
 
   function onRingDown(e: ReactPointerEvent<SVGCircleElement>) {
@@ -663,7 +642,7 @@ export default function Dial({
     if (m === null) return;
     capture(e);
     setDraw({ from: m, at: m, sweep: 0 });
-    detent(m);
+    detent();
   }
 
   function onRingMove(e: ReactPointerEvent<SVGSVGElement>) {
@@ -683,7 +662,7 @@ export default function Dial({
     );
     const moved = sweep !== draw.sweep;
     setDraw({ ...draw, at, sweep });
-    if (moved) detent(draw.from + sweep);
+    if (moved) detent();
   }
 
   function onRingUp() {
@@ -714,7 +693,7 @@ export default function Dial({
     const next: Adjust = { occ, grip, at, delta: 0, moved: false, shift: 0 };
     setAdjust(next);
     // Nothing is going to move on somebody else's event, so nothing clicks.
-    if (grip !== "none") detent(gripMinute(next), grip === "whole");
+    if (grip !== "none") detent(grip === "whole");
   }
 
   function onArcMove(e: ReactPointerEvent<SVGSVGElement>) {
@@ -738,7 +717,7 @@ export default function Dial({
     setAdjust({ ...next, shift: adjust.shift + step });
     if (step !== 0) onStepDay(step);
     onPreview(draggedEvent(next));
-    detent(gripMinute(next), adjust.grip === "whole");
+    detent(adjust.grip === "whole");
   }
 
   function onArcUp() {

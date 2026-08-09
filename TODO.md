@@ -4,12 +4,12 @@ Recurrence is real, the interior answers the day, arcs carry their own names, th
 ambient mode, ⌘P writes an event in one line and ranks what it finds, the year is a revolution and
 unrolls into the life grid, the life grid names its round days and can be walked with the arrow
 keys, an event can run for as many days as it likes, a drag across the year ring makes one, the
-dial's hour detent can be counted by ear, editing a repeating event asks which occurrences it
-means, ⌘⌫ deletes the arc you are pointing at, a calendar can be made and named and marked and
-recoloured and deleted without losing what is in it, an event can wear a mark of its own along its
-arc, a dated task is a pip on the rim you can tick off, the app can tell you a thing is about to
-start, the sidebar carries the moon, and there is a test suite — 1,048 cases over the domain layer,
-`pnpm test`, in the gate.
+dial's fifteen-minute grid clicks under the pointer, editing a repeating event asks which
+occurrences it means, ⌘⌫ deletes the arc you are pointing at, a calendar can be made and named and
+marked and recoloured and deleted without losing what is in it, an event can wear a mark of its own
+along its arc, a dated task is a pip on the rim you can tick off, the app can tell you a thing is
+about to start, the sidebar carries the moon, and there is a test suite — 1,048 cases over the
+domain layer, `pnpm test`, in the gate.
 
 Done work is not recorded here. The rationale that outlived it lives in `AGENTS.md`, next to the
 code it constrains.
@@ -270,10 +270,14 @@ The old five are spent, and so are the month banding, the life search, the year 
 clock, the milestones, the year ring's range drag, calendar CRUD, the life grid's focus path,
 tasks, reminders, the moon and the sidebar's drawer. **The small list is empty.**
 
-The hour detent is spent twice, and the second time is the one worth remembering: it shipped
-measured-in-isolation at "+20% energy", which came to **1.3 dB in a stream** against a
-click-to-click spread of 0.1 dB. Nobody could hear it for months. Anything tuned by rendering one
-event has not been tuned.
+The hour detent is **gone**, and it is the one thing on this list that was removed rather than
+finished. It shipped measured-in-isolation at "+20% energy", which came to **1.3 dB in a stream**
+against a click-to-click spread of 0.1 dB — inaudible, for months, unmissed. Retuning it to a real
+4 dB and a 14 ms rebound proved the point rather than fixing it: the centre of the face is
+printing `9:00 – 11:30 · 2h 30m` for the whole of the drag, so an audible accent turned out to be
+a second answer to a question already answered, on a channel firing fifteen times a second. Two
+lessons worth keeping. Anything tuned by rendering one event has not been tuned. And a signal
+nobody noticed was missing was not carrying anything.
 
 What is left is one big thing: **the week view** (4), and before it the `<Face>`
 extraction it needs. It is the only item that adds a screen rather than finishing one, and it is a
