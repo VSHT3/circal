@@ -59,6 +59,10 @@ interface WeekDay {
   date: Date;
   today: boolean;
   occurrences: Occurrence[];
+  /** The ones with no span on a revolution, which is why they need their own
+   *  mark: `dayAgenda` hands them over with everything else and `Face` draws
+   *  nothing at all for them. */
+  allDay: Occurrence[];
   booked: number;
   /** Timed events plus all-day ones: what the readout counts. */
   count: number;
@@ -107,6 +111,7 @@ export default function WeekView({
         date,
         today: dayKey(date) === todayKey,
         occurrences: all,
+        allDay: all.filter((occ) => occ.event.allDay),
         booked: load?.booked ?? 0,
         count: all.length,
       };
@@ -159,6 +164,17 @@ export default function WeekView({
           {week.map((d, i) => {
             const centre = weekFaceCentre(layout, i);
             const on = active?.index === i;
+            /**
+             * What the pointer found inside this face — an arc, an all-day
+             * mark, or nothing at all now it has left one.
+             *
+             * The functional update is not decoration: a pointer crossing
+             * straight from one face's arc onto the next face fires that arc's
+             * leave *after* the new face's enter, and a plain `setActive`
+             * would hand the subject back to the face it had left.
+             */
+            const peek = (key: string | null) =>
+              setActive((prev) => (key === null && prev?.index !== i ? prev : { index: i, key }));
             return (
               <button
                 key={d.date.getTime()}
@@ -185,25 +201,18 @@ export default function WeekView({
                 // the day — which is the answer this face's tab stop is for.
                 onClick={() => (peeked && on ? onOpenEvent(peeked) : onSelectDay(d.date))}
               >
-                <FaceCaption day={d.date} today={d.today} active={on} />
+                <FaceCaption
+                  day={d.date}
+                  today={d.today}
+                  selected={i === selectedIndex}
+                  active={on}
+                />
                 <motion.div
                   className="relative"
                   style={{ height: layout.size }}
                   animate={{ scale: on && !reducedMotion ? 1 + GROW : 1 }}
                   transition={{ duration: reducedMotion ? 0 : MOOD_MS / 1000, ease: EASE }}
                 >
-                  {/* The selected day is a halo *outside* the face rather than
-                      a brighter rim on it: which day you came from is not a
-                      fact about the day, the same argument the life grid makes
-                      about its own dot. Outside also keeps it clear of the
-                      track, which is 85% of this box and would otherwise be
-                      wearing two rings a pixel apart. */}
-                  {i === selectedIndex && (
-                    <span
-                      aria-hidden="true"
-                      className="pointer-events-none absolute inset-0 rounded-full ring-1 ring-white/12"
-                    />
-                  )}
                   <Face
                     day={d.date}
                     now={now}
@@ -223,16 +232,23 @@ export default function WeekView({
                     inheritMarks={settings.inheritMarks}
                     hovered={active && on ? active.key : null}
                     // Hover only: this is what puts a hit stroke on the arc,
-                    // and there is deliberately no `onGrab` behind it. The
-                    // functional update is not decoration: a pointer crossing
-                    // straight from one face's arc onto the next face fires
-                    // that arc's leave *after* the new face's enter, and a
-                    // plain `setActive` would hand the subject back.
-                    onHover={(key) =>
-                      setActive((prev) =>
-                        key === null && prev?.index !== i ? prev : { index: i, key },
-                      )
-                    }
+                    // and there is deliberately no `onGrab` behind it.
+                    onHover={peek}
+                  />
+                  {/* An all-day event draws no arc — it has no span on a
+                      revolution — so on the dial it lives in the interior and
+                      here it would live nowhere at all. The face's middle is
+                      empty and the now-hand stops well short of it, so that is
+                      where it goes: the same dot the mini-month uses, with the
+                      name beside it wherever the face is big enough to print
+                      one. */}
+                  <AllDayMarks
+                    occurrences={d.allDay}
+                    calendars={calendars}
+                    size={layout.size}
+                    named={detailed}
+                    peeked={active && on ? active.key : null}
+                    onPeek={peek}
                   />
                 </motion.div>
               </button>
@@ -259,33 +275,135 @@ export default function WeekView({
 }
 
 /**
- * The weekday and the date over each face.
+ * The weekday and the date over each face, and the whole of which day is
+ * which.
  *
  * Three letters and a numeral: the grid is read across, so the label has to be
  * identifiable at a glance rather than legible as prose, and a full weekday at
- * this pitch collides with its neighbour. Today is the one that is named in
- * white — it is the only face carrying a ramp and a hand, and the caption
- * agreeing with them costs nothing.
+ * this pitch collides with its neighbour.
+ *
+ * The selected day is a filled pill round the caption — the mini-month's own
+ * mark, and deliberately the same one, since the two surfaces answer the same
+ * question. It was a ring outside the face for one release, on the argument
+ * that which day you came from is not a fact about the day: true, and it drew
+ * a second circle round a dial that already has a rim, a track and a row of
+ * numerals, which read as the face having been printed twice. Nothing about
+ * the selection belongs on the instrument.
+ *
+ * Today is named in white, which is what the ramp and the hand on its face are
+ * already saying.
  */
-function FaceCaption({ day, today, active }: { day: Date; today: boolean; active: boolean }) {
+function FaceCaption({
+  day,
+  today,
+  selected,
+  active,
+}: {
+  day: Date;
+  today: boolean;
+  selected: boolean;
+  active: boolean;
+}) {
   return (
-    <div className="flex items-baseline justify-center gap-1.5" style={{ height: WEEK_CAPTION_H }}>
+    <div className="flex items-center justify-center" style={{ height: WEEK_CAPTION_H }}>
       <span
         className={cn(
-          "label text-[10.5px] transition-colors",
-          today ? "text-ink" : active ? "text-ink-2" : "text-ink-3",
+          "flex items-baseline gap-1.5 rounded-full px-2 py-[2px] transition-colors",
+          selected && "bg-ink",
         )}
       >
-        {WEEKDAYS[day.getDay()].slice(0, 3)}
+        <span
+          className={cn(
+            "label text-[10.5px] transition-colors",
+            selected ? "text-void" : today ? "text-ink" : active ? "text-ink-2" : "text-ink-3",
+          )}
+        >
+          {WEEKDAYS[day.getDay()].slice(0, 3)}
+        </span>
+        <span
+          className={cn(
+            "text-[12px] tabular-nums transition-colors",
+            selected ? "text-void" : today ? "text-ink" : active ? "text-ink-2" : "text-ink-3",
+          )}
+        >
+          {day.getDate()}
+        </span>
       </span>
-      <span
-        className={cn(
-          "text-[12px] tabular-nums transition-colors",
-          today ? "text-ink" : active ? "text-ink-2" : "text-ink-3",
-        )}
+    </div>
+  );
+}
+
+/**
+ * The day's all-day events, in the middle of the face.
+ *
+ * They have no span on a revolution — that is what all-day *means* here — so
+ * `Face` draws nothing for them, and on the dial they live in the interior
+ * instead. This face has no interior, but it does have an empty middle: the
+ * now-hand stops at `HAND_INNER`, so the central two fifths of the disc are
+ * free on every face including today's.
+ *
+ * A dot and the name, where the face can hold the name; bare dots below that,
+ * because 10.5px of title in a 65px disc is not a title. Two of them, then a
+ * count — a face carrying five all-day events is a fact about that day, and
+ * printing all five is a list where the grid wanted a mark.
+ */
+function AllDayMarks({
+  occurrences,
+  calendars,
+  size,
+  named,
+  peeked,
+  onPeek,
+}: {
+  occurrences: Occurrence[];
+  calendars: Calendar[];
+  /** The face's diameter: what decides how much room the middle has. */
+  size: number;
+  named: boolean;
+  peeked: string | null;
+  onPeek: (key: string | null) => void;
+}) {
+  if (occurrences.length === 0) return null;
+  const shown = occurrences.slice(0, named ? 2 : 4);
+  const rest = occurrences.length - shown.length;
+
+  return (
+    <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+      <div
+        className={cn("flex", named ? "flex-col items-center gap-[3px]" : "items-center gap-[5px]")}
+        // Inside the disc the now-hand leaves empty: `HAND_INNER` is 205 of
+        // the viewBox's 500-unit radius, so two fifths of the diameter is the
+        // widest a row here can be without running under the hand's pip.
+        style={{ maxWidth: size * 0.4 }}
       >
-        {day.getDate()}
-      </span>
+        {shown.map((occ) => {
+          const color = colorOf(occ.event, calendars);
+          return (
+            <span
+              key={occ.key}
+              className="pointer-events-auto flex max-w-full cursor-pointer items-center gap-[5px]"
+              onPointerEnter={() => onPeek(occ.key)}
+              onPointerLeave={() => onPeek(null)}
+            >
+              <span
+                className="size-[5px] shrink-0 rounded-full transition-opacity"
+                style={{ backgroundColor: color, opacity: peeked === occ.key ? 1 : 0.85 }}
+              />
+              {named && (
+                <span
+                  className={cn(
+                    "truncate text-[10.5px] leading-none transition-colors",
+                    peeked === occ.key ? "text-ink" : "text-ink-2",
+                  )}
+                >
+                  {occ.event.title || "Untitled"}
+                </span>
+              )}
+            </span>
+          );
+        })}
+        {rest > 0 && <span className="label shrink-0 text-[9px] text-ink-3">+{rest}</span>}
+      </div>
     </div>
   );
 }
