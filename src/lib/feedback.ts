@@ -44,6 +44,16 @@ const MIN_GAP_MS = 22;
  * impulse is never what varies between cues — the resonances are.
  */
 const BURST_SECONDS = 0.003;
+/**
+ * How long after an hour cue's first contact its second lands.
+ *
+ * Tight on purpose: at 50 ms this would be two events, and an hour mark is
+ * one detent. At 14 ms it is a rebound — the ear hears one contact with a
+ * flam on it, which is what a grip dropping into a deeper notch does. It is
+ * also the half of the accent that survives a fast drag, where level
+ * differences start competing with the cues either side.
+ */
+const REBOUND_SECONDS = 0.014;
 
 /** Everything the app can say. */
 export type Cue = "step" | "stepHour" | "slide" | "slideHour" | "opened" | "created" | "deleted";
@@ -108,18 +118,38 @@ interface Sound {
  * Seven cues, out of two mechanisms.
  *
  * `step` is an edge landing on a mark. `slide` is the same mechanism an
- * octave down, longer and softer — it reads as weight, which is exactly the
- * difference between moving one end of an event and moving all of it.
+ * octave down and softer — and it is the *softer* that carries it: measured,
+ * `slide` sits 6.9 dB under `step` and only 3.6% lower in spectral centroid.
+ * This instrument speaks in level, and that is a fact about its exciter
+ * rather than a choice. A Q=8 bandpass passes about 1% of a 3 ms noise burst
+ * while the contact passes nearly all of it, so the resonance table colours
+ * the family but does not define it.
  *
- * `stepHour` and `slideHour` are those two on a deeper notch: the same
- * partials at three-quarters the level with a body a fifth below them, longer
- * than either. A drag crosses four of them an hour, so the hour has to be
- * *the same click* — a different pitch class would read as a second
- * mechanism, and then the ear is identifying objects instead of counting. The
- * accent is a property of where the grip landed and not of how far it has
- * come, because that is what a detent physically is: the notch is cut in the
- * ring, so an event whose edge sits at 9:07 crosses no hour marks and
- * honestly says so.
+ * `stepHour` and `slideHour` are those two on a deeper notch, and the accent
+ * is made on the two channels that are actually available:
+ *
+ * - **4 dB**, made by taking the *quarter* click down rather than pushing the
+ *   hour up. Nothing in the app got louder — `stepHour` peaks exactly where
+ *   `step` used to — and a texture that fires fifteen times a second got
+ *   quieter, which at that rate is a mercy.
+ * - **A rebound**, `REBOUND_SECONDS` after the first contact at about 40% of
+ *   it. The level accent alone is enough at a reading pace; the flam is what
+ *   still reads during a rip.
+ *
+ * The previous pair tried to accent with timbre and ring length instead —
+ * the same partials at three-quarters level plus a body a fifth below,
+ * measured in isolation at "+20% energy". In a stream that came to **1.3 dB**
+ * with no rebound at all, against a click-to-click spread of 0.1 dB: an
+ * accent a fifth of the way to audible. Timbre was never available. Do not
+ * reach for it again without measuring the contact first.
+ *
+ * The low partials stay because they are free and they do shift the balance
+ * a little, but they are not what you are hearing. A different pitch *class*
+ * would read as a second mechanism, and then the ear identifies objects
+ * instead of counting them. The accent is a property of where the grip
+ * landed and not of how far it has come, because that is what a detent
+ * physically is: the notch is cut in the ring, so an event whose edge sits at
+ * 9:07 crosses no hour marks and honestly says so.
  *
  * `created` and `deleted` are struck three times:
  *
@@ -143,40 +173,53 @@ interface Sound {
 const SOUNDS: Record<Cue, Sound> = {
   step: {
     strikes: [
-      { hz: 1950, q: 8, level: 1, decay: 0.009 },
-      { hz: 4200, q: 16, level: 0.5, decay: 0.005 },
+      { hz: 1950, q: 8, level: 1.15, decay: 0.009 },
+      { hz: 4200, q: 16, level: 0.58, decay: 0.005 },
     ],
-    contact: { hz: 2000, level: 0.35 },
+    // Roughly half what it was, with the strikes lifted to match: the contact
+    // led the resonators by 13.6 dB and the cue was a noise tick with a table
+    // of frequencies it never played. At 6.6 dB it is still a click — the
+    // point was never to make this a bell — and the body under it is audible.
+    contact: { hz: 2000, level: 0.18 },
     buzz: 8,
     gated: true,
   },
   stepHour: {
     strikes: [
-      { hz: 1250, q: 6, level: 1.15, decay: 0.02 },
-      { hz: 1950, q: 8, level: 0.55, decay: 0.009 },
-      { hz: 4200, q: 16, level: 0.4, decay: 0.005 },
+      { hz: 1250, q: 6, level: 1.66, decay: 0.02 },
+      { hz: 1950, q: 8, level: 0.8, decay: 0.009 },
+      { hz: 4200, q: 16, level: 0.58, decay: 0.005 },
+      { hz: 1250, q: 6, level: 0.72, decay: 0.016, at: REBOUND_SECONDS },
+      { hz: 1950, q: 8, level: 0.35, decay: 0.008, at: REBOUND_SECONDS },
     ],
-    contact: { hz: 1500, level: 0.34 },
-    buzz: 12,
+    contact: { hz: 1500, level: 0.18 },
+    // Duration is the only knob a vibration motor has, and most of them take
+    // 10 ms to spin up — 8 against 12 was the haptic version of the 1.3 dB
+    // mistake. A pattern was the other option and it is worse: `vibrate`
+    // replaces whatever is running, so at a fast drag the second tap of one
+    // hour would be cut off by the next quarter.
+    buzz: 18,
     gated: true,
   },
   slide: {
     strikes: [
-      { hz: 920, q: 6, level: 0.9, decay: 0.014 },
-      { hz: 1900, q: 11, level: 0.28, decay: 0.007 },
+      { hz: 920, q: 6, level: 0.86, decay: 0.014 },
+      { hz: 1900, q: 11, level: 0.27, decay: 0.007 },
     ],
-    contact: { hz: 900, level: 0.16 },
+    contact: { hz: 900, level: 0.09 },
     buzz: 5,
     gated: true,
   },
   slideHour: {
     strikes: [
-      { hz: 600, q: 4.5, level: 0.9, decay: 0.026 },
-      { hz: 920, q: 6, level: 0.62, decay: 0.014 },
-      { hz: 1900, q: 11, level: 0.2, decay: 0.007 },
+      { hz: 600, q: 4.5, level: 1.2, decay: 0.026 },
+      { hz: 920, q: 6, level: 0.83, decay: 0.014 },
+      { hz: 1900, q: 11, level: 0.27, decay: 0.007 },
+      { hz: 600, q: 4.5, level: 0.53, decay: 0.02, at: REBOUND_SECONDS },
+      { hz: 920, q: 6, level: 0.37, decay: 0.012, at: REBOUND_SECONDS },
     ],
-    contact: { hz: 800, level: 0.17 },
-    buzz: 8,
+    contact: { hz: 800, level: 0.09 },
+    buzz: 12,
     gated: true,
   },
   opened: {
@@ -317,9 +360,13 @@ const voices = new Map<Synth, AudioBuffer>();
  * distinct strike time, each through its own resonators.
  *
  * A separate impulse per hit rather than one long-lived source, because the
- * hits *are* separate contacts — and because the noise is different each
- * time, which is why three hits from one recipe do not sound like a machine
- * repeating itself.
+ * hits *are* separate contacts, each with its own start time, envelope and
+ * resonators. They share one burst buffer — it is cached for the session —
+ * so what keeps a row of them from sounding like a machine is `detune`, and
+ * that is also what makes the level of a cue repeatable: measured across a
+ * sixteen-click drag, one quarter click differs from the next by 0.1 dB.
+ * A per-hit noise draw would put ±2 dB of scatter on every click and bury an
+ * accent this size in it.
  */
 function play(sound: Sound) {
   const built = audio();
