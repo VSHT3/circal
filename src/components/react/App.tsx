@@ -65,7 +65,7 @@ import Dial, { type DragPreview } from "./Dial";
 import EventEditor from "./EventEditor";
 import LifeView from "./LifeView";
 import Settings from "./Settings";
-import Sidebar from "./Sidebar";
+import Sidebar, { SIDEBAR_W } from "./Sidebar";
 import { ScopeDialog } from "./ScopePrompt";
 import Toast from "./Toast";
 import TopBar from "./TopBar";
@@ -450,6 +450,26 @@ export default function App() {
   );
 
   /**
+   * Whether the sidebar can afford to push, measured rather than guessed at
+   * with a breakpoint.
+   *
+   * The dial is height-bound on any stage wider than it is tall, so taking
+   * 260px off the width there costs the instrument *nothing* — the face does
+   * not even shrink. The moment the stage would become width-bound, every
+   * pixel the column takes comes straight out of the face, and that is the
+   * condition. It is not "is this a phone": a tablet in portrait is 1024px
+   * wide and still cannot afford it, and a half-screen desktop window flips
+   * over at exactly the point where it starts to hurt.
+   *
+   * Measured on the *row* rather than on `main`, which is already the pushed
+   * width — asking `main` would shrink the stage, flip the answer to drawer,
+   * un-shrink it, and oscillate. Nobody sees the pre-measurement frame,
+   * because the sidebar starts closed.
+   */
+  const [rowRef, rowWidth, rowHeight] = useElementSize<HTMLDivElement>();
+  const sidebarMode = rowWidth > 0 && rowWidth - SIDEBAR_W < rowHeight ? "drawer" : "push";
+
+  /**
    * Where the zoom meets the grid: the selected day's dot, in the panel's own
    * coordinates. That is the day you were looking at on the dial on the way
    * out, and the day you just clicked on the way back — so the dial always
@@ -558,8 +578,16 @@ export default function App() {
    */
   const busy =
     paletteOpen || settingsOpen || editor !== null || ask !== null || calendarEditor !== null;
+  /**
+   * `busy` plus the one panel that has no state on it but does cover the
+   * face. The two questions are not the same: ← under an open editor would
+   * step the day out from under unsaved work, which is why `busy` gates the
+   * hotkeys, while an open drawer only means the instrument is not reachable
+   * — which is what the ambient timer and the dial's own ⌘⌫ ask about.
+   */
+  const shaded = busy || (sidebarMode === "drawer" && sidebarOpen);
   useIdleAfter(
-    inAmbient || busy || view !== "day" ? 0 : settings.ambientAfter * 60_000,
+    inAmbient || shaded || view !== "day" ? 0 : settings.ambientAfter * 60_000,
     useCallback(() => setAmbient("auto"), []),
   );
   useOnInput(
@@ -758,6 +786,14 @@ export default function App() {
       setSettingsOpen(false);
       setEditor(null);
       if (panelled) return;
+      // The drawer is the next layer down: it covers the face and it is the
+      // only thing on screen, so Escape belongs to it before it belongs to a
+      // lit grid or to ambient. In `push` mode it is not covering anything
+      // and Escape is not its key.
+      if (sidebarMode === "drawer" && sidebarOpen) {
+        setSidebarOpen(false);
+        return;
+      }
       if (lifeSearch) {
         setLifeSearch("");
         return;
@@ -1156,9 +1192,14 @@ export default function App() {
         <TopBar day={day} view={view} sidebarOpen={sidebarOpen} onStep={step} actions={actions} />
       </motion.div>
 
-      <div className="flex min-h-0 flex-1">
+      {/* `relative`, because the drawer and its scrim are absolute inside this
+          row rather than over the whole app: the top bar stays above them, so
+          the button that opened the drawer is still the button that closes
+          it, and it needs no close verb of its own. */}
+      <div ref={rowRef} className="relative flex min-h-0 flex-1">
         <Sidebar
           open={sidebarOpen && !inAmbient}
+          mode={sidebarMode}
           day={day}
           now={now}
           events={visible}
@@ -1209,7 +1250,7 @@ export default function App() {
                   onPreview={setPreview}
                   onStepDay={step}
                   ambient={inAmbient}
-                  covered={busy}
+                  covered={shaded}
                 />
               )}
               {view === "year" && (

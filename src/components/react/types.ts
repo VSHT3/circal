@@ -137,6 +137,12 @@ export interface TopBarProps {
 
 export interface SidebarProps {
   open: boolean;
+  /**
+   * `push` puts the column beside the dial and lets the stage shrink around
+   * it; `drawer` lays it over the face on a scrim. The shell decides, and it
+   * decides by geometry rather than by a breakpoint — see `SIDEBAR_W`.
+   */
+  mode: "push" | "drawer";
   day: Date;
   now: Date;
   events: CalEvent[];

@@ -119,7 +119,7 @@ the real work and the real prerequisite — perhaps 300 careful lines — and sk
 copy of the arc-drawing code, which is how this repo gets its first duplicated convention.
 `faceToPanel` / `polar` / `arcPath` are already scale-free, so the geometry side is ready.
 
-**5. look at sidebar** — _half done, and the half that landed is the opposite of what this said._
+**5. look at sidebar** — _done, and the half that landed is the opposite of what this said._
 
 The old line here read _"the sidebar and the centre panel print the same agenda twice"_, and
 prescribed the mini-month's removal to make room for the day's full log. Both halves were wrong.
@@ -128,10 +128,17 @@ today it prints a date and nothing else — and the mini-month is the one thing 
 interior genuinely cannot do. So: **the agenda went and the mini-month stayed.** What is left is
 Calendars, the month, and the moon.
 
-What is still open is the mechanical half, which the old line was right about: it is a 260px
-column that _pushes_ (`Sidebar.tsx`) with no drawer mode, so on a phone it is unusable. The
-tab-order half of that is fixed (`inert`, not `aria-hidden` over live children); the drawer half
-is not, and it is now the last plain defect in the app.
+The mechanical half landed too, and the interesting part is that it needed no breakpoint. The
+column pushes while the dial is height-bound — which is every stage wider than it is tall, where
+260px off the width costs the face nothing at all — and becomes a drawer the moment the stage
+would go width-bound. `rowWidth - SIDEBAR_W < rowHeight`, measured on the row. A tablet in
+portrait is 1024px wide and still cannot afford it; a half-screen desktop window flips over
+exactly where it starts to hurt. The drawer sits under the top bar rather than over it, so the
+button that opened it closes it and there is no second verb to explain.
+
+Two things the phone found on the way: the top bar's centred readout collides with the left group
+below 820px, and the ⌘ chips on `ActionPill` pushed Settings clean off a 414px screen. Both are
+one line each and both are measured, in the same style as the wordmark's own 1180.
 
 **6. tasks?** — _done, and the question mark answered itself: dated only._
 
@@ -260,12 +267,15 @@ you, and the faces stay eye-verified.
 ### If it were one thing
 
 The old five are spent, and so are the month banding, the life search, the year view, the shell's
-clock, the milestones, the hour detent, the year ring's range drag, calendar CRUD, the life grid's
-focus path, tasks, reminders and the moon. The small list has one thing on it: **the sidebar's
-drawer mode**, so the column works on a phone. That is the last plain defect in the app and it is
-an afternoon.
+clock, the milestones, the year ring's range drag, calendar CRUD, the life grid's focus path,
+tasks, reminders, the moon and the sidebar's drawer. **The small list is empty.**
 
-What is left after it is one big thing: **the week view** (4), and before it the `<Face>`
+The hour detent is spent twice, and the second time is the one worth remembering: it shipped
+measured-in-isolation at "+20% energy", which came to **1.3 dB in a stream** against a
+click-to-click spread of 0.1 dB. Nobody could hear it for months. Anything tuned by rendering one
+event has not been tuned.
+
+What is left is one big thing: **the week view** (4), and before it the `<Face>`
 extraction it needs. It is the only item that adds a screen rather than finishing one, and it is a
 week rather than an afternoon — `Dial.tsx` is 1,700 lines built around one face filling a
 viewport, and half of this file's rationale lives inside it. Decide up front which of numerals,

@@ -73,8 +73,16 @@ export default function TopBar({ day, view, sidebarOpen, onStep, actions }: TopB
 
       {/* The readout names what is on screen: the day on the dial, the year in
           the grid, and in the life view the one word that view is about —
-          every date it could print is already in its own header. */}
-      <div className="pointer-events-none absolute left-1/2 -translate-x-1/2">
+          every date it could print is already in its own header.
+
+          Gone below 820px, measured the way the wordmark's own 1180 was: it is
+          centred on the *bar* rather than on the space the two groups leave,
+          so it collides with the left group rather than shrinking, and 820 is
+          where the longest header this can print (`Wednesday · Sep 30`) stops
+          clearing it. Nothing is lost — the dial's interior prints the date,
+          and the year ring prints the year. Anything added to the left group
+          has to re-measure this as well as the wordmark's. */}
+      <div className="pointer-events-none absolute left-1/2 hidden -translate-x-1/2 min-[820px]:block">
         <span className="label text-[12px] tracking-[0.22em] text-ink-2">
           {view === "day" ? (
             <>

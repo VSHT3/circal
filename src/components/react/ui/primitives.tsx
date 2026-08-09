@@ -87,7 +87,14 @@ export function IconButton({ label, active, className, ...props }: IconButtonPro
   );
 }
 
-/** Icon + shortcut, in a pill. The top bar's vocabulary for a named action. */
+/**
+ * Icon + shortcut, in a pill. The top bar's vocabulary for a named action.
+ *
+ * The chips go at the same 900px `Segmented`'s do, and for the same reason:
+ * they name a key nobody has on a window this narrow, and with them the bar's
+ * two groups overflow a phone by 92px — which puts Settings off the edge of
+ * the screen entirely.
+ */
 export function ActionPill({
   icon,
   keys,
@@ -112,9 +119,11 @@ export function ActionPill({
       {...props}
     >
       {icon}
-      {keys?.map((k) => (
-        <Kbd key={k}>{k}</Kbd>
-      ))}
+      <span className="hidden items-center gap-1.5 min-[900px]:flex">
+        {keys?.map((k) => (
+          <Kbd key={k}>{k}</Kbd>
+        ))}
+      </span>
     </button>
   );
 }
