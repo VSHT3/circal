@@ -284,6 +284,10 @@ export interface WeekViewProps {
   /** Name a day — which leaves this view for the dial, exactly as the year
    *  ring's click does. */
   onSelectDay: (day: Date) => void;
+  /** Open the event under the pointer. An arc here opens and never moves:
+   *  seven faces of drag targets is seven chances to edit the wrong day, and
+   *  the editor is a modal, so it lands over the week rather than leaving it. */
+  onOpenEvent: (occ: Occurrence) => void;
 }
 
 export interface LifeViewProps {

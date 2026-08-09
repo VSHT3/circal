@@ -110,6 +110,14 @@ export interface FaceProps {
    *  `quarters` fades the other eight rather than unmounting them, so a mode
    *  change recedes; `none` is the reduced face and mounts nothing. */
   numerals?: "all" | "quarters" | "none";
+  /** The AM/PM caption under a twelve-hour face's four major numerals.
+   *  Off where the face is too small to print 13.5 units as a word — four
+   *  pixels at week size, which is dirt under the numeral rather than a
+   *  caption. Without it a twelve-hour face reads as an analog clock, 12 at
+   *  the top and 6 at the bottom, which is a convention rather than an
+   *  ambiguity; the numerals are only there to place an arc to the nearest
+   *  quarter turn in the first place. */
+  meridiem?: boolean;
   /** The ramp of light around the rim, up to the present. Drawn only where
    *  `band` has no half to draw — the two share the track, and a second ring
    *  beside it reads as one line accidentally doubled. */
@@ -223,6 +231,7 @@ export default function Face({
   track = false,
   ticks = false,
   numerals = "none",
+  meridiem = true,
   elapsed = false,
   hand = false,
   band = null,
@@ -426,7 +435,9 @@ export default function Face({
       </AnimatePresence>
 
       {ticks && <Ticks clock={clock} />}
-      {numerals !== "none" && <HourLabels clock={clock} quartersOnly={numerals === "quarters"} />}
+      {numerals !== "none" && (
+        <HourLabels clock={clock} quartersOnly={numerals === "quarters"} meridiem={meridiem} />
+      )}
 
       {/* Drag target. An annulus, so the agenda in the middle stays clickable
           and the corners of the window do not create events. */}
@@ -753,7 +764,15 @@ function Ticks({ clock }: { clock: Clock }) {
  * blinking out. Eight `<text>` nodes at zero alpha is what a fade costs here,
  * and they are the same eight that are mounted the rest of the time.
  */
-function HourLabels({ clock, quartersOnly = false }: { clock: Clock; quartersOnly?: boolean }) {
+function HourLabels({
+  clock,
+  quartersOnly = false,
+  meridiem = true,
+}: {
+  clock: Clock;
+  quartersOnly?: boolean;
+  meridiem?: boolean;
+}) {
   return (
     <g pointerEvents="none" textAnchor="middle">
       {Array.from({ length: 24 }, (_, h) => {
@@ -788,8 +807,9 @@ function HourLabels({ clock, quartersOnly = false }: { clock: Clock; quartersOnl
             <text
               x={x}
               // The AM/PM face carries a caption under the numeral, so its
-              // major label sits high to keep the pair optically centred.
-              y={clock === "12h" ? y - 4 : y}
+              // major label sits high to keep the pair optically centred —
+              // and sits where a 24-hour one does once the caption is off.
+              y={clock === "12h" && meridiem ? y - 4 : y}
               dominantBaseline="central"
               className="fill-ink"
               fontSize={30}
@@ -798,7 +818,7 @@ function HourLabels({ clock, quartersOnly = false }: { clock: Clock; quartersOnl
             >
               {clock === "12h" ? twelve : `${h}`.padStart(2, "0")}
             </text>
-            {clock === "12h" && (
+            {clock === "12h" && meridiem && (
               <text
                 x={x}
                 y={y + 20}
@@ -898,8 +918,11 @@ function useEasedAngle(target: number): number {
  * A grip is at most a third of the sweep, so a short event still has a middle
  * to grab, and an event too short to have ends at all (a dot) only moves.
  *
- * `onGrab` and `onHover` are both optional, and a face given neither draws no
- * hit strokes at all — which is the whole of a read-only face.
+ * `onGrab` and `onHover` are both optional. Given neither, an arc draws no hit
+ * strokes at all — the face is a picture. Given `onHover` alone it draws one,
+ * over the whole arc and with a pointer cursor: the week's faces are too small
+ * to drag on and too small to label, so pointing is the only question they
+ * take, and the answer is printed in real pixels underneath them.
  */
 function EventArc({
   occ,
@@ -1010,17 +1033,14 @@ function EventArc({
   // arc the two caps are the entire handles.
   const gripDeg = Math.max(((gripReach - gripWidth / 2) / r) * (180 / Math.PI), 0.001);
 
+  /** Whether this arc can be taken hold of at all: a face with no `onGrab`
+   *  and a subscription's event are the same shape here — one hit path over
+   *  the whole arc, pointing rather than gripping. */
+  const movable = Boolean(onGrab) && !locked;
+
   const zones: { grip: Grip; d: string; width: number; cursor: string }[] =
-    locked || dot
+    movable && !dot
       ? [
-          {
-            grip: locked ? "none" : "whole",
-            d,
-            width: HIT_WIDTH,
-            cursor: locked ? "cursor-pointer" : "cursor-grab",
-          },
-        ]
-      : [
           { grip: "whole", d, width: HIT_WIDTH, cursor: "cursor-grab" },
           {
             grip: "start",
@@ -1033,6 +1053,14 @@ function EventArc({
             d: arcPath(r, tail - gripDeg, tail),
             width: gripWidth,
             cursor: "cursor-ew-resize",
+          },
+        ]
+      : [
+          {
+            grip: movable ? "whole" : "none",
+            d,
+            width: HIT_WIDTH,
+            cursor: movable ? "cursor-grab" : "cursor-pointer",
           },
         ];
 
@@ -1114,7 +1142,7 @@ function EventArc({
       )}
       {/* The ends are listed after the body, so where they overlap it they
           win the hit test — a stacking order, not a subtraction. */}
-      {onGrab &&
+      {(onGrab || onHover) &&
         zones.map((zone) => (
           <path
             key={zone.grip}
@@ -1129,7 +1157,7 @@ function EventArc({
             // whole shape to cover.
             strokeLinecap={zone.grip === "whole" && zones.length > 1 ? "butt" : "round"}
             pointerEvents="stroke"
-            onPointerDown={(e) => onGrab(occ, zone.grip, e)}
+            onPointerDown={onGrab && ((e) => onGrab(occ, zone.grip, e))}
           />
         ))}
     </g>

@@ -90,7 +90,7 @@ export default function TopBar({ day, view, sidebarOpen, onStep, actions }: TopB
           1220 is where the longest header this can print (`Wednesday · Sep
           30`) stops clearing that group with the wordmark already withdrawn.
           It was 820 with three segments. Nothing is lost — the dial's interior
-          prints the date, the week strip its own range and the year ring the
+          prints the date, the week its own range and the year ring the
           year. Anything added to the left group has to re-measure this as well
           as the wordmark's. */}
       <div className="pointer-events-none absolute left-1/2 hidden -translate-x-1/2 min-[1220px]:block">

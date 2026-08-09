@@ -130,12 +130,12 @@ function unrollsIn(flow: ViewFlow): boolean {
 }
 
 /**
- * Day ⇄ week zooms too, and on the same identity: the strip's face for the day
- * you are on *is* the dial, four times smaller. Crossfading it would be the one
- * transition in the app that throws away a geometric relationship it has.
+ * Day ⇄ week zooms too, and on the same identity: the grid's face for the day
+ * you are on *is* the dial, a few times smaller. Crossfading it would be the
+ * one transition in the app that throws away a geometric relationship it has.
  *
  * It is a separate pair from the life zoom because the distance is different by
- * two orders of magnitude — 1 → ~0.22 rather than 1 → 0.008 — so it takes one
+ * two orders of magnitude — 1 → ~0.4 rather than 1 → 0.008 — so it takes one
  * eased tween where `ZOOM_STEPS`' geometric ladder would read as a stutter.
  * Week ⇄ year and week ⇄ life are crossfades: a week is not a magnified year
  * and a row of the life grid is not seven dials.
@@ -168,7 +168,7 @@ const ZOOM_OUT = { duration: 0.85, ease: "linear" as const, times: [...ZOOM_OUT_
 const ZOOM_IN = { duration: 0.8, delay: 0.3, ease: "linear" as const, times: [...ZOOM_IN_TIMES] };
 
 /**
- * The week's step, which is a zoom of about four times rather than of two
+ * The week's step, which is a zoom of about three times rather than of two
  * orders of magnitude — so one eased tween, not a ladder. The dial holds full
  * opacity for most of the way and gives up only at the end, over the face it
  * has landed on: it is the same day at two sizes, and the handover should read
@@ -231,7 +231,7 @@ const PANEL = {
       // whole movement is invisible — it has to happen on black, and the grid
       // comes up as the days settle onto it.
       //
-      // The strip is the exception, and waits for nothing: the dial is landing
+      // The week is the exception, and waits for nothing: the dial is landing
       // *on* one of its faces, so that face has to already be there.
       transition: {
         duration: stepsOut(flow.current) ? STEP_MS : 0.45,
@@ -276,7 +276,7 @@ const PANEL = {
         transition: { duration: UNROLL_OUT_MS / 1000 },
       };
     }
-    // The strip leaving under a dial that is growing out of one of its faces
+    // The week leaving under a dial that is growing out of one of its faces
     // keeps its scale: shrinking by 3% would drag that face out from under
     // the shape claiming to be it. Everything else settles back as it goes.
     return {
@@ -527,8 +527,8 @@ export default function App() {
     [settings.birth, settings.lifeExpectancy, stageWidth, stageHeight],
   );
 
-  /** The week strip, resolved against the same box and for the same reason:
-   *  the dial has to know which face it is shrinking onto before the strip
+  /** The week grid, resolved against the same box and for the same reason:
+   *  the dial has to know which face it is shrinking onto before the grid
    *  that draws that face exists. */
   const weekBox = useMemo(
     () => weekStage(day, stageWidth - 2 * PANEL_PAD, stageHeight - 2 * PANEL_PAD),
@@ -567,7 +567,7 @@ export default function App() {
     : "center";
 
   /**
-   * Where the zoom meets the strip: the same day's face, as a transform of the
+   * Where the zoom meets the week: the same day's face, as a transform of the
    * whole panel.
    *
    * The panel already carries a `transform-origin` — the life dot — and the
@@ -897,10 +897,10 @@ export default function App() {
       // Stepping replaces rather than pushes: a held arrow key must not fill
       // the history stack with days you scrolled past.
       //
-      // One screenful each time: a day on the dial, a week on the strip, a
-      // year in the two grid views. The unit is whatever the view draws, so a
-      // step always moves the picture by exactly the picture — on the strip a
-      // step of a day would slide the same seven faces along by one, which is
+      // One screenful each time: a day on the dial, a week on its seven faces,
+      // a year in the two grid views. The unit is whatever the view draws, so
+      // a step always moves the picture by exactly the picture — in the week a
+      // step of a day would shuffle the same seven faces along by one, which is
       // a different week only in the sense that it is not the one you asked
       // for.
       go(
@@ -1413,6 +1413,7 @@ export default function App() {
                   calendars={calendars}
                   settings={settings}
                   onSelectDay={(next) => actions.goDay(next)}
+                  onOpenEvent={openOccurrence}
                 />
               )}
               {view === "year" && (
