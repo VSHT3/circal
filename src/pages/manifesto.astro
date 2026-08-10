@@ -13,15 +13,20 @@ import Base from "@/layouts/Base.astro";
  * Worker; a second static page is another file in `dist/`, served by the assets
  * binding, costing the product nothing.
  *
- * It states, it does not explain. Nothing here describes a feature, names a
- * file or defends a decision: that is what `README.md` and `AGENTS.md` are for,
- * and a manifesto that reads like release notes is neither.
+ * **It asserts. It does not explain, and it has no opponent.** The first draft
+ * was six sections of how the software works; the second argued against list
+ * calendars and against SaaS, which is positioning wearing a manifesto's
+ * clothes. What is left is about time. No headings, because five headed
+ * sections is a features page's skeleton. No `because`, no `which is`, no
+ * `that is`: a joined-up argument invites disagreement with the joins, and
+ * these are not arguments, they are statements. Three assertions stand alone
+ * at size, plus the closer; if you add a fourth, delete one.
  */
 ---
 
 <Base
   title="Manifesto · circal"
-  description="Your calendar draws time as a line. A line promises that today ends somewhere further on. It does not."
+  description="Time does not run out in front of you. It comes back around. Why circal draws a day as one revolution."
   scroll
 >
   <main class="mx-auto w-full max-w-[36rem] px-6 pt-14 pb-24 sm:pt-20">
@@ -44,13 +49,17 @@ import Base from "@/layouts/Base.astro";
       A day is a circle.
     </h1>
 
-    <p class="mt-7 text-[17px] leading-[1.6] text-ink-2">
-      Your calendar draws time as a line. A list running down, a week running right, hours stacked
-      like receipts. A line makes a promise: that today ends somewhere further on.
-    </p>
+    {
+      /* The borrowed line sits under the title rather than in a section of its
+        own: it says the whole page in seven words, and it is credited at the
+        foot. */
+    }
+    <p class="mt-5 text-[15px] leading-[1.5] text-ink-3 italic">You are a worm through time.</p>
 
-    <p class="mt-6 text-[21px] leading-[1.4] font-medium tracking-[-0.015em] text-ink">
-      It does not. You go the whole way around and arrive back at the hour you left.
+    <p
+      class="mt-10 text-[23px] leading-[1.35] font-medium tracking-[-0.02em] text-balance text-ink"
+    >
+      Time does not run out in front of you. It comes back around.
     </p>
 
     {
@@ -153,104 +162,57 @@ import Base from "@/layouts/Base.astro";
       </div>
     </figure>
 
-    <p class="mt-7 text-[16px] leading-[1.7] text-ink-2">
-      A day, a week, a year, a life. One shape at four distances. Every one of them turns, and every
-      one of them comes back around.
+    <p class="mt-6 text-center text-[13px] text-ink-3">The same shape, four distances.</p>
+
+    <p class="mt-14 text-[17px] leading-[1.75] text-ink-2">
+      You were given twenty four hours today. You will be given twenty four tomorrow. There is no
+      system, no arrangement and no amount of money that will get you twenty five.
     </p>
 
-    <section class="mt-16">
-      <h2 class="label text-ink-3">The return</h2>
-      <p class="mt-4 text-[16px] leading-[1.7] text-ink-2">
-        Every day issues you the same twenty four positions. The same nine in the morning. The same
-        dead hour after lunch. Nothing new is minted. The face you are handed today is the face you
-        were handed yesterday, wiped.
-      </p>
-      <p class="mt-4 text-[16px] leading-[1.7] text-ink-2">
-        <strong class="font-medium text-ink"
-          >That is the oldest fact about being alive, and it is the one a calendar is usually built
-          to help you forget.</strong
-        >
-      </p>
-    </section>
+    <p class="mt-6 text-[17px] leading-[1.75] text-ink-2">
+      Every hour has one place on the face, and nothing you put there can also be somewhere else. A
+      list hides that. A list takes everything you hand it and never once says the word full.
+    </p>
 
-    <section class="mt-14">
-      <h2 class="label text-ink-3">A line can always be longer</h2>
-      <p class="mt-4 text-[16px] leading-[1.7] text-ink-2">
-        Which is the whole appeal of it. Add a row. Add another. A list will absorb anything you put
-        on it and it will never once tell you the day is full.
-      </p>
-      <p class="mt-4 text-[16px] leading-[1.7] text-ink-2">
-        A circle cannot lie like that. It is one revolution wide and that is all it will ever be.
-        Put two hours on it and two hours are gone, in ink, and the room they took is room nothing
-        else can have.
-      </p>
-      <p class="mt-4 text-[16px] leading-[1.7] text-ink-2">
-        <strong class="font-medium text-ink">This is not a productivity feature.</strong> It is a mirror,
-        and most days it is not flattering.
-      </p>
-    </section>
+    <p
+      class="mt-10 text-[23px] leading-[1.35] font-medium tracking-[-0.02em] text-balance text-ink"
+    >
+      A circle says it immediately.
+    </p>
 
-    <section class="mt-14">
-      <h2 class="label text-ink-3">You get about twenty nine thousand</h2>
+    <p class="mt-10 text-[17px] leading-[1.75] text-ink-2">
+      You will do this about twenty nine thousand times. They fit on one screen, the first to the
+      last, and you are somewhere in the middle of it as you read this.
+    </p>
 
-      <blockquote class="mt-4 border-l border-hairline pl-4">
-        <p class="text-[16px] leading-[1.5] text-ink-3 italic">You are a worm through time.</p>
-      </blockquote>
+    <p class="mt-6 text-[17px] leading-[1.75] text-ink-2">
+      Nothing on that screen says whether a day was worth having. It counts. It does not grade.
+    </p>
 
-      <p class="mt-5 text-[16px] leading-[1.7] text-ink-2">
-        One dot for every day of a life. They fit on a single screen, which is the alarming part and
-        also the useful one.
-      </p>
-      <p class="mt-4 text-[16px] leading-[1.7] text-ink-2">
-        Some of them are already spent. Nothing on that grid says whether they were spent well, and
-        nothing ever will. It does not grade you. It counts.
-      </p>
-      <p class="mt-4 text-[16px] leading-[1.7] text-ink-2">
-        <strong class="font-medium text-ink">Look at it once.</strong> Then go and put something on tomorrow.
-      </p>
-    </section>
+    <p class="mt-6 text-[17px] leading-[1.75] text-ink-2">
+      Nobody is keeping these for you. No account, no server, no copy on anyone else's machine.
+    </p>
 
-    <section class="mt-14">
-      <h2 class="label text-ink-3">Nobody else is holding these</h2>
-      <p class="mt-4 text-[16px] leading-[1.7] text-ink-2">
-        Your days live in this browser. No account, no server, no copy of your life on somebody
-        else's machine. Nothing measured, nothing sold, nothing trained on you.
-      </p>
-      <p class="mt-4 text-[16px] leading-[1.7] text-ink-2">
-        {
-          /* Explicit space: Astro drops the newline between a text node and an
-            element that starts the next line, so `transfer.If` renders. */
-        }
-        That is a promise, and it is also a transfer.{" "}
-        <strong class="font-medium text-ink"
-          >If nobody else is keeping your calendar, then you are.</strong
-        > Export it. Keep a copy. And stop waiting for a company to take your time seriously on your behalf,
-        because not one of them ever has.
-      </p>
-    </section>
+    <p
+      class="mt-10 text-[23px] leading-[1.35] font-medium tracking-[-0.02em] text-balance text-ink"
+    >
+      Which means you are keeping them.
+    </p>
 
-    <section class="mt-14">
-      <h2 class="label text-ink-3">Go round again</h2>
-      <p class="mt-4 text-[16px] leading-[1.7] text-ink-2">
-        The return is not the punishment. It is the offer.
-      </p>
-      <p class="mt-4 text-[16px] leading-[1.7] text-ink-2">
-        Tomorrow the light on the rim goes back to nothing, the face comes up empty, and you get the
-        same twenty four hours as everybody who has ever done anything at all.
-      </p>
-      <p class="mt-4 text-[16px] leading-[1.7] text-ink-2">
-        Fill it on purpose or leave it empty on purpose. Both are decisions.{" "}
-        <strong class="font-medium text-ink"
-          >Drifting is the only thing on that face that is not.</strong
-        >
-      </p>
+    <p class="mt-10 text-[17px] leading-[1.75] text-ink-2">
+      The return is not a punishment. It is the offer. Tomorrow the rim goes dark, the face comes up
+      empty, and the whole of it is handed back.
+    </p>
 
-      <p
-        class="mt-10 text-[24px] leading-[1.3] font-medium tracking-[-0.02em] text-balance text-ink"
-      >
-        The circle closes so that it can open.
-      </p>
-    </section>
+    <p class="mt-6 text-[17px] leading-[1.75] text-ink-2">
+      Fill it on purpose. Leave it empty on purpose. Both are decisions. Drifting is not.
+    </p>
+
+    <p
+      class="mt-14 text-[27px] leading-[1.25] font-medium tracking-[-0.025em] text-balance text-ink"
+    >
+      The circle closes so that it can open.
+    </p>
 
     <div class="mt-16 border-t border-hairline pt-8">
       <a

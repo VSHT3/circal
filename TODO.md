@@ -182,22 +182,27 @@ zoom, keep the full span as a mini-map or you have lost the argument.
 
 **9. manifesto** — _done, at `/manifesto/`._
 
-_Your calendar draws time as a line. A line promises that today ends somewhere further on. It does
-not._ That opens the README now and it opens the page. One static route under `Base.astro` with
-**no island** — a manifesto that ships React costs more to load than the product it describes — and
-it does not break the one-route rule, which was always about `/api/*`.
+_Time does not run out in front of you. It comes back around._ That opens the README now and it
+opens the page. One static route under `Base.astro` with **no island** — a manifesto that ships
+React costs more to load than the product it describes — and it does not break the one-route rule,
+which was always about `/api/*`.
 
-**The first draft was a product doc with a manifesto's haircut, and it was thrown away.** Six
-sections explaining how the thing works: the moon went to the sidebar, the detent measured 1.3 dB,
-one route on the network and here is why. All true, all already written down in `README.md` and in
-this file, and none of it is a manifesto. A manifesto **states**; it does not justify, and it is
-not about the software. The rewrite is 370 words about time: the return (every day issues the same
-twenty four positions), the warning (a list will never tell you the day is full, a circle cannot
-lie like that), the count (the worm, and the grid does not grade you, it counts), the
-responsibility (if nobody else is keeping your calendar then you are), and the offer (the circle
-closes so that it can open). Nothing in it names a file or defends a decision.
+**Two drafts were thrown away and the second one is the instructive failure.** The first was six
+sections of how the software works: the moon went to the sidebar, the detent measured 1.3 dB, one
+route on the network and here is why. Obviously wrong. The second fixed the register and kept the
+shape, which is where it got interesting: five headed sections, two of them arguing against list
+calendars and against SaaS. That reads as a manifesto and is actually **positioning**. A page about
+time does not need an opponent, and the moment it has one it is selling. It was also still full of
+`which is`, `that is`, `because` — a joined-up argument invites disagreement with the joins, and
+these are meant to be statements.
 
-The one thing kept from the draft is the figure: four inline SVGs, two of them a single element
+What shipped is **249 words, no headings, no enemy**: the return, the fact that a list will never
+say the word full, the count (about twenty nine thousand, and it does not grade you, it counts),
+the transfer (nobody is keeping these for you, which means you are), and the offer. Three
+assertions stand alone at display size and carry the whole thing; the borrowed line sits under the
+title rather than in a section of its own. Nothing in it names a file or defends a decision.
+
+The one thing kept from draft one is the figure: four inline SVGs, two of them a single element
 each (a dashed circle is a ring of 365 marks; a `<pattern>` is a life grid), because a decoration
 costing 20 KB of `<line>`s would be the page arguing against itself. It carries the four-scales
 idea without a paragraph explaining it, which is the only reason it survived.

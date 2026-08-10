@@ -1,8 +1,6 @@
 # circal
 
-**Your calendar draws time as a line. A line promises that today ends somewhere
-further on. It does not: you go the whole way around and arrive back at the hour
-you left.**
+**Time does not run out in front of you. It comes back around.**
 
 A calendar that draws days the way they behave. A day is one revolution: events
 are arcs, the day so far is a ramp of light around the rim, and the hand is the
