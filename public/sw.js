@@ -12,7 +12,7 @@
 // Bumped when an *unhashed* `public/` asset changes — the icons are the only
 // ones — because stale-while-revalidate would otherwise serve the old file
 // once more to every installed client. Hashed assets never need this.
-const CACHE = "circal-v2";
+const CACHE = "circal-v3";
 
 self.addEventListener("install", () => {
   // No precache list: Astro content-hashes every built asset filename, so
@@ -50,18 +50,27 @@ self.addEventListener("fetch", (event) => {
 
   if (request.mode === "navigate") {
     // Network-first: a page load should always get the freshest shell when
-    // online. Offline, fall back to the cached "/" so a cold offline launch
-    // still boots the app instead of showing the browser's dead-air page.
+    // online. Keyed by its own URL, never by "/" — there is more than one page
+    // now (`/manifesto/`), and filing every navigation under "/" meant reading
+    // the manifesto once overwrote the cached app shell, so the next cold
+    // offline launch booted the manifesto instead of the dial.
     event.respondWith(
       (async () => {
         try {
           const response = await fetch(request);
-          const cache = await caches.open(CACHE);
-          cache.put("/", response.clone());
+          // Only a real page is worth keeping. Caching a 404 would hand the
+          // same dead page back offline forever, and a mistyped URL is exactly
+          // the case where falling through to the app is the right answer.
+          if (response.ok) {
+            const cache = await caches.open(CACHE);
+            cache.put(request, response.clone());
+          }
           return response;
         } catch {
           const cache = await caches.open(CACHE);
-          const cached = await cache.match("/");
+          // This page if we have it, else the app: an uncached path offline
+          // should still boot something rather than the browser's dead air.
+          const cached = (await cache.match(request)) || (await cache.match("/"));
           if (cached) return cached;
           throw new Error("offline and no cached shell");
         }
