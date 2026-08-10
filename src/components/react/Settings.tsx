@@ -19,7 +19,7 @@
 
 import { useState, type ReactNode } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { Download, RefreshCw, Trash2, Upload, X } from "lucide-react";
+import { ArrowUpRight, Download, RefreshCw, Trash2, Upload, X } from "lucide-react";
 import { refreshFeed } from "@/lib/feeds";
 import { canVibrate } from "@/lib/feedback";
 import { formatCount, formatLifeDate, lifeSpan } from "@/lib/life";
@@ -715,6 +715,28 @@ export default function Settings({
                   </div>
                   <span className="caption">
                     Events live only in this browser. A backup is the only copy that survives it
+                  </span>
+                </FieldRow>
+              </Section>
+
+              <Section title="About">
+                <FieldRow label="Manifesto" align="top" last>
+                  {/* An anchor rather than a button: it is a real page, so
+                      middle-click and "open in new tab" have to work. It opens
+                      in one deliberately — installed standalone there is no
+                      back button, and navigating away would also cost a reload
+                      of a clock that is currently running. */}
+                  <a
+                    href="/manifesto/"
+                    target="_blank"
+                    rel="noopener"
+                    className="flex h-8 w-fit items-center gap-1.5 rounded-[8px] border border-hairline bg-surface-2 px-2.5 text-[13px] text-ink transition-colors hover:bg-white/10"
+                  >
+                    <ArrowUpRight size={13} strokeWidth={1.75} />
+                    Why a day is a circle
+                  </a>
+                  <span className="caption">
+                    One page on what this is, and what it will not become
                   </span>
                 </FieldRow>
               </Section>

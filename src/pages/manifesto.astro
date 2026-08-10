@@ -1,0 +1,268 @@
+---
+import Base from "@/layouts/Base.astro";
+
+/**
+ * The one page in this project that is not the instrument. It is static markup
+ * with no island: the argument does not need a clock, and shipping React here
+ * would mean the manifesto costs more to load than the app it describes.
+ *
+ * `/manifesto/`, not `/manifest/`: `/manifest.webmanifest` already exists and
+ * means something else entirely.
+ *
+ * This does not break the one-route rule. That rule is about `/api/*` on the
+ * Worker; a second static page is another file in `dist/`, served by the assets
+ * binding, costing the product nothing.
+ *
+ * It states, it does not explain. Nothing here describes a feature, names a
+ * file or defends a decision: that is what `README.md` and `AGENTS.md` are for,
+ * and a manifesto that reads like release notes is neither.
+ */
+---
+
+<Base
+  title="Manifesto · circal"
+  description="Your calendar draws time as a line. A line promises that today ends somewhere further on. It does not."
+  scroll
+>
+  <main class="mx-auto w-full max-w-[36rem] px-6 pt-14 pb-24 sm:pt-20">
+    <a
+      href="/"
+      class="inline-flex items-center gap-2 text-ink-2 transition-colors hover:text-ink"
+      aria-label="Open circal"
+    >
+      {/* The mark itself: black disc, one thin white circumference. */}
+      <svg viewBox="0 0 24 24" class="size-[15px]" aria-hidden="true">
+        <circle cx="12" cy="12" r="10.5" fill="none" stroke="currentColor" stroke-width="1.5"
+        ></circle>
+      </svg>
+      <span class="text-[15px] font-medium tracking-[-0.02em]">circal</span>
+    </a>
+
+    <h1
+      class="mt-14 text-[34px] leading-[1.08] font-medium tracking-[-0.035em] text-balance text-ink sm:text-[44px]"
+    >
+      A day is a circle.
+    </h1>
+
+    <p class="mt-7 text-[17px] leading-[1.6] text-ink-2">
+      Your calendar draws time as a line. A list running down, a week running right, hours stacked
+      like receipts. A line makes a promise: that today ends somewhere further on.
+    </p>
+
+    <p class="mt-6 text-[21px] leading-[1.4] font-medium tracking-[-0.015em] text-ink">
+      It does not. You go the whole way around and arrive back at the hour you left.
+    </p>
+
+    {
+      /* Two up on a phone: at four across, a tile is 78px and the week's seven
+        faces are 11px each, which is a smear rather than an argument. */
+    }
+    <figure class="mt-12 grid grid-cols-2 gap-x-8 gap-y-6 sm:grid-cols-4 sm:gap-3">
+      <div>
+        <svg viewBox="0 0 64 64" class="w-full" aria-hidden="true">
+          <circle cx="32" cy="32" r="26" fill="none" class="stroke-ink-4" stroke-width="1.25"
+          ></circle>
+          <path
+            d="M51.92 15.29A26 26 0 0 1 48.71 51.92"
+            fill="none"
+            class="stroke-accent"
+            stroke-width="3"
+            stroke-linecap="round"></path>
+          <path
+            d="M21.01 55.56A26 26 0 0 1 9.48 45"
+            fill="none"
+            class="stroke-ink-3"
+            stroke-width="3"
+            stroke-linecap="round"></path>
+          <path
+            d="M39.97 32.7 57.9 34.27"
+            class="stroke-ink"
+            stroke-width="1.25"
+            stroke-linecap="round"></path>
+        </svg>
+        <figcaption class="label mt-2 text-center text-[10px] text-ink-3">Day</figcaption>
+      </div>
+
+      <div>
+        {
+          /* Seven faces at one rotation: the arcs sit at the same angle on
+            every circle, which is the whole of what the week view says. The
+            faces can only ever be a seventh of the tile wide, which is the
+            strip's own constraint, so the strokes are the thinnest thing on
+            the page: at 1.4 the arc was 40% of the radius and each face read
+            as a filled blob rather than a face with something on it. */
+        }
+        <svg viewBox="0 0 64 64" class="w-full" aria-hidden="true">
+          {
+            [4.57, 13.71, 22.86, 32.0, 41.14, 50.29, 59.43].map((cx) => (
+              <g>
+                <circle cx={cx} cy="32" r="4" fill="none" class="stroke-ink-4" stroke-width="0.6" />
+                <path
+                  d={`M${(cx + 3.06).toFixed(2)} 29.43A4 4 0 0 1 ${(cx + 3.98).toFixed(2)} 32.35`}
+                  fill="none"
+                  class="stroke-accent"
+                  stroke-width="1.1"
+                  stroke-linecap="round"
+                />
+              </g>
+            ))
+          }
+        </svg>
+        <figcaption class="label mt-2 text-center text-[10px] text-ink-3">Week</figcaption>
+      </div>
+
+      <div>
+        {
+          /* A dashed circle is a ring of marks for the price of one element;
+             365 <line>s would be 20 KB of decoration. */
+        }
+        <svg viewBox="0 0 64 64" class="w-full" aria-hidden="true">
+          <circle
+            cx="32"
+            cy="32"
+            r="25"
+            fill="none"
+            class="stroke-ink-3"
+            stroke-width="6"
+            stroke-dasharray="0.9 1.35"></circle>
+          {
+            /* A day carrying something is a *longer* mark, not a fatter one:
+              `markRadius` grows outwards, so this matches the ring's own
+              dash width and outreaches it. */
+          }
+          <path d="M48.47 18.18 55.75 12.07" class="stroke-accent" stroke-width="1.3"></path>
+        </svg>
+        <figcaption class="label mt-2 text-center text-[10px] text-ink-3">Year</figcaption>
+      </div>
+
+      <div>
+        <svg viewBox="0 0 64 64" class="w-full" aria-hidden="true">
+          <defs>
+            <pattern id="m-lived" width="5.2" height="5.2" patternUnits="userSpaceOnUse">
+              <circle cx="1.3" cy="1.3" r="1.05" class="fill-ink-2"></circle>
+            </pattern>
+            <pattern id="m-left" width="5.2" height="5.2" patternUnits="userSpaceOnUse">
+              <circle cx="1.3" cy="1.3" r="1.05" class="fill-ink-4"></circle>
+            </pattern>
+          </defs>
+          <rect x="5" y="8" width="54" height="22" fill="url(#m-lived)"></rect>
+          <rect x="5" y="30" width="54" height="26" fill="url(#m-left)"></rect>
+          <circle cx="27.1" cy="24.9" r="1.35" class="fill-accent"></circle>
+        </svg>
+        <figcaption class="label mt-2 text-center text-[10px] text-ink-3">Life</figcaption>
+      </div>
+    </figure>
+
+    <p class="mt-7 text-[16px] leading-[1.7] text-ink-2">
+      A day, a week, a year, a life. One shape at four distances. Every one of them turns, and every
+      one of them comes back around.
+    </p>
+
+    <section class="mt-16">
+      <h2 class="label text-ink-3">The return</h2>
+      <p class="mt-4 text-[16px] leading-[1.7] text-ink-2">
+        Every day issues you the same twenty four positions. The same nine in the morning. The same
+        dead hour after lunch. Nothing new is minted. The face you are handed today is the face you
+        were handed yesterday, wiped.
+      </p>
+      <p class="mt-4 text-[16px] leading-[1.7] text-ink-2">
+        <strong class="font-medium text-ink"
+          >That is the oldest fact about being alive, and it is the one a calendar is usually built
+          to help you forget.</strong
+        >
+      </p>
+    </section>
+
+    <section class="mt-14">
+      <h2 class="label text-ink-3">A line can always be longer</h2>
+      <p class="mt-4 text-[16px] leading-[1.7] text-ink-2">
+        Which is the whole appeal of it. Add a row. Add another. A list will absorb anything you put
+        on it and it will never once tell you the day is full.
+      </p>
+      <p class="mt-4 text-[16px] leading-[1.7] text-ink-2">
+        A circle cannot lie like that. It is one revolution wide and that is all it will ever be.
+        Put two hours on it and two hours are gone, in ink, and the room they took is room nothing
+        else can have.
+      </p>
+      <p class="mt-4 text-[16px] leading-[1.7] text-ink-2">
+        <strong class="font-medium text-ink">This is not a productivity feature.</strong> It is a mirror,
+        and most days it is not flattering.
+      </p>
+    </section>
+
+    <section class="mt-14">
+      <h2 class="label text-ink-3">You get about twenty nine thousand</h2>
+
+      <blockquote class="mt-4 border-l border-hairline pl-4">
+        <p class="text-[16px] leading-[1.5] text-ink-3 italic">You are a worm through time.</p>
+      </blockquote>
+
+      <p class="mt-5 text-[16px] leading-[1.7] text-ink-2">
+        One dot for every day of a life. They fit on a single screen, which is the alarming part and
+        also the useful one.
+      </p>
+      <p class="mt-4 text-[16px] leading-[1.7] text-ink-2">
+        Some of them are already spent. Nothing on that grid says whether they were spent well, and
+        nothing ever will. It does not grade you. It counts.
+      </p>
+      <p class="mt-4 text-[16px] leading-[1.7] text-ink-2">
+        <strong class="font-medium text-ink">Look at it once.</strong> Then go and put something on tomorrow.
+      </p>
+    </section>
+
+    <section class="mt-14">
+      <h2 class="label text-ink-3">Nobody else is holding these</h2>
+      <p class="mt-4 text-[16px] leading-[1.7] text-ink-2">
+        Your days live in this browser. No account, no server, no copy of your life on somebody
+        else's machine. Nothing measured, nothing sold, nothing trained on you.
+      </p>
+      <p class="mt-4 text-[16px] leading-[1.7] text-ink-2">
+        {
+          /* Explicit space: Astro drops the newline between a text node and an
+            element that starts the next line, so `transfer.If` renders. */
+        }
+        That is a promise, and it is also a transfer.{" "}
+        <strong class="font-medium text-ink"
+          >If nobody else is keeping your calendar, then you are.</strong
+        > Export it. Keep a copy. And stop waiting for a company to take your time seriously on your behalf,
+        because not one of them ever has.
+      </p>
+    </section>
+
+    <section class="mt-14">
+      <h2 class="label text-ink-3">Go round again</h2>
+      <p class="mt-4 text-[16px] leading-[1.7] text-ink-2">
+        The return is not the punishment. It is the offer.
+      </p>
+      <p class="mt-4 text-[16px] leading-[1.7] text-ink-2">
+        Tomorrow the light on the rim goes back to nothing, the face comes up empty, and you get the
+        same twenty four hours as everybody who has ever done anything at all.
+      </p>
+      <p class="mt-4 text-[16px] leading-[1.7] text-ink-2">
+        Fill it on purpose or leave it empty on purpose. Both are decisions.{" "}
+        <strong class="font-medium text-ink"
+          >Drifting is the only thing on that face that is not.</strong
+        >
+      </p>
+
+      <p
+        class="mt-10 text-[24px] leading-[1.3] font-medium tracking-[-0.02em] text-balance text-ink"
+      >
+        The circle closes so that it can open.
+      </p>
+    </section>
+
+    <div class="mt-16 border-t border-hairline pt-8">
+      <a
+        href="/"
+        class="inline-flex h-9 items-center rounded-[9px] bg-ink px-4 text-[13.5px] font-medium text-void transition-opacity hover:opacity-90"
+      >
+        Open circal
+      </a>
+      <p class="caption mt-6 text-ink-3">
+        “You are a worm through time” is the opening line of the Hiss incantation, from Control
+        (Remedy Entertainment, 2019).
+      </p>
+    </div>
+  </main>
+</Base>

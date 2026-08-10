@@ -1217,7 +1217,14 @@ function BirthPrompt({ now, birth, expectancy }: { now: Date; birth: string; exp
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.2, ease: EASE }}
       >
-        <div className="text-[17px] font-medium text-ink">Your life, in days</div>
+        {/* The line that is this view, borrowed rather than written: it says
+            in seven words what the grid behind this card takes thirty thousand
+            dots to say, and somebody staring at an empty span needs the reason
+            before the question. Attributed, because it is not ours. */}
+        <p className="text-[14px] leading-[1.5] text-ink-3 italic">You are a worm through time.</p>
+        <div className="label mt-1 text-[10px] text-ink-3">Hiss incantation · Control</div>
+
+        <div className="mt-4 text-[17px] font-medium text-ink">Your life, in days</div>
         <p className="mt-1.5 text-[13px] leading-relaxed text-ink-2">
           One dot per day, from the day you were born to a day nobody knows. It needs the first date
           and a guess at the number of years — both stay in this browser, and both can be changed

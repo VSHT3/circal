@@ -8,8 +8,9 @@ dial's fifteen-minute grid clicks under the pointer, editing a repeating event a
 occurrences it means, ⌘⌫ deletes the arc you are pointing at, a calendar can be made and named and
 marked and recoloured and deleted without losing what is in it, an event can wear a mark of its own
 along its arc, a dated task is a pip on the rim you can tick off, the app can tell you a thing is
-about to start, the sidebar carries the moon, the week is seven of the same face at one rotation,
-and there is a test suite — 1,079 cases over the domain layer, `pnpm test`, in the gate.
+about to start, the sidebar carries the moon, the week is seven of the same face at one rotation, the
+argument has a page of its own, and there is a test suite — 1,079 cases over the domain layer,
+`pnpm test`, in the gate.
 
 Done work is not recorded here. The rationale that outlived it lives in `AGENTS.md`, next to the
 code it constrains.
@@ -62,15 +63,16 @@ code it constrains.
    destructive single keystroke with no receipt is a key nobody presses twice.
 6. onboarding, after everything is finalised
 
-**1. quotes page** — _you are a worm through time, you have no obligations to your former self, be
-the change you wish to see in the world._
+**1. quotes page** — _done, and it is not a page of quotes._
 
-Not a page. A page of quotes is a thing an app does when it has run out of ideas, and the first two
-lines here are better than that. "A worm through time" _is_ the life view — it is the picture that
-grid already draws — so it belongs in the life view's empty state, next to the birth prompt, where
-somebody is looking at eighty years of nothing and needs a reason to type a date. Drop "be the
-change you wish to see in the world": it is a bumper sticker sitting between two ideas that are not.
-Fold the rest into (9) — see there.
+A page of quotes is what an app does when it has run out of ideas. Two lines survived and each went
+where it argues for something. "You are a worm through time" **is** the life view, so it heads the
+`BirthPrompt` — the one screen where somebody is looking at eighty years of nothing and needs a
+reason to type a date — and it opens that section of the manifesto. It is **attributed in both
+places**: it is the opening of the Hiss incantation, out of _Control_, and passing a borrowed line
+off as the product's own thesis is the one thing a manifesto cannot do. "Be the change you wish to
+see in the world" is dropped, a bumper sticker sitting between two ideas that are not. The
+linearity-of-time line went to (9), where it is now the first thing on the page.
 
 **2. year -> life transition** — _done._
 
@@ -178,15 +180,37 @@ the bottom, or a decade fisheyes in place, and the eighty years stay on screen t
 `drawImage` per frame (`LifeView.tsx:416`), so a second, larger strip is cheap. If you do add true
 zoom, keep the full span as a mini-map or you have lost the argument.
 
-**9. manifest** — _we are used to the linearity of time. however, days are circular. you live your
-day just to find yourself at the same time as before._
+**9. manifesto** — _done, at `/manifesto/`._
 
-The best line on the list, and the actual thesis — it is better than the README's opening and it
-should probably become it. Tighten the last clause; "you live your day just to find yourself at the
-same time as before" wants to land harder than it does. And note that this does **not** break the
-one-route rule: that rule is about `/api/*` on the Worker. A static `/manifest/` is another file in
-`dist/`, served by the assets binding, costing the product nothing. So: one static page, the
-manifest, and the worm-through-time line from (1) lives on it. One page, not two.
+_Your calendar draws time as a line. A line promises that today ends somewhere further on. It does
+not._ That opens the README now and it opens the page. One static route under `Base.astro` with
+**no island** — a manifesto that ships React costs more to load than the product it describes — and
+it does not break the one-route rule, which was always about `/api/*`.
+
+**The first draft was a product doc with a manifesto's haircut, and it was thrown away.** Six
+sections explaining how the thing works: the moon went to the sidebar, the detent measured 1.3 dB,
+one route on the network and here is why. All true, all already written down in `README.md` and in
+this file, and none of it is a manifesto. A manifesto **states**; it does not justify, and it is
+not about the software. The rewrite is 370 words about time: the return (every day issues the same
+twenty four positions), the warning (a list will never tell you the day is full, a circle cannot
+lie like that), the count (the worm, and the grid does not grade you, it counts), the
+responsibility (if nobody else is keeping your calendar then you are), and the offer (the circle
+closes so that it can open). Nothing in it names a file or defends a decision.
+
+The one thing kept from the draft is the figure: four inline SVGs, two of them a single element
+each (a dashed circle is a ring of 365 marks; a `<pattern>` is a life grid), because a decoration
+costing 20 KB of `<line>`s would be the page arguing against itself. It carries the four-scales
+idea without a paragraph explaining it, which is the only reason it survived.
+
+Three things the build found. The route is `/manifesto/`, not `/manifest/`, because
+`/manifest.webmanifest` already exists and means something else. `body` is `overflow-hidden` in the
+base layer, so this is the first thing here that scrolls and `Base.astro` grew an explicit `scroll`
+prop rather than a page-local hack. And `sw.js` filed **every** navigation under `"/"`, which was
+right with one route and a shell-poisoning bug with two: reading the manifesto once made it the
+page a cold offline launch booted. Keyed by request now, with `"/"` as the offline fallback.
+
+Reachable from Settings → About and from the README. Deliberately **not** a ⌘P row: the palette is
+for a day's work, and a first-run route to it belongs to onboarding (6).
 
 ---
 
@@ -286,10 +310,10 @@ lessons worth keeping. Anything tuned by rendering one event has not been tuned.
 nobody noticed was missing was not carrying anything.
 
 **The big one is spent too.** The week view shipped, and with it the `<Face>` extraction under it,
-so the app is now one idea at four scales and the README says so. What is left on this list is the
-manifest page (9), the worm-through-time line in the life view's empty state (1), the life grid's
-focus-without-zoom (8), a drag-range on the life grid, duplicate-event, recency ranking in ⌘P, and
-`RANGE=THISANDFUTURE` on import — and then (6) onboarding and (1) the intro animation, which were
-always last and now genuinely are.
+so the app is now one idea at four scales and the README says so. The manifesto (9) shipped with
+the worm-through-time line (1), so the product finally states its argument somewhere other than in
+its own geometry. What is left is the life grid's focus-without-zoom (8), a drag-range on the life
+grid, duplicate-event, recency ranking in ⌘P, and `RANGE=THISANDFUTURE` on import — and then (6)
+onboarding and (1) the intro animation, which were always last and now genuinely are.
 
 There is no item left that adds a screen. Everything above finishes one.

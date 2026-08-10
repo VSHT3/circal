@@ -4,10 +4,11 @@ import { defineConfig } from "astro/config";
 import react from "@astrojs/react";
 import tailwindcss from "@tailwindcss/vite";
 
-// Single-page app served as one static HTML shell. Everything below the shell
-// is one React island (`src/components/react/App.tsx`) — the whole product is
-// one continuously-animating clock, so there is nothing to split into a second
-// island and no route to prerender separately.
+// Two static pages, one island. `src/pages/index.astro` is the app: a single
+// HTML shell under which everything is one React island
+// (`src/components/react/App.tsx`), because the whole product is one
+// continuously-animating clock and there is nothing to split out of it.
+// `src/pages/manifesto.astro` is prose and ships no JS at all.
 export default defineConfig({
   site: "https://circal.app",
   trailingSlash: "always",

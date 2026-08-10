@@ -1,10 +1,16 @@
 # circal
 
-A calendar whose day is a circle.
+**Your calendar draws time as a line. A line promises that today ends somewhere
+further on. It does not: you go the whole way around and arrive back at the hour
+you left.**
 
-A day is one revolution. Events are arcs, the day so far is a ramp of light
-around the rim, and the hand is the current minute. A web recreation of
-[Radical](https://www.raycast.com) for the browser.
+A calendar that draws days the way they behave. A day is one revolution: events
+are arcs, the day so far is a ramp of light around the rim, and the hand is the
+current minute. A web recreation of [Radical](https://www.raycast.com) for the
+browser.
+
+The argument, on one page: **[the
+manifesto](https://circal.app/manifesto/)**, also reachable from Settings.
 
 The **Dial** setting (`⌘,`) picks how the face names its hours:
 

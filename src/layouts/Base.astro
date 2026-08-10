@@ -4,9 +4,15 @@ import "@/styles/global.css";
 interface Props {
   title: string;
   description: string;
+  /**
+   * Let the document scroll. The base layer locks `body` because the app is
+   * exactly one viewport and nothing in it scrolls but lists; a page of prose
+   * is the one thing here that is taller than the window.
+   */
+  scroll?: boolean;
 }
 
-const { title, description } = Astro.props;
+const { title, description, scroll = false } = Astro.props;
 
 /**
  * Absolute, because every crawler that reads these requires it — a relative
@@ -62,7 +68,7 @@ const registerServiceWorker = `window.addEventListener("load",()=>{navigator.ser
     }
     {import.meta.env.PROD && <script is:inline set:html={registerServiceWorker} />}
   </head>
-  <body>
+  <body class={scroll ? "overflow-y-auto" : undefined}>
     <slot />
   </body>
 </html>
