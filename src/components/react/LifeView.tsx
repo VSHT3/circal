@@ -36,6 +36,7 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
+  type ReactElement,
   type RefObject,
 } from "react";
 import {
@@ -64,16 +65,21 @@ import {
   lifeRowTop,
   lifeStats,
   lifeYearRange,
+  loupeCell,
+  loupeCellAt,
+  loupeLayout,
+  loupeMonths,
   LIFE_GUTTER,
   LIFE_META_H,
   type LifeLayout,
   type LifePoint,
   type LifeSpan,
   type LifeStage,
+  type LoupeLayout,
   type Milestone,
 } from "@/lib/life";
 import { LIFE_EXPECTANCY_RANGE, store } from "@/lib/store";
-import { WEEKDAYS, addDays, dayKey, fromDayKey, isSameDay, startOfDay } from "@/lib/time";
+import { MONTHS, WEEKDAYS, addDays, dayKey, fromDayKey, isSameDay, startOfDay } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import type { LifeViewProps, ViewFlow } from "@/components/react/types";
 import { useHotkeys, useNow } from "@/components/react/hooks";
@@ -173,6 +179,32 @@ interface Box {
   height: number;
 }
 
+/**
+ * A day's grey level: its month band, dimmed for the past, or the flat pair a
+ * search leaves behind when it takes the colour channel whole.
+ *
+ * Shared, because the loupe draws the same days as the field and the two
+ * disagreeing about which of those a day is would be the magnifier lying
+ * about the thing it magnifies.
+ */
+function dayLevel(month: number, past: boolean, searching: boolean): number {
+  if (searching) return past ? SEARCH_TONE.past : SEARCH_TONE.future;
+  return (past ? TONE.past : TONE.future)[month % 2]!;
+}
+
+/**
+ * The ramp into nothing, quantised: `FADE_STEPS` is full brightness and `0` is
+ * black. `smoothstep` on both ends — it has to leave full brightness without a
+ * seam where it starts, and reach black without a last visible dot sitting on
+ * the edge like a full stop.
+ */
+function fadeStep(ms: number, deathMs: number): number {
+  const fadeMs = FADE_DAYS * DAY_MS;
+  if (ms <= deathMs - fadeMs) return FADE_STEPS;
+  const f = Math.max(0, (deathMs - ms) / fadeMs);
+  return Math.round(f * f * (3 - 2 * f) * FADE_STEPS);
+}
+
 /* --------------------------------- drawing -------------------------------- */
 
 /**
@@ -221,17 +253,7 @@ function drawField(
   const hitRadius = Math.max(radius * 1.55, 1.6);
   let lit: { at: LifePoint; color: string } | null = null;
 
-  // The ramp into nothing. `smoothstep` on both ends: it has to leave full
-  // brightness without a seam where it starts, and reach black without a last
-  // visible dot sitting on the edge like a full stop.
   const deathMs = span.death.getTime();
-  const fadeMs = FADE_DAYS * DAY_MS;
-  const fadeFrom = deathMs - fadeMs;
-  const fadeAt = (ms: number) => {
-    if (ms <= fadeFrom) return FADE_STEPS;
-    const f = Math.max(0, (deathMs - ms) / fadeMs);
-    return Math.round(f * f * (3 - 2 * f) * FADE_STEPS);
-  };
 
   // `dim` mints a string per call and this loop runs thirty thousand times, so
   // every colour is looked up by (base, fade step) and built once. Greys go in
@@ -274,18 +296,14 @@ function drawField(
       const key = coloured || found ? dayKey(cursor) : "";
       const at = cursor.getTime();
       const past = at < todayMs;
-      const step = fadeAt(at);
+      const step = fadeStep(at, deathMs);
 
       // A search answers one question, so it takes the colour channel whole:
       // an unrelated event's colour on a day that did not match is noise in
       // the middle of the answer.
       const hit = found ? found.get(key) : undefined;
       const event = found ? undefined : density.get(key);
-      const level = found
-        ? past
-          ? SEARCH_TONE.past
-          : SEARCH_TONE.future
-        : (past ? TONE.past : TONE.future)[cursor.getMonth() % 2]!;
+      const level = dayLevel(cursor.getMonth(), past, found !== null);
 
       if (at === todayMs) {
         const base = hit ?? event ?? (found ? "" : TODAY_COLOR);
@@ -569,6 +587,48 @@ function LifeGrid({
   const fieldRef = useRef<HTMLCanvasElement | null>(null);
   const [hover, setHover] = useState<Hover | null>(null);
 
+  /**
+   * The loupe's own geometry, and `null` when the box cannot hold one worth
+   * drawing. Sized against the field's dot, which is the thing it has to beat.
+   */
+  const loupe = useMemo(
+    () =>
+      loupeLayout(
+        box.width - LOUPE_INSET * 2 - LOUPE_PAD * 2 - LOUPE_GUTTER,
+        // A third of the field is all it may take. The whole span staying on
+        // screen is the argument; a magnifier that eats the picture has lost it.
+        box.height / 3 - LOUPE_PAD * 2 - LOUPE_HEADER_H - LOUPE_MONTHS_H,
+        layout.radius,
+      ),
+    [box, layout.radius],
+  );
+
+  /**
+   * Which half the loupe hangs in: the other one from the pointer, so it never
+   * covers the dot being pointed at. Two thresholds rather than one, because a
+   * single line across the field flips the card back and forth for every pixel
+   * of jitter across it — and the card is 150px of chrome, not a tooltip.
+   */
+  const [side, setSide] = useState<"bottom" | "top">("bottom");
+  const sideFor = (y: number, prev: "bottom" | "top"): "bottom" | "top" =>
+    prev === "bottom"
+      ? y > box.height * 0.62
+        ? "top"
+        : "bottom"
+      : y < box.height * 0.5
+        ? "bottom"
+        : "top";
+
+  /** The band of the field the card sits over, so the hover tip can keep out
+   *  of it. The card's height is arithmetic rather than a measurement: it is
+   *  every one of its parts and none of them grows. */
+  const loupeTall = loupe ? LOUPE_PAD * 2 + LOUPE_HEADER_H + LOUPE_MONTHS_H + loupe.height : 0;
+  const loupeBand = !loupe
+    ? undefined
+    : side === "bottom"
+      ? { from: box.height - LOUPE_INSET - loupeTall, to: box.height }
+      : { from: 0, to: LOUPE_INSET + loupeTall };
+
   const density = useMemo(() => lifeDensity(events, calendars, span), [events, calendars, span]);
 
   /**
@@ -726,11 +786,13 @@ function LifeGrid({
   /** One rule per decade of age, on the line that decade's year starts. */
   const rules = Math.floor((layout.years - 1) / DECADE) + 1;
 
-  function locate(e: ReactPointerEvent<HTMLCanvasElement>): { date: Date; at: LifePoint } | null {
+  /** The point pressed and the day under it. The point comes back either way:
+   *  the loupe hangs off which half of the field the pointer is in, and that
+   *  is a question the blanks between years can answer as well as a day can. */
+  function locate(e: ReactPointerEvent<HTMLCanvasElement>): { date: Date | null; at: LifePoint } {
     const rect = e.currentTarget.getBoundingClientRect();
     const at = { x: e.clientX - rect.left, y: e.clientY - rect.top };
-    const date = lifeCellAt(layout, span, at.x, at.y);
-    return date ? { date, at } : null;
+    return { date: lifeCellAt(layout, span, at.x, at.y), at };
   }
 
   /* --------------------------- the keyboard path -------------------------- */
@@ -759,6 +821,16 @@ function LifeGrid({
     if (at < span.birth) return span.birth;
     if (at > span.death) return span.death;
     return at;
+  };
+
+  /** Move the cursor, and hang the loupe out of the way of where it landed.
+   *  Every keyboard move goes through this for the reason every one of them
+   *  already goes through `clampDay`. */
+  const aim = (date: Date) => {
+    const next = clampDay(date);
+    setCursor(next);
+    const dot = dotOf(next);
+    if (dot) setSide((prev) => sideFor(dot.y, prev));
   };
 
   const cursorDay = cursor ?? clampDay(dotOf(selected) ? selected : today);
@@ -818,24 +890,20 @@ function LifeGrid({
       // belong to the grid, so the press must not also reach the window.
       e.preventDefault();
       e.stopPropagation();
-      setCursor(clampDay(addDays(cursorDay, DAYS[e.key])));
+      aim(addDays(cursorDay, DAYS[e.key]));
       return;
     }
     if (e.key === "PageDown" || e.key === "PageUp") {
       e.preventDefault();
       e.stopPropagation();
       const step = e.key === "PageDown" ? 1 : -1;
-      setCursor(
-        clampDay(
-          new Date(cursorDay.getFullYear() + step, cursorDay.getMonth(), cursorDay.getDate()),
-        ),
-      );
+      aim(new Date(cursorDay.getFullYear() + step, cursorDay.getMonth(), cursorDay.getDate()));
       return;
     }
     if (e.key === "Home" || e.key === "End") {
       e.preventDefault();
       e.stopPropagation();
-      setCursor(e.key === "Home" ? span.birth : span.death);
+      aim(e.key === "Home" ? span.birth : span.death);
       return;
     }
     if (e.key === "Enter" || e.key === " ") {
@@ -846,7 +914,13 @@ function LifeGrid({
   };
 
   return (
-    <>
+    <div
+      className="absolute inset-0"
+      // One handler for the canvas and the loupe together. Leaving the field
+      // *for* the loupe must not clear the day the loupe is showing, and the
+      // canvas cannot tell that press from a press that left the view.
+      onPointerLeave={() => setHover(null)}
+    >
       <canvas
         ref={canvasRef}
         // The picture, and only the picture. The listbox below says what is in
@@ -857,17 +931,17 @@ function LifeGrid({
         className="absolute inset-0 h-full w-full touch-none"
         onPointerMove={(e) => {
           const hit = locate(e);
+          setSide((prev) => sideFor(hit.at.y, prev));
           // Bail on the same day: a pointer crossing one dot fires a dozen
           // moves, and each one that changes state re-renders the tip.
-          if (hit?.date.getTime() === hover?.date.getTime()) return;
-          setHover(hit ? { date: hit.date, ...hit.at } : null);
+          if (hit.date?.getTime() === hover?.date.getTime()) return;
+          setHover(hit.date ? { date: hit.date, ...hit.at } : null);
         }}
-        onPointerLeave={() => setHover(null)}
         // A press, not a click — as on the dial, where every gesture is a
         // pointer gesture and a click is one that did not move.
         onPointerUp={(e) => {
           const hit = locate(e);
-          if (!hit) return;
+          if (!hit.date) return;
           // A press on the field is also how a milestone card is dismissed:
           // the card is the only thing here that outlives the pointer.
           setOpenKey(null);
@@ -1040,10 +1114,42 @@ function LifeGrid({
         />
       )}
 
-      {active && (
-        <DayTip hover={active} today={today} events={events} calendars={calendars} box={box} />
+      {loupe && active && (
+        <Loupe
+          layout={loupe}
+          span={span}
+          year={active.date.getFullYear()}
+          side={side}
+          today={today}
+          selected={selected}
+          active={active.date}
+          density={density}
+          found={found}
+          reducedMotion={!!reducedMotion}
+          // The loupe writes the field's own hover: one cursor, one ring, one
+          // tip, wherever the pointer happens to be standing.
+          onAim={(date) => {
+            const dot = dotOf(date);
+            if (dot) setHover({ date, ...dot });
+          }}
+          onPick={(date) => {
+            setOpenKey(null);
+            onSelectDay(date);
+          }}
+        />
       )}
-    </>
+
+      {active && (
+        <DayTip
+          hover={active}
+          today={today}
+          events={events}
+          calendars={calendars}
+          box={box}
+          avoid={loupeBand}
+        />
+      )}
+    </div>
   );
 }
 
@@ -1134,12 +1240,17 @@ function DayTip({
   events,
   calendars,
   box,
+  avoid,
 }: {
   hover: Hover;
   today: Date;
   events: CalEvent[];
   calendars: Calendar[];
   box: Box;
+  /** A band of the field the tip must not land in — the loupe, when it is up.
+   *  The two are the same answer at two scales, and one over the other is the
+   *  bigger one hidden by the smaller. */
+  avoid?: { from: number; to: number };
 }) {
   /**
    * One day's recurrence expansion, for the day under the pointer. The field's
@@ -1155,7 +1266,17 @@ function DayTip({
   // Flipped near the edges rather than clamped: a tip that stops moving still
   // covers the dot you are pointing at.
   const flip = hover.x > box.width * 0.62;
-  const lift = hover.y > box.height * 0.68;
+  // The tallest this card gets — two label rows, three events and a "+n more".
+  // A measured height would need a layout read per pointer move to place a
+  // card that is about to move again; the clearance only has to be generous.
+  const TIP_H = 120;
+  const clash = (top: number) => !!avoid && top < avoid.to && top + TIP_H > avoid.from;
+  let lift = hover.y > box.height * 0.68;
+  // Whichever side it wanted, take the other one when that side is the loupe
+  // — and only if the other one is actually clear, or this trades one
+  // collision for the same collision.
+  if (lift && clash(hover.y - 12 - TIP_H) && !clash(hover.y + 12)) lift = false;
+  else if (!lift && clash(hover.y + 12) && !clash(hover.y - 12 - TIP_H)) lift = true;
 
   return (
     <div
@@ -1184,6 +1305,249 @@ function DayTip({
         <div className="label mt-1 text-[10px] text-ink-4">+{occurrences.length - 3} more</div>
       )}
     </div>
+  );
+}
+
+/* --------------------------------- loupe ---------------------------------- */
+
+/**
+ * The magnifier: one year of the field, blown up and held over it.
+ *
+ * The view's invariant is the whole life in one viewport, so this is not a
+ * zoom and there is no pan — the eighty years stay exactly where they were and
+ * exactly the size they were, and the loupe is a second, larger picture of the
+ * year the pointer is already in. Everything it draws comes from the same
+ * `density`, the same `found` and the same `dayLevel` the field is painted
+ * from, so the two cannot disagree about a day.
+ *
+ * It is also the only way to *act* on a day at this scale. Pointing at a four
+ * pixel dot to read it is hard and clicking the right one is worse, so the
+ * loupe writes to the same `hover` the field does and commits the same way:
+ * point here, the ring moves over there, press and the day opens.
+ */
+
+/** The weekday gutter, the strip of month names above the cells, the header
+ *  row and the card's own padding. Fixed, because the shell has to know the
+ *  band this card occupies before the card exists. */
+const LOUPE_GUTTER = 14;
+const LOUPE_MONTHS_H = 13;
+const LOUPE_HEADER_H = 17;
+const LOUPE_PAD = 8;
+/** How far the card stands off the edge of the field. */
+const LOUPE_INSET = 10;
+
+/** Monday, Wednesday, Friday — the three that place the other four without
+ *  spending a gutter on prose. A column here is a week, which is the one thing
+ *  about this picture that is not the field's own orientation, so it says so. */
+const LOUPE_ROWS: Record<number, string> = { 0: "M", 2: "W", 4: "F" };
+
+/**
+ * What the grey channel is multiplied by in here, and it is a correction
+ * rather than a preference.
+ *
+ * The field's dot covers about a third of its cell — `π·r²` over `pitchX ·
+ * pitchY`, which at the desktop split is 0.36 — and the loupe's covers half of
+ * its square one, `π · 0.4²` = 0.50. So the same `TONE` puts forty per cent
+ * more light per unit area on this card than on the field it is held over, and
+ * a pale slab bright enough to compete with the event colours is the one thing
+ * the grey channel here is not allowed to be. `0.36 / 0.50` is the number.
+ *
+ * The *ratio* inside `TONE` is untouched, so past still reads against future
+ * and the month band still drifts across the plate; only the absolute light
+ * comes down.
+ */
+const LOUPE_GAIN = 0.7;
+
+function Loupe({
+  layout,
+  span,
+  year,
+  side,
+  today,
+  selected,
+  active,
+  density,
+  found,
+  reducedMotion,
+  onAim,
+  onPick,
+}: {
+  layout: LoupeLayout;
+  span: LifeSpan;
+  year: number;
+  side: "bottom" | "top";
+  today: Date;
+  selected: Date;
+  /** The day the field and the loupe are both pointing at. */
+  active: Date;
+  density: Map<string, string>;
+  found: Map<string, string> | null;
+  reducedMotion: boolean;
+  onAim: (date: Date) => void;
+  onPick: (date: Date) => void;
+}) {
+  /**
+   * The dots, as elements rather than as data. A pointer move inside one year
+   * re-renders this card for the rings alone, and a memoised array of 366
+   * elements is one React bails out of instead of diffing.
+   */
+  const { cells, carried } = useMemo(() => {
+    const { offset, from, to } = lifeYearRange(span, year - span.birth.getFullYear());
+    const deathMs = span.death.getTime();
+    const todayMs = today.getTime();
+    const marked = found ?? density;
+    const nodes: ReactElement[] = [];
+    const cursor = new Date(year, 0, 1);
+    let counted = 0;
+
+    for (let doy = from; doy <= to; doy++) {
+      cursor.setMonth(0, 1 + doy);
+      const slot = offset + doy;
+      const at = cursor.getTime();
+      const key = dayKey(cursor);
+      const step = fadeStep(at, deathMs);
+      const hit = found ? found.get(key) : undefined;
+      const event = found ? undefined : density.get(key);
+      // Today keeps the accent only when nothing louder has claimed the dot,
+      // exactly as the field does it — the ring below is what says "today".
+      const base = hit ?? event ?? (at === todayMs && !found ? TODAY_COLOR : "");
+      if (marked.has(key)) counted++;
+
+      nodes.push(
+        <circle
+          key={doy}
+          cx={Math.floor(slot / 7) * layout.pitch + layout.pitch / 2}
+          cy={(slot % 7) * layout.pitch + layout.pitch / 2}
+          r={hit ? layout.radius * 1.55 : layout.radius}
+          fill={
+            base
+              ? dim(base, step / FADE_STEPS)
+              : dim(
+                  "#ffffff",
+                  (dayLevel(cursor.getMonth(), at < todayMs, found !== null) * step * LOUPE_GAIN) /
+                    FADE_STEPS,
+                )
+          }
+        />,
+      );
+    }
+    return { cells: nodes, carried: counted };
+  }, [layout, span, year, today, density, found]);
+
+  const months = useMemo(() => loupeMonths(span, year), [span, year]);
+
+  /** A day's centre in the cell group. Three rings ride on this and they have
+   *  to sit on the dot the loop above drew, not near it. */
+  const ringAt = (date: Date) => {
+    const { col, row } = loupeCell(date);
+    return { cx: col * layout.pitch + layout.pitch / 2, cy: row * layout.pitch + layout.pitch / 2 };
+  };
+  const rings = [
+    { date: today, stroke: "var(--accent)", scale: 1.9, opacity: 0.5 },
+    { date: selected, stroke: "var(--ink)", scale: 1.7, opacity: 1 },
+    { date: active, stroke: "var(--ink)", scale: 2.1, opacity: 0.7 },
+  ].filter(({ date }) => date.getFullYear() === year && date >= span.birth && date <= span.death);
+
+  /** The pointer, in cell coordinates. `null` on a blank — the leading days of
+   *  the first week and the trailing days of the last — and a blank is ignored
+   *  rather than clearing the day, or crossing one would drop the card. */
+  const dayUnder = (e: ReactPointerEvent<SVGSVGElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    return loupeCellAt(
+      layout,
+      span,
+      year,
+      e.clientX - rect.left - LOUPE_GUTTER,
+      e.clientY - rect.top - LOUPE_MONTHS_H,
+    );
+  };
+
+  return (
+    <motion.div
+      // True black, never `bg-surface`: every dot on it is an opaque grey
+      // computed against the canvas, so on a lighter card an empty day would
+      // be *darker* than its ground — which inverts the one rule this view
+      // has, that ink is light.
+      className="absolute left-1/2 z-20 rounded-[12px] border border-hairline bg-void shadow-[0_18px_40px_-16px_rgba(0,0,0,0.9)]"
+      style={{
+        padding: LOUPE_PAD,
+        ...(side === "bottom" ? { bottom: LOUPE_INSET } : { top: LOUPE_INSET }),
+      }}
+      initial={reducedMotion ? false : { opacity: 0, x: "-50%", y: side === "bottom" ? 8 : -8 }}
+      animate={{ opacity: 1, x: "-50%", y: 0 }}
+      transition={{ duration: 0.16, ease: EASE }}
+    >
+      <div
+        className="label flex items-center gap-1.5 text-[10px] text-ink-3"
+        style={{ height: LOUPE_HEADER_H }}
+      >
+        <span className="text-ink-2 tabular-nums">{year}</span>
+        <span className="text-ink-4">·</span>
+        <span>age {ageOn(active, span.birth)}</span>
+        <span className="ml-auto tabular-nums">
+          <span className="text-ink-2">{formatCount(carried)}</span>{" "}
+          {found ? "found" : `day${carried === 1 ? "" : "s"}`}
+        </span>
+      </div>
+
+      <svg
+        width={LOUPE_GUTTER + layout.width}
+        height={LOUPE_MONTHS_H + layout.height}
+        // The card is the one surface at this scale where a day is bigger than
+        // the pointer, so it takes presses. `touch-none` for the reason the
+        // field has it: a drag across it must not scroll the page.
+        className="block touch-none"
+        onPointerMove={(e) => {
+          const date = dayUnder(e);
+          if (date) onAim(date);
+        }}
+        onPointerUp={(e) => {
+          const date = dayUnder(e);
+          if (date) onPick(date);
+        }}
+      >
+        {/* The months place a column; the weekdays only explain the transpose.
+            So the first is text at `ink-3` and the second is furniture. */}
+        {months.map(({ month, col }) => (
+          <text
+            key={month}
+            className="label fill-ink-3 text-[9px]"
+            x={LOUPE_GUTTER + col * layout.pitch}
+            y={LOUPE_MONTHS_H - 4}
+          >
+            {MONTHS[month].slice(0, 3)}
+          </text>
+        ))}
+        {Object.entries(LOUPE_ROWS).map(([row, name]) => (
+          <text
+            key={row}
+            className="label fill-ink-4 text-[9px]"
+            x={0}
+            y={LOUPE_MONTHS_H + Number(row) * layout.pitch + layout.pitch / 2 + 3}
+          >
+            {name}
+          </text>
+        ))}
+        <g transform={`translate(${LOUPE_GUTTER}, ${LOUPE_MONTHS_H})`}>
+          {cells}
+          {rings.map(({ date, stroke, scale, opacity }) => {
+            const { cx, cy } = ringAt(date);
+            return (
+              <circle
+                key={stroke + scale}
+                cx={cx}
+                cy={cy}
+                r={layout.radius * scale}
+                fill="none"
+                stroke={stroke}
+                strokeWidth={1}
+                opacity={opacity}
+              />
+            );
+          })}
+        </g>
+      </svg>
+    </motion.div>
   );
 }
 

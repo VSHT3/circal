@@ -8,9 +8,9 @@ dial's fifteen-minute grid clicks under the pointer, editing a repeating event a
 occurrences it means, ⌘⌫ deletes the arc you are pointing at, a calendar can be made and named and
 marked and recoloured and deleted without losing what is in it, an event can wear a mark of its own
 along its arc, a dated task is a pip on the rim you can tick off, the app can tell you a thing is
-about to start, the sidebar carries the moon, the week is seven of the same face at one rotation, the
-argument has a page of its own, and there is a test suite — 1,079 cases over the domain layer,
-`pnpm test`, in the gate.
+about to start, the sidebar carries the moon, the week is seven of the same face at one rotation, a
+year of the life grid comes up under the pointer at a size you can read, the argument has a page of
+its own, and there is a test suite — 1,105 cases over the domain layer, `pnpm test`, in the gate.
 
 Done work is not recorded here. The rationale that outlived it lives in `AGENTS.md`, next to the
 code it constrains.
@@ -169,16 +169,39 @@ or not at all. Closed-tab reminders need a push service, which needs a server, w
 thing this product has said it will not have — so **Settings says so in words**, which is what the
 review below asked for and is the whole of that item.
 
-**8. zoom in life view**
+**8. zoom in life view** — _done, and it is not a zoom. It is a loupe._
 
-The need is real — 30,000 dots at ~4px is at the edge of legibility and the screenshot proves it —
-but "zoom" contradicts the view's one invariant: _the whole life in one viewport_. Pan and zoom
-turns it into a map, and a map of your life is a worse idea than a picture of it. What you actually
-want is **focus without losing the whole**: the year under the pointer expands into a strip along
-the bottom, or a decade fisheyes in place, and the eighty years stay on screen the entire time.
-`lifeCellAt` (`life.ts:301`) already tells you which year you are over, and the field is one
-`drawImage` per frame (`LifeView.tsx:416`), so a second, larger strip is cheap. If you do add true
-zoom, keep the full span as a mini-map or you have lost the argument.
+The need was real and the noun was wrong. "Zoom" contradicts the view's one invariant — _the whole
+life in one viewport_ — because pan and zoom turns the life into a map, and a map of your life is a
+worse idea than a picture of it. So the eighty years never move at all. The year under the pointer
+is simply drawn a second time, large, on a card held over the field.
+
+**The fisheye was the other candidate and it is the instructive rejection.** It works on the year
+ring, so it looked like a solved problem — but a ring is one-dimensional and _closed_, which is
+what lets `spread` conserve its own slack and put the borrowed air back. A grid pushed aside in two
+axes has no such conservation: it either overlaps rows or opens a hole, and its columns stop being
+real Monday-to-Sunday weeks, which is the one structural claim this field makes. Distorting the
+cartogram means the picture you are reading is no longer the picture.
+
+**The transpose is arithmetic, not a look.** A year magnified in the field's own orientation buys
+nothing: at the desktop split one line already spans the whole width, so there is no room across
+and none down either. Turned on its side — a column is a week, seven rows are the weekdays — a year
+is 54 columns instead of 372, and the pitch lands four or five times the field's. It is literally
+`lifeCell` with `colsPerLine` fixed at seven, and `loupeCell(d).row === mondayOffset(d)` is the
+tested claim that keeps the two pictures agreeing about where a week starts.
+
+Three things the build decided. The card **writes the field's own hover**, so pointing at a big dot
+moves the small one's ring and pressing opens the day — a magnifier you cannot act through is a
+picture of a picture, and clicking a four-pixel dot was half the original complaint. It hangs in
+whichever half the pointer is not in, on two thresholds, because one line across the field flips
+150px of chrome for every pixel of jitter across it. And `LOUPE_GAIN` exists because the same
+`TONE` on a dot with four times the diameter is forty per cent more light per unit area, which came
+out as a pale slab competing with the event colours — the correction is `0.36 / 0.50`, the two
+coverages, and it leaves the ratio inside `TONE` alone.
+
+What it deliberately does not have: a setting (it only appears while you are pointing, which is
+asked for), milestone rings (the field owns those), and any presence on a box too small to hold one
+worth drawing — `loupeLayout` returns `null` below `1.8` times the field's own dot.
 
 **9. manifesto** — _done, at `/manifesto/`._
 
@@ -247,10 +270,14 @@ be told which month was busy. `settings.yearQuote` is a line the user writes, sh
 
 The strongest concept in the app, and searching it is now the thing no other calendar can do —
 ⌘P lights every matching day and the thread stays lit after the palette closes. Milestones landed:
-day 10,000, the midpoint, day 20,000, each a ring on its dot and a card of prose behind it. And the
-field itself is now walkable: one tab stop, arrows for a cursor, `↵` to open the day.
+day 10,000, the midpoint, day 20,000, each a ring on its dot and a card of prose behind it. The
+field itself is walkable: one tab stop, arrows for a cursor, `↵` to open the day. And it is now
+_readable_ at the day, which was the last thing against it — the loupe (8) puts the year under the
+pointer on a card at four times the pitch, without the eighty years moving a pixel.
 
-- **Drag a range** → "4,182 days". The distance maths already exists (`formatDistance`).
+- **Drag a range** → "4,182 days". The distance maths already exists (`formatDistance`), and the
+  loupe has now settled the gesture question underneath it: hover belongs to the pointer and a
+  press is a commit, on both surfaces.
 - **The card's `Go to this day` is load-bearing**, because the hit areas cost those three days their
   click on the field. If milestones ever grow past four marks, that trade stops being cheap.
 
@@ -284,7 +311,7 @@ cursor's ring and the pointer's are one ring and one card.
 
 What is left of that surface is not a defect but a limit: **no DOM in the suite** — no jsdom, no
 component tests, on purpose, because a snapshot of an SVG path is a change-detector that fails on
-every legitimate geometry tweak. That is the honest boundary of what 1,048 pure-function tests buy
+every legitimate geometry tweak. That is the honest boundary of what 1,105 pure-function tests buy
 you, and the faces stay eye-verified.
 
 ### What not to do
@@ -317,8 +344,10 @@ nobody noticed was missing was not carrying anything.
 **The big one is spent too.** The week view shipped, and with it the `<Face>` extraction under it,
 so the app is now one idea at four scales and the README says so. The manifesto (9) shipped with
 the worm-through-time line (1), so the product finally states its argument somewhere other than in
-its own geometry. What is left is the life grid's focus-without-zoom (8), a drag-range on the life
-grid, duplicate-event, recency ranking in ⌘P, and `RANGE=THISANDFUTURE` on import — and then (6)
-onboarding and (1) the intro animation, which were always last and now genuinely are.
+its own geometry. And (8) is closed, which was the last item with a design problem in it rather
+than a task. What is left is a drag-range on the life grid, duplicate-event, recency ranking in ⌘P,
+and `RANGE=THISANDFUTURE` on import — and then (6) onboarding and (1) the intro animation, which
+were always last and now genuinely are.
 
-There is no item left that adds a screen. Everything above finishes one.
+There is no item left that adds a screen, and none left that needs an argument. Everything above
+finishes one.

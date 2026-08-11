@@ -297,6 +297,17 @@ digit turns every couple of seconds, because a life is long enough that six
 would leave it sitting still for half a minute. Hover a dot for its date, how
 far off it is and what is on it; click one to open that day on the dial.
 
+A dot is four pixels, though, and four pixels is a picture rather than a day.
+So point at one and the year it belongs to comes up on a card over the field,
+at four or five times the size: every day of that year, months named across
+the top, weekdays down the side, and the same colours the field is drawn in.
+The eighty years do not move a pixel while it is up — this is a magnifier, not
+a zoom, and the whole life staying in one viewport is the point of the view.
+The card is a control too: point at a day in it and the ring moves on the
+field below, press one and it opens on the dial. It hangs in whichever half of
+the screen your pointer is not in, and it is gone the moment you stop
+pointing.
+
 It is one tab stop too, the same way the year ring is. Tab to the field and
 the arrows move a cursor across it — a day at a time, a week with up/down, a
 whole year with page up and down, `home` and `end` for the two ends of the
@@ -534,7 +545,7 @@ src/
     App.tsx          shell: which day, which view, which overlay, the URL
     Dial.tsx         the instrument
     CenterPanel.tsx  readout + agenda, pinned to the dial's centre
-    LifeView.tsx     the life grid, on a canvas
+    LifeView.tsx     the life grid, on a canvas, and the year loupe over it
     YearView.tsx     the year ring, and both halves of its unroll
     TopBar.tsx  Sidebar.tsx  EventEditor.tsx
     CommandPalette.tsx  Settings.tsx  Toast.tsx

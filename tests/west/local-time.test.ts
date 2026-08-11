@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { at, day } from "../helpers";
-import { lifeFraction, lifeMilestones, lifeSpan } from "@/lib/life";
+import {
+  lifeFraction,
+  lifeMilestones,
+  lifeSpan,
+  loupeCell,
+  loupeCellAt,
+  loupeLayout,
+} from "@/lib/life";
 import {
   addDays,
   atMinutes,
@@ -137,5 +144,39 @@ describe("life milestones land on local midnight west of UTC", () => {
     expect(lifeFraction(span, span.birth)).toBe(0);
     expect(lifeFraction(span, at("2070-03-12 23:59"))).toBeLessThanOrEqual(1);
     expect(lifeFraction(span, addDays(span.death, 1))).toBe(1);
+  });
+});
+
+describe("the loupe's cells stay on local days west of UTC", () => {
+  // `loupeCell` measures a day's place from 1 January with `startOfDay`, and a
+  // year west of UTC contains two transitions that a millisecond count would
+  // drift an hour across — which lands a day one row up or down, and a row
+  // here is a *weekday*. Both transitions are inside the year walked below.
+  const span = lifeSpan(day("1990-03-12"), 80);
+  const layout = loupeLayout(800, 200, 1.9);
+  if (!layout) throw new Error("a strip this size must resolve");
+
+  it("puts every day of a year on its own weekday's row, both transitions included", () => {
+    for (let d = day("2026-01-01"); d.getFullYear() === 2026; d = addDays(d, 1)) {
+      expect.soft(loupeCell(d).row).toBe((d.getDay() + 6) % 7);
+    }
+  });
+
+  it("reads back local midnight, never the hour the clock moved", () => {
+    // 8 March 2026 is the spring-forward Sunday in Los Angeles and 1 November
+    // the fall-back one: the two days most likely to come back off by one.
+    for (const key of ["2026-03-08", "2026-11-01"]) {
+      const d = day(key);
+      const { col, row } = loupeCell(d);
+      const back = loupeCellAt(
+        layout,
+        span,
+        2026,
+        col * layout.pitch + layout.pitch / 2,
+        row * layout.pitch + layout.pitch / 2,
+      );
+      expect(back).toBeSameInstantAs(d);
+      expect(dayKey(back!)).toBe(key);
+    }
   });
 });

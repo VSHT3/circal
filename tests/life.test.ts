@@ -16,10 +16,15 @@ import {
   lifeStage,
   lifeStats,
   lifeYearRange,
+  loupeCell,
+  loupeCellAt,
+  loupeLayout,
+  loupeMonths,
+  LOUPE_COLS,
   type LifeSpan,
 } from "@/lib/life";
 import { LIFE_EXPECTANCY_RANGE } from "@/lib/store";
-import { addDays } from "@/lib/time";
+import { addDays, mondayOffset } from "@/lib/time";
 import { calendar, day, event, ms, show } from "./helpers";
 
 /* ------------------------------ lifeCellAt ------------------------------ */
@@ -172,6 +177,133 @@ describe("lifeStage", () => {
     const stage = lifeStage("1990-01-01", 40, w, h);
     if (!stage) throw new Error("stage should resolve");
     expect(stage.layout.colsPerLine % 7).toBe(0);
+  });
+});
+
+/* ---------------------------------- loupe --------------------------------- */
+
+describe("the loupe is one year, transposed", () => {
+  const span = lifeSpan(day("1990-01-01"), 80);
+  const layout = loupeLayout(800, 200, 1.9);
+  if (!layout) throw new Error("a strip this size must resolve");
+
+  const centre = (col: number, row: number) => ({
+    x: col * layout.pitch + layout.pitch / 2,
+    y: row * layout.pitch + layout.pitch / 2,
+  });
+
+  it.each([
+    { name: "1 Jan is a Monday, so there are no leading blanks", year: 1990 },
+    { name: "1 Jan is a Sunday: the widest lead a year can have", year: 2023 },
+    { name: "a leap year", year: 2024 },
+    { name: "a leap year led by a Sunday, the only shape needing 54 columns", year: 2012 },
+  ])("round-trips every day of $name", ({ year }) => {
+    const failures: string[] = [];
+    for (let d = new Date(year, 0, 1); d.getFullYear() === year; d = addDays(d, 1)) {
+      const { col, row } = loupeCell(d);
+      const { x, y } = centre(col, row);
+      const back = loupeCellAt(layout, span, year, x, y);
+      if (!back || +back !== +d) failures.push(`${show(d)} -> ${back ? show(back) : "null"}`);
+    }
+    expect(failures.slice(0, 5)).toEqual([]);
+  });
+
+  it("puts every day on the row its weekday is, Monday first", () => {
+    // The whole claim of the transpose: a column is a week, so the row a day
+    // lands on is its weekday and nothing else. Get this wrong and the strip
+    // is a picture of a different year.
+    for (let d = new Date(2024, 0, 1); d.getFullYear() === 2024; d = addDays(d, 1)) {
+      expect.soft(loupeCell(d).row).toBe(mondayOffset(d));
+    }
+  });
+
+  it("steps down a column and wraps to the next, seven days on", () => {
+    const monday = day("2024-01-01");
+    expect(loupeCell(monday)).toEqual({ col: 0, row: 0 });
+    expect(loupeCell(addDays(monday, 6))).toEqual({ col: 0, row: 6 });
+    expect(loupeCell(addDays(monday, 7))).toEqual({ col: 1, row: 0 });
+  });
+
+  it("never needs more columns than it draws", () => {
+    for (let year = 1990; year <= 2070; year++) {
+      const dec31 = new Date(year, 11, 31);
+      expect.soft(loupeCell(dec31).col).toBeLessThan(LOUPE_COLS);
+    }
+  });
+
+  it.each([
+    {
+      name: "the leading blanks of a year led by a Sunday",
+      year: 2023,
+      at: () => centre(0, 5),
+    },
+    {
+      name: "the trailing blanks past the last day",
+      year: 2023,
+      at: () => centre(53, 0),
+    },
+    { name: "a column past the strip", year: 2024, at: () => centre(LOUPE_COLS, 0) },
+    { name: "a row past the week", year: 2024, at: () => centre(0, 7) },
+    { name: "a year before the birth", year: 1989, at: () => centre(30, 3) },
+    { name: "a year past the estimate", year: 2071, at: () => centre(30, 3) },
+  ])("returns null for $name", ({ year, at }) => {
+    const { x, y } = at();
+    expect(loupeCellAt(layout, span, year, x, y)).toBeNull();
+  });
+});
+
+describe("loupeLayout", () => {
+  it("is seven rows of square cells, however the box is shaped", () => {
+    const wide = loupeLayout(5000, 5000, 1);
+    if (!wide) throw new Error("a huge box must resolve");
+    // Capped: past this the dots are beads and the field loses the room for
+    // nothing.
+    expect(wide.pitch).toBe(18);
+    expect(wide.height).toBeCloseTo(7 * wide.pitch);
+    expect(wide.width).toBeCloseTo(LOUPE_COLS * wide.pitch);
+  });
+
+  it("takes the tighter of the two dimensions", () => {
+    const short = loupeLayout(5000, 70, 1);
+    if (!short) throw new Error("a short box still resolves");
+    expect(short.pitch).toBeCloseTo(10);
+  });
+
+  it("refuses to draw when it would not beat the field's own dot", () => {
+    // Same box, a field whose dots are already nearly this size: a second
+    // picture the size of the first is worth none of the room.
+    expect(loupeLayout(800, 200, 1.9)).not.toBeNull();
+    expect(loupeLayout(800, 200, 5)).toBeNull();
+  });
+
+  it("refuses to draw when the cells would be stipple, whatever the gain", () => {
+    expect(loupeLayout(200, 200, 0.1)).toBeNull();
+  });
+});
+
+describe("loupeMonths", () => {
+  const span = lifeSpan(day("1990-03-12"), 80); // 1990-03-12 .. 2070-03-12
+
+  it("names all twelve of a whole year, left to right", () => {
+    const months = loupeMonths(span, 2024);
+    expect(months.map((m) => m.month)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+    expect(months[0].col).toBe(0);
+    for (let i = 1; i < months.length; i++) {
+      expect.soft(months[i].col).toBeGreaterThan(months[i - 1].col);
+    }
+  });
+
+  it("drops the months before the birthday and hangs the first on its own week", () => {
+    const months = loupeMonths(span, 1990);
+    // Born 12 March: January and February are not drawn at all, and March's
+    // label belongs over the birth week rather than over 1 March, which is a
+    // column this strip does not have.
+    expect(months.map((m) => m.month)).toEqual([2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+    expect(months[0].col).toBe(loupeCell(day("1990-03-12")).col);
+  });
+
+  it("drops the months past the estimate", () => {
+    expect(loupeMonths(span, 2070).map((m) => m.month)).toEqual([0, 1, 2]);
   });
 });
 

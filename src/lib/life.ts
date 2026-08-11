@@ -318,6 +318,114 @@ export function lifeCellAt(layout: LifeLayout, span: LifeSpan, x: number, y: num
   return date;
 }
 
+/* ---------------------------------- loupe --------------------------------- */
+
+/**
+ * The loupe: one year of the field, at a size you can read, held over the
+ * field rather than replacing it. Thirty thousand dots at four pixels is the
+ * whole argument and also the whole problem — the picture is legible and the
+ * individual day is not.
+ *
+ * It is the grid's own cell arithmetic with `colsPerLine` fixed at seven, and
+ * then transposed: a column *is* a week, and the week runs down it instead of
+ * across a row. That is arithmetic rather than taste. At the desktop split one
+ * line of the field already spans the whole width, so a year magnified in the
+ * field's own orientation gains nothing horizontally and has nowhere vertical
+ * to go; turned on its side the same year is fifty-four columns rather than
+ * three hundred and seventy-two, and the pitch comes out four or five times
+ * the field's. There is no week gap either, for the same reason: the field's
+ * gap groups seven columns that are a week, and here one column already is.
+ */
+
+/**
+ * Columns, on every year. A year needs 53 or 54 depending on where its
+ * 1 January falls, and the loupe draws all of them at the wider — a strip that
+ * changes width as the pointer crosses into the next year is a wobble in the
+ * one thing on this screen meant to hold still.
+ */
+export const LOUPE_COLS = YEAR_WEEKS;
+
+/** Below this multiple of the field's own dot the loupe is not a magnifier,
+ *  and a second picture the size of the first is worth none of the room. */
+const LOUPE_MIN_GAIN = 1.8;
+/** Below this it is stippling too, whatever the gain says. */
+const LOUPE_MIN_PITCH = 5;
+/** Past this the dots are beads. A year is to be taken in at a glance rather
+ *  than walked, and the rest of the room is better spent on the field. */
+const LOUPE_MAX_PITCH = 18;
+
+export interface LoupeLayout {
+  cols: number;
+  /** One cell, square. */
+  pitch: number;
+  radius: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * The loupe an inner box of this size would hold, or `null` when it is not
+ * worth drawing. `fieldRadius` is the dot it has to beat.
+ */
+export function loupeLayout(
+  boxWidth: number,
+  boxHeight: number,
+  fieldRadius: number,
+): LoupeLayout | null {
+  const pitch = Math.min(LOUPE_MAX_PITCH, boxWidth / LOUPE_COLS, boxHeight / WEEK);
+  const radius = pitch * 0.4;
+  if (pitch < LOUPE_MIN_PITCH || radius < fieldRadius * LOUPE_MIN_GAIN) return null;
+  return { cols: LOUPE_COLS, pitch, radius, width: LOUPE_COLS * pitch, height: WEEK * pitch };
+}
+
+/** A day's cell in the loupe. Monday is row 0 — the same week the field's own
+ *  groups are cut on, so the two pictures agree about where a week starts. */
+export function loupeCell(date: Date): { col: number; row: number } {
+  const slot = mondayOffset(new Date(date.getFullYear(), 0, 1)) + dayOfYear(date);
+  return { col: Math.floor(slot / WEEK), row: slot % WEEK };
+}
+
+/**
+ * The day under a point in the loupe's own cell box, and the exact inverse of
+ * `loupeCell` through `layout.pitch`. `null` for the leading blanks of the
+ * year's first week, the trailing blanks of its last, and any day the span
+ * does not reach.
+ */
+export function loupeCellAt(
+  layout: LoupeLayout,
+  span: LifeSpan,
+  year: number,
+  x: number,
+  y: number,
+): Date | null {
+  const col = Math.floor(x / layout.pitch);
+  const row = Math.floor(y / layout.pitch);
+  if (col < 0 || col >= layout.cols || row < 0 || row >= WEEK) return null;
+  const offset = col * WEEK + row - mondayOffset(new Date(year, 0, 1));
+  if (offset < 0) return null;
+  const date = new Date(year, 0, 1 + offset);
+  if (date.getFullYear() !== year) return null;
+  if (date < span.birth || date > span.death) return null;
+  return date;
+}
+
+/**
+ * Where the month labels hang, in columns. A month is not a whole number of
+ * weeks, so a label sits at the column of its first *drawn* day — which is
+ * what keeps the birth year's first label on the birthday's own week instead
+ * of off the left of a strip that does not begin in January.
+ */
+export function loupeMonths(span: LifeSpan, year: number): { month: number; col: number }[] {
+  const { offset, from, to } = lifeYearRange(span, year - span.birth.getFullYear());
+  const out: { month: number; col: number }[] = [];
+  for (let month = 0; month < 12; month++) {
+    const first = dayOfYear(new Date(year, month, 1));
+    if (first + daysInMonth(year, month) - 1 < from || first > to) continue;
+    out.push({ month, col: Math.floor((offset + Math.max(first, from)) / WEEK) });
+  }
+  return out;
+}
+
 /* --------------------------------- events --------------------------------- */
 
 /** Frequencies fast enough to fire more often in a year than a life-sized
