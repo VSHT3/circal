@@ -128,6 +128,19 @@ dragged it to while the card is up, and Cancel puts it back.
 and a second press closes; on the dial it abandons the drag. A one-off is never
 asked, on either surface: there is only one thing it could mean.
 
+## Duplicating one
+
+Hold `⌘` and drag an arc: the original stays where it is, a copy in its own
+colour follows the pointer, and letting go writes it at the minute you left
+it. Everything comes across — the rule included, so a copy of a weekly standup
+dragged an hour later is a weekly standup an hour later. It asks no scope
+question, because nothing existing is being changed.
+
+In `⌘P`, `⌘↵` on an event does the same thing the other way round: no gesture
+named a time, so the copy opens in the editor rather than landing invisibly on
+top of its original. The foot of the palette says so on whichever row you are
+standing on.
+
 ## The middle of the face
 
 The ring says what shape the day is; the middle says the one sentence. It has
@@ -437,6 +450,8 @@ taking your calendar with it.
 | `F` / `⇧F`                | Ambient — chrome away, and with the screen as well                                |
 | `⌘↵` / `⌘⌫` / `esc`       | Save / delete / cancel in the editor                                              |
 | `⌘⌫`                      | Delete the arc you are pointing at, on the dial                                   |
+| `⌘`-drag an arc           | Duplicate it: the original stays, the copy lands where you let go                 |
+| `⌘↵` on a `⌘P` event row  | Duplicate it into the editor, where you can say when                              |
 
 Type a duration into `⌘P` — `45m`, `1h30`, `free 20` — and the palette lists
 the gaps in the day that fit it. Picking one opens a draft already filling the

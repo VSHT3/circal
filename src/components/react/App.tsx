@@ -20,7 +20,7 @@ import {
   type CalEvent,
   type Occurrence,
 } from "@/lib/events";
-import { draftEvent, store, taskDraft, useStore } from "@/lib/store";
+import { draftEvent, duplicateOf, store, taskDraft, useStore } from "@/lib/store";
 import { exportBackup, exportIcs, importFile } from "@/lib/backup";
 import { cue } from "@/lib/feedback";
 import { placeForZone } from "@/lib/places";
@@ -883,6 +883,20 @@ export default function App() {
         setAmbient("off");
         setEditor({ id, draft, readOnly: feedIds.has(event.calendarId) });
       },
+      /**
+       * ⌘P's own duplicate, and it opens the editor rather than writing.
+       *
+       * The palette has no gesture to say *when*, so an unmodified copy would
+       * land exactly on top of its original and the only evidence of it would
+       * be a toast. The drag has the opposite problem and gets the opposite
+       * answer: it named a time, so it writes and says so. Nothing is
+       * committed here until Save, so an Escape leaves no orphan behind.
+       */
+      duplicateEvent: (event: CalEvent) => {
+        setPaletteOpen(false);
+        setAmbient("off");
+        setEditor({ id: null, draft: duplicateOf(event) });
+      },
       newEvent: () => {
         // The hour a draft opens on is `defaultStart`'s answer, shared with
         // quick-add: two ways of adding an event must not disagree about when.
@@ -1281,6 +1295,29 @@ export default function App() {
     [feedIds, removeOccurrence],
   );
 
+  /**
+   * ⌘-drag off an arc. Written on release with no question and no editor: the
+   * gesture named the new time, which is the whole of what a duplicate needs
+   * to be told, and a modal after a drag that already said it is a second
+   * answer to the same question.
+   *
+   * No `EditScope` either, and that is not an omission. The three scopes exist
+   * because an edit to a repeating event has to say which occurrences it
+   * reaches; a duplicate reaches none of them — the original is untouched —
+   * so the copy is the whole event, rule and all, shifted by what the drag
+   * measured. Exactly what a plain drag on the same arc already does to the
+   * original under `"all"`.
+   */
+  const duplicateOccurrence = useCallback(
+    (occ: Occurrence, deltaMin: number) => {
+      if (feedIds.has(occ.event.calendarId)) return;
+      store.create(duplicateOf(occ.event, deltaMin * 60_000));
+      cue("created", channels);
+      notify(`Duplicated “${occ.event.title || "Untitled"}” — ⌘Z to undo`);
+    },
+    [feedIds, channels],
+  );
+
   const answerAsk = useCallback(
     (scope: EditScope) => {
       if (!ask) return;
@@ -1441,6 +1478,7 @@ export default function App() {
                   onCreate={(startMin, endMin) => openDraft(startMin, endMin, day)}
                   onAdjust={adjustOccurrence}
                   onDelete={deleteOccurrence}
+                  onDuplicate={duplicateOccurrence}
                   onToggleDone={toggleDone}
                   onPreview={setPreview}
                   onStepDay={step}

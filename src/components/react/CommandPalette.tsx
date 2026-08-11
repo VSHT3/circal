@@ -65,6 +65,15 @@ interface Row {
   title: string;
   meta?: ReactNode;
   run: () => void;
+  /**
+   * The row's second verb, on ⌘↵ and on the foot of the panel.
+   *
+   * A row can only name one target, so a per-event action has to hang off the
+   * event's own row — a `Duplicate …` row of its own would either double the
+   * result list or guess which match it meant. ⌘ is the modifier because it is
+   * already what a drag on the arc uses for this.
+   */
+  alt?: { label: string; run: () => void };
 }
 
 interface Group {
@@ -199,6 +208,7 @@ export default function CommandPalette({
    * because an empty query scores every candidate the same.
    */
   const eventRows: Row[] = useMemo(() => {
+    const feeds = new Set(calendars.filter((c) => c.feed).map((c) => c.id));
     return events
       .map((event) => ({ event, score: scoreEvent(event, q) }))
       .filter((row): row is { event: CalEvent; score: number } => row.score !== null)
@@ -224,6 +234,21 @@ export default function CommandPalette({
           actions.openEvent(event);
           onClose();
         },
+        // A subscription is read-only in every other surface and this is not
+        // the exception: the copy would have to land in a calendar the sender
+        // does not own, which is a decision with a surprise in it.
+        alt: feeds.has(event.calendarId)
+          ? undefined
+          : {
+              label: "Duplicate",
+              run: () => {
+                // The copy opens on the original's own day. An editor over a
+                // face that cannot show what is being edited is a form.
+                actions.goDay(new Date(event.start));
+                actions.duplicateEvent(event);
+                onClose();
+              },
+            },
       }));
   }, [events, q, day, calendars, clock, actions, onClose, inheritMarks]);
 
@@ -491,6 +516,11 @@ export default function CommandPalette({
     return map;
   }, [flatItems]);
 
+  /** The highlighted row's second verb, for ⌘↵ and for the foot of the panel.
+   *  Most rows have none, which is why that line is half empty most of the
+   *  time and fixed height always: a strip that appears would move the list. */
+  const alt = flatItems[highlighted]?.alt;
+
   useEffect(() => {
     itemRefs.current[highlighted]?.scrollIntoView({ block: "nearest" });
   }, [highlighted]);
@@ -505,7 +535,11 @@ export default function CommandPalette({
         setHighlighted((i) => (i - 1 + flatItems.length) % flatItems.length);
     } else if (e.key === "Enter") {
       e.preventDefault();
-      flatItems[highlighted]?.run();
+      // ⌘↵ takes the row's second verb, and falls through to nothing at all
+      // when it has none — running the primary would make one modifier mean
+      // "duplicate" on one row and "open" on the next.
+      if (e.metaKey || e.ctrlKey) alt?.run();
+      else flatItems[highlighted]?.run();
     } else if (e.key === "Escape") {
       e.preventDefault();
       // The shell listens for Escape on `window`, and by the time the event
@@ -632,6 +666,26 @@ export default function CommandPalette({
                 ))}
               </div>
             )}
+
+            {/* The foot of the panel, always the same height. It carries the
+                one thing the list cannot say for itself: that the highlighted
+                row has a second verb. A button rather than a legend, because
+                a pointer that hovered the row to select it is already here. */}
+            <div className="flex h-9 items-center justify-between border-t border-hairline px-4">
+              <span className="label flex items-center gap-1.5 text-ink-4">
+                <Kbd>↵</Kbd> Select
+              </span>
+              {alt && (
+                <button
+                  type="button"
+                  onClick={alt.run}
+                  className="label flex items-center gap-1.5 text-ink-3 transition-colors hover:text-ink"
+                >
+                  <Kbd>⌘</Kbd>
+                  <Kbd>↵</Kbd> {alt.label}
+                </button>
+              )}
+            </div>
           </motion.div>
         </motion.div>
       )}

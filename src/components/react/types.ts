@@ -129,6 +129,13 @@ export interface ShellActions {
    */
   toggleAmbient: () => void;
   openEvent: (event: CalEvent) => void;
+  /**
+   * A copy of an event, seeded into an open editor rather than written. The
+   * palette cannot say *when*, so an unmodified copy would land under its
+   * original and the toast would be the only sign of it — where a ⌘-drag on
+   * the arc names the time with the gesture and writes on release.
+   */
+  duplicateEvent: (event: CalEvent) => void;
   toggleCalendar: (id: string) => void;
   /** The calendar card, empty. Colour is the only category encoding this app
    *  has, so making one is a first-class verb rather than a settings chore. */

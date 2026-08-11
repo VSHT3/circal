@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { at, ms, event, MemoryStorage } from "./helpers";
 import { instantKey, PALETTE, type CalEvent, type Repeat } from "@/lib/events";
-import { DEFAULT_SETTINGS, LIFE_EXPECTANCY_RANGE } from "@/lib/store";
+import { DEFAULT_SETTINGS, LIFE_EXPECTANCY_RANGE, duplicateOf } from "@/lib/store";
 import { addDays, addMonths, dayKey, daysBetween, startOfDay } from "@/lib/time";
 import type * as StoreModule from "@/lib/store";
 import type * as NotifyModule from "@/lib/notify";
@@ -1277,6 +1277,109 @@ describe("draftEvent", () => {
     expect.soft(new Date(drafted.start).getHours()).toBe(0);
     expect.soft(new Date(drafted.end).getHours()).toBe(0);
     expect.soft(dayKey(new Date(drafted.end))).toBe("2026-03-31");
+  });
+});
+
+/* ------------------------------ duplicateOf ------------------------------ */
+
+describe("duplicateOf", () => {
+  const HOUR = 3_600_000;
+
+  it("copies everything the user wrote, the rule included", () => {
+    const source = event({
+      title: "Standup",
+      start: "2026-03-08 09:00",
+      end: "2026-03-08 09:30",
+      repeat: "weekly",
+      interval: 2,
+      location: "Room 2",
+      notes: "bring the thing",
+      color: "#8bf0b8",
+      icon: "barbell",
+    });
+    const copy = duplicateOf(source);
+    expect.soft(copy).not.toHaveProperty("id");
+    expect.soft(copy.title).toBe("Standup");
+    // The whole event, not the occurrence you had hold of: a duplicate of a
+    // fortnightly standup is a fortnightly standup.
+    expect.soft(copy.repeat).toBe("weekly");
+    expect.soft(copy.interval).toBe(2);
+    expect.soft(copy.location).toBe("Room 2");
+    expect.soft(copy.notes).toBe("bring the thing");
+    expect.soft(copy.color).toBe("#8bf0b8");
+    expect.soft(copy.icon).toBe("barbell");
+  });
+
+  it("detaches a copy of an override — two events cannot claim one occurrence", () => {
+    const copy = duplicateOf(
+      event({ start: "2026-03-08 09:00", seriesId: "parent", seriesKey: "2026-03-08T09:00:00" }),
+    );
+    expect.soft(copy.seriesId).toBe("");
+    expect.soft(copy.seriesKey).toBe("");
+  });
+
+  it("arrives unticked — a duplicate carrying its original's ticks is a lie", () => {
+    const copy = duplicateOf(
+      event({ start: "2026-03-08 09:00", task: true, doneKeys: ["2026-03-08T09:00:00"] }),
+    );
+    expect.soft(copy.task).toBe(true);
+    expect.soft(copy.doneKeys).toEqual([]);
+  });
+
+  it("shifts both instants by the drag, keeping the duration", () => {
+    const source = event({ start: "2026-03-08 09:00", end: "2026-03-08 10:00" });
+    const copy = duplicateOf(source, 2 * HOUR);
+    expect.soft(copy.start).toBeSameInstantAs("2026-03-08 11:00");
+    expect.soft(copy.end).toBeSameInstantAs("2026-03-08 12:00");
+  });
+
+  it("moves the bound with the series, and leaves an unbounded one unbounded", () => {
+    const bounded = event({
+      start: "2026-03-08 09:00",
+      repeat: "weekly",
+      until: ms("2026-04-05 09:00"),
+    });
+    // `until` bounds a *start*, so a series shifted an hour later and handed
+    // its old bound loses its last occurrence.
+    expect.soft(duplicateOf(bounded, HOUR).until).toBeSameInstantAs("2026-04-05 10:00");
+    expect.soft(duplicateOf(event({ repeat: "weekly" }), HOUR).until).toBe(0);
+  });
+
+  it("carries the exclusions across the shift rather than beside it", () => {
+    const source = event({
+      start: "2026-03-08 09:00",
+      end: "2026-03-08 10:00",
+      repeat: "weekly",
+      exdates: ["2026-03-15T09:00:00"],
+      rdates: ["2026-04-01T09:00:00"],
+    });
+    // Left alone, the copy fires on every day the original skipped.
+    const copy = duplicateOf(source, HOUR);
+    expect.soft(copy.exdates).toEqual(["2026-03-15T10:00:00"]);
+    expect.soft(copy.rdates).toEqual(["2026-04-01T10:00:00"]);
+  });
+
+  it("keeps a day-form key a day, and moves it when the shift crosses midnight", () => {
+    const source = event({
+      start: "2026-03-08 23:00",
+      end: "2026-03-08 23:30",
+      repeat: "daily",
+      exdates: ["2026-03-15"],
+    });
+    expect.soft(duplicateOf(source, HOUR).exdates).toEqual(["2026-03-16"]);
+    expect.soft(duplicateOf(source, -HOUR).exdates).toEqual(["2026-03-15"]);
+  });
+
+  it("leaves the lists exactly as they were when nothing moved", () => {
+    const source = event({
+      start: "2026-03-08 09:00",
+      repeat: "weekly",
+      exdates: ["2026-03-15T09:00:00", "2026-03-22"],
+      rdates: ["2026-04-01T09:00:00"],
+    });
+    const copy = duplicateOf(source);
+    expect.soft(copy.exdates).toEqual(source.exdates);
+    expect.soft(copy.rdates).toEqual(source.rdates);
   });
 });
 

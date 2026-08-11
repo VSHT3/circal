@@ -23,11 +23,12 @@
  * ------------------------------------------------------------------ */
 
 import { useSyncExternalStore } from "react";
-import { MINUTES_PER_DAY, addDays, addMonths, startOfDay, type Clock } from "./time";
+import { MINUTES_PER_DAY, addDays, addMonths, dayKey, startOfDay, type Clock } from "./time";
 import { notify } from "./notify";
 import {
   NEVER,
   PALETTE,
+  instantKey,
   keyToInstant,
   splitRule,
   toggleDoneKey,
@@ -1563,4 +1564,51 @@ export function draftEvent(
  */
 export function taskDraft(day: Date, startMin: number, calendarId: string): Omit<CalEvent, "id"> {
   return { ...draftEvent(day, startMin, startMin, calendarId), task: true };
+}
+
+/**
+ * A copy of an event, as the draft a new one is written from.
+ *
+ * Everything the user wrote comes across, the rule included: ⌘-dragging one
+ * occurrence of a weekly standup an hour later gives back a weekly series an
+ * hour later, which is the reading a plain drag already has — the deltas
+ * apply to the event's own instants, never to the occurrence you had hold of.
+ * It is also why a duplicate asks no `EditScope` question: nothing existing is
+ * being edited, so there is no occurrence for the question to be about.
+ *
+ * Three fields deliberately do not come across. `seriesId`/`seriesKey` name a
+ * relationship to *another* event, and two events cannot both claim one
+ * occurrence — so a copy of an override is an ordinary event on the day it
+ * used to replace. And `doneKeys` are ticks against work that was done once; a
+ * duplicate arriving pre-ticked is a to-do list that lies. The overrides *of*
+ * a series are not copied either, for the first reason: an override is its own
+ * event, and a duplicate is one event.
+ *
+ * `exdates`/`rdates` travel *with* the shift rather than beside it. Both name
+ * instants, so a series moved an hour later and handed its old keys is a copy
+ * that quietly fires on every day the original skipped. A day-form key is
+ * re-emitted as a day, which is what carries a whole-day exclusion across a
+ * drag that crossed midnight.
+ */
+export function duplicateOf(event: CalEvent, shiftMs = 0): Omit<CalEvent, "id"> {
+  const { id: _id, ...rest } = event;
+  const seed = new Date(event.start);
+  const shiftKey = (key: string) => {
+    const at = keyToInstant(key, seed);
+    if (at === null) return key;
+    const moved = new Date(at + shiftMs);
+    return key.includes("T") ? instantKey(moved) : dayKey(moved);
+  };
+  return {
+    ...rest,
+    start: event.start + shiftMs,
+    end: event.end + shiftMs,
+    // A bound is an instant too, and `0` is "unbounded" rather than 1970.
+    until: rest.until > 0 ? rest.until + shiftMs : 0,
+    exdates: shiftMs === 0 ? rest.exdates : rest.exdates.map(shiftKey),
+    rdates: shiftMs === 0 ? rest.rdates : rest.rdates.map(shiftKey),
+    seriesId: "",
+    seriesKey: "",
+    doneKeys: [],
+  };
 }

@@ -308,15 +308,35 @@ usable — which is the answer to "what is the magnifier _for_".
 - **The card's `Go to this day` is load-bearing**, because the hit areas cost those three days their
   click on the field. If milestones ever grow past four marks, that trade stops being cheap.
 
-### Input: what the palette still cannot do
+### Input: the palette
 
 Quick-add shipped — a sentence, its repetition included — and results are ranked with a forgiving
-match rather than filtered by substring. What is still missing there is cheap and unglamorous:
-**recency ranking** (nothing records what you opened, so the tiebreak is still nearness to the day
-on screen — it wants a stored `openedAt` and therefore a schema bump) and **duplicate event** (no
-such action anywhere, and the decision is where it lives: the editor, the palette, or a
-modifier-drag on the arc). Calendar CRUD is no longer on this list — `New calendar…` and `Edit …`
-are palette rows now.
+match rather than filtered by substring.
+
+**Duplicate event landed, and it is two gestures because there are two questions.** ⌘-drag on an
+arc: the original stays put, a ghost in the event's own colour follows the pointer, and the
+release writes the copy and toasts. ⌘↵ on an event row in ⌘P: no gesture named a time, so an
+unmodified copy would land exactly under its original and the toast would be the only evidence of
+it — that one seeds the editor instead and commits nothing until Save. The palette grew a foot for
+it (`↵ Select` / `⌘↵ Duplicate`), because a row can only name one target and a `Duplicate …` row
+of its own would either double the result list or guess which match it meant.
+
+What the copy carries was the real decision. **The whole event, rule and all** — the deltas apply
+to the event's own instants, which is the reading a plain drag on that arc already has — so it
+asks **no `EditScope` question**: the three scopes exist because an edit to a repeating event has
+to say which occurrences it reaches, and a duplicate reaches none of them. `seriesId`/`seriesKey`
+and `doneKeys` do not come across, and `until`/`exdates`/`rdates` travel _with_ the shift rather
+than beside it, or a series moved an hour later fires on every day the original skipped.
+
+**Recency ranking is struck rather than built, and the list was wrong about it.** It was filed as
+cheap and unglamorous — a stored `openedAt` — and the cost was never the problem. The tiebreak it
+would replace is `|event.start - day|`, nearness to the day you are standing on, in an app whose
+whole thesis is that where you are in time is the organising fact. Swapping that for what you
+clicked last Tuesday is a generic-launcher heuristic imported into a product that already has a
+better answer. Same reasoning as (3): the feature exists, in a stronger form, and a second one
+would rank worse.
+
+Calendar CRUD is no longer on this list — `New calendar…` and `Edit …` are palette rows now.
 
 ### The dial
 

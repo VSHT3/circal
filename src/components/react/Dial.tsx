@@ -17,7 +17,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { VIEW_SIZE, minutesAtPoint } from "@/lib/dial";
-import type { Calendar, Occurrence } from "@/lib/events";
+import { colorOf, type Calendar, type Occurrence } from "@/lib/events";
 import { cue, type Cue } from "@/lib/feedback";
 import { ambientLevel, type Place } from "@/lib/sun";
 import {
@@ -110,6 +110,16 @@ export interface DialProps {
    * change.
    */
   onDelete: (occ: Occurrence) => void;
+  /**
+   * ⌘ held through a drag on an arc's body: the original stays where it is and
+   * a copy lands where the pointer let go. One delta, because a duplicate is a
+   * move of a copy and never a resize of one — ⌘ on an end grip is ignored.
+   *
+   * It asks no scope question and opens no editor: the gesture already named
+   * the new time, which is the whole difference between this and ⌘P's own
+   * `Duplicate` row.
+   */
+  onDuplicate: (occ: Occurrence, deltaMin: number) => void;
   /** Tick the task under the pointer off, or back on. Straight through to the
    *  store — a task has one occurrence's worth of state and no scope to ask
    *  about, because ticking Monday off has never meant ticking every Monday. */
@@ -200,6 +210,16 @@ interface Adjust {
    * the arcs come from the day's own agenda, with the drag folded in.
    */
   shift: number;
+  /**
+   * ⌘ was held at the grab: the original stays put and the drag is carrying a
+   * copy. Fixed at the press rather than read per move, because a modifier
+   * let go halfway through a gesture would turn a duplicate into a move of
+   * the thing you were copying — which is the one outcome nothing undoes in
+   * one step.
+   *
+   * Only ever true for `grip === "whole"`: a duplicate is a move of a copy.
+   */
+  copy: boolean;
 }
 
 /**
@@ -268,6 +288,33 @@ function dragSpan(adjust: Adjust, day: Date): { start: number; end: number } {
   return { start: (start - base) / 60_000, end: (end - base) / 60_000 };
 }
 
+/**
+ * A pair of instants as an arc on this day.
+ *
+ * `null` when it does not reach the day at all; `minutesOfDay` at each end
+ * rather than elapsed milliseconds, because a day is not always 1440 minutes
+ * long and an arc has to sit at the time it prints; and 0…1440 for a span
+ * whose middle covers the day, which is the closed ring.
+ */
+function clipGhost(
+  span: { start: number; end: number },
+  day: Date,
+  color: string,
+  task: boolean,
+  opacity = 1,
+): FaceGhost | null {
+  const from = startOfDay(day);
+  const to = addDays(from, 1);
+  if (span.end < from.getTime() || span.start >= to.getTime()) return null;
+  return {
+    start: span.start <= from.getTime() ? 0 : minutesOfDay(new Date(span.start)),
+    end: span.end >= to.getTime() ? MINUTES_PER_DAY : minutesOfDay(new Date(span.end)),
+    color,
+    opacity,
+    task,
+  };
+}
+
 export default function Dial({
   day,
   now,
@@ -282,6 +329,7 @@ export default function Dial({
   onCreate,
   onAdjust,
   onDelete,
+  onDuplicate,
   onToggleDone,
   onPreview,
   onStepDay,
@@ -405,27 +453,32 @@ export default function Dial({
    * does not say better. A draft that does not reach this day draws nothing
    * either, and one whose middle covers it draws the closed ring.
    */
-  const drafted = useMemo<FaceGhost | null>(() => {
-    if (!pending || pending.allDay) return null;
-    const from = startOfDay(day);
-    const to = addDays(from, 1);
-    if (pending.end < from.getTime() || pending.start >= to.getTime()) return null;
-    // `minutesOfDay` at each end rather than elapsed milliseconds: a day is not
-    // always 1440 minutes long, and an arc has to sit at the time it prints.
-    return {
-      start: pending.start <= from.getTime() ? 0 : minutesOfDay(new Date(pending.start)),
-      end: pending.end >= to.getTime() ? MINUTES_PER_DAY : minutesOfDay(new Date(pending.end)),
-      color: pending.color,
-      opacity: 1,
-      task: pending.task,
-    };
-  }, [pending, day]);
+  const drafted = useMemo<FaceGhost | null>(
+    () =>
+      pending && !pending.allDay ? clipGhost(pending, day, pending.color, pending.task) : null,
+    [pending, day],
+  );
+
+  /**
+   * The copy a ⌘-drag is carrying. It is the same ghost channel the draft
+   * uses, in the event's own colour, because it is the same fact: an event
+   * that does not exist yet, drawn where it is about to. The original is not
+   * previewed at all — `onArcMove` withholds `onPreview` while copying, so
+   * the arc under the pointer stays exactly where it was.
+   */
+  const copying = useMemo<FaceGhost | null>(() => {
+    if (!adjust?.copy) return null;
+    const { event } = adjust.occ;
+    return clipGhost(draggedOccurrence(adjust), day, colorOf(event, calendars), event.task);
+  }, [adjust, day, calendars]);
 
   const ghost = draw ? resolveDraw(draw) : null;
   /** The pointer wins while it is down: the range being drawn *is* the draft
    *  about to open, and drawing both would double the same fact. A drag never
    *  draws a task — a gesture with a length in it is asking for a span. */
-  const about = ghost ? { ...ghost, color: "#ffffff", opacity: GHOST_ALPHA, task: false } : drafted;
+  const about = ghost
+    ? { ...ghost, color: "#ffffff", opacity: GHOST_ALPHA, task: false }
+    : (copying ?? drafted);
 
   /**
    * The event a drag has hold of, for the arc's own sake: it is drawn thicker,
@@ -548,7 +601,10 @@ export default function Dial({
     // through the one being grabbed.
     e.stopPropagation();
     capture(e);
-    const next: Adjust = { occ, grip, at, delta: 0, moved: false, shift: 0 };
+    // ⌘ on the body carries a copy off it. Only the body: a duplicate is a
+    // move of a copy, so an end grip is a resize whatever is held down.
+    const copy = grip === "whole" && (e.metaKey || e.ctrlKey);
+    const next: Adjust = { occ, grip, at, delta: 0, moved: false, shift: 0, copy };
     setAdjust(next);
     // Nothing is going to move on somebody else's event, so nothing clicks.
     if (grip !== "none") detent(grip === "whole");
@@ -574,13 +630,16 @@ export default function Dial({
     const step = dayFollow(next, day);
     setAdjust({ ...next, shift: adjust.shift + step });
     if (step !== 0) onStepDay(step);
-    onPreview(draggedEvent(next));
+    // A copy leaves the original alone, so there is nothing to preview: the
+    // arc under the pointer must stay where it is, and the thing that moves
+    // is `copying`'s ghost.
+    if (!next.copy) onPreview(draggedEvent(next));
     detent(adjust.grip === "whole");
   }
 
   function onArcUp() {
     if (!adjust) return;
-    const { occ, grip, delta, moved } = adjust;
+    const { occ, grip, delta, moved, copy } = adjust;
     const { start, end } = deltas(adjust);
     setAdjust(null);
     onPreview(null);
@@ -593,7 +652,9 @@ export default function Dial({
     }
     // Moved, but the grip was pinned the whole way: nothing to write, and a
     // no-op write would still cost an undo step.
-    if (delta !== 0) onAdjust(occ, start, end);
+    if (delta === 0) return;
+    if (copy) onDuplicate(occ, delta);
+    else onAdjust(occ, start, end);
   }
 
   /**
