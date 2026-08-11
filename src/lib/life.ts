@@ -426,6 +426,88 @@ export function loupeMonths(span: LifeSpan, year: number): { month: number; col:
   return out;
 }
 
+/* ---------------------------------- runs ---------------------------------- */
+
+/**
+ * A run of days somebody drew, ordered and clipped to the life. Inclusive at
+ * both ends, because a gesture that names two days means both of them — the
+ * same reading the year ring's own drag has.
+ */
+export interface LifeRun {
+  from: Date;
+  to: Date;
+  days: number;
+}
+
+export function lifeRange(span: LifeSpan, a: Date, b: Date): LifeRun {
+  const lo = startOfDay(a <= b ? a : b);
+  const hi = startOfDay(a <= b ? b : a);
+  const from = lo < span.birth ? span.birth : lo;
+  const to = hi > span.death ? span.death : hi;
+  // Rounded, never divided exactly: two DST transitions a year mean a run of
+  // whole local days is not a whole number of milliseconds.
+  return { from, to, days: Math.max(1, Math.round((+to - +from) / DAY_MS) + 1) };
+}
+
+/**
+ * A run of cells as at most three rectangles: the tail of the first line,
+ * every whole line between, and the head of the last.
+ *
+ * A run of days is contiguous in reading order by construction, which is what
+ * makes a band affordable where the dots themselves would not be — dragging
+ * the whole life is thirty thousand days and three rectangles. Both surfaces
+ * want it and read the answer differently: the field's line is a row of days,
+ * the loupe's is a week of weekdays. The transpose again.
+ */
+export interface CellBand {
+  /** First line covered, and how many lines the band spans. */
+  line: number;
+  lines: number;
+  /** Inclusive cell bounds within them. */
+  from: number;
+  to: number;
+}
+
+function cellBands(
+  start: { line: number; cell: number },
+  end: { line: number; cell: number },
+  cols: number,
+): CellBand[] {
+  if (start.line === end.line) {
+    return [{ line: start.line, lines: 1, from: start.cell, to: end.cell }];
+  }
+  const bands: CellBand[] = [{ line: start.line, lines: 1, from: start.cell, to: cols - 1 }];
+  const between = end.line - start.line - 1;
+  if (between > 0) bands.push({ line: start.line + 1, lines: between, from: 0, to: cols - 1 });
+  bands.push({ line: end.line, lines: 1, from: 0, to: end.cell });
+  return bands;
+}
+
+/** The run, in the field's rows. */
+export function lifeBands(layout: LifeLayout, span: LifeSpan, a: Date, b: Date): CellBand[] {
+  const run = lifeRange(span, a, b);
+  const from = lifeCell(layout, run.from);
+  const to = lifeCell(layout, run.to);
+  return cellBands(
+    { line: from.row, cell: from.col },
+    { line: to.row, cell: to.col },
+    layout.colsPerLine,
+  );
+}
+
+/** The same run in the loupe's columns, clipped to the year it is showing —
+ *  `line` is a week and the bounds are weekdays. Empty when the run misses
+ *  that year entirely, which is most of them. */
+export function loupeBands(span: LifeSpan, year: number, a: Date, b: Date): CellBand[] {
+  const run = lifeRange(span, a, b);
+  const first = new Date(year, 0, 1);
+  const last = new Date(year, 11, 31);
+  if (run.to < first || run.from > last) return [];
+  const from = loupeCell(run.from < first ? first : run.from);
+  const to = loupeCell(run.to > last ? last : run.to);
+  return cellBands({ line: from.col, cell: from.row }, { line: to.col, cell: to.row }, WEEK);
+}
+
 /* --------------------------------- events --------------------------------- */
 
 /** Frequencies fast enough to fire more often in a year than a life-sized

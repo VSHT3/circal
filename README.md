@@ -295,18 +295,26 @@ The strip above the field counts: days lived, days left, and how much of the
 whole is spent to seven decimals, which is enough to watch it move — the last
 digit turns every couple of seconds, because a life is long enough that six
 would leave it sitting still for half a minute. Hover a dot for its date, how
-far off it is and what is on it; click one to open that day on the dial.
+far off it is and what is on it; click one to open that day on the dial. Drag
+across a run of them and the strip counts it — `8 Apr 2026 – 30 Jul 2026 · 114
+days` — and letting go opens that run as a multi-day event, which is the year
+ring's own gesture one scale further out.
 
 A dot is four pixels, though, and four pixels is a picture rather than a day.
-So point at one and the year it belongs to comes up on a card over the field,
-at four or five times the size: every day of that year, months named across
-the top, weekdays down the side, and the same colours the field is drawn in.
-The eighty years do not move a pixel while it is up — this is a magnifier, not
-a zoom, and the whole life staying in one viewport is the point of the view.
-The card is a control too: point at a day in it and the ring moves on the
-field below, press one and it opens on the dial. It hangs in whichever half of
-the screen your pointer is not in, and it is gone the moment you stop
-pointing.
+So rest the pointer on one and the year it belongs to comes up on a card over
+the field, at four or five times the size: every day of that year, months
+named across the top, weekdays down the side, and the same colours the field
+is drawn in. The eighty years do not move a pixel while it is up — this is a
+magnifier, not a zoom, and the whole life staying in one viewport is the point
+of the view.
+
+The card is where the grid becomes usable rather than only readable. Point at
+a day in it and the ring moves on the field below; press one and it opens on
+the dial; drag across it and you are picking a hundred days at fifteen pixels
+each instead of at four. It hangs in whichever half of the screen your pointer
+is not in, waits a moment before appearing so that crossing the grid on the
+way somewhere else does not summon it, and goes when you stop pointing.
+**Settings → Life → Loupe** turns it off.
 
 It is one tab stop too, the same way the year ring is. Tab to the field and
 the arrows move a cursor across it — a day at a time, a week with up/down, a

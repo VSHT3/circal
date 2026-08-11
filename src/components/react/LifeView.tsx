@@ -40,6 +40,7 @@ import {
   type RefObject,
 } from "react";
 import {
+  AnimatePresence,
   animate,
   motion,
   useMotionValue,
@@ -55,6 +56,7 @@ import {
   formatAge,
   formatCount,
   formatLifeDate,
+  lifeBands,
   lifeCellAt,
   lifeDensity,
   lifeDot,
@@ -62,9 +64,11 @@ import {
   lifeDotY,
   lifeFraction,
   lifeMilestones,
+  lifeRange,
   lifeRowTop,
   lifeStats,
   lifeYearRange,
+  loupeBands,
   loupeCell,
   loupeCellAt,
   loupeLayout,
@@ -73,12 +77,14 @@ import {
   LIFE_META_H,
   type LifeLayout,
   type LifePoint,
+  type LifeRun,
   type LifeSpan,
   type LifeStage,
   type LoupeLayout,
   type Milestone,
 } from "@/lib/life";
 import { LIFE_EXPECTANCY_RANGE, store } from "@/lib/store";
+import { cue } from "@/lib/feedback";
 import { MONTHS, WEEKDAYS, addDays, dayKey, fromDayKey, isSameDay, startOfDay } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import type { LifeViewProps, ViewFlow } from "@/components/react/types";
@@ -397,17 +403,19 @@ function dayOptionLabel(date: Date, today: Date, birth: Date, load: number | boo
 export default function LifeView({
   stage,
   flow,
-  birth,
-  expectancy,
+  settings,
   now,
-  milestones,
   selected,
   events,
   calendars,
   search,
+  pending,
   onClearSearch,
   onSelectDay,
+  onCreateSpan,
 }: LifeViewProps) {
+  const { birth, lifeExpectancy, milestones, lifeLoupe, tickSound, tickHaptics } = settings;
+
   /**
    * The *day*, not the instant. The shell's clock ticks once a minute and the
    * grid changes once at midnight, so everything here is derived from the day
@@ -435,6 +443,14 @@ export default function LifeView({
     );
   }, [search, events, calendars, stage]);
 
+  /**
+   * The run being drawn, held up here because the strip prints it. A drag is
+   * the one thing on this field that has an answer worth a sentence — "4,182
+   * days" is the whole of what the gesture is for — and the strip is where a
+   * sentence about the whole grid goes, the same place the search chip takes.
+   */
+  const [draw, setDraw] = useState<LifeRun | null>(null);
+
   return (
     <div className="flex h-full w-full flex-col overflow-hidden">
       {/* Exactly `LIFE_META_H` tall, and not a pixel by accident: the shell
@@ -446,7 +462,9 @@ export default function LifeView({
       >
         {stage && stats && (
           <>
-            {found ? (
+            {draw ? (
+              <RunChip run={draw} />
+            ) : found ? (
               <SearchChip query={search} days={found.size} onClear={onClearSearch} />
             ) : (
               <span className="label hidden shrink-0 text-[10px] text-ink-3 sm:inline">
@@ -477,11 +495,17 @@ export default function LifeView({
             events={events}
             calendars={calendars}
             found={found}
+            pending={pending}
             milestones={milestones}
+            loupe={lifeLoupe}
+            channels={{ sound: tickSound, haptics: tickHaptics }}
+            draw={draw}
+            onDraw={setDraw}
             onSelectDay={onSelectDay}
+            onCreateSpan={onCreateSpan}
           />
         ) : (
-          <BirthPrompt now={now} birth={birth} expectancy={expectancy} />
+          <BirthPrompt now={now} birth={birth} expectancy={lifeExpectancy} />
         )}
       </div>
     </div>
@@ -552,6 +576,30 @@ function SearchChip({
   );
 }
 
+/**
+ * The run under the pointer, in the same strip and for the same reason: it is
+ * a fact about the whole grid rather than about one dot, and a card following
+ * the pointer cannot hold a sentence this long.
+ *
+ * It takes the strip *over* the search, unlike everything else here. A drag is
+ * happening right now and a query is standing state — and the field is
+ * printing the answer to the query in colour underneath either way.
+ */
+function RunChip({ run }: { run: LifeRun }) {
+  return (
+    <span className="label flex min-w-0 shrink items-center gap-1.5 text-[10px] text-ink-3">
+      <span className="truncate text-ink-2 tabular-nums">
+        {formatLifeDate(run.from)}
+        {run.days > 1 && ` – ${formatLifeDate(run.to)}`}
+      </span>
+      <span className="text-ink-4">·</span>
+      <span className="shrink-0 text-ink tabular-nums">
+        {formatCount(run.days)} day{run.days === 1 ? "" : "s"}
+      </span>
+    </span>
+  );
+}
+
 /* ---------------------------------- grid ---------------------------------- */
 
 interface Hover extends LifePoint {
@@ -566,8 +614,14 @@ function LifeGrid({
   events,
   calendars,
   found,
+  pending,
   milestones,
+  loupe: loupeOn,
+  channels,
+  draw,
+  onDraw,
   onSelectDay,
+  onCreateSpan,
 }: {
   stage: LifeStage;
   flow: RefObject<ViewFlow>;
@@ -576,8 +630,14 @@ function LifeGrid({
   events: CalEvent[];
   calendars: Calendar[];
   found: Map<string, string> | null;
+  pending: { from: Date; to: Date; color: string } | null;
   milestones: boolean;
+  loupe: boolean;
+  channels: { sound: boolean; haptics: boolean };
+  draw: LifeRun | null;
+  onDraw: (run: LifeRun | null) => void;
   onSelectDay: (day: Date) => void;
+  onCreateSpan: (from: Date, days: number) => void;
 }) {
   const reducedMotion = useReducedMotion();
   const { span, layout, box } = stage;
@@ -593,14 +653,17 @@ function LifeGrid({
    */
   const loupe = useMemo(
     () =>
-      loupeLayout(
-        box.width - LOUPE_INSET * 2 - LOUPE_PAD * 2 - LOUPE_GUTTER,
-        // A third of the field is all it may take. The whole span staying on
-        // screen is the argument; a magnifier that eats the picture has lost it.
-        box.height / 3 - LOUPE_PAD * 2 - LOUPE_HEADER_H - LOUPE_MONTHS_H,
-        layout.radius,
-      ),
-    [box, layout.radius],
+      loupeOn
+        ? loupeLayout(
+            box.width - LOUPE_INSET * 2 - LOUPE_PAD * 2 - LOUPE_GUTTER,
+            // A third of the field is all it may take. The whole span staying
+            // on screen is the argument; a magnifier that eats the picture has
+            // lost it.
+            box.height / 3 - LOUPE_PAD * 2 - LOUPE_HEADER_H - LOUPE_MONTHS_H,
+            layout.radius,
+          )
+        : null,
+    [loupeOn, box, layout.radius],
   );
 
   /**
@@ -618,6 +681,33 @@ function LifeGrid({
       : y < box.height * 0.5
         ? "bottom"
         : "top";
+
+  /**
+   * Whether the card has been asked for. It is the largest thing in this app
+   * that appears without being clicked, so it waits out `LOUPE_DWELL` first —
+   * a pointer crossing the field on its way to the top bar must not throw a
+   * hundred and fifty pixels of chrome up behind it. Held as its own flag
+   * rather than derived from the hover, because the hover changes every four
+   * pixels and the card must not restart its wait for that.
+   */
+  const [asked, setAsked] = useState(false);
+  const dwell = useRef<number | null>(null);
+  const wake = () => {
+    if (asked || dwell.current !== null) return;
+    dwell.current = window.setTimeout(() => {
+      dwell.current = null;
+      setAsked(true);
+    }, LOUPE_DWELL);
+  };
+  const rest = () => {
+    if (dwell.current !== null) window.clearTimeout(dwell.current);
+    dwell.current = null;
+    setAsked(false);
+  };
+  // The timer is an external system and outlives a re-render, so it has to be
+  // cleared on the way out — a card arriving on a view that has left is the
+  // one thing a dwell can cost you.
+  useEffect(() => () => void (dwell.current && window.clearTimeout(dwell.current)), []);
 
   /** The band of the field the card sits over, so the hover tip can keep out
    *  of it. The card's height is arithmetic rather than a measurement: it is
@@ -795,6 +885,63 @@ function LifeGrid({
     return { date: lifeCellAt(layout, span, at.x, at.y), at };
   }
 
+  /* ------------------------------ drawing a run ----------------------------- */
+
+  /**
+   * A press, a drag, a release — the year ring's grammar exactly, because it
+   * is the same gesture one scale further out. A press that never left its day
+   * is a click and a click names the day and leaves for it; anything wider is
+   * a run of days, which is a multi-day event, which goes to the editor rather
+   * than straight to the store because an event still needs a name.
+   *
+   * The anchor is a ref rather than state: it is written on the press and read
+   * on every move, and re-rendering for it would be a render per pixel of a
+   * gesture whose only visible output is already `draw`.
+   */
+  const anchor = useRef<Date | null>(null);
+
+  const beginRun = (date: Date) => {
+    setOpenKey(null);
+    anchor.current = date;
+    onDraw(lifeRange(span, date, date));
+  };
+  const extendRun = (date: Date) => {
+    const from = anchor.current;
+    if (!from) return;
+    const next = lifeRange(span, from, date);
+    // Bail on an identical run: a pointer crossing one dot fires a dozen moves
+    // and each one that changes state re-renders the strip.
+    if (draw && +next.from === +draw.from && +next.to === +draw.to) return;
+    onDraw(next);
+  };
+  const endRun = () => {
+    anchor.current = null;
+    if (!draw) return;
+    onDraw(null);
+    if (draw.days === 1) {
+      onSelectDay(draw.from);
+      return;
+    }
+    cue("opened", channels);
+    onCreateSpan(draw.from, draw.days);
+  };
+
+  /**
+   * One notion of "the days about to be an event", which is the rule the dial
+   * and the year ring already keep: the run under the pointer, else the draft
+   * in the open editor. White and faint while it is being drawn — there is no
+   * colour to show yet — and the draft's own colour once the editor has one,
+   * so the handover to the modal does not look like the range was thrown away.
+   */
+  const run = useMemo(() => {
+    if (draw) return { from: draw.from, to: draw.to, ink: "var(--ink)", alpha: 0.16 };
+    // A draft can be edited onto a day outside the life entirely, and
+    // `lifeRange` clamps rather than refusing — which would light the birth
+    // dot for an event in 1850.
+    if (!pending || pending.to < span.birth || pending.from > span.death) return null;
+    return { from: pending.from, to: pending.to, ink: pending.color, alpha: 0.34 };
+  }, [draw, pending, span]);
+
   /* --------------------------- the keyboard path -------------------------- */
 
   /**
@@ -831,6 +978,9 @@ function LifeGrid({
     setCursor(next);
     const dot = dotOf(next);
     if (dot) setSide((prev) => sideFor(dot.y, prev));
+    // No dwell on this path: the dwell exists because a pointer crosses the
+    // field on its way somewhere else, and a keypress never does.
+    setAsked(true);
   };
 
   const cursorDay = cursor ?? clampDay(dotOf(selected) ? selected : today);
@@ -919,7 +1069,10 @@ function LifeGrid({
       // One handler for the canvas and the loupe together. Leaving the field
       // *for* the loupe must not clear the day the loupe is showing, and the
       // canvas cannot tell that press from a press that left the view.
-      onPointerLeave={() => setHover(null)}
+      onPointerLeave={() => {
+        setHover(null);
+        rest();
+      }}
     >
       <canvas
         ref={canvasRef}
@@ -932,21 +1085,27 @@ function LifeGrid({
         onPointerMove={(e) => {
           const hit = locate(e);
           setSide((prev) => sideFor(hit.at.y, prev));
+          wake();
+          if (hit.date) extendRun(hit.date);
           // Bail on the same day: a pointer crossing one dot fires a dozen
           // moves, and each one that changes state re-renders the tip.
           if (hit.date?.getTime() === hover?.date.getTime()) return;
           setHover(hit.date ? { date: hit.date, ...hit.at } : null);
         }}
-        // A press, not a click — as on the dial, where every gesture is a
-        // pointer gesture and a click is one that did not move.
-        onPointerUp={(e) => {
+        // Captured, so a run that runs off the field keeps following the
+        // pointer — the dial's and the ring's rule, and the reason a drag can
+        // end anywhere.
+        onPointerDown={(e) => {
+          if (e.button !== 0) return;
           const hit = locate(e);
           if (!hit.date) return;
-          // A press on the field is also how a milestone card is dismissed:
-          // the card is the only thing here that outlives the pointer.
-          setOpenKey(null);
-          onSelectDay(hit.date);
+          e.currentTarget.setPointerCapture(e.pointerId);
+          beginRun(hit.date);
         }}
+        // A press, not a click — as on the dial, where every gesture is a
+        // pointer gesture and a click is one that did not move. `endRun` is
+        // both: a run of one day names it and leaves.
+        onPointerUp={endRun}
       />
 
       {/* The chrome — rules, gutters, marks — comes in behind the wave rather
@@ -999,6 +1158,23 @@ function LifeGrid({
           className="absolute inset-0 h-full w-full"
           viewBox={`0 0 ${Math.max(1, box.width)} ${Math.max(1, box.height)}`}
         >
+          {/* The run: the one being drawn, else the one the open editor is
+              about to create. Bands rather than dots, because a run of days is
+              contiguous in reading order and dragging the whole life is thirty
+              thousand dots and three rectangles. Under the marks, since it is
+              a region and they are points. */}
+          {run &&
+            lifeBands(layout, span, run.from, run.to).map((band) => (
+              <rect
+                key={`${band.line}:${band.from}`}
+                x={lifeDotX(layout, band.from) - layout.pitchX / 2}
+                y={lifeRowTop(layout, band.line)}
+                width={lifeDotX(layout, band.to) - lifeDotX(layout, band.from) + layout.pitchX}
+                height={band.lines * layout.pitchY}
+                fill={run.ink}
+                opacity={run.alpha}
+              />
+            ))}
           {/* The named days, under everything that follows the pointer: a
               milestone is a property of the grid, and today, the selection and
               the hover are all about where you are in it right now. */}
@@ -1114,32 +1290,37 @@ function LifeGrid({
         />
       )}
 
-      {loupe && active && (
-        <Loupe
-          layout={loupe}
-          span={span}
-          year={active.date.getFullYear()}
-          side={side}
-          today={today}
-          selected={selected}
-          active={active.date}
-          density={density}
-          found={found}
-          reducedMotion={!!reducedMotion}
-          // The loupe writes the field's own hover: one cursor, one ring, one
-          // tip, wherever the pointer happens to be standing.
-          onAim={(date) => {
-            const dot = dotOf(date);
-            if (dot) setHover({ date, ...dot });
-          }}
-          onPick={(date) => {
-            setOpenKey(null);
-            onSelectDay(date);
-          }}
-        />
-      )}
+      <AnimatePresence>
+        {loupe && active && (asked || draw !== null) && (
+          <Loupe
+            layout={loupe}
+            span={span}
+            year={active.date.getFullYear()}
+            side={side}
+            today={today}
+            selected={selected}
+            active={active.date}
+            run={run}
+            density={density}
+            found={found}
+            reducedMotion={!!reducedMotion}
+            // The loupe writes the field's own hover: one cursor, one ring, one
+            // tip, wherever the pointer happens to be standing.
+            onAim={(date) => {
+              const dot = dotOf(date);
+              if (dot) setHover({ date, ...dot });
+              extendRun(date);
+            }}
+            onDraw={beginRun}
+            onCommit={endRun}
+          />
+        )}
+      </AnimatePresence>
 
-      {active && (
+      {/* Not while a run is being drawn: the strip is already answering, with
+          the range and its count, and a card naming one of its two ends is a
+          second answer to a question that has one. */}
+      {active && !draw && (
         <DayTip
           hover={active}
           today={today}
@@ -1321,9 +1502,11 @@ function DayTip({
  * from, so the two cannot disagree about a day.
  *
  * It is also the only way to *act* on a day at this scale. Pointing at a four
- * pixel dot to read it is hard and clicking the right one is worse, so the
- * loupe writes to the same `hover` the field does and commits the same way:
- * point here, the ring moves over there, press and the day opens.
+ * pixel dot to read it is hard, clicking the right one is worse and drawing a
+ * range across a hundred of them is hopeless — so the loupe writes to the same
+ * `hover` the field does and takes the same press-drag-release: point here,
+ * the ring moves over there, press and the day opens, drag and the run of days
+ * becomes an event.
  */
 
 /** The weekday gutter, the strip of month names above the cells, the header
@@ -1358,6 +1541,23 @@ const LOUPE_ROWS: Record<number, string> = { 0: "M", 2: "W", 4: "F" };
  */
 const LOUPE_GAIN = 0.7;
 
+/**
+ * How long the pointer has to stay on the field before the card arrives, and
+ * how long it takes to arrive.
+ *
+ * Both were far too quick in the first build, and for the same reason: this is
+ * a hundred and fifty pixels of chrome that nothing clicked. A pointer on its
+ * way across the grid to the top bar threw it up and took it down again, which
+ * reads as a flicker rather than as a tool — hence the dwell, which is long
+ * enough to require intent and short enough that a deliberate point does not
+ * feel like waiting. Arriving takes about a third of a second on the app's own
+ * ease, and leaving takes two thirds of that: things go faster than they come,
+ * and a card that lingers is in the way of the field it was magnifying.
+ */
+const LOUPE_DWELL = 260;
+const LOUPE_IN = { duration: 0.34, ease: EASE };
+const LOUPE_OUT = { duration: 0.22, ease: EASE };
+
 function Loupe({
   layout,
   span,
@@ -1366,11 +1566,13 @@ function Loupe({
   today,
   selected,
   active,
+  run,
   density,
   found,
   reducedMotion,
   onAim,
-  onPick,
+  onDraw,
+  onCommit,
 }: {
   layout: LoupeLayout;
   span: LifeSpan;
@@ -1380,11 +1582,15 @@ function Loupe({
   selected: Date;
   /** The day the field and the loupe are both pointing at. */
   active: Date;
+  /** The days about to be an event, in the field's own terms. Clipped to this
+   *  year here, which is most often to nothing. */
+  run: { from: Date; to: Date; ink: string; alpha: number } | null;
   density: Map<string, string>;
   found: Map<string, string> | null;
   reducedMotion: boolean;
   onAim: (date: Date) => void;
-  onPick: (date: Date) => void;
+  onDraw: (date: Date) => void;
+  onCommit: () => void;
 }) {
   /**
    * The dots, as elements rather than as data. A pointer move inside one year
@@ -1448,6 +1654,10 @@ function Loupe({
     { date: active, stroke: "var(--ink)", scale: 2.1, opacity: 0.7 },
   ].filter(({ date }) => date.getFullYear() === year && date >= span.birth && date <= span.death);
 
+  /** The run, in this year's weeks. Empty for the seventy-nine years it does
+   *  not touch, which is the usual answer. */
+  const bands = run ? loupeBands(span, year, run.from, run.to) : [];
+
   /** The pointer, in cell coordinates. `null` on a blank — the leading days of
    *  the first week and the trailing days of the last — and a blank is ignored
    *  rather than clearing the day, or crossing one would drop the card. */
@@ -1473,9 +1683,29 @@ function Loupe({
         padding: LOUPE_PAD,
         ...(side === "bottom" ? { bottom: LOUPE_INSET } : { top: LOUPE_INSET }),
       }}
-      initial={reducedMotion ? false : { opacity: 0, x: "-50%", y: side === "bottom" ? 8 : -8 }}
-      animate={{ opacity: 1, x: "-50%", y: 0 }}
-      transition={{ duration: 0.16, ease: EASE }}
+      // It comes up from the edge it is anchored to and goes back down to it,
+      // which is what makes it read as being held *over* the field rather than
+      // switched on above it. Leaving carries its own, shorter curve: things
+      // go faster than they come, and a card that lingers is in the way of the
+      // thing it was magnifying.
+      initial={
+        reducedMotion
+          ? { opacity: 0, x: "-50%" }
+          : { opacity: 0, scale: 0.985, x: "-50%", y: side === "bottom" ? 14 : -14 }
+      }
+      animate={{ opacity: 1, scale: 1, x: "-50%", y: 0 }}
+      exit={
+        reducedMotion
+          ? { opacity: 0, x: "-50%", transition: LOUPE_OUT }
+          : {
+              opacity: 0,
+              scale: 0.99,
+              x: "-50%",
+              y: side === "bottom" ? 10 : -10,
+              transition: LOUPE_OUT,
+            }
+      }
+      transition={LOUPE_IN}
     >
       <div
         className="label flex items-center gap-1.5 text-[10px] text-ink-3"
@@ -1494,17 +1724,22 @@ function Loupe({
         width={LOUPE_GUTTER + layout.width}
         height={LOUPE_MONTHS_H + layout.height}
         // The card is the one surface at this scale where a day is bigger than
-        // the pointer, so it takes presses. `touch-none` for the reason the
-        // field has it: a drag across it must not scroll the page.
+        // the pointer, so it takes the whole gesture — press, drag, release —
+        // and not just a click. `touch-none` for the reason the field has it:
+        // a drag across it must not scroll the page.
         className="block touch-none"
         onPointerMove={(e) => {
           const date = dayUnder(e);
           if (date) onAim(date);
         }}
-        onPointerUp={(e) => {
+        onPointerDown={(e) => {
+          if (e.button !== 0) return;
           const date = dayUnder(e);
-          if (date) onPick(date);
+          if (!date) return;
+          e.currentTarget.setPointerCapture(e.pointerId);
+          onDraw(date);
         }}
+        onPointerUp={onCommit}
       >
         {/* The months place a column; the weekdays only explain the transpose.
             So the first is text at `ink-3` and the second is furniture. */}
@@ -1529,6 +1764,21 @@ function Loupe({
           </text>
         ))}
         <g transform={`translate(${LOUPE_GUTTER}, ${LOUPE_MONTHS_H})`}>
+          {/* Under the dots, so the run is a region the days sit in rather
+              than a wash over them — the field's own reading, transposed:
+              here a band is a run of weekdays down some weeks. */}
+          {run &&
+            bands.map((band) => (
+              <rect
+                key={`${band.line}:${band.from}`}
+                x={band.line * layout.pitch}
+                y={band.from * layout.pitch}
+                width={band.lines * layout.pitch}
+                height={(band.to - band.from + 1) * layout.pitch}
+                fill={run.ink}
+                opacity={run.alpha}
+              />
+            ))}
           {cells}
           {rings.map(({ date, stroke, scale, opacity }) => {
             const { cx, cy } = ringAt(date);

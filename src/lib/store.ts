@@ -215,6 +215,15 @@ export interface Settings {
    */
   milestones: boolean;
   /**
+   * Whether pointing at a day brings its year up on a card over the field, at
+   * a size a day can be read and hit at. On: four pixels is legible as a
+   * picture and not as a day, and every other surface in this app can be
+   * pointed at. A switch because it is the largest thing in this app that
+   * appears without being clicked, and somebody who came here for the
+   * eighty-year picture and nothing else is entitled to just the picture.
+   */
+  lifeLoupe: boolean;
+  /**
    * The line under the year ring's centre. The dial's interior answers the
    * day; a year has no equivalent answer worth printing, so this is a
    * standing one instead, and it is the user's to write. `""` prints nothing.
@@ -343,6 +352,10 @@ export const DEFAULT_SETTINGS: Settings = {
   // than furniture, and the alternative is a field with no landmarks in it at
   // all: the decade rules name the rows, and nothing names a day.
   milestones: true,
+  // On. The grid's one weakness was always that a dot is four pixels, and a
+  // magnifier that only appears while you are pointing costs the picture
+  // nothing when you are not.
+  lifeLoupe: true,
   // The default is an instruction rather than an observation, which is what
   // saves it from being a fortune cookie: a ring returns you to the same
   // angle, and this is the one thing to do about that.

@@ -4,6 +4,7 @@ import {
   formatAge,
   formatCount,
   formatLifeDate,
+  lifeBands,
   lifeCellAt,
   lifeDensity,
   lifeDot,
@@ -11,11 +12,13 @@ import {
   lifeDotY,
   lifeFraction,
   lifeMilestones,
+  lifeRange,
   lifeRowTop,
   lifeSpan,
   lifeStage,
   lifeStats,
   lifeYearRange,
+  loupeBands,
   loupeCell,
   loupeCellAt,
   loupeLayout,
@@ -304,6 +307,131 @@ describe("loupeMonths", () => {
 
   it("drops the months past the estimate", () => {
     expect(loupeMonths(span, 2070).map((m) => m.month)).toEqual([0, 1, 2]);
+  });
+});
+
+/* ------------------------------- runs and bands ----------------------------- */
+
+describe("lifeRange", () => {
+  const span = lifeSpan(day("1990-03-12"), 80); // 1990-03-12 .. 2070-03-12
+
+  it.each([
+    { name: "in order", a: "2026-03-01", b: "2026-03-05" },
+    { name: "backwards", a: "2026-03-05", b: "2026-03-01" },
+  ])("reads a drag $name as the same five days", ({ a, b }) => {
+    const run = lifeRange(span, day(a), day(b));
+    expect(run.from).toBeSameInstantAs("2026-03-01");
+    expect(run.to).toBeSameInstantAs("2026-03-05");
+    // Inclusive at both ends: the gesture named two days and means both.
+    expect(run.days).toBe(5);
+  });
+
+  it("a press that never left its day is one day, not none", () => {
+    expect(lifeRange(span, day("2026-03-01"), day("2026-03-01")).days).toBe(1);
+  });
+
+  it("clamps to the life at both ends", () => {
+    const run = lifeRange(span, day("1980-01-01"), day("2099-01-01"));
+    expect(run.from).toBeSameInstantAs(span.birth);
+    expect(run.to).toBeSameInstantAs(span.death);
+    expect(run.days).toBe(span.days);
+  });
+
+  it("counts whole local days across a DST transition", () => {
+    // 29 March 2026 is the spring-forward Sunday in Berlin: the week around it
+    // is 7 × 24h less an hour, and a division would come out at 6.96.
+    expect(lifeRange(span, day("2026-03-26"), day("2026-04-01")).days).toBe(7);
+  });
+});
+
+describe("lifeBands", () => {
+  const stage = lifeStage("1990-01-01", 80, 1400, 900);
+  if (!stage) throw new Error("stage must resolve for a normal desktop box");
+  const { span, layout } = stage;
+  const cols = layout.colsPerLine;
+
+  it("a run inside one row is one band", () => {
+    const bands = lifeBands(layout, span, day("2026-03-02"), day("2026-03-08"));
+    expect(bands).toHaveLength(1);
+    expect(bands[0].lines).toBe(1);
+    expect(bands[0].to - bands[0].from).toBe(6);
+  });
+
+  it("two adjacent rows are two bands, with no whole-row band between them", () => {
+    // Whatever the split, the run from the last cell of a row to the first of
+    // the next has to come out as exactly the tail and the head.
+    const bands = lifeBands(layout, span, day("2026-01-01"), day("2028-01-01"));
+    expect(bands.length).toBeGreaterThanOrEqual(2);
+    expect(bands[0].lines).toBe(1);
+    expect(bands[bands.length - 1].lines).toBe(1);
+  });
+
+  it("is never more than three bands, even for the whole life", () => {
+    // The point of the band: thirty thousand dots, three rectangles.
+    const bands = lifeBands(layout, span, span.birth, span.death);
+    expect(bands.length).toBeLessThanOrEqual(3);
+    expect(bands[0].line).toBe(0);
+    expect(bands[bands.length - 1].line + bands[bands.length - 1].lines).toBeLessThanOrEqual(
+      layout.rows,
+    );
+  });
+
+  it("the middle band is whole rows, edge to edge", () => {
+    const bands = lifeBands(layout, span, day("2026-03-05"), day("2029-08-20"));
+    expect(bands).toHaveLength(3);
+    expect(bands[1].from).toBe(0);
+    expect(bands[1].to).toBe(cols - 1);
+  });
+
+  it("its two ends are the run's two dots, and the rows between leave no gap", () => {
+    const bands = lifeBands(layout, span, day("2026-03-05"), day("2026-09-20"));
+    const first = lifeDot(layout, span, day("2026-03-05"));
+    const last = lifeDot(layout, span, day("2026-09-20"));
+    if (!first || !last) throw new Error("both days are inside this span");
+
+    // Contiguous: each band picks up on the line the one before it ended.
+    for (let i = 1; i < bands.length; i++) {
+      expect.soft(bands[i].line).toBe(bands[i - 1].line + bands[i - 1].lines);
+    }
+    // And the band's own corners are the dots the run was drawn between —
+    // which is the whole claim, since nothing here inverts the geometry twice.
+    const tail = bands[bands.length - 1];
+    expect(lifeDotX(layout, bands[0].from)).toBeCloseTo(first.x);
+    expect(lifeDotY(layout, bands[0].line)).toBeCloseTo(first.y);
+    expect(lifeDotX(layout, tail.to)).toBeCloseTo(last.x);
+    expect(lifeDotY(layout, tail.line + tail.lines - 1)).toBeCloseTo(last.y);
+  });
+});
+
+describe("loupeBands", () => {
+  const span = lifeSpan(day("1990-01-01"), 80);
+
+  it("is empty for a year the run never reaches", () => {
+    expect(loupeBands(span, 2040, day("2026-03-01"), day("2026-03-20"))).toEqual([]);
+  });
+
+  it("a Monday-to-Sunday week is one whole column", () => {
+    // The transpose's own claim: a week is a column here, so seven days from a
+    // Monday must be one band covering all seven rows.
+    const bands = loupeBands(span, 2024, day("2024-03-04"), day("2024-03-10"));
+    expect(bands).toHaveLength(1);
+    expect(bands[0].lines).toBe(1);
+    expect(bands[0].from).toBe(0);
+    expect(bands[0].to).toBe(6);
+  });
+
+  it("clips a run that runs past both ends of the year it is showing", () => {
+    const bands = loupeBands(span, 2026, day("2024-06-01"), day("2029-06-01"));
+    // The year is entirely inside the run, so the band runs from 1 January's
+    // own cell to 31 December's — not from the corner of the plate, because
+    // 1 January 2026 is a Thursday and the three cells above it are blanks.
+    const first = loupeCell(day("2026-01-01"));
+    const last = loupeCell(day("2026-12-31"));
+    expect(bands[0].line).toBe(first.col);
+    expect(bands[0].from).toBe(first.row);
+    const tail = bands[bands.length - 1];
+    expect(tail.line + tail.lines - 1).toBe(last.col);
+    expect(tail.to).toBe(last.row);
   });
 });
 

@@ -1482,16 +1482,19 @@ export default function App() {
                 <LifeView
                   stage={stage}
                   flow={flow}
-                  birth={settings.birth}
-                  expectancy={settings.lifeExpectancy}
+                  settings={settings}
                   now={now}
-                  milestones={settings.milestones}
                   selected={day}
                   events={visible}
                   calendars={calendars}
                   search={lifeSearch}
+                  pending={pendingDays}
                   onClearSearch={() => setLifeSearch("")}
                   onSelectDay={(next) => actions.goDay(next)}
+                  // The same run of whole days the ring hands over, through the
+                  // same function: which face drew it is not something the
+                  // editor can tell, and must not be.
+                  onCreateSpan={(from, days) => openDraft(0, days * MINUTES_PER_DAY, from)}
                 />
               )}
             </motion.div>

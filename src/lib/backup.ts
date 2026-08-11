@@ -139,6 +139,9 @@ export function readSettings(value: unknown): Settings {
     // written before they existed came from a build where every life was
     // unmarked by omission rather than by choice.
     milestones: value.milestones !== false,
+    // Same reading for the loupe, and the same reason: a file written before
+    // it existed is not a file that turned it off.
+    lifeLoupe: value.lifeLoupe !== false,
     // A line the user wrote, so an absent one is the default rather than
     // silence — a blank centre is a thing to choose, not to inherit from a
     // file. `sane()` trims it and pins the length.

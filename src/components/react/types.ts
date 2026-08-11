@@ -298,15 +298,16 @@ export interface LifeViewProps {
    */
   stage: LifeStage | null;
   flow: RefObject<ViewFlow>;
-  /** `YYYY-MM-DD`, or `""` — which is what puts the prompt on screen. */
-  birth: string;
-  /** Years the grid runs for, from the birthday. */
-  expectancy: number;
+  /**
+   * Whole, at last. The grid reads the birth date, the expectancy, the
+   * milestone switch, the loupe's own switch and both tick channels — five
+   * fields threaded one at a time is the bargain this file refused everywhere
+   * else, and the sixth was the one that made it silly.
+   */
+  settings: Settings;
   /** Ticking on the minute. The percentage in the strip runs its own second
    *  clock; everything else here changes at midnight or not at all. */
   now: Date;
-  /** Whether the grid names its round days. */
-  milestones: boolean;
   selected: Date;
   events: CalEvent[];
   calendars: Calendar[];
@@ -318,6 +319,20 @@ export interface LifeViewProps {
    */
   search: string;
   onClearSearch: () => void;
+  /**
+   * The event the open editor is about to create, on the days it covers — the
+   * year ring's own prop, because a run of days drawn on this field is the
+   * same thing drawn on that ring and neither may throw the range away when
+   * the modal arrives. Both ends inclusive.
+   */
+  pending: { from: Date; to: Date; color: string } | null;
+  /**
+   * A drag across the field, or across the loupe over it: an all-day event
+   * running `days` days from `from`, both ends inclusive. Identical to the
+   * year ring's, and handed to the same shell function — a range of days is a
+   * multi-day event at whatever scale it was drawn.
+   */
+  onCreateSpan: (from: Date, days: number) => void;
   onSelectDay: (day: Date) => void;
 }
 

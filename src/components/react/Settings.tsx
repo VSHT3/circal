@@ -159,6 +159,7 @@ export default function Settings({
     birth,
     lifeExpectancy,
     milestones,
+    lifeLoupe,
     yearQuote,
     inheritMarks,
     moonPhase,
@@ -568,7 +569,7 @@ export default function Settings({
                       : "One dot per day for a whole life. The date is asked for once and never leaves this browser"}
                   </span>
                 </FieldRow>
-                <FieldRow label="Marks" align="top" last>
+                <FieldRow label="Marks" align="top">
                   <Toggle
                     label="Milestones"
                     checked={milestones}
@@ -577,6 +578,17 @@ export default function Settings({
                   <span className="caption">
                     Rings the round days: the ten-thousandth, the twenty-thousandth, the midpoint.
                     Click one for what it means
+                  </span>
+                </FieldRow>
+                <FieldRow label="Loupe" align="top" last>
+                  <Toggle
+                    label="Magnify the year"
+                    checked={lifeLoupe}
+                    onChange={(on) => store.setToggle("lifeLoupe", on)}
+                  />
+                  <span className="caption">
+                    Point at a day and its whole year comes up on a card, large enough to read and
+                    to drag a range across. The eighty years stay where they are
                   </span>
                 </FieldRow>
               </Section>

@@ -10,7 +10,7 @@ marked and recoloured and deleted without losing what is in it, an event can wea
 along its arc, a dated task is a pip on the rim you can tick off, the app can tell you a thing is
 about to start, the sidebar carries the moon, the week is seven of the same face at one rotation, a
 year of the life grid comes up under the pointer at a size you can read, the argument has a page of
-its own, and there is a test suite — 1,105 cases over the domain layer, `pnpm test`, in the gate.
+its own, and there is a test suite — 1,118 cases over the domain layer, `pnpm test`, in the gate.
 
 Done work is not recorded here. The rationale that outlived it lives in `AGENTS.md`, next to the
 code it constrains.
@@ -199,9 +199,29 @@ whichever half the pointer is not in, on two thresholds, because one line across
 out as a pale slab competing with the event colours — the correction is `0.36 / 0.50`, the two
 coverages, and it leaves the ratio inside `TONE` alone.
 
-What it deliberately does not have: a setting (it only appears while you are pointing, which is
-asked for), milestone rings (the field owns those), and any presence on a box too small to hold one
-worth drawing — `loupeLayout` returns `null` below `1.8` times the field's own dot.
+**A first pass shipped it too eager, too thin and unswitchable, and all three were the same
+mistake: treating it as a tooltip.** It is a hundred and fifty pixels of chrome that nothing
+clicked, so it now waits out `LOUPE_DWELL` before arriving, arrives on a third of a second and
+leaves in two thirds of that — a pointer crossing the field on its way to the top bar must not
+throw it up and take it down again. The keyboard skips the wait, because a keypress was never on
+its way somewhere else.
+
+**And it earns the room by being the surface a range can be drawn on.** Press, drag, release —
+the year ring's grammar exactly, through the same `onCreateSpan`, so a run of days becomes a
+multi-day event whichever face drew it. The field takes the gesture too, which is (8)'s sibling
+item finally done; but a hundred days at four pixels is a gesture you cannot aim, and in the card
+it is a hundred days at fifteen. The strip prints `8 Apr 2026 – 30 Jul 2026 · 114 days` while it
+is live, the tip goes away (a card naming one end of a range is a second answer), and the run is
+drawn as **bands** rather than dots: contiguous in reading order means at most three rectangles,
+so dragging the whole life costs three `<rect>`s instead of thirty thousand arcs.
+
+`settings.lifeLoupe`, on by default. It was going to have no switch on the argument that it only
+appears when pointed at — but it is the biggest thing here that arrives unclicked, and somebody
+who came for the eighty-year picture and nothing else is entitled to just the picture.
+
+What it still deliberately does not have: milestone rings (the field owns those), and any presence
+on a box too small to hold one worth drawing — `loupeLayout` returns `null` below `1.8` times the
+field's own dot.
 
 **9. manifesto** — _done, at `/manifesto/`._
 
@@ -275,9 +295,13 @@ field itself is walkable: one tab stop, arrows for a cursor, `↵` to open the d
 _readable_ at the day, which was the last thing against it — the loupe (8) puts the year under the
 pointer on a card at four times the pitch, without the eighty years moving a pixel.
 
-- **Drag a range** → "4,182 days". The distance maths already exists (`formatDistance`), and the
-  loupe has now settled the gesture question underneath it: hover belongs to the pointer and a
-  press is a commit, on both surfaces.
+**Drag a range is done**, and it turned out to be the same item as the loupe rather than a
+neighbour of it: press-drag-release on the field or on the card, the strip prints
+`8 Apr 2026 – 30 Jul 2026 · 114 days`, and the release hands the run to the editor as a multi-day
+event through the year ring's own `onCreateSpan`. The field can be dragged on alone, but a hundred
+days at four pixels is a gesture nobody can aim, so the card is where the gesture is actually
+usable — which is the answer to "what is the magnifier _for_".
+
 - **The card's `Go to this day` is load-bearing**, because the hit areas cost those three days their
   click on the field. If milestones ever grow past four marks, that trade stops being cheap.
 
@@ -311,7 +335,7 @@ cursor's ring and the pointer's are one ring and one card.
 
 What is left of that surface is not a defect but a limit: **no DOM in the suite** — no jsdom, no
 component tests, on purpose, because a snapshot of an SVG path is a change-detector that fails on
-every legitimate geometry tweak. That is the honest boundary of what 1,105 pure-function tests buy
+every legitimate geometry tweak. That is the honest boundary of what 1,118 pure-function tests buy
 you, and the faces stay eye-verified.
 
 ### What not to do
@@ -344,10 +368,10 @@ nobody noticed was missing was not carrying anything.
 **The big one is spent too.** The week view shipped, and with it the `<Face>` extraction under it,
 so the app is now one idea at four scales and the README says so. The manifesto (9) shipped with
 the worm-through-time line (1), so the product finally states its argument somewhere other than in
-its own geometry. And (8) is closed, which was the last item with a design problem in it rather
-than a task. What is left is a drag-range on the life grid, duplicate-event, recency ranking in ⌘P,
-and `RANGE=THISANDFUTURE` on import — and then (6) onboarding and (1) the intro animation, which
-were always last and now genuinely are.
+its own geometry. And (8) is closed, together with the drag-range that turned out to be the same
+item — it was the last thing on this list with a design problem in it rather than a task. What is
+left is duplicate-event, recency ranking in ⌘P, and `RANGE=THISANDFUTURE` on import — and then (6)
+onboarding and (1) the intro animation, which were always last and now genuinely are.
 
 There is no item left that adds a screen, and none left that needs an argument. Everything above
 finishes one.
