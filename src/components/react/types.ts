@@ -3,7 +3,7 @@
 import type { RefObject } from "react";
 import type { Clock } from "@/lib/time";
 import type { CalEvent, Calendar, Occurrence } from "@/lib/events";
-import type { LifeStage } from "@/lib/life";
+import type { LifeRun, LifeStage } from "@/lib/life";
 import type { WeekStage } from "@/lib/week";
 import type { MoonStyle, Settings } from "@/lib/store";
 import type { QuickAdd } from "@/lib/quickadd";
@@ -340,6 +340,18 @@ export interface LifeViewProps {
    * multi-day event at whatever scale it was drawn.
    */
   onCreateSpan: (from: Date, days: number) => void;
+  /**
+   * The run under the pointer, held by the *shell* rather than by the view.
+   *
+   * Escape is why. A drag is the one thing here you can start by accident, so
+   * it has to be abandonable — and the shell's own Escape peels the panel, the
+   * drawer, the lit grid and then ambient, in that order. A gesture in flight
+   * belongs at the front of that list, and the shell can only put it there if
+   * it can see one. Dropped to `null` from outside, the field's handlers bail
+   * exactly as the dial's do.
+   */
+  draw: LifeRun | null;
+  onDraw: (run: LifeRun | null) => void;
   onSelectDay: (day: Date) => void;
 }
 

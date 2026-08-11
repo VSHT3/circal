@@ -411,6 +411,8 @@ export default function LifeView({
   search,
   pending,
   onClearSearch,
+  draw,
+  onDraw,
   onSelectDay,
   onCreateSpan,
 }: LifeViewProps) {
@@ -443,13 +445,10 @@ export default function LifeView({
     );
   }, [search, events, calendars, stage]);
 
-  /**
-   * The run being drawn, held up here because the strip prints it. A drag is
-   * the one thing on this field that has an answer worth a sentence — "4,182
-   * days" is the whole of what the gesture is for — and the strip is where a
-   * sentence about the whole grid goes, the same place the search chip takes.
-   */
-  const [draw, setDraw] = useState<LifeRun | null>(null);
+  /* The run being drawn is the shell's, because Escape is: see `LifeViewProps`.
+     The strip prints it here — "4,182 days" is the whole of what the gesture
+     is for, and a sentence about the whole grid goes where the search chip
+     goes. */
 
   return (
     <div className="flex h-full w-full flex-col overflow-hidden">
@@ -500,7 +499,7 @@ export default function LifeView({
             loupe={lifeLoupe}
             channels={{ sound: tickSound, haptics: tickHaptics }}
             draw={draw}
-            onDraw={setDraw}
+            onDraw={onDraw}
             onSelectDay={onSelectDay}
             onCreateSpan={onCreateSpan}
           />
@@ -900,6 +899,11 @@ function LifeGrid({
    */
   const anchor = useRef<Date | null>(null);
 
+  // A view switch can take the grid away mid-gesture — ⌘D, ⌘Y and ⌘E are one
+  // key each — and the release that would clear the run never arrives. The
+  // same contract the dial has with its preview.
+  useEffect(() => () => onDraw(null), [onDraw]);
+
   const beginRun = (date: Date) => {
     setOpenKey(null);
     anchor.current = date;
@@ -907,11 +911,15 @@ function LifeGrid({
   };
   const extendRun = (date: Date) => {
     const from = anchor.current;
-    if (!from) return;
+    // No run means the gesture is over even though the pointer is still down:
+    // Escape dropped it from the shell. The pointer stays captured and every
+    // handler bails, exactly as the dial's do — a move that re-armed the run
+    // would be the abandon undoing itself.
+    if (!from || !draw) return;
     const next = lifeRange(span, from, date);
     // Bail on an identical run: a pointer crossing one dot fires a dozen moves
     // and each one that changes state re-renders the strip.
-    if (draw && +next.from === +draw.from && +next.to === +draw.to) return;
+    if (+next.from === +draw.from && +next.to === +draw.to) return;
     onDraw(next);
   };
   const endRun = () => {

@@ -38,7 +38,7 @@ import {
   mondayOffset,
   startOfDay,
 } from "@/lib/time";
-import { LIFE_META_H, lifeDot, lifeStage } from "@/lib/life";
+import { LIFE_META_H, lifeDot, lifeStage, type LifeRun } from "@/lib/life";
 import { weekFaceCentre, weekStage, weekZoomScale } from "@/lib/week";
 import { EASE, MODE_MS, UNROLL_IN_MS, UNROLL_OUT_MS } from "@/lib/motion";
 import { cn } from "@/lib/utils";
@@ -474,6 +474,14 @@ export default function App() {
    * dial clears it on release, on Escape, and on being unmounted.
    */
   const [preview, setPreview] = useState<DragPreview | null>(null);
+
+  /**
+   * The run of days being drawn on the life grid, for the reason `preview`
+   * lives here: Escape peels the panel, the drawer, the lit grid and then
+   * ambient in that order, and a gesture in flight belongs at the front of
+   * that list. The shell can only put it there if it can see one.
+   */
+  const [lifeRun, setLifeRun] = useState<LifeRun | null>(null);
 
   /** A move or a delete on a repeating event, waiting on its scope. */
   const [ask, setAsk] = useState<ScopeAsk | null>(null);
@@ -985,6 +993,16 @@ export default function App() {
       setSettingsOpen(false);
       setEditor(null);
       if (panelled) return;
+      // A gesture in flight is the front of the queue, and it has to be: a
+      // run drawn across a *lit* grid is the natural way to use this view, so
+      // an Escape that abandoned the drag and cleared the thread in one press
+      // would be the two-things-per-key bug above, on the one surface where
+      // both are live at once. The dial's own drag abandons itself, inside
+      // `Dial` — it has nothing else on the shell's list to be confused with.
+      if (lifeRun) {
+        setLifeRun(null);
+        return;
+      }
       // The drawer is the next layer down: it covers the face and it is the
       // only thing on screen, so Escape belongs to it before it belongs to a
       // lit grid or to ambient. In `push` mode it is not covering anything
@@ -1528,6 +1546,8 @@ export default function App() {
                   search={lifeSearch}
                   pending={pendingDays}
                   onClearSearch={() => setLifeSearch("")}
+                  draw={lifeRun}
+                  onDraw={setLifeRun}
                   onSelectDay={(next) => actions.goDay(next)}
                   // The same run of whole days the ring hands over, through the
                   // same function: which face drew it is not something the
