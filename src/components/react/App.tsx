@@ -20,7 +20,15 @@ import {
   type CalEvent,
   type Occurrence,
 } from "@/lib/events";
-import { draftEvent, duplicateOf, store, taskDraft, useStore } from "@/lib/store";
+import {
+  draftEvent,
+  duplicateOf,
+  introSeen,
+  setIntroSeen,
+  store,
+  taskDraft,
+  useStore,
+} from "@/lib/store";
 import { exportBackup, exportIcs, importFile } from "@/lib/backup";
 import { cue } from "@/lib/feedback";
 import { placeForZone } from "@/lib/places";
@@ -40,7 +48,7 @@ import {
 } from "@/lib/time";
 import { LIFE_META_H, lifeDot, lifeStage, type LifeRun } from "@/lib/life";
 import { weekFaceCentre, weekStage, weekZoomScale } from "@/lib/week";
-import { EASE, MODE_MS, UNROLL_IN_MS, UNROLL_OUT_MS } from "@/lib/motion";
+import { EASE, INTRO_MS, MODE_MS, UNROLL_IN_MS, UNROLL_OUT_MS } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import {
   useElementSize,
@@ -482,6 +490,33 @@ export default function App() {
    * that list. The shell can only put it there if it can see one.
    */
   const [lifeRun, setLifeRun] = useState<LifeRun | null>(null);
+
+  /**
+   * The app introducing itself, once per install: `Dial` sweeps one revolution
+   * and the face arrives in day order behind it.
+   *
+   * Resolved here rather than in the instrument, because "has this browser
+   * ever seen it" is a fact about the browser and not about the dial. Held as
+   * a boolean the shell puts back down after `INTRO_MS`, or leaving the day
+   * view and coming back would play it again — the dial is unmounted and
+   * remounted by every one of ⌘Y, ⌘L and ⌘E.
+   *
+   * Only on the day view: a deep link into ⌘L is somebody who has been sent a
+   * URL, and the sweep belongs to the face it is about. Deliberately still
+   * *unseen* in that case, so the next plain load gets it.
+   */
+  const [intro, setIntro] = useState(
+    () => !reducedMotion && location.view === "day" && !introSeen(),
+  );
+  useEffect(() => {
+    if (!intro) return;
+    // Started is seen. A reload halfway through an animation is not a request
+    // to watch it again, and marking it only on completion would replay the
+    // whole thing for anybody who opens the app and immediately switches view.
+    setIntroSeen(true);
+    const done = setTimeout(() => setIntro(false), INTRO_MS + 120);
+    return () => clearTimeout(done);
+  }, [intro]);
 
   /** A move or a delete on a repeating event, waiting on its scope. */
   const [ask, setAsk] = useState<ScopeAsk | null>(null);
@@ -948,6 +983,21 @@ export default function App() {
         if (subscriptions.length === 0) return;
         notify(`Refreshing ${subscriptions.length} subscriptions…`);
         void Promise.all(subscriptions.map(refreshFeed));
+      },
+      /**
+       * The intro again, on request. It takes the panels down and goes to the
+       * day view first, because the sweep is the dial's and a modal over it is
+       * a modal over the one thing being shown.
+       *
+       * It does not un-see it afterwards: the flag says "this browser has met
+       * the app", which stays true whatever you replay.
+       */
+      replayIntro: () => {
+        setPaletteOpen(false);
+        setSettingsOpen(false);
+        setAmbient("off");
+        go({ view: "day" });
+        setIntro(true);
       },
       toggleAmbient: () => enterAmbient(inAmbient ? "off" : "manual"),
     }),
@@ -1502,6 +1552,7 @@ export default function App() {
                   onStepDay={step}
                   ambient={inAmbient}
                   covered={shaded}
+                  intro={intro}
                 />
               )}
               {view === "week" && (

@@ -5,12 +5,14 @@ ambient mode, ⌘P writes an event in one line and ranks what it finds, the year
 unrolls into the life grid, the life grid names its round days and can be walked with the arrow
 keys, an event can run for as many days as it likes, a drag across the year ring makes one, the
 dial's fifteen-minute grid clicks under the pointer, editing a repeating event asks which
-occurrences it means, ⌘⌫ deletes the arc you are pointing at, a calendar can be made and named and
-marked and recoloured and deleted without losing what is in it, an event can wear a mark of its own
-along its arc, a dated task is a pip on the rim you can tick off, the app can tell you a thing is
-about to start, the sidebar carries the moon, the week is seven of the same face at one rotation, a
-year of the life grid comes up under the pointer at a size you can read, the argument has a page of
-its own, and there is a test suite — 1,118 cases over the domain layer, `pnpm test`, in the gate.
+occurrences it means, ⌘⌫ deletes the arc you are pointing at, ⌘-dragging one copies it, a calendar
+can be made and named and marked and recoloured and deleted without losing what is in it, an event
+can wear a mark of its own along its arc, a dated task is a pip on the rim you can tick off, the
+app can tell you a thing is about to start, the sidebar carries the moon, the week is seven of the
+same face at one rotation, a year of the life grid comes up under the pointer at a size you can
+read, the app introduces itself in one revolution the first time you open it, the argument has a
+page of its own, and there is a test suite — 1,139 cases over the domain layer, `pnpm test`, in the
+gate.
 
 Done work is not recorded here. The rationale that outlived it lives in `AGENTS.md`, next to the
 code it constrains.
@@ -28,7 +30,26 @@ code it constrains.
    forgivable on a wrist and not two centimetres from a caption printing the true figure. Both are
    shipped because the question was which register this app wants, and that is worth being able to
    switch between rather than arguing about.
-1. Intro animation like what animejs has
+1. ~~Intro animation like what animejs has~~ — _done, and the first attempt is the instructive
+   failure._ That one was a rotating conic-gradient mask over the whole instrument: one line of
+   CSS, honest about the geometry, and **a wipe**. Nothing had mass, nothing arrived, and the
+   ordering the face already contains was thrown away and re-imposed from outside. What animejs
+   actually does is stagger the elements themselves — its own intro draws a ring of ticks one at a
+   time — so this does too. Every tick, hour, event arc and segment of the elapsed ramp animates
+   itself, delayed by **where this face puts it**: one rule, `introDelay`, asked of all four, so
+   the day assembles in day order because the day _is_ the order. No timeline object exists and
+   nothing has to be kept in step; a ring added later gets its place for nothing. The delay is an
+   _angle_ rather than minutes since midnight, which is the only reason it works on the twelve-hour
+   face — the hand starts at the top, and on that face the top is noon. Three CSS classes and
+   `pathLength="1"` carry it, so a half-hour tick and a six-hour arc take the same easing. The hand
+   is the one part in JS: one turn at a constant rate in step with the assembly, then a spring on
+   to the current minute **carrying the turn's velocity**, overshooting about four degrees and
+   settling — which is the difference between an object and a diagram. Three and a half seconds,
+   and the dial is live throughout, so there is no skip to build. Once per install, on its own
+   `circal.intro` key rather than in `settings`, because a `SCHEMA` bump resets settings and
+   replaying the arrival at somebody who has used the app for a year is the opposite of an
+   introduction. Off under `prefers-reduced-motion`, where Settings → About hides its `Play again`
+   rather than offering a button that plays nothing.
 2. ~~icons into dial list based on custom or default to calendar icon (which can be set too)~~ —
    _done, and the "default to" turned out to be a setting rather than a default._ A calendar carries
    a mark (247 searchable Phosphor glyphs or any emoji) and so does an event; `markOf` mirrors
@@ -64,7 +85,10 @@ code it constrains.
    dial, off while a panel covers the face and off mid-drag, silent on a subscription's arc. A
    repeating one gets the same `ScopeDialog` a drag gets, in danger colour. It always toasts: a
    destructive single keystroke with no receipt is a key nobody presses twice.
-6. onboarding, after everything is finalised
+6. onboarding, after everything is finalised — **and the intro is not it.** A sweep says
+   angle-is-time and says nothing about ⌘P, the four views, or the drag. What is left is the
+   teach-at-the-moment half, and `BirthPrompt` is the shape it should take: one screen, at the
+   moment it is needed, never again. Not a four-step carousel over the dial.
 
 **1. quotes page** — _done, and it is not a page of quotes._
 
@@ -345,8 +369,9 @@ form this product can honestly ship — while the tab is open — and the panel 
 rather than leaving the absence to be discovered by a missed meeting. Closed-tab reminders need a
 push service, which needs a server, which is off-thesis and stays off it.
 
-The face gained exactly one thing and it cost no radius: a task's pip, which is the sub-cap
-dot-collapse that was already there.
+The face gained exactly two things and neither cost a radius: a task's pip, which is the sub-cap
+dot-collapse that was already there, and the intro, which is the face's own elements arriving and
+is over in three and a half seconds.
 
 ### Correctness — clear
 
@@ -358,7 +383,7 @@ cursor's ring and the pointer's are one ring and one card.
 
 What is left of that surface is not a defect but a limit: **no DOM in the suite** — no jsdom, no
 component tests, on purpose, because a snapshot of an SVG path is a change-detector that fails on
-every legitimate geometry tweak. That is the honest boundary of what 1,118 pure-function tests buy
+every legitimate geometry tweak. That is the honest boundary of what 1,139 pure-function tests buy
 you, and the faces stay eye-verified.
 
 ### What not to do
@@ -392,9 +417,12 @@ nobody noticed was missing was not carrying anything.
 so the app is now one idea at four scales and the README says so. The manifesto (9) shipped with
 the worm-through-time line (1), so the product finally states its argument somewhere other than in
 its own geometry. And (8) is closed, together with the drag-range that turned out to be the same
-item — it was the last thing on this list with a design problem in it rather than a task. What is
-left is duplicate-event, recency ranking in ⌘P, and `RANGE=THISANDFUTURE` on import — and then (6)
-onboarding and (1) the intro animation, which were always last and now genuinely are.
+item.
+
+The three that were left are three no longer. `RANGE=THISANDFUTURE` reads correctly on import,
+duplicate-event exists in two places for two reasons, and recency ranking was struck on the
+argument that the tiebreak it wanted to replace is the better one. **What is left is (6),
+onboarding, and only its teaching half** — the intro (1) shipped and answers a different question.
 
 There is no item left that adds a screen, and none left that needs an argument. Everything above
 finishes one.

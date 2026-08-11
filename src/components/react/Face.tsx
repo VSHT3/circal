@@ -21,14 +21,23 @@
 import {
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
   type Ref,
 } from "react";
-import { AnimatePresence, animate, motion, useReducedMotion } from "motion/react";
+import {
+  AnimatePresence,
+  animate,
+  motion,
+  useMotionValue,
+  useReducedMotion,
+  type AnimationPlaybackControls,
+} from "motion/react";
 import {
   ARC_LABEL_SIZE,
   DIAL,
@@ -55,7 +64,8 @@ import {
   type Clock,
 } from "@/lib/time";
 import type { ArcLabelMode } from "@/lib/store";
-import { EASE, MODE_MS, MOOD_MS } from "@/lib/motion";
+import { cn } from "@/lib/utils";
+import { EASE, INTRO_SETTLE_MS, INTRO_SWEEP_MS, MODE_MS, MOOD_MS } from "@/lib/motion";
 
 /**
  * What a press on an arc took hold of: one of its two ends, all of it, or —
@@ -146,6 +156,16 @@ export interface FaceProps {
   /** A gesture is in flight, so the now-hand recedes: it marks a time nobody
    *  is reading, and at full white it competes with the range being drawn. */
   gesturing?: boolean;
+  /**
+   * The app arriving. Every element of the face animates itself, delayed by
+   * the time it stands for, and the hand goes round once and settles onto the
+   * current minute — see `introDelay` and `INTRO_SWEEP_MS`.
+   *
+   * A prop of the face rather than something the dial draws over it, because
+   * the schedule is the *geometry*: an arc knows what minute it starts at and
+   * a tick knows what minute it marks, and nothing outside here does.
+   */
+  intro?: boolean;
 
   /* ----------------------------- the gestures ----------------------------- */
 
@@ -186,6 +206,32 @@ const NO_NEIGHBOUR = { before: Infinity, after: Infinity } as const;
 /** The beats, as the CSS shorthand the inline styles here reach for. */
 const MOOD = `${MOOD_MS}ms var(--ease)`;
 const MODE = `${MODE_MS}ms var(--ease)`;
+
+/**
+ * When a thing standing for `minute` arrives, as the CSS an element carries.
+ *
+ * One rule for the whole arrival: **an element is delayed by where this face
+ * puts it**. A tick at 09:00 lands wherever the hand reaches 09:00, and so
+ * does an event that starts at 09:00, and so does the segment of the elapsed
+ * ramp covering it — not because a timeline says so, but because all three
+ * were asked the same question. Nothing has to be kept in step with anything
+ * else, and a ring added later gets its place for nothing.
+ *
+ * Measured as an *angle* rather than as minutes since midnight, and that is
+ * the whole of what makes it work on both faces: the hand starts at the top,
+ * which is midnight on the 24-hour face and noon on the twelve-hour one. Keyed
+ * to the clock, a twelve-hour face would begin assembling at the bottom and
+ * spend the first half-turn out of step with its own hand.
+ *
+ * `lead` staggers the *layers* against each other: the ticks lay the scale
+ * down, the hours land into it, the arcs arrive on top. Small, because they
+ * are meant to overlap — a layer that waits for the one before it reads as
+ * three animations rather than one.
+ */
+function introDelay(minute: number, clock: Clock, lead = 0): CSSProperties {
+  const turn = ((((angleAt(minute, clock) % 360) + 360) % 360) / 360) * INTRO_SWEEP_MS;
+  return { animationDelay: `${Math.round(lead + turn)}ms` };
+}
 
 /**
  * White at `level` alpha, pre-composited against the black canvas. Opaque, so
@@ -243,6 +289,7 @@ export default function Face({
   dragging = null,
   ghost = null,
   gesturing = false,
+  intro = false,
   svgRef,
   onHover,
   onGrab,
@@ -263,6 +310,67 @@ export default function Face({
     () => new Set(calendars.filter((c) => c.feed).map((c) => c.id)),
     [calendars],
   );
+
+  /**
+   * The hand's own arrival, and the only part of this that is not CSS.
+   *
+   * It goes round once at a constant rate — in step with the assembly behind
+   * it, because both are linear in the same `INTRO_SWEEP_MS` — and then keeps
+   * going to the current minute and settles onto it. The spring takes the
+   * turn's velocity, so there is no seam between a hand travelling at a rate
+   * and a hand running out of momentum; the overshoot is what stops the whole
+   * thing reading as a diagram.
+   *
+   * A rotation rather than a redraw: `NowHand` is the same object at the same
+   * angle whether the intro is running or not, so when the shell puts `intro`
+   * back down there is nothing to hand over. A motion value rather than state
+   * for the reason the year ring's bulge is one — 122 paths re-diffed at 60 Hz
+   * is the whole cost this avoids.
+   *
+   * Written as SVG's own `rotate(deg cx cy)` rather than through `motion`'s
+   * `style`, and that is the same trap `NowHand` documents one level down. A
+   * CSS `transform-origin` on an SVG element resolves against a reference box
+   * that is not the dial — `motion` takes the element's *own* bounding box,
+   * which for a spoke is somewhere out on the rim, and the hand swung about
+   * its own middle and left the face. The attribute names the centre in user
+   * units, where there is nothing to resolve.
+   */
+  const handTurn = useMotionValue(0);
+  const handRef = useRef<SVGGElement>(null);
+  useLayoutEffect(() => {
+    if (!intro) return;
+    const spoke = handRef.current;
+    const turnTo = (deg: number) =>
+      spoke?.setAttribute("transform", `rotate(${deg} ${DIAL.C} ${DIAL.C})`);
+    // `NowHand` is already drawn at the current minute, so the rotation is
+    // measured from there: the hand starts the turn at the top of the face.
+    const nowDeg = ((angleAt(nowMin, clock) % 360) + 360) % 360;
+    handTurn.jump(-nowDeg);
+    turnTo(-nowDeg);
+    const unwatch = handTurn.on("change", turnTo);
+    let settle: AnimationPlaybackControls | null = null;
+    const turn = animate(handTurn, 360 - nowDeg, {
+      duration: INTRO_SWEEP_MS / 1000,
+      ease: "linear",
+      onComplete: () => {
+        // 360 rather than 0: the same rotation, reached the long way round,
+        // so the hand carries on rather than unwinding to where it began.
+        settle = animate(handTurn, 360, {
+          type: "spring",
+          visualDuration: INTRO_SETTLE_MS / 1000,
+          bounce: 0.22,
+          velocity: handTurn.getVelocity(),
+        });
+      },
+    });
+    return () => {
+      turn.stop();
+      settle?.stop();
+      unwatch();
+      handTurn.jump(0);
+      spoke?.removeAttribute("transform");
+    };
+  }, [intro, handTurn, nowMin, clock]);
 
   /** Whether the band has taken the track. Depended on as a boolean rather
    *  than as the spec: a caller resolving that spec inline hands down a new
@@ -350,7 +458,14 @@ export default function Face({
               <stop offset="100%" stopColor="#fff" stopOpacity="0" />
             </radialGradient>
           </defs>
-          <circle cx={DIAL.C} cy={DIAL.C} r={DIAL.TRACK} fill={`url(#${glowId})`} />
+          <circle
+            cx={DIAL.C}
+            cy={DIAL.C}
+            r={DIAL.TRACK}
+            fill={`url(#${glowId})`}
+            className={intro ? "intro-in" : undefined}
+            style={intro ? { animationDuration: "900ms" } : undefined}
+          />
         </>
       )}
 
@@ -404,6 +519,14 @@ export default function Face({
                   stroke={segment.stroke}
                   strokeWidth={DIAL.TRACK_WIDTH}
                   strokeLinecap={segment.cap}
+                  // The ramp lights up in step with the ticks it sits under,
+                  // because both are asked the same question. The segments
+                  // run the day in order, so the index is the minute.
+                  pathLength={intro ? 1 : undefined}
+                  className={intro ? "intro-draw" : undefined}
+                  style={
+                    intro ? introDelay((i / elapsedSegments.length) * spent, clock, 60) : undefined
+                  }
                 />
               ))}
             </g>
@@ -434,9 +557,14 @@ export default function Face({
         )}
       </AnimatePresence>
 
-      {ticks && <Ticks clock={clock} />}
+      {ticks && <Ticks clock={clock} intro={intro} />}
       {numerals !== "none" && (
-        <HourLabels clock={clock} quartersOnly={numerals === "quarters"} meridiem={meridiem} />
+        <HourLabels
+          clock={clock}
+          quartersOnly={numerals === "quarters"}
+          meridiem={meridiem}
+          intro={intro}
+        />
       )}
 
       {/* Drag target. An annulus, so the agenda in the middle stays clickable
@@ -468,6 +596,10 @@ export default function Face({
           locked={feedIds.has(occ.event.calendarId)}
           dragging={dragging === occ.event.id}
           gap={gaps.get(occ.key) ?? NO_NEIGHBOUR}
+          // An arc arrives at the minute it starts, which is the same answer
+          // the tick under it got. `lead` puts the day's events on top of the
+          // scale rather than into it.
+          intro={intro ? introDelay(occ.startMin, clock, 200) : null}
           onHover={onHover}
           onGrab={onGrab}
         />
@@ -485,9 +617,15 @@ export default function Face({
       )}
 
       {hand && today && (
-        // Keyed on the face: relabelling is a 180° jump, and a hand sweeping
-        // half the dial while the numerals under it teleport is two events.
-        <NowHand key={clock} minutes={nowMin} clock={clock} dimmed={gesturing} />
+        // The intro turns this group rather than redrawing what is in it, so
+        // the hand is the same object at the same angle whether one is running
+        // or not and the shell has nothing to hand over when it stops.
+        <g ref={handRef}>
+          {/* Keyed on the face: relabelling is a 180° jump, and a hand
+              sweeping half the dial while the numerals under it teleport is
+              two events. */}
+          <NowHand key={clock} minutes={nowMin} clock={clock} dimmed={gesturing} />
+        </g>
       )}
     </svg>
   );
@@ -723,12 +861,13 @@ function ZoneRing({
   );
 }
 
-function Ticks({ clock }: { clock: Clock }) {
+function Ticks({ clock, intro = false }: { clock: Clock; intro?: boolean }) {
   // Half-hour resolution: enough texture to read the ring as a scale, sparse
   // enough that the numerals still lead.
   const ticks = [];
   for (let i = 0; i < 48; i += 1) {
-    const deg = angleAt(i * 30, clock);
+    const minute = i * 30;
+    const deg = angleAt(minute, clock);
     const cardinal = ((deg % 90) + 90) % 90 === 0;
     const hour = i % 2 === 0;
     const inner = cardinal ? 374 : hour ? DIAL.TICK_INNER : DIAL.TICK_INNER_MINOR;
@@ -745,6 +884,12 @@ function Ticks({ clock }: { clock: Clock }) {
         strokeOpacity={cardinal ? 0.6 : hour ? 0.26 : 0.13}
         strokeWidth={cardinal ? 2 : 1}
         strokeLinecap="round"
+        // The scale is laid down first and each mark draws outwards from the
+        // rim it belongs to, which is the direction the numerals then land
+        // from. Forty-eight of them at 31 ms apart is the whole turn.
+        pathLength={intro ? 1 : undefined}
+        className={intro ? "intro-draw" : undefined}
+        style={intro ? introDelay(minute, clock) : undefined}
       />,
     );
   }
@@ -768,10 +913,12 @@ function HourLabels({
   clock,
   quartersOnly = false,
   meridiem = true,
+  intro = false,
 }: {
   clock: Clock;
   quartersOnly?: boolean;
   meridiem?: boolean;
+  intro?: boolean;
 }) {
   return (
     <g pointerEvents="none" textAnchor="middle">
@@ -782,6 +929,12 @@ function HourLabels({
         // 24-hour face, 00 · 06 · 12 · 18.
         const major = h % 6 === 0;
         const twelve = h % 12 === 0 ? 12 : h % 12;
+        // An hour has no length to draw, so it lands into the scale instead —
+        // just behind the tick it labels, which is what makes the two read as
+        // one arrival rather than two rings.
+        const arriving = intro
+          ? { className: "intro-pop", style: introDelay(h * 60, clock, 110) }
+          : null;
 
         if (!major) {
           return (
@@ -790,12 +943,12 @@ function HourLabels({
               x={x}
               y={y}
               dominantBaseline="central"
-              className="fill-[#6d6d73]"
+              className={cn("fill-[#6d6d73]", arriving?.className)}
               fontSize={19.5}
               fontWeight={450}
               opacity={quartersOnly ? 0 : 1}
               aria-hidden={quartersOnly}
-              style={{ transition: `opacity ${MODE}` }}
+              style={{ transition: `opacity ${MODE}`, ...arriving?.style }}
             >
               {clock === "12h" ? twelve : h}
             </text>
@@ -803,7 +956,7 @@ function HourLabels({
         }
 
         return (
-          <g key={h}>
+          <g key={h} className={arriving?.className} style={arriving?.style}>
             <text
               x={x}
               // The AM/PM face carries a caption under the numeral, so its
@@ -937,6 +1090,7 @@ function EventArc({
   gap,
   onHover,
   onGrab,
+  intro,
 }: {
   occ: Occurrence;
   clock: Clock;
@@ -957,6 +1111,10 @@ function EventArc({
   /** Minutes of clear air before and after, to the nearest arc on this lane.
    *  `Infinity` when there is none — see `seamTrim`. */
   gap: { before: number; after: number };
+  /** When this arc arrives during the intro, as the CSS to carry, or `null`
+   *  when none is running. Resolved by `Face`, because the delay is a fact
+   *  about the day rather than about the arc. */
+  intro: CSSProperties | null;
   onHover?: (key: string | null) => void;
   onGrab?: (occ: Occurrence, grip: Grip, e: ReactPointerEvent<SVGPathElement>) => void;
 }) {
@@ -1068,6 +1226,11 @@ function EventArc({
     <g
       onPointerEnter={onHover && (() => onHover(occ.key))}
       onPointerLeave={onHover && (() => onHover(null))}
+      // The group carries the fade and the body carries the draw, because the
+      // body's own opacity is 0.42 on a past arc: a keyframe ending at 1 would
+      // brighten every morning event on the way in and then drop it.
+      className={intro ? "intro-in" : undefined}
+      style={intro ?? undefined}
     >
       {occ.event.task ? (
         // A task is a notch in the rim, and its two states are the face's own
@@ -1095,7 +1258,12 @@ function EventArc({
           strokeLinecap="round"
           opacity={dimmed && !hovered && !dragging ? 0.42 : 1}
           pointerEvents="none"
-          style={{ transition: `stroke-width ${MOOD}, opacity ${MOOD}` }}
+          // Drawn from the end it starts at, so a two-hour meeting takes the
+          // same beat as the tick beside it however long its stroke is —
+          // `pathLength` is what normalises the two.
+          pathLength={intro ? 1 : undefined}
+          className={intro ? "intro-arc" : undefined}
+          style={{ transition: `stroke-width ${MOOD}, opacity ${MOOD}`, ...intro }}
         />
       )}
       {label && (

@@ -151,6 +151,11 @@ export interface ShellActions {
   importFile: () => void;
   /** Pull every subscription now, regardless of age. */
   refreshFeeds: () => void;
+  /**
+   * The arrival sweep again, from Settings. Hidden under
+   * `prefers-reduced-motion`, where there is nothing for it to play.
+   */
+  replayIntro: () => void;
 }
 
 export interface TopBarProps {

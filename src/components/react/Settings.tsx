@@ -19,7 +19,7 @@
 
 import { useState, type ReactNode } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { ArrowUpRight, Download, RefreshCw, Trash2, Upload, X } from "lucide-react";
+import { ArrowUpRight, Download, RefreshCw, RotateCcw, Trash2, Upload, X } from "lucide-react";
 import { refreshFeed } from "@/lib/feeds";
 import { canVibrate } from "@/lib/feedback";
 import { formatCount, formatLifeDate, lifeSpan } from "@/lib/life";
@@ -732,7 +732,7 @@ export default function Settings({
               </Section>
 
               <Section title="About">
-                <FieldRow label="Manifesto" align="top" last>
+                <FieldRow label="Manifesto" align="top" last={!!reducedMotion}>
                   {/* An anchor rather than a button: it is a real page, so
                       middle-click and "open in new tab" have to work. It opens
                       in one deliberately — installed standalone there is no
@@ -751,6 +751,22 @@ export default function Settings({
                     One page on what this is, and what it will not become
                   </span>
                 </FieldRow>
+                {/* Nothing to offer a reader whose system has asked for no
+                    motion: the sweep is the whole of it, and a button that
+                    plays nothing is worse than an absent one. */}
+                {!reducedMotion && (
+                  <FieldRow label="Intro" align="top" last>
+                    <DataButton
+                      icon={<RotateCcw size={13} strokeWidth={1.75} />}
+                      onClick={actions.replayIntro}
+                    >
+                      Play again
+                    </DataButton>
+                    <span className="caption">
+                      One revolution, the day arriving in day order. Shown once, on the first visit
+                    </span>
+                  </FieldRow>
+                )}
               </Section>
             </div>
           </motion.div>

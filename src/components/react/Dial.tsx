@@ -29,6 +29,7 @@ import {
   snap,
   startOfDay,
 } from "@/lib/time";
+import { INTRO_SWEEP_MS } from "@/lib/motion";
 import type { Settings } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { useElementSize, useHotkeys } from "./hooks";
@@ -136,6 +137,14 @@ export interface DialProps {
    * to stay drawn, and the day it has landed on is the one to be looking at.
    */
   onStepDay: (delta: number) => void;
+  /**
+   * The app arriving, once per install. Handed straight to `<Face>`, which
+   * owns the whole of it: every element there is delayed by the time it
+   * stands for, and only the face knows what minute anything is. The dial's
+   * one contribution is the interior, which has no minute of its own and so
+   * arrives once the day is round it.
+   */
+  intro: boolean;
 }
 
 /** Minutes a bare click on the ring turns into. */
@@ -333,6 +342,7 @@ export default function Dial({
   onToggleDone,
   onPreview,
   onStepDay,
+  intro,
 }: DialProps) {
   const {
     clock,
@@ -727,6 +737,7 @@ export default function Dial({
         dragging={dragging}
         ghost={about}
         gesturing={draw !== null || adjust !== null}
+        intro={intro}
         onHover={setHovered}
         onGrab={onArcDown}
         onRingDown={onRingDown}
@@ -735,22 +746,35 @@ export default function Dial({
         onPointerCancel={onGestureCancel}
       />
 
-      <CenterPanel
-        day={day}
-        now={now}
-        occurrences={occurrences}
-        calendars={calendars}
-        u={u}
-        clock={clock}
-        ambient={ambient}
-        totals={totals}
-        totalsAt={totalsAt}
-        drag={ghost && ghost.end > ghost.start ? ghost : adjust ? dragSpan(adjust, day) : null}
-        hovered={hovered}
-        onHover={setHovered}
-        onOpen={onOpen}
-        onToggleDone={onToggleDone}
-      />
+      {/* A static wrapper, so an absolutely-positioned interior still resolves
+          against the stage and costs no layout — it exists to hold the one
+          thing on this instrument the face cannot delay for itself. The
+          interior arrives once the day is round it: it is the answer, and an
+          answer before the question is a clock with a ring drawn round it
+          afterwards. */}
+      <div
+        className={intro ? "intro-in" : undefined}
+        style={
+          intro ? { animationDelay: `${INTRO_SWEEP_MS}ms`, animationDuration: "620ms" } : undefined
+        }
+      >
+        <CenterPanel
+          day={day}
+          now={now}
+          occurrences={occurrences}
+          calendars={calendars}
+          u={u}
+          clock={clock}
+          ambient={ambient}
+          totals={totals}
+          totalsAt={totalsAt}
+          drag={ghost && ghost.end > ghost.start ? ghost : adjust ? dragSpan(adjust, day) : null}
+          hovered={hovered}
+          onHover={setHovered}
+          onOpen={onOpen}
+          onToggleDone={onToggleDone}
+        />
+      </div>
     </div>
   );
 }

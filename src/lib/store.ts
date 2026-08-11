@@ -1612,3 +1612,40 @@ export function duplicateOf(event: CalEvent, shiftMs = 0): Omit<CalEvent, "id"> 
     doneKeys: [],
   };
 }
+
+/* ---------------------------------- intro --------------------------------- */
+
+/**
+ * Whether this browser has seen the app introduce itself, on its own key
+ * rather than in `settings`.
+ *
+ * Two reasons, and both are about what the value *is*. A `SCHEMA` bump resets
+ * settings, and replaying the intro because the settings version moved is the
+ * app introducing itself to somebody who has been using it for a year. And it
+ * is not a preference: nobody chose it, and it is never shown as one — the
+ * only control over it is `Play again`, which sets it back.
+ *
+ * Outside the blob is also the only place it survives a corrupted one, which
+ * is exactly the reload where an unasked-for animation is least welcome.
+ */
+const INTRO_KEY = "circal.intro";
+
+export function introSeen(): boolean {
+  try {
+    return disk()?.getItem(INTRO_KEY) === "1";
+  } catch {
+    // Private mode refuses the read. Answering "seen" is the conservative
+    // half: an intro that never plays is a smaller failure than one that
+    // plays on every load.
+    return true;
+  }
+}
+
+export function setIntroSeen(seen: boolean) {
+  try {
+    if (seen) disk()?.setItem(INTRO_KEY, "1");
+    else disk()?.removeItem(INTRO_KEY);
+  } catch {
+    // Nothing to say and nothing lost: the worst case is one more sweep.
+  }
+}

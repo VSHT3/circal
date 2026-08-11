@@ -53,3 +53,42 @@ export const MODE_MS = 600;
  */
 export const UNROLL_OUT_MS = 950;
 export const UNROLL_IN_MS = 750;
+
+/**
+ * The app introducing itself, and the one number every part of it is measured
+ * against: how long the hand takes to go round once.
+ *
+ * Nothing here is a wipe. Each element of the face — every tick, every hour,
+ * every arc, every segment of the elapsed ramp — animates itself, delayed by
+ * **the time it stands for**: a tick at 09:00 arrives three eighths of the way
+ * through this. So the day assembles in day order because the day *is* the
+ * schedule, which is the claim the intro exists to make, and there is no list
+ * of steps anywhere to keep in sync with the geometry.
+ *
+ * **Linear, and that is not laziness.** The claim is a constant quarter-degree
+ * a minute; a sweep that accelerated and settled would be a revolution that
+ * does not, in the one and a half seconds spent explaining it.
+ */
+export const INTRO_SWEEP_MS = 1500;
+
+/**
+ * What the hand does after the turn: carries on to the current minute and
+ * settles onto it, overshooting slightly and coming back.
+ *
+ * The turn is the *argument* and has to be honest; this is the part that makes
+ * it an object rather than a diagram. It picks up the turn's own velocity, so
+ * there is no seam between a hand travelling at a constant rate and a hand
+ * running out of momentum.
+ */
+export const INTRO_SETTLE_MS = 1150;
+
+/**
+ * The whole arrival. The shell holds `intro` up for exactly this long and the
+ * dial is live throughout.
+ *
+ * The slack is not padding: dropping `intro` is what takes the hand's
+ * rotation off, and a spring is still a fraction of a degree from home when
+ * its `visualDuration` is up. Measured — at 3.0 s the hand was 1.6° out, which
+ * is four pixels of snap at the rim.
+ */
+export const INTRO_MS = INTRO_SWEEP_MS + INTRO_SETTLE_MS + 950;

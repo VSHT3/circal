@@ -183,6 +183,89 @@
       transform: translate(-6px, -2px);
     }
   }
+
+  /* ------------------------------------------------------------------ *
+   * The arrival. Every element of the face carries one of these plus an
+   * `animation-delay` of the time it stands for, so the day assembles in
+   * day order and the ordering is the geometry rather than a list of
+   * steps. `backwards` fill is load-bearing: without it an element is
+   * fully drawn for the whole of its own delay. See `Face.tsx`.
+   * ------------------------------------------------------------------ */
+
+  /* A stroke drawing itself, from the end it starts at. Needs
+     `pathLength="1"` on the element, which normalises the dash arithmetic
+     to the path's own length however long it happens to be — a tick and a
+     six-hour arc then take the same easing and read as the same gesture. */
+  .intro-draw {
+    stroke-dasharray: 1;
+    animation: intro-draw 420ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  }
+
+  @keyframes intro-draw {
+    from {
+      stroke-dashoffset: 1;
+      opacity: 0;
+    }
+    35% {
+      opacity: 1;
+    }
+    to {
+      stroke-dashoffset: 0;
+    }
+  }
+
+  /* An arc is longer than a tick and worth watching, so it takes longer and
+     carries no opacity of its own: a past arc is drawn at 0.42 and a
+     keyframe ending at 1 would brighten every morning event on the way in.
+     Its group fades instead. */
+  .intro-arc {
+    stroke-dasharray: 1;
+    animation: intro-arc 760ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  }
+
+  @keyframes intro-arc {
+    from {
+      stroke-dashoffset: 1;
+    }
+    to {
+      stroke-dashoffset: 0;
+    }
+  }
+
+  /* A numeral has no length to draw, so it lands instead — `fill-box`, so it
+     grows about its own centre rather than the dial's, and a back-out curve
+     so it overshoots by a couple of per cent and settles. */
+  .intro-pop {
+    transform-box: fill-box;
+    transform-origin: 50% 50%;
+    animation: intro-pop 520ms cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
+  }
+
+  @keyframes intro-pop {
+    from {
+      opacity: 0;
+      scale: 0.55;
+    }
+    to {
+      opacity: 1;
+      scale: 1;
+    }
+  }
+
+  /* The plainest of the three, for what has neither a length nor a centre:
+     the glow, an arc's group, the interior. */
+  .intro-in {
+    animation: intro-in 560ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  }
+
+  @keyframes intro-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

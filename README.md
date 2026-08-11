@@ -10,6 +10,13 @@ browser.
 The argument, on one page: **[the
 manifesto](https://circal.app/manifesto/)**, also reachable from Settings.
 
+The first time you open it, the face builds itself: the hand goes round once
+and every tick, hour and event arrives as it passes, each one delayed by the
+time it stands for. Then the hand carries on to the current minute and settles
+onto it. The day in day order, which is the whole argument, in about three
+seconds. Nothing waits on it — the dial is live throughout. Settings → About
+has `Play again`, and `prefers-reduced-motion` skips it.
+
 The **Dial** setting (`⌘,`) picks how the face names its hours:
 
 - **12 h** — noon at the top, midnight at the bottom, `12 · 1…11` twice with
