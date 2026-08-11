@@ -48,15 +48,18 @@ code it constrains.
    series in two), or the whole series. **Export is not a defect** — two VEVENTs with distinct UIDs,
    the first bounded by UNTIL, is what Google and Apple emit and what the ecosystem reads. A
    `RELATED-TO` on the tail would need a back-pointer field on `CalEvent` to write a line nothing
-   here reads. **Import of `RANGE=THISANDFUTURE` is the one real gap**, and it is bounded: the param
-   is already parsed (`props["RECURRENCE-ID"].params.RANGE`) and `splitRule` already exists, so it is
-   a post-pass in `fromIcs` — there, not in a consumer, because `feeds.ts` and `backup.ts` each link
-   overrides themselves. Three things it has to get right: chained splits fold left (the second
-   override's instant belongs to the first split's tail by then); the promoted tail needs its own
-   stable uid (`uid#recurrence-id`) or it collides with its parent in both consumers' keys; and it
-   inherits the parent's rule, with `splitRule`'s partitioned lists, when it brought no RRULE. Worth
-   doing the day a feed turns up carrying one — nothing mainstream emits it, Thunderbird still
-   renders it wrong, and today it lands as a single-instance override, which is wrong but not lossy.
+   here reads. **Import of `RANGE=THISANDFUTURE` is done too**, and it landed exactly where the
+   plan said: a post-pass in `fromIcs` (`linkThisAndFuture`), not in a consumer, because `feeds.ts`
+   and `backup.ts` each link overrides themselves and one of them getting it wrong is a series that
+   draws twice. The three traps were real. Chained splits fold left — the second cut is measured
+   against the first cut's tail, because by then that is the series generating the instant. The
+   promoted tail takes `uid#recurrence-id` and drops its `recurrenceId`, so it stops being an
+   override in both consumers' key maps. And it inherits the parent's rule with `splitRule`'s
+   **partitioned** lists when it brought no RRULE of its own, or the days the sender skipped come
+   back. Two the plan missed: an ordinary override past a cut has to be re-pointed at the tail
+   (`store.splitSeries`' own rule, for the same reason), and a cut landing on the series' first
+   instant makes the tail _absorb_ the head rather than stand beside a series that generates
+   nothing. Still nothing mainstream emits one; it is now read correctly when something does.
 5. ~~command + delete should delete an event you are hovering over~~ — _done._ ⌘⌫ (and ⌦) on the
    dial, off while a panel covers the face and off mid-drag, silent on a subscription's arc. A
    repeating one gets the same `ScopeDialog` a drag gets, in danger colour. It always toasts: a

@@ -11,7 +11,7 @@
  * ------------------------------------------------------------------ */
 
 import { dayKey, zonedToUtc } from "./time";
-import { countedUntil, instantKey, keyToInstant } from "./recur";
+import { countedUntil, instantKey, keyToInstant, recurrenceOf, splitRule } from "./recur";
 import {
   FREQUENCIES,
   NEVER,
@@ -28,11 +28,12 @@ export interface IcsEvent extends Recurrence {
   /**
    * Set when this VEVENT carries a RECURRENCE-ID: the local key it names —
    * `instantKey()` for a datetime value, `dayKey()` for `VALUE=DATE` — the
-   * same two forms `exdates`/`rdates` use. `""` on an ordinary VEVENT.
-   * `ics.ts` only surfaces the value faithfully; linking it to the series
-   * sharing its UID is the consumer's job. `RANGE=THISANDFUTURE` is not
-   * modelled, so this is always read as replacing the single named instance,
-   * never every occurrence after it.
+   * same two forms `exdates`/`rdates` use.
+   * `""` on an ordinary VEVENT, and `""` on an override that carried
+   * `RANGE=THISANDFUTURE` — that one is not an override at all by the time
+   * `fromIcs` returns, it is the tail of a split series. See
+   * `linkThisAndFuture`. Linking an ordinary override to the series sharing
+   * its UID is still the consumer's job.
    */
   recurrenceId: string;
   title: string;
@@ -594,8 +595,8 @@ function buildEvent(block: Block): IcsEvent | null {
 
   return {
     uid,
-    // RANGE=THISANDFUTURE is not modelled: the id is read anyway, but only
-    // ever as replacing the single instant it names.
+    // `RANGE=THISANDFUTURE` is handled after every VEVENT is read, in
+    // `linkThisAndFuture`, because it is a fact about two of them.
     recurrenceId: propKey(props["RECURRENCE-ID"]),
     title: props.SUMMARY ? unescapeText(props.SUMMARY.value) : "",
     start: dtstart.ms,
@@ -612,6 +613,108 @@ function buildEvent(block: Block): IcsEvent | null {
   };
 }
 
+/** RFC 5545 §3.8.4.4: the only RANGE value the standard defines. */
+const THIS_AND_FUTURE = "THISANDFUTURE";
+
+/** One VEVENT, plus the two things about its source block that only matter
+ *  once every other VEVENT has been read. */
+interface Parsed {
+  event: IcsEvent;
+  /** `RECURRENCE-ID;RANGE=THISANDFUTURE` — a series split, not an override. */
+  future: boolean;
+  /** The block carried an RRULE of its own. */
+  ruled: boolean;
+}
+
+function mergeKeys(a: string[], b: string[]): string[] {
+  return [...new Set([...a, ...b])].sort();
+}
+
+/**
+ * `RANGE=THISANDFUTURE` — "this occurrence and every one after it" — which is
+ * two series rather than one patched occurrence, exactly as `splitRule` and
+ * `store.splitSeries` already model it. Done here rather than in a consumer
+ * because `feeds.ts` and `backup.ts` each link overrides themselves, and one
+ * of them getting it wrong is a series that draws twice.
+ *
+ * The promoted tail stops being an override: it takes a uid of its own
+ * (`uid#recurrence-id`, stable across pulls because both halves are) or the
+ * key of a series it collides with in both consumers' maps. Without an RRULE
+ * of its own it continues the parent's rule from its own DTSTART, which is
+ * what the range means; with one, it is a whole series and brings its own
+ * lists. Either way the parent's future EXDATEs and RDATEs move across with
+ * `splitRule`, or the tail resurrects days the sender had already skipped.
+ *
+ * Chained splits fold left: the second cut is measured against the first
+ * cut's tail, because by then that is the series generating the instant. And
+ * an ordinary override past a cut is re-pointed at the tail — the rule
+ * `store.splitSeries` applies for the same reason, since an override left on
+ * the head suppresses nothing and the day draws both it and the tail's arc.
+ */
+function linkThisAndFuture(parsed: Parsed[]): IcsEvent[] {
+  // Nothing mainstream emits one, so this is the shape of the common case.
+  if (!parsed.some((p) => p.future)) return parsed.map((p) => p.event);
+
+  const byUid = new Map<string, Parsed[]>();
+  for (const p of parsed) {
+    const group = byUid.get(p.event.uid);
+    if (group) group.push(p);
+    else byUid.set(p.event.uid, [p]);
+  }
+
+  const dropped = new Set<Parsed>();
+  for (const [uid, group] of byUid) {
+    let head = group.find((p) => p.event.recurrenceId === "");
+    if (!head) continue;
+    const seed = new Date(head.event.start);
+    const splits = group
+      .filter((p) => p.future && p.event.recurrenceId !== "")
+      .map((p) => ({ p, at: keyToInstant(p.event.recurrenceId, seed) }))
+      // A key that spells nothing cannot say where to cut; it stays an
+      // ordinary override, which is what this reader did with it before.
+      .filter((s): s is { p: Parsed; at: number } => s.at !== null)
+      .sort((a, b) => a.at - b.at);
+    if (splits.length === 0) continue;
+
+    const cuts: { at: number; uid: string }[] = [];
+    for (const { p, at } of splits) {
+      const parent = head.event;
+      const split = splitRule(parent, parent.start, at);
+      // A cut at or before the series' own first instant leaves a head that
+      // generates nothing. The tail takes the uid instead of standing beside a
+      // dead series — `App.effectiveScope` folds the same case into "all".
+      const absorbs = at <= parent.start;
+      p.event = {
+        ...p.event,
+        uid: absorbs ? uid : `${uid}#${p.event.recurrenceId}`,
+        recurrenceId: "",
+        ...(p.ruled
+          ? recurrenceOf(p.event)
+          : {
+              ...recurrenceOf(parent),
+              exdates: mergeKeys(split.tail.exdates, p.event.exdates),
+              rdates: mergeKeys(split.tail.rdates, p.event.rdates),
+            }),
+      };
+      if (absorbs) dropped.add(head);
+      else head.event = { ...parent, ...split.head };
+      cuts.push({ at, uid: p.event.uid });
+      head = p;
+    }
+
+    for (const p of group) {
+      if (dropped.has(p) || p.event.recurrenceId === "") continue;
+      const at = keyToInstant(p.event.recurrenceId, seed);
+      if (at === null) continue;
+      let owner = "";
+      for (const cut of cuts) if (cut.at <= at) owner = cut.uid;
+      if (owner) p.event = { ...p.event, uid: owner };
+    }
+  }
+
+  return parsed.filter((p) => !dropped.has(p)).map((p) => p.event);
+}
+
 /** Tolerant parse. Returns `name` from X-WR-CALNAME (or "" when absent) and
  *  every VEVENT it could read; a VEVENT it cannot read is skipped, never
  *  thrown on. */
@@ -626,7 +729,7 @@ export function fromIcs(text: string): { name: string; events: IcsEvent[] } {
     .filter((l) => l.length > 0);
 
   let name = "";
-  const events: IcsEvent[] = [];
+  const read: Parsed[] = [];
   // Block nesting, tracked generically: a property belongs to the open
   // VEVENT only while VEVENT is the innermost block, so a VALARM (or
   // anything else) nested inside one can't leak its own properties in or
@@ -649,7 +752,14 @@ export function fromIcs(text: string): { name: string; events: IcsEvent[] } {
       const opened = stack.pop();
       if (opened === "VEVENT" && value.toUpperCase() === "VEVENT" && current !== null) {
         const event = buildEvent(current);
-        if (event) events.push(event);
+        if (event) {
+          const range = current.props["RECURRENCE-ID"]?.params.RANGE;
+          read.push({
+            event,
+            future: event.recurrenceId !== "" && range?.toUpperCase().trim() === THIS_AND_FUTURE,
+            ruled: current.props.RRULE !== undefined,
+          });
+        }
         current = null;
       }
       continue;
@@ -664,5 +774,5 @@ export function fromIcs(text: string): { name: string; events: IcsEvent[] } {
     }
   }
 
-  return { name, events };
+  return { name, events: linkThisAndFuture(read) };
 }

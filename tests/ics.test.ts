@@ -30,6 +30,21 @@ function singleVevent(props: string[], opts: { uid?: string | null } = {}): stri
   );
 }
 
+/** Several VEVENTs in one VCALENDAR — a series and the overrides that
+ *  reference it can only be told apart by `fromIcs` when they arrive
+ *  together. Each entry supplies its own UID. */
+function vcalendar(...vevents: string[][]): string {
+  return (
+    [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "PRODID:-//test//test//EN",
+      ...vevents.flatMap((props) => ["BEGIN:VEVENT", ...props, "END:VEVENT"]),
+      "END:VCALENDAR",
+    ].join("\r\n") + "\r\n"
+  );
+}
+
 /* -------------------------------- round-trip -------------------------------- *
  * The spine of this file: what goes into `toIcs` must come back out of
  * `fromIcs` unchanged, for every shape the model supports. */
@@ -722,5 +737,196 @@ describe("RDATE and EXDATE survive a VEVENT with no RRULE", () => {
     const [parsed] = fromIcs(bogus).events;
     expect(parsed.repeat).toBe("never");
     expect(parsed.rdates).toEqual(["2026-04-15T09:00:00"]);
+  });
+});
+
+/* ------------------- RECURRENCE-ID;RANGE=THISANDFUTURE --------------------- *
+ * "this occurrence and every one after it" is two series rather than one
+ * patched occurrence, which is what `splitRule` already does for an in-app
+ * edit. Read here, in `fromIcs`, because both consumers link overrides
+ * themselves and one of them getting it wrong is a series that draws twice. */
+
+describe("RANGE=THISANDFUTURE", () => {
+  const UID = "standup@example.com";
+  const SERIES = [
+    `UID:${UID}`,
+    "DTSTART:20260302T090000",
+    "DTEND:20260302T093000",
+    "SUMMARY:Standup",
+    "RRULE:FREQ=WEEKLY",
+  ];
+
+  /** From the 16th on, an hour later. */
+  const MOVED = [
+    `UID:${UID}`,
+    "RECURRENCE-ID;RANGE=THISANDFUTURE:20260316T090000",
+    "DTSTART:20260316T100000",
+    "DTEND:20260316T103000",
+    "SUMMARY:Standup (10am from now on)",
+  ];
+
+  const parse = (...vevents: string[][]) => fromIcs(vcalendar(...vevents)).events;
+  /** Six Mondays: the whole of the unsplit series, either side of the cut. */
+  const window = (e: IcsEvent) => startsBetween(e, e.start, ms("2026-03-01"), ms("2026-04-13"));
+
+  it("promotes the override to a series of its own, with a stable uid", () => {
+    const [head, tail] = parse(SERIES, MOVED);
+    expect.soft(parse(SERIES, MOVED)).toHaveLength(2);
+    expect.soft(head.uid).toBe(UID);
+    // Both halves of the id are stable across pulls, so the arc it draws is
+    // the same node next time — see `derivedUid` for why that matters.
+    expect.soft(tail.uid).toBe(`${UID}#2026-03-16T09:00:00`);
+    // It is not an override any more: nothing should suppress an instance
+    // for it, and both consumers key a parent off `recurrenceId === ""`.
+    expect.soft(tail.recurrenceId).toBe("");
+    expect.soft(tail.title).toBe("Standup (10am from now on)");
+  });
+
+  it("stops the head the instant before the cut", () => {
+    const [head] = parse(SERIES, MOVED);
+    expect.soft(head.until).toBe(ms("2026-03-16 09:00") - 1);
+    expect(window(head)).toBeInstants(["2026-03-02 09:00", "2026-03-09 09:00"]);
+  });
+
+  it("continues the parent's cadence from the override's own DTSTART", () => {
+    const [, tail] = parse(SERIES, MOVED);
+    expect.soft(tail.repeat).toBe("weekly");
+    expect(window(tail)).toBeInstants([
+      "2026-03-16 10:00",
+      "2026-03-23 10:00",
+      "2026-03-30 10:00",
+      "2026-04-06 10:00",
+    ]);
+  });
+
+  it("covers every day the unsplit series had, exactly once", () => {
+    // The clock time moves at the cut; the days must not, or the split has
+    // either eaten a Monday or handed one to both halves.
+    const split = parse(SERIES, MOVED).flatMap(window);
+    expect(split.sort((a, b) => a - b)).toOccurOn([
+      "2026-03-02",
+      "2026-03-09",
+      "2026-03-16",
+      "2026-03-23",
+      "2026-03-30",
+      "2026-04-06",
+    ]);
+  });
+
+  it("folds a chained split left, onto the tail that now owns the instant", () => {
+    // The 30th is 10:00 by the time this cut lands, because the first cut
+    // moved it — naming 09:00 here would be naming an instant nothing emits.
+    const again = [
+      `UID:${UID}`,
+      "RECURRENCE-ID;RANGE=THISANDFUTURE:20260330T100000",
+      "DTSTART:20260330T110000",
+      "DTEND:20260330T113000",
+      "SUMMARY:Standup (11am)",
+    ];
+    const events = parse(SERIES, MOVED, again);
+    expect.soft(events).toHaveLength(3);
+    expect.soft(events[2].uid).toBe(`${UID}#2026-03-30T10:00:00`);
+    expect.soft(window(events[0])).toBeInstants(["2026-03-02 09:00", "2026-03-09 09:00"]);
+    expect.soft(window(events[1])).toBeInstants(["2026-03-16 10:00", "2026-03-23 10:00"]);
+    expect.soft(window(events[2])).toBeInstants(["2026-03-30 11:00", "2026-04-06 11:00"]);
+  });
+
+  it("re-points an ordinary override past the cut at the new series", () => {
+    const once = [
+      `UID:${UID}`,
+      "RECURRENCE-ID:20260323T100000",
+      "DTSTART:20260323T140000",
+      "DTEND:20260323T143000",
+      "SUMMARY:Standup (afternoon, once)",
+    ];
+    const [, tail, override] = parse(SERIES, MOVED, once);
+    // Left on the head, nothing suppresses the tail's own 23rd and the day
+    // draws both — the rule `store.splitSeries` applies for the same reason.
+    expect.soft(override.uid).toBe(tail.uid);
+    expect.soft(override.recurrenceId).toBe("2026-03-23T10:00:00");
+  });
+
+  it("leaves an ordinary override before the cut on the head", () => {
+    const once = [
+      `UID:${UID}`,
+      "RECURRENCE-ID:20260309T090000",
+      "DTSTART:20260309T140000",
+      "DTEND:20260309T143000",
+      "SUMMARY:Standup (afternoon, once)",
+    ];
+    const [head, , override] = parse(SERIES, MOVED, once);
+    expect(override.uid).toBe(head.uid);
+  });
+
+  it("absorbs the head when the cut lands on the series' own first instant", () => {
+    const always = [
+      `UID:${UID}`,
+      "RECURRENCE-ID;RANGE=THISANDFUTURE:20260302T090000",
+      "DTSTART:20260302T100000",
+      "DTEND:20260302T103000",
+      "SUMMARY:Standup (always was 10am)",
+    ];
+    const events = parse(SERIES, always);
+    // A head bounded before its own seed generates nothing, so two events
+    // here would be one live series beside a dead one.
+    expect.soft(events).toHaveLength(1);
+    expect.soft(events[0].uid).toBe(UID);
+    expect.soft(events[0].repeat).toBe("weekly");
+    expect(window(events[0])[0]).toBeSameInstantAs("2026-03-02 10:00");
+  });
+
+  it("partitions the parent's EXDATEs at the cut", () => {
+    const renamed = [
+      `UID:${UID}`,
+      "RECURRENCE-ID;RANGE=THISANDFUTURE:20260316T090000",
+      "DTSTART:20260316T090000",
+      "DTEND:20260316T093000",
+      "SUMMARY:Standup (renamed)",
+    ];
+    const [head, tail] = parse([...SERIES, "EXDATE:20260309T090000,20260406T090000"], renamed);
+    expect.soft(head.exdates).toEqual(["2026-03-09T09:00:00"]);
+    // Not copied to both: a future EXDATE left on the head is inert there,
+    // and the day the sender skipped comes back on the tail.
+    expect.soft(tail.exdates).toEqual(["2026-04-06T09:00:00"]);
+    expect(window(tail)).toBeInstants(["2026-03-16 09:00", "2026-03-23 09:00", "2026-03-30 09:00"]);
+  });
+
+  it("keeps the tail's own RRULE rather than inheriting the parent's", () => {
+    const fortnightly = [
+      `UID:${UID}`,
+      "RECURRENCE-ID;RANGE=THISANDFUTURE:20260316T090000",
+      "DTSTART:20260316T090000",
+      "DTEND:20260316T093000",
+      "RRULE:FREQ=WEEKLY;INTERVAL=2",
+      "SUMMARY:Standup (fortnightly now)",
+    ];
+    const [, tail] = parse(SERIES, fortnightly);
+    expect.soft(tail.interval).toBe(2);
+    expect(window(tail)).toBeInstants(["2026-03-16 09:00", "2026-03-30 09:00"]);
+  });
+
+  it("reads the param whatever case it arrives in", () => {
+    const lower = MOVED.map((line) =>
+      line.startsWith("RECURRENCE-ID") ? "RECURRENCE-ID;RANGE=thisandfuture:20260316T090000" : line,
+    );
+    expect(parse(SERIES, lower)[1].recurrenceId).toBe("");
+  });
+
+  it("leaves a plain RECURRENCE-ID alone", () => {
+    const patched = MOVED.map((line) =>
+      line.startsWith("RECURRENCE-ID") ? "RECURRENCE-ID:20260316T090000" : line,
+    );
+    const [head, override] = parse(SERIES, patched);
+    expect.soft(head.until).toBe(0);
+    expect.soft(override.uid).toBe(UID);
+    expect.soft(override.recurrenceId).toBe("2026-03-16T09:00:00");
+  });
+
+  it("leaves an orphaned split as an ordinary override", () => {
+    // No parent in this file to cut, so there is nothing to promote it out
+    // of — and inventing a series for it would invent occurrences too.
+    const [only] = parse(MOVED);
+    expect.soft(only.uid).toBe(UID);
+    expect.soft(only.recurrenceId).toBe("2026-03-16T09:00:00");
   });
 });
