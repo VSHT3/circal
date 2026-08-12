@@ -1543,7 +1543,10 @@ function Shell() {
               // Only `exit` is a label: see `PANEL`. The other two are
               // resolved here, so the panel that is leaving carries the answer
               // it had before the flow moved rather than re-deriving the
-              // arriving panel's.
+              // arriving panel's — and the objects below outrank the table's
+              // own `initial`/`active`, so passing it whole costs nothing and
+              // is what gives `exit` something to resolve against.
+              variants={reducedMotion ? undefined : PANEL}
               initial={reducedMotion ? false : PANEL.initial(arrival)}
               animate={reducedMotion ? undefined : PANEL.active(arrival)}
               exit="exit"
