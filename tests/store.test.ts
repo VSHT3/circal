@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { at, ms, event, MemoryStorage } from "./helpers";
+import { at, calendar, ms, event, MemoryStorage } from "./helpers";
 import { instantKey, PALETTE, type CalEvent, type Repeat } from "@/lib/events";
 import { DEFAULT_SETTINGS, LIFE_EXPECTANCY_RANGE, duplicateOf } from "@/lib/store";
 import { addDays, addMonths, dayKey, daysBetween, startOfDay } from "@/lib/time";
@@ -12,6 +12,7 @@ const KEY = "circal.v1";
  *  was built against, and the notify module to spy on. */
 interface StoreHandle {
   store: typeof StoreModule.store;
+  defaultCalendarId: typeof StoreModule.defaultCalendarId;
   draftEvent: typeof StoreModule.draftEvent;
   hostLabel: typeof StoreModule.hostLabel;
   newId: typeof StoreModule.newId;
@@ -1233,6 +1234,66 @@ describe("the feed budget", () => {
 });
 
 /* -------------------------------- misc --------------------------------- */
+
+describe("the defaults a new event starts from", () => {
+  it.each([
+    { name: "a length under the editor's own minimum clamps up", set: 1, want: 5 },
+    { name: "a length past a day clamps down", set: 5000, want: 1440 },
+    { name: "a fraction rounds", set: 42.6, want: 43 },
+    { name: "zero is not a length", set: 0, want: 60 },
+    { name: "a number that is not one falls back", set: Number.NaN, want: 60 },
+  ])("$name", async ({ set, want }) => {
+    const s = await freshStore();
+    s.store.setDefaultDuration(set);
+    expect(s.store.snapshot().settings.defaultDuration).toBe(want);
+  });
+
+  it("keeps a calendar id that no longer exists rather than rewriting the preference", async () => {
+    const s = await freshStore();
+    s.store.setDefaultCalendar("work");
+    s.store.removeCalendar("work");
+    // The setting is what the user said; `defaultCalendarId` is what the app
+    // does about it today. Rewriting the first would lose the second's reason.
+    expect(s.store.snapshot().settings.defaultCalendar).toBe("work");
+  });
+});
+
+describe("defaultCalendarId", () => {
+  const own = (id: string) => calendar({ id, name: id });
+  const feed = (id: string) => ({
+    ...calendar({ id, name: id }),
+    feed: { url: "https://x/y.ics", fetchedAt: 0, error: "" },
+  });
+
+  it.each([
+    { name: "the named calendar, when it is still there", list: [own("a"), own("b")], want: "b" },
+    {
+      name: "the first one when nothing is named",
+      list: [own("a"), own("b")],
+      named: "",
+      want: "a",
+    },
+    {
+      name: "the first one when the named calendar has been deleted",
+      list: [own("a")],
+      want: "a",
+    },
+    {
+      name: "never a subscription, even when it is named",
+      list: [feed("b"), own("c")],
+      want: "c",
+    },
+    {
+      name: "never a subscription when it is merely first",
+      list: [feed("z"), own("c")],
+      named: "",
+      want: "c",
+    },
+  ])("$name", async ({ list, named = "b", want }) => {
+    const s = await freshStore();
+    expect(s.defaultCalendarId(list, named)).toBe(want);
+  });
+});
 
 describe("draftEvent", () => {
   it.each([

@@ -35,7 +35,9 @@ import {
 } from "@/lib/store";
 import { PLACE_OPTIONS, placeForZone } from "@/lib/places";
 import { sunTimes } from "@/lib/sun";
+import { MIN_DURATION } from "@/lib/quickadd";
 import {
+  MINUTES_PER_DAY,
   allZones,
   atMinutes,
   dayKey,
@@ -53,6 +55,7 @@ import {
   FieldRow,
   IconButton,
   Kbd,
+  MOD,
   NumberField,
   PositionField,
   Segmented,
@@ -165,6 +168,8 @@ export default function Settings({
     moonPhase,
     remind,
     remindLead,
+    defaultDuration,
+    defaultCalendar,
   } = settings;
   const reducedMotion = useReducedMotion();
   const [feedUrl, setFeedUrl] = useState("");
@@ -518,6 +523,40 @@ export default function Settings({
                     The phase of the selected day. Minimal draws the terminator; Aperture rides the
                     disc behind a window and lets its lobes cut the crescent, which is what the
                     mechanism on a wrist does
+                  </span>
+                </FieldRow>
+              </Section>
+
+              {/* What ⌘N and a quick-add line start from. Its own card rather
+                  than a row inside Face, because neither of these is anything
+                  the dial draws — they are what the app assumes when you have
+                  not said. */}
+              <Section title="New event">
+                <FieldRow label="Length">
+                  <NumberField
+                    label="Default event length"
+                    value={defaultDuration}
+                    onChange={store.setDefaultDuration}
+                    suffix="min"
+                    min={MIN_DURATION}
+                    max={MINUTES_PER_DAY}
+                  />
+                </FieldRow>
+                <FieldRow label="Calendar" align="top" last>
+                  <Select
+                    label="Calendar for new events"
+                    value={defaultCalendar}
+                    onChange={store.setDefaultCalendar}
+                    options={[
+                      { value: "", label: "First one" },
+                      ...calendars
+                        .filter((c) => !c.feed)
+                        .map((c) => ({ value: c.id, label: c.name })),
+                    ]}
+                  />
+                  <span className="caption">
+                    Where {MOD}N, a drag on the dial and a quick-add line put an event. A
+                    subscription is never offered: its events are a mirror
                   </span>
                 </FieldRow>
               </Section>

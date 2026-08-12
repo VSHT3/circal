@@ -97,6 +97,7 @@ export default function CommandPalette({
   clock,
   actions,
   inheritMarks,
+  defaultDuration,
   onSearchLife,
 }: CommandPaletteProps) {
   const reducedMotion = useReducedMotion();
@@ -145,7 +146,7 @@ export default function CommandPalette({
    * date is a jump rather than an all-day event with no name.
    */
   const createRows: Row[] = useMemo(() => {
-    const parsed = parseQuickAdd(query, day, now);
+    const parsed = parseQuickAdd(query, day, now, defaultDuration);
     if (!parsed) return [];
     const { title, day: on, startMin, endMin, allDay, repeat } = parsed;
     // Printed before it is committed: this row creates without a review step,
@@ -169,7 +170,7 @@ export default function CommandPalette({
         },
       },
     ];
-  }, [query, day, now, clock, actions, onClose]);
+  }, [query, day, now, clock, defaultDuration, actions, onClose]);
 
   /**
    * Free slots on the selected day. The dial already makes gaps the most

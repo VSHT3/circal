@@ -43,6 +43,13 @@ const DEFAULT_SLOT = 30;
  */
 export const DEFAULT_DURATION = 60;
 
+/**
+ * The shortest event this app will make. Shared by the editor's own clamp and
+ * by the default-duration setting, which must not be able to name a length
+ * the editor would refuse.
+ */
+export const MIN_DURATION = 5;
+
 /** The longest a date phrase gets: `in 3 days`. */
 const DATE_WORDS = 3;
 
@@ -406,7 +413,15 @@ export interface QuickAdd {
  *   in 2h` is tomorrow at this time plus two hours, because the sentence says
  *   both and each is answering a different question.
  */
-export function parseQuickAdd(input: string, reference: Date, now = new Date()): QuickAdd | null {
+export function parseQuickAdd(
+  input: string,
+  reference: Date,
+  now = new Date(),
+  /** What a line that named a time but no length is worth. The app passes
+   *  `settings.defaultDuration`; the constant is what that setting starts at,
+   *  and what this answers with when nobody says otherwise. */
+  fallbackDuration = DEFAULT_DURATION,
+): QuickAdd | null {
   // A hyphen is joined only between two digits, so `13:15 - 14:00` is one
   // token while `one-on-one` and `check - in` are left alone.
   const tokens = input
@@ -538,10 +553,10 @@ export function parseQuickAdd(input: string, reference: Date, now = new Date()):
     startMin = span.startMin;
     // A range that named both ends wins over a duration: `1pm-2pm 30m` is an
     // hour with a redundant word in it, not half an hour.
-    endMin = span.endMin ?? startMin + (duration ?? DEFAULT_DURATION);
+    endMin = span.endMin ?? startMin + (duration ?? fallbackDuration);
   } else if (fromNow !== null) {
     startMin = fromNow % MINUTES_PER_DAY;
-    endMin = startMin + (duration ?? DEFAULT_DURATION);
+    endMin = startMin + (duration ?? fallbackDuration);
   } else if (duration !== null) {
     startMin = defaultStart(day, duration, now);
     endMin = startMin + duration;

@@ -21,6 +21,7 @@ import {
   type Occurrence,
 } from "@/lib/events";
 import {
+  defaultCalendarId,
   draftEvent,
   duplicateOf,
   introSeen,
@@ -34,7 +35,7 @@ import { cue } from "@/lib/feedback";
 import { placeForZone } from "@/lib/places";
 import { refreshFeed } from "@/lib/feeds";
 import { notify } from "@/lib/notify";
-import { DEFAULT_DURATION, defaultStart } from "@/lib/quickadd";
+import { defaultStart } from "@/lib/quickadd";
 import {
   MINUTES_PER_DAY,
   addDays,
@@ -354,7 +355,7 @@ function Shell() {
   );
 
   const agenda = useMemo(() => dayAgenda(previewed, calendars, day), [previewed, calendars, day]);
-  const defaultCalendar = calendars.find((c) => !c.feed)?.id ?? "personal";
+  const defaultCalendar = defaultCalendarId(calendars, settings.defaultCalendar);
   const feedIds = useMemo(
     () => new Set(calendars.filter((c) => c.feed).map((c) => c.id)),
     [calendars],
@@ -749,8 +750,11 @@ function Shell() {
       newEvent: () => {
         // The hour a draft opens on is `defaultStart`'s answer, shared with
         // quick-add: two ways of adding an event must not disagree about when.
-        const start = defaultStart(day, DEFAULT_DURATION);
-        openDraft(start, start + DEFAULT_DURATION, day);
+        // Its length is the setting, for the same reason — one number, both
+        // routes, and `DEFAULT_DURATION` is only what that setting starts at.
+        const length = settings.defaultDuration;
+        const start = defaultStart(day, length);
+        openDraft(start, start + length, day);
       },
       newTask: () => {
         setPaletteOpen(false);
@@ -807,7 +811,18 @@ function Shell() {
       },
       toggleAmbient: () => enterAmbient(inAmbient ? "off" : "manual"),
     }),
-    [day, go, openDraft, defaultCalendar, feedIds, calendars, inAmbient, enterAmbient, channels],
+    [
+      day,
+      go,
+      openDraft,
+      defaultCalendar,
+      settings.defaultDuration,
+      feedIds,
+      calendars,
+      inAmbient,
+      enterAmbient,
+      channels,
+    ],
   );
 
   const step = useCallback(
@@ -1468,6 +1483,7 @@ function Shell() {
         occurrences={agenda.all}
         clock={settings.clock}
         inheritMarks={settings.inheritMarks}
+        defaultDuration={settings.defaultDuration}
         actions={actions}
         onSearchLife={setLifeSearch}
       />

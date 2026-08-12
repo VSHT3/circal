@@ -37,6 +37,7 @@ import {
   type Calendar,
   type Repeat,
 } from "./events";
+import { DEFAULT_DURATION, MIN_DURATION } from "./quickadd";
 import { REMIND_LEADS } from "./remind";
 import type { PickedPlace } from "./places";
 
@@ -279,6 +280,26 @@ export interface Settings {
   remind: boolean;
   /** Minutes of warning, from `REMIND_LEADS`. `0` fires as it starts. */
   remindLead: number;
+  /**
+   * What a new event is worth before anybody says otherwise: the length ⌘N
+   * opens with, and the length quick-add gives a line that named a time and
+   * no duration. `DEFAULT_DURATION` is still the constant behind it, because
+   * the parser has to have an answer with no store in reach.
+   *
+   * One number for both, for the reason there was one constant for both: two
+   * ways of adding an event must not disagree about what an event is.
+   */
+  defaultDuration: number;
+  /**
+   * The calendar a new event lands on, by id, or `""` for the first one that
+   * is not a subscription.
+   *
+   * An id rather than an index, and resolved at the moment of use rather than
+   * clamped on load: a calendar can be removed by another tab, and a setting
+   * that quietly rewrote itself to the survivor would be a preference the user
+   * never expressed. A stale id simply falls back.
+   */
+  defaultCalendar: string;
 }
 
 /** The switches: every field of `Settings` that is a plain boolean. */
@@ -391,6 +412,15 @@ export const DEFAULT_SETTINGS: Settings = {
   // Ten minutes. Long enough to walk somewhere, short enough that the thing
   // is still the next thing when it lands.
   remindLead: 10,
+  // An hour, which is what `DEFAULT_DURATION` has always been and what a
+  // VEVENT with no DTEND is read as. This setting exists to be *changed* — a
+  // day of thirty-minute meetings is a real working life — not to have a new
+  // opinion by default.
+  defaultDuration: DEFAULT_DURATION,
+  // The first calendar that is not a subscription, whichever that turns out
+  // to be. Naming one here would be naming a seed calendar, and the seed is
+  // not something a returning user still has.
+  defaultCalendar: "",
 };
 
 const DEFAULT_CALENDARS: Calendar[] = [
@@ -564,6 +594,18 @@ function sane(settings: Settings): Settings {
     remindLead: REMIND_LEADS.includes(settings.remindLead)
       ? settings.remindLead
       : DEFAULT_SETTINGS.remindLead,
+    // Clamped rather than dropped: a duration is a number the user typed, so
+    // a value out of range is a slip rather than a corrupt record. The floor
+    // is the editor's own minimum and the ceiling is a day — past that a
+    // "default event" is an all-day one, which is a different thing.
+    defaultDuration:
+      Number.isFinite(settings.defaultDuration) && settings.defaultDuration > 0
+        ? Math.min(MINUTES_PER_DAY, Math.max(MIN_DURATION, Math.round(settings.defaultDuration)))
+        : DEFAULT_SETTINGS.defaultDuration,
+    // Not checked against the calendars: this runs on load, and the list it
+    // would be checked against can change in another tab a second later.
+    // `defaultCalendarId` resolves it at the moment it is used.
+    defaultCalendar: typeof settings.defaultCalendar === "string" ? settings.defaultCalendar : "",
   };
 }
 
@@ -1302,6 +1344,20 @@ export const store = {
     commit({ ...base, settings: sane({ ...base.settings, remindLead }) }, false);
   },
 
+  /** How long ⌘N and a quick-add line with no length make an event. Sanitised
+   *  because it comes from a field somebody types into. */
+  setDefaultDuration(defaultDuration: number) {
+    const base = fresh();
+    commit({ ...base, settings: sane({ ...base.settings, defaultDuration }) }, false);
+  },
+
+  /** The calendar a new event lands on; `""` is "the first one that is not a
+   *  subscription", which is also what a since-deleted id falls back to. */
+  setDefaultCalendar(defaultCalendar: string) {
+    const base = fresh();
+    commit({ ...base, settings: { ...base.settings, defaultCalendar } }, false);
+  },
+
   /** Minutes of stillness before the dial takes the window; `0` is never. */
   setAmbientAfter(ambientAfter: number) {
     const base = fresh();
@@ -1501,6 +1557,22 @@ export const store = {
     return true;
   },
 };
+
+/**
+ * The calendar a new event belongs on: the one the settings name, if it still
+ * exists and is still yours to write to, and otherwise the first calendar that
+ * is not a subscription.
+ *
+ * Resolved here rather than clamped in `sane` because the answer depends on
+ * the calendars, which another tab can change between one launch and the
+ * next — and a setting that rewrote itself in response would be a preference
+ * the user never expressed. A feed's calendar is refused outright: its events
+ * are a mirror and nothing may be written into it.
+ */
+export function defaultCalendarId(calendars: Calendar[], preferred: string): string {
+  const named = preferred ? calendars.find((c) => c.id === preferred && !c.feed) : undefined;
+  return named?.id ?? calendars.find((c) => !c.feed)?.id ?? DEFAULT_CALENDARS[0].id;
+}
 
 /**
  * A blank event on `day`, used by ⌘N, by drag-to-create on the dial, and by a

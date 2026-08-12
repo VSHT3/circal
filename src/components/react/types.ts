@@ -376,6 +376,10 @@ export interface CommandPaletteProps {
   actions: ShellActions;
   /** As `SidebarProps.inheritMarks` — its event rows resolve a mark too. */
   inheritMarks: boolean;
+  /** What a quick-add line that names a time and no length is worth. Threaded
+   *  rather than read from a whole `settings` because this panel is still at
+   *  three fields; the fourth converts it, as `LifeView`'s sixth did. */
+  defaultDuration: number;
   /**
    * Every keystroke, while the life view is the one behind us. The shell holds
    * it rather than this panel because the grid outlives the palette: the

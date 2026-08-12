@@ -20,7 +20,7 @@ import {
   type Repeat,
 } from "@/lib/events";
 import { describeRule, isExpressible, nthLabel } from "@/lib/describe";
-import { DEFAULT_DURATION, defaultStart } from "@/lib/quickadd";
+import { DEFAULT_DURATION, MIN_DURATION, defaultStart } from "@/lib/quickadd";
 import {
   WEEKDAYS,
   addDays,
@@ -51,8 +51,6 @@ import {
 import { CalendarMark, MarkPicker } from "@/components/react/ui/icons";
 import { ScopeChoices } from "@/components/react/ScopePrompt";
 import type { EditScope, EventEditorProps } from "@/components/react/types";
-
-const MIN_DURATION_MIN = 5;
 
 /**
  * A twelve-hour clock field. Free text while focused, normalised on blur or
@@ -341,7 +339,7 @@ export default function EventEditor({
     const next = addDays(new Date(draft.end), delta).getTime();
     // The picker will happily name a day before the start. That is not a span,
     // and refusing it is better than silently dragging the start along.
-    if (next < draft.start + MIN_DURATION_MIN * 60_000) return;
+    if (next < draft.start + MIN_DURATION * 60_000) return;
     patch({ end: next });
   }
 
@@ -356,7 +354,7 @@ export default function EventEditor({
     // forward when that would put it before the start — which is how
     // 11 PM → 1 AM stays one event on a span only a day long.
     let next = atMinutes(lastDay, minutes);
-    if (next.getTime() < draft.start + MIN_DURATION_MIN * 60_000) next = addDays(next, 1);
+    if (next.getTime() < draft.start + MIN_DURATION * 60_000) next = addDays(next, 1);
     patch({ end: next.getTime() });
   }
 
@@ -397,7 +395,7 @@ export default function EventEditor({
       const remembered = timedSpan.current ?? { startMin: 9 * 60, endMin: 10 * 60 };
       const start = atMinutes(firstDay, remembered.startMin).getTime();
       let end = atMinutes(lastDay, remembered.endMin);
-      if (end.getTime() < start + MIN_DURATION_MIN * 60_000) end = addDays(end, 1);
+      if (end.getTime() < start + MIN_DURATION * 60_000) end = addDays(end, 1);
       patch({ allDay: false, start, end: end.getTime() });
     }
   }

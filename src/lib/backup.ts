@@ -161,6 +161,16 @@ export function readSettings(value: unknown): Settings {
     remind: value.remind === true,
     remindLead:
       typeof value.remindLead === "number" ? value.remindLead : DEFAULT_SETTINGS.remindLead,
+    // What a new event starts as. `sane()` clamps the length; the calendar is
+    // an id and is deliberately not checked against the backup's own
+    // calendars — `defaultCalendarId` resolves it at the moment it is used,
+    // and a restore that dropped it would silently reset a preference over a
+    // calendar the user is about to re-import.
+    defaultDuration:
+      typeof value.defaultDuration === "number"
+        ? value.defaultDuration
+        : DEFAULT_SETTINGS.defaultDuration,
+    defaultCalendar: typeof value.defaultCalendar === "string" ? value.defaultCalendar : "",
   };
 }
 
