@@ -843,8 +843,13 @@ function migrateFeeds(legacy: Record<string, unknown>, base: Persisted) {
     store.setItem(KEY, raw);
     lastRaw = raw;
   } catch {
-    // Out of room. The payloads are already out of the blob, where they can be
-    // dropped independently, and the next successful write finishes the job.
+    // The payloads are already out of the blob, where they can be dropped
+    // independently, and the next successful write finishes the job — but the
+    // blob still carries the megabytes that would not fit, so every launch
+    // will do this again until something gives. Same failure `write` reports
+    // and the same reason for reporting it: a storage refusal the user cannot
+    // see is one they cannot act on.
+    notify("Not saved — this browser is refusing to store data", "error");
   }
 }
 
@@ -878,6 +883,10 @@ function load(): Snapshot {
     return raw ? hydrate(raw) : { ...EMPTY, events: seed() };
   } catch {
     // A corrupted blob must not brick the app; start clean rather than throw.
+    // But an empty dial is what this app looks like on its first run, so
+    // saying nothing here is indistinguishable from the calendar having been
+    // eaten — the same argument the error boundary makes, one layer down.
+    notify("Saved data could not be read — starting empty", "error");
     return EMPTY;
   }
 }

@@ -888,6 +888,16 @@ describe("a corrupted blob", () => {
     expect(snap.events).toEqual([]);
     expect(snap.calendars.length).toBeGreaterThan(0);
   });
+
+  it("says so, because an empty dial is what a first run looks like", async () => {
+    const storage = new MemoryStorage();
+    storage.setItem(KEY, "{not valid json");
+    const s = await freshStore(storage);
+    const spy = vi.spyOn(s.notify, "notify");
+    // Hydration is lazy, at the first subscribe: nothing has been read yet.
+    withWindow(() => s.subscribe(() => {}));
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining("could not be read"), "error");
+  });
 });
 
 describe("hydrateEvents", () => {
