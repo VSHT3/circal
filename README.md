@@ -460,6 +460,9 @@ taking your calendar with it.
 | `⌘`-drag an arc           | Duplicate it: the original stays, the copy lands where you let go                 |
 | `⌘↵` on a `⌘P` event row  | Duplicate it into the editor, where you can say when                              |
 
+`⌘` throughout means Ctrl on Windows and Linux — every shortcut here takes
+either, and the app prints whichever one your keyboard actually has.
+
 Type a duration into `⌘P` — `45m`, `1h30`, `free 20` — and the palette lists
 the gaps in the day that fit it. Picking one opens a draft already filling the
 slot.
@@ -497,10 +500,13 @@ event's notes ranks below one in its title. It ranks the commands as well, so
 `lfe vw` reaches the life view.
 
 Drag anywhere on the ring to block out time — the readout in the middle turns
-into the range you are drawing. A click on the ring creates an hour instead.
-The range follows the way your hand went rather than the shorter way round, so
-a drag can run the whole revolution; take it all the way from midnight back to
-midnight and the readout says **All day**, because that is what it will make.
+into the range you are drawing. The range follows the way your hand went rather
+than the shorter way round, so a drag can run the whole revolution; take it all
+the way from midnight back to midnight and the readout says **All day**, because
+that is what it will make. A click on the ring, with no drag, makes an event of
+the default length instead — an hour, until you say otherwise in Settings'
+**New event** card, which also names the calendar a new event lands on. Both
+answer for `⌘N` and for a quick-add line that gave a time and no length.
 
 Let go and the arc stays where you drew it while you fill the event in, taking
 whatever colour you pick, so you are looking at the shape of the thing while you
