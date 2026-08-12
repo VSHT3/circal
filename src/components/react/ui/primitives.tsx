@@ -15,7 +15,35 @@ import type { ButtonHTMLAttributes, ReactNode } from "react";
 import { PALETTE } from "@/lib/events";
 import { cn } from "@/lib/utils";
 
-/** A keyboard chip. Renders the glyph, never the word ("⌘", not "Cmd"). */
+/**
+ * The modifier this app's shortcuts are actually pressed with, spelled the way
+ * the reader's own keyboard spells it.
+ *
+ * `useHotkeys` has always accepted either (`e.metaKey || e.ctrlKey`), so every
+ * shortcut here already worked on Windows and Linux — the chips were the only
+ * part of the app that was Mac-only, telling half its visitors to press a key
+ * they do not have. The island is `client:only`, so reading the platform at
+ * module scope has no server render to disagree with.
+ *
+ * Only ⌘ is translated. ⇧, ↵ and ⌫ are printed on the keys themselves or are
+ * the universal typographic form, and `Ctrl Shift N` across four segments is
+ * a top bar that has to drop something else to fit.
+ */
+export const MOD = isApple() ? "⌘" : "Ctrl";
+
+function isApple(): boolean {
+  if (typeof navigator === "undefined") return true;
+  const data = (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData;
+  // `userAgentData.platform` is the only non-deprecated answer and Chromium is
+  // the only engine that has it; Safari and Firefox still need the UA string,
+  // which is asked exactly one question — "is this Apple" — and nothing that
+  // depends on a version.
+  const source = data?.platform ?? navigator.userAgent;
+  return /mac|iphone|ipad|ipod/i.test(source);
+}
+
+/** A keyboard chip. Renders the glyph, never the word ("⌘", not "Cmd") — with
+ *  `MOD` the one exception, where the word *is* what the key says. */
 export function Kbd({ children }: { children: ReactNode }) {
   return <kbd className="kbd">{children}</kbd>;
 }

@@ -17,7 +17,7 @@ import { useEffect, useState } from "react";
 import { PALETTE } from "@/lib/events";
 import { cn } from "@/lib/utils";
 import { useFocusTrap } from "@/components/react/hooks";
-import { ColorPicker, FieldRow as Row, Kbd } from "@/components/react/ui/primitives";
+import { ColorPicker, FieldRow as Row, Kbd, MOD } from "@/components/react/ui/primitives";
 import { CalendarMark, MarkPicker } from "@/components/react/ui/icons";
 import type { CalendarEditorProps } from "@/components/react/types";
 
@@ -194,7 +194,7 @@ export default function CalendarEditor({
                   className="flex h-8 items-center gap-1.5 rounded-[9px] border border-hairline bg-surface-2 px-3 text-[14px] text-ink transition-colors hover:bg-white/10 disabled:pointer-events-none disabled:opacity-35"
                 >
                   {target ? "Save" : "Create"}
-                  <Kbd>⌘</Kbd>
+                  <Kbd>{MOD}</Kbd>
                   <Kbd>↵</Kbd>
                 </button>
               </div>

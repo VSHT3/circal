@@ -62,6 +62,7 @@ import {
   useTypingSound,
   useWakeLock,
 } from "./hooks";
+import { MOD } from "./ui/primitives";
 import { ErrorBoundary } from "./ErrorBoundary";
 import type {
   AmbientMode,
@@ -776,7 +777,7 @@ function Shell() {
         // is also the only review this gesture gets.
         go({ day: spec.day, view: "day" });
         cue("created", channels);
-        notify(`Added “${spec.title}” — ⌘Z to undo`);
+        notify(`Added “${spec.title}” — ${MOD}Z to undo`);
       },
       undo: () => notify(store.undo() ? "Undone" : "Nothing to undo"),
       redo: () => notify(store.redo() ? "Redone" : "Nothing to redo"),
@@ -1094,7 +1095,7 @@ function Shell() {
           break;
       }
       if (!isSameDay(new Date(landed), day)) {
-        notify(`Moved to ${formatRelativeDay(new Date(landed))} — ⌘Z to undo`);
+        notify(`Moved to ${formatRelativeDay(new Date(landed))} — ${MOD}Z to undo`);
       }
     },
     [day],
@@ -1149,7 +1150,7 @@ function Shell() {
           break;
       }
       cue("deleted", channels);
-      notify(`Deleted “${occ.event.title || "Untitled"}” — ⌘Z to undo`);
+      notify(`Deleted “${occ.event.title || "Untitled"}” — ${MOD}Z to undo`);
     },
     [channels],
   );
@@ -1186,7 +1187,7 @@ function Shell() {
       if (feedIds.has(occ.event.calendarId)) return;
       store.create(duplicateOf(occ.event, deltaMin * 60_000));
       cue("created", channels);
-      notify(`Duplicated “${occ.event.title || "Untitled"}” — ⌘Z to undo`);
+      notify(`Duplicated “${occ.event.title || "Untitled"}” — ${MOD}Z to undo`);
     },
     [feedIds, channels],
   );
@@ -1270,8 +1271,8 @@ function Shell() {
     cue("deleted", channels);
     notify(
       gone.moved > 0
-        ? `Removed “${editedCalendar.name}” — ${gone.moved} event${gone.moved === 1 ? "" : "s"} moved to ${gone.into?.name} · ⌘Z to undo`
-        : `Removed “${editedCalendar.name}” — ⌘Z to undo`,
+        ? `Removed “${editedCalendar.name}” — ${gone.moved} event${gone.moved === 1 ? "" : "s"} moved to ${gone.into?.name} · ${MOD}Z to undo`
+        : `Removed “${editedCalendar.name}” — ${MOD}Z to undo`,
     );
   }, [editedCalendar, channels]);
 

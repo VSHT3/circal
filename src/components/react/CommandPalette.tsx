@@ -28,7 +28,7 @@ import {
   Upload,
 } from "lucide-react";
 import { useFocusTrap } from "@/components/react/hooks";
-import { Kbd } from "@/components/react/ui/primitives";
+import { Kbd, MOD } from "@/components/react/ui/primitives";
 import { CalendarMark } from "@/components/react/ui/icons";
 import type { CommandPaletteProps } from "@/components/react/types";
 import { colorOf, freeGaps, markOf, scoreEvent, WAKING, type CalEvent } from "@/lib/events";
@@ -260,7 +260,7 @@ export default function CommandPalette({
         title: "New event",
         meta: (
           <>
-            <Kbd>⌘</Kbd>
+            <Kbd>{MOD}</Kbd>
             <Kbd>N</Kbd>
           </>
         ),
@@ -275,7 +275,7 @@ export default function CommandPalette({
         title: "New task",
         meta: (
           <>
-            <Kbd>⌘</Kbd>
+            <Kbd>{MOD}</Kbd>
             <Kbd>⇧</Kbd>
             <Kbd>N</Kbd>
           </>
@@ -300,7 +300,7 @@ export default function CommandPalette({
         title: "Day view",
         meta: (
           <>
-            <Kbd>⌘</Kbd>
+            <Kbd>{MOD}</Kbd>
             <Kbd>D</Kbd>
           </>
         ),
@@ -315,7 +315,7 @@ export default function CommandPalette({
         title: "Year view",
         meta: (
           <>
-            <Kbd>⌘</Kbd>
+            <Kbd>{MOD}</Kbd>
             <Kbd>Y</Kbd>
           </>
         ),
@@ -330,7 +330,7 @@ export default function CommandPalette({
         title: "Life view",
         meta: (
           <>
-            <Kbd>⌘</Kbd>
+            <Kbd>{MOD}</Kbd>
             <Kbd>L</Kbd>
           </>
         ),
@@ -391,7 +391,7 @@ export default function CommandPalette({
         title: "Settings",
         meta: (
           <>
-            <Kbd>⌘</Kbd>
+            <Kbd>{MOD}</Kbd>
             <Kbd>,</Kbd>
           </>
         ),
@@ -406,7 +406,7 @@ export default function CommandPalette({
         title: "Undo",
         meta: (
           <>
-            <Kbd>⌘</Kbd>
+            <Kbd>{MOD}</Kbd>
             <Kbd>Z</Kbd>
           </>
         ),
@@ -681,7 +681,7 @@ export default function CommandPalette({
                   onClick={alt.run}
                   className="label flex items-center gap-1.5 text-ink-3 transition-colors hover:text-ink"
                 >
-                  <Kbd>⌘</Kbd>
+                  <Kbd>{MOD}</Kbd>
                   <Kbd>↵</Kbd> {alt.label}
                 </button>
               )}

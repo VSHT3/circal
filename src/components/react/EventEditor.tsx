@@ -42,6 +42,7 @@ import {
   DateField,
   FieldRow as Row,
   Kbd,
+  MOD,
   NumberField,
   Select,
   Toggle,
@@ -811,7 +812,7 @@ export default function EventEditor({
                       className="flex items-center gap-1.5 rounded-[8px] px-2 py-1 text-[14px] text-danger transition-colors hover:bg-white/6"
                     >
                       Delete
-                      <Kbd>⌘</Kbd>
+                      <Kbd>{MOD}</Kbd>
                       <Kbd>⌫</Kbd>
                     </button>
                   )}
@@ -829,7 +830,7 @@ export default function EventEditor({
                       className="flex h-8 items-center gap-1.5 rounded-[9px] border border-hairline bg-surface-2 px-3 text-[14px] text-ink transition-colors hover:bg-white/10"
                     >
                       Save
-                      <Kbd>⌘</Kbd>
+                      <Kbd>{MOD}</Kbd>
                       <Kbd>↵</Kbd>
                     </button>
                   </div>

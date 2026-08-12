@@ -13,8 +13,28 @@ import {
   Settings,
 } from "lucide-react";
 import { addDays, formatDayHeader, formatDayRange, startOfWeek } from "@/lib/time";
+import { cn } from "@/lib/utils";
 import type { TopBarProps } from "@/components/react/types";
-import { ActionPill, IconButton, Segmented } from "@/components/react/ui/primitives";
+import { ActionPill, IconButton, MOD, Segmented } from "@/components/react/ui/primitives";
+
+/**
+ * Where the wordmark and the readout give up — and it is a pair of numbers,
+ * because the modifier chip is not one width.
+ *
+ * `Ctrl` is 40px where `⌘` is 18, and the view switch carries three of them
+ * (the active segment shows none), so the left group is 67px wider on a
+ * Windows or Linux keyboard and the right group 44px. Both thresholds were
+ * re-measured against the longest header `formatDayHeader` produces, on both
+ * spellings, by sweeping 360 → 1700: the readout clears the stepper from
+ * 1220 / 1450, and the wordmark's 108px lockup fits from 1430 / 1660.
+ *
+ * Written as whole class strings rather than composed, because Tailwind reads
+ * this file as text and a class it cannot see is a class it does not emit.
+ */
+const WIDE_MOD = MOD !== "⌘";
+const WORDMARK = WIDE_MOD ? "min-[1660px]:flex" : "min-[1430px]:flex";
+const WORDMARK_RULE = WIDE_MOD ? "min-[1660px]:block" : "min-[1430px]:block";
+const READOUT = WIDE_MOD ? "min-[1450px]:block" : "min-[1220px]:block";
 
 export default function TopBar({ day, view, sidebarOpen, onStep, actions }: TopBarProps) {
   const { weekday, date } = formatDayHeader(day);
@@ -27,20 +47,24 @@ export default function TopBar({ day, view, sidebarOpen, onStep, actions }: TopB
             `ink-2` because chrome is grey and a pure-white ring here would be
             the brightest thing on the face outside the dial.
 
-            Below 1430px it is gone entirely, mark and divider both: the date
-            readout is centred on the *bar*, not on the space left over, so the
-            108px this lockup costs is 108px the readout stops having. The
-            threshold is where the two still clear each other with the longest
-            header `formatDayHeader` produces (`WEDNESDAY · SEP 30`) — 1080
-            when the view switch had two segments, 1180 at three, 1430 at four
-            — and it has to be re-measured every time anything joins this
-            group. The wordmark is what yields, every time, because it is the
-            only thing here that is identity rather than information. */}
-        <span className="hidden items-center gap-2 pl-0.5 text-ink-2 min-[1430px]:flex">
+            Below `WORDMARK` it is gone entirely, mark and divider both: the
+            date readout is centred on the *bar*, not on the space left over,
+            so the 108px this lockup costs is 108px the readout stops having.
+            The threshold is where the two still clear each other with the
+            longest header `formatDayHeader` produces (`WEDNESDAY · SEP 30`) —
+            1080 when the view switch had two segments, 1180 at three, 1430 at
+            four, 1660 when the modifier reads `Ctrl` — and it has to be
+            re-measured every time anything joins this group. The wordmark is
+            what yields, every time, because it is the only thing here that is
+            identity rather than information. */}
+        <span className={cn("hidden items-center gap-2 pl-0.5 text-ink-2", WORDMARK)}>
           <Circle size={15} strokeWidth={1.75} aria-hidden="true" />
           <span className="font-mono text-[13px] tracking-[0.14em]">circal</span>
         </span>
-        <span aria-hidden="true" className="mx-1 hidden h-4 w-px bg-hairline min-[1430px]:block" />
+        <span
+          aria-hidden="true"
+          className={cn("mx-1 hidden h-4 w-px bg-hairline", WORDMARK_RULE)}
+        />
 
         <IconButton label="Toggle sidebar" active={sidebarOpen} onClick={actions.toggleSidebar}>
           <PanelLeft size={15} strokeWidth={1.75} />
@@ -50,10 +74,10 @@ export default function TopBar({ day, view, sidebarOpen, onStep, actions }: TopB
           value={view}
           onChange={actions.setView}
           options={[
-            { id: "day", label: "Day", keys: ["⌘", "D"] },
-            { id: "week", label: "Week", keys: ["⌘", "E"] },
-            { id: "year", label: "Year", keys: ["⌘", "Y"] },
-            { id: "life", label: "Life", keys: ["⌘", "L"] },
+            { id: "day", label: "Day", keys: [MOD, "D"] },
+            { id: "week", label: "Week", keys: [MOD, "E"] },
+            { id: "year", label: "Year", keys: [MOD, "Y"] },
+            { id: "life", label: "Life", keys: [MOD, "L"] },
           ]}
         />
 
@@ -84,16 +108,17 @@ export default function TopBar({ day, view, sidebarOpen, onStep, actions }: TopB
           the grid, and in the life view the one word that view is about —
           every date it could print is already in its own header.
 
-          Gone below 1220px, measured the way the wordmark's own threshold was:
-          it is centred on the *bar* rather than on the space the two groups
-          leave, so it collides with the left group rather than shrinking, and
-          1220 is where the longest header this can print (`Wednesday · Sep
-          30`) stops clearing that group with the wordmark already withdrawn.
-          It was 820 with three segments. Nothing is lost — the dial's interior
-          prints the date, the week its own range and the year ring the
-          year. Anything added to the left group has to re-measure this as well
-          as the wordmark's. */}
-      <div className="pointer-events-none absolute left-1/2 hidden -translate-x-1/2 min-[1220px]:block">
+          Gone below `READOUT`, measured the way the wordmark's own threshold
+          was: it is centred on the *bar* rather than on the space the two
+          groups leave, so it collides with the left group rather than
+          shrinking, and the number is where the longest header this can print
+          (`Wednesday · Sep 30`) stops clearing that group with the wordmark
+          already withdrawn — 1220 with a ⌘ chip, 1450 with a `Ctrl` one. It
+          was 820 with three segments. Nothing is lost — the dial's interior
+          prints the date, the week its own range and the year ring the year.
+          Anything added to the left group has to re-measure this as well as
+          the wordmark's. */}
+      <div className={cn("pointer-events-none absolute left-1/2 hidden -translate-x-1/2", READOUT)}>
         <span className="label text-[12px] tracking-[0.22em] text-ink-2">
           {view === "day" ? (
             <>
@@ -113,13 +138,13 @@ export default function TopBar({ day, view, sidebarOpen, onStep, actions }: TopB
         <ActionPill
           label="Command palette"
           icon={<Command size={14} strokeWidth={1.75} />}
-          keys={["⌘", "P"]}
+          keys={[MOD, "P"]}
           onClick={actions.openPalette}
         />
         <ActionPill
           label="New event"
           icon={<Plus size={15} strokeWidth={1.75} />}
-          keys={["⌘", "N"]}
+          keys={[MOD, "N"]}
           onClick={actions.newEvent}
         />
         <IconButton label="Settings" onClick={actions.openSettings}>
