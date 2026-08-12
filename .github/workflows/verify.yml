@@ -1,0 +1,39 @@
+# The gate, enforced. `pnpm verify` is the project's one quality bar and it was
+# manual until now, which meant a red tree could be deployed by a single
+# `pnpm deploy`. Same command as the one run locally, so there is nothing here
+# that can pass in CI and fail on a desk.
+name: verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A second push to the same branch makes the first run irrelevant.
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # pnpm before Node: `setup-node`'s pnpm cache needs the binary to exist.
+      # Version comes from `packageManager` in package.json, so it cannot drift.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: package.json
+          cache: pnpm
+
+      # `--frozen-lockfile` is the point of running this at all: it fails on a
+      # lockfile that does not match the manifest, which is the one dependency
+      # problem a local install silently repairs.
+      - run: pnpm install --frozen-lockfile
+
+      # format:check, lint, check, test, build — the whole gate, one command,
+      # so the workflow never drifts from what the contributor runs.
+      - run: pnpm verify
