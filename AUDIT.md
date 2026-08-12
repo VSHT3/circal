@@ -3,10 +3,12 @@
 What is left to upgrade, improve, change or add. Explored 2026-08-12 against `8b8e8d5`; every claim
 is grounded in the code or in a measurement, with the line.
 
-**Status:** every item marked _done_ below was built and verified the same day. Two rounds so far —
-the Tier 0 four, then the mechanical bucket: the three extractions, the backup id, the font
-preload, the coarse-pointer targets and the icon table's separation. What is left is left because
-it needs a decision rather than an afternoon.
+**Status:** every item marked _done_ below was built and verified the same day. Three rounds so far
+— the Tier 0 four; the mechanical bucket (three extractions, the backup id, the font preload, the
+coarse-pointer targets, the icon table's separation); and the round that needed one call each (the
+single recurrence validator, the modifier label, the two silent catches, and the first two everyday
+settings). What is left is left because it needs a decision rather than an afternoon: timezones,
+the lazy chunks, week start, and what the loupe means on a finger.
 
 **Headline, as first written: the parts that have been obsessed over are excellent and no bug was
 found in them.** That held for geometry, recurrence and the cues, and it was **wrong about the
@@ -145,10 +147,13 @@ hits either way.
   as zero-length VEVENTs with `X-CIRCAL-` lines, so any other app shows an instantaneous event and
   drops the ticks. At minimum the suite should assert **what is dropped**, so the loss is
   documented rather than discovered.
-- **Missing everyday settings.** A default calendar for new events; a default duration
-  (`DEFAULT_DURATION` is hard-coded, `quickadd.ts:44`); **week start is hard-wired to Monday**,
-  which is wrong for much of the world and also silently defines the life grid's column arithmetic;
-  working hours (`WAKING` is a constant).
+- **Missing everyday settings.** ~~A default calendar for new events; a default duration~~ —
+  **both done**, in a `New event` card: the length is one number for ⌘N and quick-add alike, and
+  the calendar is an id resolved at the moment of use rather than clamped on load. Still open, and
+  both bigger than they look: **week start is hard-wired to Monday**, which is wrong for much of
+  the world and also silently defines the life grid's column arithmetic and the loupe's transpose;
+  and working hours (`WAKING` is a constant that `freeGaps` and the palette's slot search must keep
+  meaning the same thing by).
 
 ---
 
@@ -168,8 +173,13 @@ Still open, and the interesting half: the two best interactions in the app — t
 magnifier and the life loupe — are hover-and-dwell, and what they mean on a finger is a design
 question worth actually answering rather than a size to change.
 
-Still open from `APP.md`: every `⌘` label lies to Windows and Linux visitors. Flagged as a live
-bug, left as an open decision, still open.
+~~Still open from `APP.md`: every `⌘` label lies to Windows and Linux visitors.~~ **Done.**
+`useHotkeys` always accepted `metaKey || ctrlKey`, so the chips were the only Mac-only part of the
+app. One `MOD` constant, read from the platform at module scope — the island is `client:only`, so
+nothing can disagree with it — across the top bar, the palette, both editors and five toasts. Only
+⌘ is translated: ⇧, ↵ and ⌫ are printed on the keys themselves. `Ctrl` is 40px against ⌘'s 18, so
+the two measured thresholds move with the spelling (readout 1220/1450, wordmark 1430/1660), swept
+360 → 1700 on both spellings with the Mac numbers unchanged.
 
 _Checked and cleared:_ `prefers-reduced-motion` is handled properly — the blanket rule in
 `global.css:271` plus `useReducedMotion` threaded through every animating component. Not a gap.
@@ -195,11 +205,13 @@ and onto its face on ⌘E, and an ordinary crossfade lost its fade-out. Objects 
 the frozen-props fix. The lesson is the general one: **a variant label with no table to resolve
 against fails silently**, and nothing in the type system or the linter says so.
 
-One thing that breaks a rule written here on purpose: there are **three recurrence validators** —
-`store.hydrateEvents`, `backup.readRecurrence`, `ics.readRecurrence` — with different behaviour
-(backup clamps interval to 999, store does not). The second-convention smell, three times over.
-Still open, and the care it needs is `hydrateEvents`: it is a hot identity-preserving hydrator, not
-a validator, and it must keep returning the same object when nothing is missing.
+~~One thing that breaks a rule written here on purpose: there are three recurrence validators.~~
+**Done.** The RFC ranges are one table in `recur.ts` and `readRecurrence` is the one
+unknown-to-`Recurrence` reader; the three keep their different jobs — validate untrusted JSON, fill
+fields a blob predates, parse RRULE strings — and share the rules. It found a loss on the way:
+backup's reader returned a bare `NEVER` for a rule of `never`, so an RDATE-only series lost every
+date a producer had named explicitly through a `.json` round trip. The dates are read before the
+frequency now, which is what `ics.ts` already did and what `repeats()` has always claimed.
 
 Smaller:
 
@@ -217,10 +229,11 @@ Smaller:
 - ~~`readEvent`'s id fallback is `Math.random`~~ — **done.** It derives from the record's own
   content now, through the FNV-1a `ics.ts` already used for a UID-less VEVENT and now exports as
   `fnv1a`. A backup imported twice is the same events twice, not two copies of each.
-- Feed-load and migration failures are swallowed silently (`store.ts` `readFeeds`, `migrateFeeds`);
-  only the main blob write notifies. Half of that is deliberate and says so in the source — a
-  corrupt feed payload is a cache miss the next pull replaces — so what is actually open is the
-  migration and a refused per-key write.
+- ~~Feed-load and migration failures are swallowed silently~~ — **done, in the half that was
+  wrong.** A corrupt blob started the app empty and said nothing, which is indistinguishable from a
+  first run, and the feed migration's own blob write swallowed a quota refusal that repeats every
+  launch; both notify now. `readFeeds` keeps its silence, which is deliberate and documented: a
+  corrupt payload is a cache miss the next pull replaces.
 
 ---
 
