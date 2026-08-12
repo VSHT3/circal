@@ -1,6 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 
 import { keyDown, keyUp } from "@/lib/keys";
+import { FEED_CHECK_MS, refreshStaleFeeds } from "@/lib/feeds";
+import { store } from "@/lib/store";
 import { dueReminders, reminderText } from "@/lib/remind";
 import type { CalEvent, Calendar } from "@/lib/events";
 import type { Clock } from "@/lib/time";
@@ -460,6 +462,41 @@ export function useReminders(options: {
       };
     }
   }, [now, enabled]);
+}
+
+/**
+ * Keep the subscriptions from going stale under an open tab.
+ *
+ * A feed used to be pulled exactly once, in a mount effect, which is right for
+ * the launch a phone gives you and wrong for the browser window that has been
+ * open since Monday: a mirror that never refreshes stops being a mirror, and
+ * the failure is silent — the dial is confidently wrong rather than visibly
+ * empty. So the same call is made three ways: once on arrival, on a timer, and
+ * whenever the tab comes back to the front. That last one is the important
+ * one, because a background tab's timers are throttled to nothing and coming
+ * back to it is exactly the moment somebody is about to read the day.
+ *
+ * It takes no arguments on purpose. `refreshStaleFeeds` decides what is due
+ * from `fetchedAt`, and every one of these callbacks outlives the render that
+ * made it — so the list has to be read from the store at the moment of asking,
+ * or a pull writes a new `calendars` array and the closure that scheduled the
+ * next one is holding the old one.
+ */
+export function useFeedRefresh() {
+  useEffect(() => {
+    const check = () => void refreshStaleFeeds(store.snapshot().calendars);
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") check();
+    };
+
+    check();
+    const timer = window.setInterval(check, FEED_CHECK_MS);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, []);
 }
 
 const MODIFIERS = new Set(["Shift", "Control", "Alt", "Meta", "CapsLock"]);

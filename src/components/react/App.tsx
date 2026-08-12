@@ -32,7 +32,7 @@ import {
 import { exportBackup, exportIcs, importFile } from "@/lib/backup";
 import { cue } from "@/lib/feedback";
 import { placeForZone } from "@/lib/places";
-import { refreshFeed, refreshStaleFeeds } from "@/lib/feeds";
+import { refreshFeed } from "@/lib/feeds";
 import { notify } from "@/lib/notify";
 import { DEFAULT_DURATION, defaultStart } from "@/lib/quickadd";
 import {
@@ -52,6 +52,7 @@ import { EASE, INTRO_MS, MODE_MS, UNROLL_IN_MS, UNROLL_OUT_MS } from "@/lib/moti
 import { cn } from "@/lib/utils";
 import {
   useElementSize,
+  useFeedRefresh,
   useHotkeys,
   useIdle,
   useIdleAfter,
@@ -61,6 +62,7 @@ import {
   useTypingSound,
   useWakeLock,
 } from "./hooks";
+import { ErrorBoundary } from "./ErrorBoundary";
 import type {
   AmbientMode,
   EditScope,
@@ -414,7 +416,20 @@ function askSpan(ask: ScopeAsk, clock: Clock): string {
   return `${day}${formatTime(start, clock)} – ${formatTime(end, clock)}`;
 }
 
+/**
+ * The island. `Shell` below is the app; this is the one thing above it, and it
+ * has to be a wrapper rather than something inside `Shell` because a boundary
+ * cannot catch a throw from its own render.
+ */
 export default function App() {
+  return (
+    <ErrorBoundary>
+      <Shell />
+    </ErrorBoundary>
+  );
+}
+
+function Shell() {
   const { events, calendars, feeds, settings } = useStore();
   /**
    * Ambient: the chrome withdraws and the dial becomes the window. View state
@@ -743,11 +758,11 @@ export default function App() {
     // The URL starts bare, so stamp the day we resolved to — otherwise the
     // first ← would push a second entry for a page that never had one.
     writeLocation(readLocation(), "replace");
-    // Subscriptions are a mirror: pulled once on launch, then left alone.
-    // Read through `store.snapshot()`, because this closure was made on the
-    // first render, before `useSyncExternalStore` hydrated the real one.
-    void refreshStaleFeeds(store.snapshot().calendars);
   }, []);
+
+  // Subscriptions are a mirror, so they are pulled on arrival, on a timer and
+  // whenever the tab comes back — see `useFeedRefresh`.
+  useFeedRefresh();
 
   /**
    * Ambient, and the fullscreen it does not take on its own.

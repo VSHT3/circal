@@ -176,6 +176,89 @@ describe("round-trip", () => {
   });
 });
 
+/* ----------------------------- what it drops -------------------------------- *
+ * The round-trip block above asserts what the model keeps, and a suite that
+ * only ever does that cannot see a loss — every field circal does not model is
+ * simply absent from both sides of the comparison and nothing fails. These are
+ * the losses, pinned deliberately, so that the day one is fixed the test that
+ * says it is lossy fails and has to be rewritten. That failure is the point:
+ * it is the only way a fix announces itself here.
+ *
+ * The first one is a real defect rather than an unmodelled extra — see
+ * `AUDIT.md`, "Events have no timezone". */
+
+describe("what the round trip drops", () => {
+  it("loses TZID: an event imported in its own zone is re-exported in UTC", () => {
+    // 09:00 in New York, said in the way every real feed says it.
+    const feed = singleVevent([
+      "SUMMARY:Standup",
+      "DTSTART;TZID=America/New_York:20260615T090000",
+      "DTEND;TZID=America/New_York:20260615T093000",
+    ]);
+    const { events } = fromIcs(feed);
+    // Reading it is correct: 09:00 EDT is 13:00 UTC.
+    expect(events[0].start).toBeSameInstantAs(Date.UTC(2026, 5, 15, 13, 0, 0));
+
+    const out = toIcs(
+      [{ ...event({ title: "Standup" }), start: events[0].start, end: events[0].end }],
+      "Work",
+    );
+    // And writing it back throws the zone away. The instant survives; the
+    // wall-clock intent — "nine in the morning, in New York" — does not, so a
+    // consumer in another zone cannot recover what was meant, and a recurring
+    // rule now expands against whatever zone reads it rather than its own.
+    expect.soft(out).not.toContain("TZID");
+    expect.soft(out).toContain("DTSTART:20260615T130000Z");
+  });
+
+  it("drops the collaboration and alarm properties on the way in", () => {
+    const feed = singleVevent([
+      "SUMMARY:Review",
+      "DTSTART:20260615T090000Z",
+      "DTEND:20260615T100000Z",
+      "STATUS:TENTATIVE",
+      "TRANSP:TRANSPARENT",
+      "CATEGORIES:Work,Design",
+      "ORGANIZER;CN=Ada:mailto:ada@example.com",
+      "ATTENDEE;PARTSTAT=ACCEPTED:mailto:grace@example.com",
+      "BEGIN:VALARM",
+      "ACTION:DISPLAY",
+      "TRIGGER:-PT15M",
+      "END:VALARM",
+    ]);
+    const { events } = fromIcs(feed);
+    expect(events).toHaveLength(1);
+
+    // What arrives is the event; who is coming, whether it is confirmed,
+    // whether it makes you busy and when it was going to nudge you do not.
+    const kept = Object.keys(events[0]);
+    for (const absent of ["status", "transp", "categories", "organizer", "attendees", "alarms"]) {
+      expect.soft(kept).not.toContain(absent);
+    }
+    // The VALARM's own lines must not be mistaken for the event's, either:
+    // an alarm carries an ACTION and a TRIGGER and nothing that belongs here.
+    expect.soft(events[0].title).toBe("Review");
+    expect.soft(events[0].end).toBeSameInstantAs(Date.UTC(2026, 5, 15, 10, 0, 0));
+  });
+
+  it("exports a task as a zero-length VEVENT, so its ticks do not travel", () => {
+    const ticked = event({
+      title: "Renew passport",
+      start: "2026-03-09 09:00",
+      end: "2026-03-09 09:00",
+      task: true,
+      doneKeys: ["2026-03-09T09:00:00"],
+    });
+    const out = toIcs([ticked], "Work");
+    // Spec-legal — §3.6.1 has no DTEND equal to DTSTART — and readable by
+    // circal, which wrote the `X-` lines. To anything else it is an event that
+    // happens instantaneously, and the tick is an extension it will discard.
+    expect.soft(out).toContain("X-CIRCAL-TASK:TRUE");
+    expect.soft(out).not.toContain("DTEND");
+    expect.soft(out).not.toContain("BEGIN:VTODO");
+  });
+});
+
 /* -------------------------------- folding ----------------------------------- */
 
 describe("line folding (RFC 5545 §3.1, 75-octet limit)", () => {

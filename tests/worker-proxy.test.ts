@@ -100,6 +100,80 @@ describe("routing", () => {
   });
 });
 
+/* ---------------------------- what comes back ----------------------------- */
+
+describe("the response is a calendar, or it is not served", () => {
+  it("refuses a 200 that is not an iCalendar object", async () => {
+    // Without this the route relabels anything as `text/calendar` and hands it
+    // back from this origin, which launders a login page or somebody's JSON
+    // through circal's domain. It is also the most common subscription
+    // mistake — the web page, not its ICS link — answered in a sentence.
+    router({ "https://example.com/c.ics": () => new Response("<!doctype html><html>…") });
+    const response = await worker.fetch(feedRequest("https://example.com/c.ics"), env);
+
+    expect(response.status).toBe(502);
+    expect(await response.text()).toMatch(/did not return a calendar/i);
+  });
+
+  it.each([
+    ["a BOM and blank lines in front of it", `\uFEFF\r\n\r\n${ICS}`],
+    ["lowercase property names", ICS.toLowerCase()],
+  ])("still accepts a calendar with %s", async (_name, body) => {
+    router({ "https://example.com/c.ics": () => new Response(body) });
+    const response = await worker.fetch(feedRequest("https://example.com/c.ics"), env);
+    expect(response.status).toBe(200);
+  });
+
+  it("sends no CORS header to a same-origin caller, which needs none", async () => {
+    // A same-origin `fetch` sends no `Origin` at all, so there is nothing to
+    // answer — and the header used to be `*`, which is what made this route a
+    // CORS stripper any page on the web could aim at any URL.
+    router({ "https://example.com/c.ics": () => new Response(ICS) });
+    const response = await worker.fetch(feedRequest("https://example.com/c.ics"), env);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("access-control-allow-origin")).toBeNull();
+    expect(response.headers.get("vary")).toBe("origin");
+  });
+
+  it("echoes its own origin back and nobody else's", async () => {
+    router({ "https://example.com/c.ics": () => new Response(ICS) });
+    const mine = await worker.fetch(
+      feedRequest("https://example.com/c.ics", { headers: { origin: "https://circal.app" } }),
+      env,
+    );
+    expect(mine.headers.get("access-control-allow-origin")).toBe("https://circal.app");
+
+    router({ "https://example.com/c.ics": () => new Response(ICS) });
+    const theirs = await worker.fetch(
+      feedRequest("https://example.com/c.ics", { headers: { origin: "https://evil.example" } }),
+      env,
+    );
+    // Served, but not readable: the browser is the one that enforces this, and
+    // withholding the header is the whole of the enforcement available here.
+    expect(theirs.status).toBe(200);
+    expect(theirs.headers.get("access-control-allow-origin")).toBeNull();
+  });
+});
+
+/* ------------------------------ asset headers ----------------------------- */
+
+describe("assets carry the security headers", () => {
+  it("sets them on the way past the binding", async () => {
+    const response = await worker.fetch(new Request("https://circal.app/"), env);
+
+    // The body is still the binding's, untouched.
+    expect(await response.text()).toBe("<!doctype html>");
+    expect.soft(response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect.soft(response.headers.get("referrer-policy")).toBe("strict-origin-when-cross-origin");
+    // The half of a CSP that cannot break a one-origin page that frames
+    // nothing. `script-src`/`connect-src` need a build change, not a header.
+    expect
+      .soft(response.headers.get("content-security-policy"))
+      .toContain("frame-ancestors 'none'");
+  });
+});
+
 /* ------------------------------- redirects -------------------------------- */
 
 describe("the redirect chain is validated hop by hop", () => {
@@ -243,14 +317,14 @@ describe("upstream handling", () => {
     expect(response.status).toBe(413);
   });
 
-  it("answers a good feed with CORS and a cache header", async () => {
+  it("answers a good feed with a calendar content type and a cache header", async () => {
     router({ "https://example.com/c.ics": () => new Response(ICS) });
     const response = await worker.fetch(feedRequest("https://example.com/c.ics"), env);
 
     expect(response.status).toBe(200);
-    expect(response.headers.get("access-control-allow-origin")).toBe("*");
     expect(response.headers.get("content-type")).toMatch(/text\/calendar/);
     expect(response.headers.get("cache-control")).toMatch(/max-age=300/);
+    // Who may read it is its own question — see "what comes back" above.
   });
 
   it("refuses a private address on the first hop too", async () => {

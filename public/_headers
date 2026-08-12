@@ -1,0 +1,21 @@
+# Security headers for every static asset.
+#
+# This file rather than the Worker, because a request for a path that matches
+# an asset never reaches the Worker at all: with `assets.binding` set and
+# `run_worker_first` unset, Cloudflare's asset server answers first and the
+# script is only invoked on a miss. So `worker/index.ts` sets the same headers
+# on the SPA fallback it serves for an unmatched path, and this covers
+# everything else. The two lists must agree — change one, change the other.
+#
+# The CSP is deliberately partial, and the reasoning lives beside the copy in
+# `worker/index.ts`: `frame-ancestors`, `object-src` and `base-uri` are free on
+# a one-origin page that frames nothing, while `script-src` and `connect-src`
+# need a nonce for the inline SW registration in `Base.astro` and a decision
+# about `lib/feeds.ts`'s direct-fetch fallback. Half of it is worth more than
+# none of it; the other half is a build change, not a header.
+
+/*
+  Content-Security-Policy: frame-ancestors 'none'; object-src 'none'; base-uri 'self'
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()

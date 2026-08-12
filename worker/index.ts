@@ -17,6 +17,43 @@ export interface Env {
 const MAX_FEED_BYTES = 5 * 1024 * 1024;
 const UPSTREAM_TIMEOUT_MS = 10_000;
 
+/** How much of the body to read before deciding it is not a calendar. RFC 5545
+ *  puts `BEGIN:VCALENDAR` on the first line, so this is generous by three
+ *  orders of magnitude — it exists only so a BOM, stray blank lines or a
+ *  proxy's own preamble cannot fail an otherwise good feed. */
+const SNIFF_BYTES = 1024;
+
+/**
+ * The security headers, and the second of two places that carry them.
+ *
+ * A request whose path matches a built asset never reaches this script:
+ * `assets.binding` is set and `run_worker_first` is not, so Cloudflare's asset
+ * server answers first. `public/_headers` is what covers those. This copy
+ * covers the rest — an unmatched path falls through to the Worker, which hands
+ * it back to `ASSETS` for the single-page-application fallback, and that
+ * response is ours. Same list in both, or a deep link gets a weaker page than
+ * the root does.
+ *
+ * The CSP is deliberately partial. `frame-ancestors`, `object-src` and
+ * `base-uri` cannot break a page that frames nothing, embeds no plugins and
+ * has one origin — so they are free. `script-src` and `connect-src` are the
+ * two that would actually stop an injection and both need a decision first:
+ * the SW registration in `Base.astro` is an inline script, so a real
+ * `script-src` needs a nonce or a hash from the build, and `lib/feeds.ts`
+ * falls back to fetching a feed *directly* when the proxy misses, which a
+ * `connect-src 'self'` would forbid. Shipping half of it is worth more than
+ * shipping none of it; the other half is not a header change, it is a build
+ * change.
+ */
+const ASSET_HEADERS: Record<string, string> = {
+  "content-security-policy": "frame-ancestors 'none'; object-src 'none'; base-uri 'self'",
+  "x-content-type-options": "nosniff",
+  "referrer-policy": "strict-origin-when-cross-origin",
+  // Nothing here asks for any of them, and the dial's own permissions
+  // (fullscreen, wake lock, notifications) are deliberately not on the list.
+  "permissions-policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+};
+
 /** Enough for the `http:`→`https:`→`www.`→CDN chains real calendar hosts use,
  *  and short enough that a redirect loop costs four round trips, not sixty. */
 const MAX_REDIRECTS = 5;
@@ -25,16 +62,28 @@ const REDIRECT_STATUS = new Set([301, 302, 303, 307, 308]);
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
-    if (!url.pathname.startsWith("/api/")) return env.ASSETS.fetch(request);
+    if (!url.pathname.startsWith("/api/")) return withAssetHeaders(await env.ASSETS.fetch(request));
     if (url.pathname !== "/api/feed") return new Response("Not found", { status: 404 });
     if (request.method !== "GET" && request.method !== "HEAD") {
       return new Response("Method not allowed", { status: 405, headers: { allow: "GET, HEAD" } });
     }
-    return proxyFeed(url, request.method);
+    return proxyFeed(url, request.method, request.headers.get("origin"));
   },
 };
 
-async function proxyFeed(requestUrl: URL, method: string): Promise<Response> {
+/** A fetched `Response`'s headers are immutable, so this is a re-wrap rather
+ *  than a mutation. The body is passed through untouched and unbuffered. */
+function withAssetHeaders(response: Response): Response {
+  const out = new Response(response.body, response);
+  for (const [name, value] of Object.entries(ASSET_HEADERS)) out.headers.set(name, value);
+  return out;
+}
+
+async function proxyFeed(
+  requestUrl: URL,
+  method: string,
+  origin: string | null,
+): Promise<Response> {
   const raw = requestUrl.searchParams.get("url");
   if (!raw) return new Response("Missing url parameter", { status: 400 });
 
@@ -84,14 +133,47 @@ async function proxyFeed(requestUrl: URL, method: string): Promise<Response> {
   const body = await readCapped(upstream.body, MAX_FEED_BYTES);
   if (body === null) return new Response("Feed exceeds 5MB limit", { status: 413 });
 
-  return new Response(body, {
-    status: 200,
-    headers: {
-      "content-type": "text/calendar; charset=utf-8",
-      "access-control-allow-origin": "*",
-      "cache-control": "public, max-age=300",
-    },
+  // A HEAD has no body to look at, and `text/calendar` on nothing is honest.
+  if (method !== "HEAD" && !looksLikeCalendar(body)) {
+    return new Response("That URL did not return a calendar", { status: 502 });
+  }
+
+  const headers = new Headers({
+    "content-type": "text/calendar; charset=utf-8",
+    "cache-control": "public, max-age=300",
+    // The answer depends on who asked, so a shared cache must not hand one
+    // origin's response to another.
+    vary: "origin",
   });
+  // Same-origin `fetch` sends no `Origin` at all and needs no ACAO, so the
+  // header is only ever echoed back to this site's own pages. It used to be
+  // `*`, which made the route a general-purpose CORS stripper any page on the
+  // web could point at arbitrary URLs and read the answer from — on this
+  // domain's reputation. Residual, and not closable here: a client that sends
+  // no `Origin` at all (curl, a script) is indistinguishable from a same-origin
+  // page, so this stops browsers rather than everybody. Closing it properly
+  // needs a rate limit or a token.
+  if (origin !== null && origin === requestUrl.origin) {
+    headers.set("access-control-allow-origin", origin);
+  }
+
+  return new Response(body, { status: 200, headers });
+}
+
+/**
+ * Whether what came back is an iCalendar object at all.
+ *
+ * Without this the route relabels any 2xx body `text/calendar` and hands it
+ * back, which launders a login page, a JSON error or somebody's HTML through
+ * this origin. It also turns the most common subscription mistake — pasting
+ * the web page you were looking at instead of its ICS link — from a silent
+ * parse failure into a sentence that says what went wrong.
+ *
+ * Deliberately lenient about everything except the words: a BOM, leading
+ * blank lines and CRLF are all things real feeds arrive with.
+ */
+export function looksLikeCalendar(body: string): boolean {
+  return body.slice(0, SNIFF_BYTES).toUpperCase().includes("BEGIN:VCALENDAR");
 }
 
 /** A hop the guard refused. Distinguished from a network failure because the

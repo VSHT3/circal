@@ -15,8 +15,17 @@ import { fromIcs } from "./ics";
 import { store } from "./store";
 import { recurrenceOf, type CalEvent, type Calendar } from "./events";
 
-/** Feeds older than this are pulled again when the app starts. */
-const STALE_AFTER_MS = 30 * 60_000;
+/** Feeds older than this are pulled again at the next opportunity. */
+export const STALE_AFTER_MS = 30 * 60_000;
+
+/**
+ * How often the shell asks whether anything has gone stale. Cheaper than it
+ * looks: `refreshStaleFeeds` filters on `fetchedAt` and a check with nothing
+ * due costs one array scan, so this only has to be finer than `STALE_AFTER_MS`
+ * rather than equal to it — which is what stops a tab that was hidden over the
+ * boundary waiting most of another half hour for the tick it slept through.
+ */
+export const FEED_CHECK_MS = 5 * 60_000;
 
 const TIMEOUT_MS = 15_000;
 
