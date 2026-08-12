@@ -68,6 +68,15 @@ interface IconButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   active?: boolean;
 }
 
+/**
+ * The 28px box is a mouse target and stays one: `pointer-coarse` grows it to
+ * 40 on a finger and nothing else about the button moves. Grown rather than
+ * given an invisible 44px pseudo-element, because these sit two and three to a
+ * group at a 2px gap — a hit area wider than the pitch reaches past its
+ * neighbour's centre, and the one that captures the tap is then whichever came
+ * last in the DOM. A visible target that is honest about where it ends beats a
+ * larger one that lies.
+ */
 export function IconButton({ label, active, className, ...props }: IconButtonProps) {
   return (
     <button
@@ -76,7 +85,7 @@ export function IconButton({ label, active, className, ...props }: IconButtonPro
       aria-label={label}
       aria-pressed={active}
       className={cn(
-        "grid size-7 shrink-0 place-items-center rounded-[7px] transition-colors",
+        "grid size-7 shrink-0 place-items-center rounded-[7px] transition-colors pointer-coarse:size-10",
         "text-ink-2 hover:bg-white/8 hover:text-ink",
         active && "bg-white/10 text-ink",
         "disabled:pointer-events-none disabled:opacity-35",
@@ -113,6 +122,8 @@ export function ActionPill({
       aria-label={label}
       className={cn(
         "flex h-7 items-center gap-1.5 rounded-[8px] px-1.5 transition-colors",
+        // A finger's worth of height on touch; the bar is 48 and can afford it.
+        "pointer-coarse:h-10 pointer-coarse:px-2.5",
         "text-ink-2 hover:bg-white/6 hover:text-ink",
         className,
       )}
@@ -155,6 +166,9 @@ export function Segmented<T extends string>({
             onClick={() => onChange(option.id)}
             className={cn(
               "label flex h-6 items-center gap-1.5 rounded-[7px] px-2 transition-colors",
+              // Taller on touch, never wider: the segments are adjacent, so
+              // width bought here is width taken from the segment beside it.
+              "pointer-coarse:h-9",
               on ? "bg-ink text-void" : "text-ink-2 hover:text-ink",
             )}
           >
@@ -191,6 +205,11 @@ export function Switch({
       onClick={() => onChange(!checked)}
       className={cn(
         "relative h-[22px] w-[38px] shrink-0 rounded-full transition-colors",
+        // The track cannot grow — the knob is placed at hardcoded offsets
+        // inside it — so on touch the *hit area* grows instead: an invisible
+        // 44px box centred on the switch, which is the one control here with
+        // no immediate neighbour to steal from.
+        "pointer-coarse:before:absolute pointer-coarse:before:top-1/2 pointer-coarse:before:left-1/2 pointer-coarse:before:size-11 pointer-coarse:before:-translate-x-1/2 pointer-coarse:before:-translate-y-1/2 pointer-coarse:before:content-['']",
         checked ? "bg-accent" : "bg-surface-2",
       )}
     >
@@ -266,7 +285,11 @@ export function PositionField<T extends string>({
           aria-pressed={value === option.value}
           onClick={() => onChange(option.value)}
           className={cn(
-            "size-[17px] rounded-[4px] transition-colors",
+            // 34 on touch rather than 44: nine cells at a 3px gap, so the grid
+            // is 114px across a 320px column at that size and 144 at a full
+            // finger — and a cell whose hit area overlapped its neighbour's
+            // would make the corner you get depend on DOM order.
+            "size-[17px] rounded-[4px] transition-colors pointer-coarse:size-[34px]",
             value === option.value ? "bg-ink" : "bg-white/8 hover:bg-white/20",
           )}
         />
@@ -455,7 +478,9 @@ function Swatch({
   return (
     <span
       className={cn(
-        "relative grid size-[22px] place-items-center rounded-full transition-shadow",
+        // Eleven of these wrap inside a 320px column, so a full 44 would spend
+        // three rows on a palette. 30 is two, and twice the dot it was.
+        "relative grid size-[22px] place-items-center rounded-full transition-shadow pointer-coarse:size-[34px]",
         selected && "ring-2 ring-ink/70 ring-offset-2 ring-offset-[var(--surface)]",
       )}
     >
@@ -465,7 +490,7 @@ function Swatch({
         aria-pressed={selected}
         title={label}
         onClick={onSelect}
-        className="size-[18px] rounded-full"
+        className="size-[18px] rounded-full pointer-coarse:size-[30px]"
         style={{ background: color }}
       />
       {children}
