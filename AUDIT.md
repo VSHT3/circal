@@ -3,14 +3,18 @@
 What is left to upgrade, improve, change or add. Explored 2026-08-12 against `8b8e8d5`; every claim
 is grounded in the code or in a measurement, with the line.
 
-**Status:** the four items marked _done_ below were built and verified the same day. Everything
-else is still open, and the two biggest — the timezone model and the bundle — are open because
-they need a decision rather than an afternoon.
+**Status:** every item marked _done_ below was built and verified the same day. Two rounds so far —
+the Tier 0 four, then the mechanical bucket: the three extractions, the backup id, the font
+preload, the coarse-pointer targets and the icon table's separation. What is left is left because
+it needs a decision rather than an afternoon.
 
-**Headline: the parts that have been obsessed over are excellent and no bug was found in them.**
-Geometry, recurrence, the cues, the transitions — clean. Everything worth doing sits at the edges
-that never got a rationale written for them: **timezones, delivery weight, and the fact that
-nothing enforces the gate.**
+**Headline, as first written: the parts that have been obsessed over are excellent and no bug was
+found in them.** That held for geometry, recurrence and the cues, and it was **wrong about the
+transitions** — moving the table out of `App.tsx` found that every panel's `exit` had resolved to
+nothing since `4333b66`, because the `variants` prop it was a label for had been dropped. A silent
+failure with no type error and no lint, in the one part of the app that is verified by eye. The
+rest still stands: what is worth doing sits at the edges that never got a rationale written for
+them — **timezones and delivery weight**.
 
 ---
 
@@ -106,15 +110,20 @@ product currently ships all four views, both editors, the settings sheet and 43 
 Phosphor path data on the first byte, to draw a dial. Three splits, in order of return:
 
 - **`icons.tsx` behind the mark picker.** Its own comment already prescribes exactly this — "a lazy
-  chunk _plus_ an eager core" (`ui/icons.tsx:24-27`) — and it was never done. A quarter of the
-  bundle, serving a control most people open once. Nothing in `src/components/react` uses `lazy`,
-  `Suspense` or a dynamic `import(` today.
-- **`LifeView` / `YearView` / `WeekView` lazy behind their view keys.** LifeView alone is 1,900
-  lines and is nobody's default view.
+  chunk _plus_ an eager core" — and the table it describes is now its own module (`ui/marks.ts`),
+  which was the part that had to happen first: the data and the component that must draw on the
+  first frame could not be moved apart by a bundler while they were one file. **The split itself is
+  still open**, and still wants the design call about what renders for the frame before the chunk
+  lands. Nothing in `src/components/react` uses `lazy`, `Suspense` or a dynamic `import(` today.
+- **`LifeView` / `YearView` / `WeekView` lazy behind their view keys.** LifeView is 1,637 lines
+  after the canvas engine came out of it, and is nobody's default view.
 - **`Settings` and `EventEditor` lazy behind their overlays.**
 
-Free alongside it: both Geist families are `@import`ed with no `font-display` and no preload
-(`global.css:15-16`), so first paint is a flash of nothing rather than a flash of fallback.
+~~Free alongside it: both Geist families are `@import`ed with no `font-display` and no preload.~~
+**Half wrong, and now done.** Fontsource ships `font-display: swap` on every face, so first paint
+was always a fallback rather than nothing — the real cost was discovery, one round trip behind the
+stylesheet. `Base.astro` preloads the two latin subsets through Vite, so the `href` is the same
+hashed file the CSS asks for.
 
 ---
 
@@ -145,16 +154,19 @@ hits either way.
 
 ## Tier 3 — the phone
 
-The hard structural work is done — the drawer, the measured breakpoints — and then the controls are
-sized for a mouse. `IconButton` 28px (`primitives.tsx:79`), `Segmented` items 24px (`:157`), the
-position picker's cells 17px (`:269`), the colour swatch 18px (`:468`). All well under the 44px
-touch minimum.
+The hard structural work is done — the drawer, the measured breakpoints — and then the controls
+were sized for a mouse. `IconButton` 28px, `Segmented` items 24px, the position picker's cells
+17px, the colour swatch 18px, all well under the 44px touch minimum. **Done**: each grows under
+`pointer-coarse`, which is the first coarse-pointer branch in the codebase — 40px for the icon
+button and the pill, 36 for a segment, 34 for a picker cell, 30 for a swatch, and a real 44px
+pseudo-element for the `Switch`, whose knob sits at hardcoded offsets so the track cannot move.
+Grown rather than padded everywhere else on purpose: these sit two and three to a group at a 2–3px
+gap, so a hit area wider than the pitch reaches past its neighbour's centre and DOM order decides
+the tap. Mouse layout is untouched; no overflow at 360, 390, 430 or 768.
 
-And the two most interesting interactions in the app — the year ring's magnifier and the life
-loupe — are both hover-and-dwell, with no coarse-pointer branch anywhere in the codebase (no
-`pointerType`, no `(pointer: coarse)`, no `@media (hover)` in any of the four faces). Padding hit
-areas without growing the glyphs is mechanical. Deciding what the loupe means on a finger is a
-design question worth actually answering.
+Still open, and the interesting half: the two best interactions in the app — the year ring's
+magnifier and the life loupe — are hover-and-dwell, and what they mean on a finger is a design
+question worth actually answering rather than a size to change.
 
 Still open from `APP.md`: every `⌘` label lies to Windows and Linux visitors. Flagged as a live
 bug, left as an open decision, still open.
@@ -166,17 +178,28 @@ _Checked and cleared:_ `prefers-reduced-motion` is handled properly — the blan
 
 ## Tier 4 — structure, if the building continues
 
-Four files carry the app: `App.tsx` 1693, `LifeView.tsx` 1900, `Face.tsx` 1454, `YearView.tsx` 1146. Three extractions that change no behaviour:
+Four files carried the app. Three extractions that changed no behaviour, all **done**:
 
-- The **transition DSL** out of `App.tsx` (`:114-320`, ~200 lines of pure config, no shell state).
-- The **canvas engine** out of `LifeView.tsx` (`:620-850+`, ~700 self-contained lines).
-- **Recurrence-to-English** out of `EventEditor.tsx` (`:165-336`, ~170 lines of pure string logic).
-  By the standing rule, moving it into `src/lib/` earns it a test file — which it cannot have where
-  it sits.
+- The **transition DSL** out of `App.tsx` → `components/react/transitions.ts`. App.tsx 1711 → 1501.
+- The **canvas engine** out of `LifeView.tsx` → `components/react/lifeCanvas.ts`. 1900 → 1637.
+- **Recurrence-to-English** out of `EventEditor.tsx` → `lib/describe.ts`, which earns it the test
+  file it could not have where it sat: `tests/describe.test.ts`, 35 cases over `isExpressible`'s
+  gate, `describeRule`'s clause order and BYSETPOS read as an adjective.
+
+**And the transition DSL was half dead when it was moved.** `4333b66` took `initial`/`active` off
+variant labels to fix a leaving panel that re-resolved the arriving one's animation — correctly —
+but dropped the `variants` prop with them while `exit="exit"` stayed a label. So for two months
+every panel exit resolved to nothing: the dial popped out instead of shrinking onto its dot on ⌘L
+and onto its face on ⌘E, and an ordinary crossfade lost its fade-out. Objects passed to
+`initial`/`animate` outrank the table, so handing `PANEL` over whole restores the exit and keeps
+the frozen-props fix. The lesson is the general one: **a variant label with no table to resolve
+against fails silently**, and nothing in the type system or the linter says so.
 
 One thing that breaks a rule written here on purpose: there are **three recurrence validators** —
 `store.hydrateEvents`, `backup.readRecurrence`, `ics.readRecurrence` — with different behaviour
 (backup clamps interval to 999, store does not). The second-convention smell, three times over.
+Still open, and the care it needs is `hydrateEvents`: it is a hot identity-preserving hydrator, not
+a validator, and it must keep returning the same object when nothing is missing.
 
 Smaller:
 
@@ -191,10 +214,13 @@ Smaller:
   `duplicateOf`'s day-form key across a midnight-crossing shift, and the feed-budget cases assert
   that a recurring event survives a trim while the far-away dated ones do not. Read the suite before
   believing a report about it.
-- `readEvent`'s id fallback is `Math.random` (`backup.ts:~305`) where `ics.ts` derives a stable
-  FNV uid for the same problem — so a backup imported twice cannot be de-duplicated.
+- ~~`readEvent`'s id fallback is `Math.random`~~ — **done.** It derives from the record's own
+  content now, through the FNV-1a `ics.ts` already used for a UID-less VEVENT and now exports as
+  `fnv1a`. A backup imported twice is the same events twice, not two copies of each.
 - Feed-load and migration failures are swallowed silently (`store.ts` `readFeeds`, `migrateFeeds`);
-  only the main blob write notifies.
+  only the main blob write notifies. Half of that is deliberate and says so in the source — a
+  corrupt feed payload is a cache miss the next pull replaces — so what is actually open is the
+  migration and a refused per-key write.
 
 ---
 
@@ -221,7 +247,8 @@ Not defects. Ideas that fit the product's own grammar.
 
 1. ~~Refresh feeds on an interval and on tab focus.~~ **Done.**
 2. ~~CI running `pnpm verify`, and gate the deploy on it.~~ **Done.**
-3. Code-split the icon table and the three non-default views. _(a day, and the one users feel)_
+3. Code-split the icon table and the three non-default views. _(the table is now a module of its
+   own, `ui/marks.ts`, which was the prerequisite; the lazy chunk itself is still open)_
 4. ~~An error boundary that names the backup button.~~ **Done.**
 5. Decide the timezone question — even if the answer is "feeds only, expanded in their stated
    zone". _(the real work)_
@@ -229,14 +256,15 @@ Not defects. Ideas that fit the product's own grammar.
 Three of the five are done, and the two left are the two that were never an afternoon's work. Both
 are blocked on a decision rather than on effort, and both are worth taking slowly.
 
-**Why (3) was not just done.** It is mechanical-looking and it is not. `ui/icons.tsx` prescribes
+**Why (3) is still not done.** It is mechanical-looking and it is not. `ui/icons.tsx` prescribes
 its own split — "a lazy chunk plus an eager core" — precisely because a mark has to render on the
 first frame, and a dot that pops into an icon half a second later is the failure that comment
-already rejects; the split needs the 247-path table separated from `CalendarMark` first. And the
-view chunks cannot be lazy naively: the day ⇄ life zoom and the year ⇄ life unroll hold both panels
-mounted and hand geometry between them, so a view that arrives one frame late arrives during a
-transition that has already started. Both are real work with a real design question in front of
-them, which is exactly the kind of thing that should not be done autonomously.
+already rejects. The 247-path table has now been separated from `CalendarMark`, so the split is
+reachable; what it still needs is the answer to what the first frame draws. And the view chunks
+cannot be lazy naively: the day ⇄ life zoom and the year ⇄ life unroll hold both panels mounted and
+hand geometry between them, so a view that arrives one frame late arrives during a transition that
+has already started. Both are real work with a real design question in front of them, which is
+exactly the kind of thing that should not be done autonomously.
 
 Everything above finishes something already started. Nothing needs a new screen except onboarding,
 which was already known.
