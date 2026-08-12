@@ -147,8 +147,6 @@ export interface DialProps {
   intro: boolean;
 }
 
-/** Minutes a bare click on the ring turns into. */
-const CLICK_DURATION = 60;
 /** Drag granularity. Matches what a fifteen-minute arc can actually show. */
 const STEP = 15;
 /** How translucent a range still under the pointer is. It has no colour to
@@ -594,8 +592,13 @@ export default function Dial({
     // being a draft in a modal, and the knock-and-tick is that handover.
     say("opened");
     if (end - start < STEP) {
-      const from = Math.min(draw.from, MINUTES_PER_DAY - CLICK_DURATION);
-      onCreate(from, from + CLICK_DURATION);
+      // A press that never moved named a minute and no length, so it takes the
+      // one every other route takes — ⌘N's and quick-add's. It was its own
+      // constant here, which made the dial the one surface with a private
+      // opinion about how long an event is.
+      const length = settings.defaultDuration;
+      const from = Math.min(draw.from, MINUTES_PER_DAY - length);
+      onCreate(from, from + length);
     } else {
       onCreate(start, end);
     }
