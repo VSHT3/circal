@@ -17,6 +17,7 @@ export {
   REPEAT_LABELS,
   instantKey,
   keyToInstant,
+  readRecurrence,
   recurrenceOf,
   repeatUnit,
   repeats,

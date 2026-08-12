@@ -246,6 +246,32 @@ describe("readRecurrence bounds (through readEvent)", () => {
     });
     expect(result.byDay).toEqual([{ day: 1, nth: 5 }]);
   });
+
+  // The three readers each used to decide this for themselves. A rule with no
+  // frequency still resets to NEVER, but an RDATE-only series is a real series
+  // — `repeats()` says so — and dropping its dates with the rule is how a
+  // round trip through a backup lost every date a producer named explicitly.
+  it("keeps the dates a rule of 'never' still carries", () => {
+    const result = readEvent({
+      ...baseEvent,
+      repeat: "never",
+      rdates: ["2026-04-01T09:00:00", "2026-05-01"],
+      exdates: ["2026-06-01"],
+    }) as CalEvent;
+    expect(result.repeat).toBe("never");
+    expect(result.rdates).toEqual(["2026-04-01T09:00:00", "2026-05-01"]);
+    expect(result.exdates).toEqual(["2026-06-01"]);
+  });
+
+  it("keeps them through an unreadable frequency too, and drops a malformed key", () => {
+    const result = readEvent({
+      ...baseEvent,
+      repeat: "fortnightly",
+      rdates: ["2026-04-01T09:00:00", "not a date", "2026-04-01T09:00:00"],
+    }) as CalEvent;
+    expect(result.repeat).toBe("never");
+    expect(result.rdates).toEqual(["2026-04-01T09:00:00"]);
+  });
 });
 
 /* --------------------------------- readSettings --------------------------- */

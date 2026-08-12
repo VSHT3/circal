@@ -30,6 +30,7 @@ import {
   PALETTE,
   instantKey,
   keyToInstant,
+  readRecurrence,
   splitRule,
   toggleDoneKey,
   type CalEvent,
@@ -575,7 +576,12 @@ function sane(settings: Settings): Settings {
  *
  * The unchanged case returns the same object: `parse` runs again whenever
  * another tab writes, and rebuilding every event each time is a copy nobody
- * asked for.
+ * asked for. That fast path is why this is a *hydrator* and not a validator —
+ * re-reading thirty fields of every event on every cross-tab write is a cost
+ * the store refuses. It asks about shape; when the shape is wrong it hands
+ * the rule to `readRecurrence`, which is the one place that decides what a
+ * legal rule is, so the answer the store gives is the answer a backup and an
+ * .ics import give.
  */
 function hydrateEvents(value: unknown): CalEvent[] {
   if (!Array.isArray(value)) return [];
@@ -626,20 +632,7 @@ function hydrateEvents(value: unknown): CalEvent[] {
     }
     return {
       ...event,
-      interval: typeof interval === "number" ? interval : NEVER.interval,
-      until: typeof until === "number" ? until : NEVER.until,
-      wkst: typeof wkst === "number" ? wkst : NEVER.wkst,
-      byMonth: Array.isArray(byMonth) ? byMonth : [],
-      byWeekNo: Array.isArray(byWeekNo) ? byWeekNo : [],
-      byYearDay: Array.isArray(byYearDay) ? byYearDay : [],
-      byMonthDay: Array.isArray(byMonthDay) ? byMonthDay : [],
-      byDay: Array.isArray(byDay) ? byDay : [],
-      byHour: Array.isArray(byHour) ? byHour : [],
-      byMinute: Array.isArray(byMinute) ? byMinute : [],
-      bySecond: Array.isArray(bySecond) ? bySecond : [],
-      bySetPos: Array.isArray(bySetPos) ? bySetPos : [],
-      exdates: Array.isArray(exdates) ? exdates : [],
-      rdates: Array.isArray(rdates) ? rdates : [],
+      ...readRecurrence(event),
       seriesId: typeof seriesId === "string" ? seriesId : "",
       seriesKey: typeof seriesKey === "string" ? seriesKey : "",
       icon: typeof icon === "string" ? icon : "",

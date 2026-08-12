@@ -18,16 +18,7 @@ import { DEFAULT_SETTINGS, newId, store, type Settings, type Snapshot } from "./
 import { notify } from "./notify";
 import { dayKey } from "./time";
 import { isRecord } from "./utils";
-import {
-  FREQUENCIES,
-  ICON_MAX,
-  NEVER,
-  recurrenceOf,
-  type CalEvent,
-  type Calendar,
-  type Recurrence,
-  type Repeat,
-} from "./events";
+import { ICON_MAX, readRecurrence, recurrenceOf, type CalEvent, type Calendar } from "./events";
 
 const BACKUP_VERSION = 1;
 
@@ -173,104 +164,6 @@ export function readSettings(value: unknown): Settings {
   };
 }
 
-/** Bounds on a recurrence, all of which draw something wrong when they are
- *  out of them: an interval of zero divides by nothing, an out-of-range
- *  BYMONTHDAY fires on a day that never comes, and a malformed BYDAY entry
- *  names a weekday RFC 5545 does not have. A backup may legitimately carry a
- *  sub-daily rule an .ics import produced, so `repeat` is checked against
- *  every frequency the engine understands, not just the five the editor
- *  offers. */
-const MAX_INTERVAL = 999;
-
-function readRecurrence(value: Record<string, unknown>): Recurrence {
-  const {
-    repeat,
-    interval,
-    until,
-    wkst,
-    byMonth,
-    byWeekNo,
-    byYearDay,
-    byMonthDay,
-    byDay,
-    byHour,
-    byMinute,
-    bySecond,
-    bySetPos,
-    exdates,
-    rdates,
-  } = value;
-  if (!FREQUENCIES.includes(repeat as Repeat) || repeat === "never") return { ...NEVER };
-
-  // Unsigned RFC lists (BYMONTH, the clock parts): every member in range,
-  // duplicates collapsed. Reused across four fields, so it earns its name.
-  const unsignedInts = (v: unknown, lo: number, hi: number): number[] =>
-    Array.isArray(v)
-      ? [...new Set(v.filter((n): n is number => Number.isInteger(n) && n >= lo && n <= hi))]
-      : [];
-
-  // Signed RFC lists (BYWEEKNO, BYYEARDAY, BYMONTHDAY, BYSETPOS): `0` names
-  // no day or week in any of them, so it is excluded on both sides of zero.
-  const signedInts = (v: unknown, max: number): number[] =>
-    Array.isArray(v)
-      ? [
-          ...new Set(
-            v.filter((n): n is number => Number.isInteger(n) && n !== 0 && n >= -max && n <= max),
-          ),
-        ]
-      : [];
-
-  const byDayValid = Array.isArray(byDay)
-    ? byDay
-        .filter(
-          (d): d is { day: number; nth: number } =>
-            isRecord(d) &&
-            Number.isInteger(d.day) &&
-            (d.day as number) >= 0 &&
-            (d.day as number) <= 6 &&
-            Number.isInteger(d.nth) &&
-            (d.nth as number) >= -5 &&
-            (d.nth as number) <= 5,
-        )
-        .map((d) => ({ day: d.day, nth: d.nth }))
-    : [];
-
-  // Both EXDATE's local forms: a whole day, or one instant of it.
-  const keyPattern = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2})?$/;
-  const exdatesValid = Array.isArray(exdates)
-    ? [...new Set(exdates.filter((k): k is string => typeof k === "string" && keyPattern.test(k)))]
-    : [];
-  const rdatesValid = Array.isArray(rdates)
-    ? [...new Set(rdates.filter((k): k is string => typeof k === "string" && keyPattern.test(k)))]
-    : [];
-
-  return {
-    repeat: repeat as Repeat,
-    interval:
-      typeof interval === "number" && Number.isFinite(interval)
-        ? Math.min(MAX_INTERVAL, Math.max(1, Math.trunc(interval)))
-        : NEVER.interval,
-    until: typeof until === "number" && Number.isFinite(until) && until > 0 ? until : NEVER.until,
-    // A `wkst` outside 0–6 does not clamp to a nearby weekday, it names
-    // none — so an out-of-range value falls back whole, same as absent.
-    wkst:
-      Number.isInteger(wkst) && (wkst as number) >= 0 && (wkst as number) <= 6
-        ? (wkst as number)
-        : NEVER.wkst,
-    byMonth: unsignedInts(byMonth, 1, 12),
-    byWeekNo: signedInts(byWeekNo, 53),
-    byYearDay: signedInts(byYearDay, 366),
-    byMonthDay: signedInts(byMonthDay, 31),
-    byDay: byDayValid,
-    byHour: unsignedInts(byHour, 0, 23),
-    byMinute: unsignedInts(byMinute, 0, 59),
-    bySecond: unsignedInts(bySecond, 0, 60),
-    bySetPos: signedInts(bySetPos, 366),
-    exdates: exdatesValid,
-    rdates: rdatesValid,
-  };
-}
-
 /**
  * `instantKey`'s form, which is the only one a done key is ever written in.
  * EXDATE carries a day-only form too because DATE is one of its RFC value
@@ -327,6 +220,8 @@ export function readEvent(value: unknown): CalEvent | null {
     location: typeof value.location === "string" ? value.location : "",
     url: typeof value.url === "string" ? value.url : "",
     notes: typeof value.notes === "string" ? value.notes : "",
+    // What a legal rule is lives in `recur.ts`: this file had its own copy of
+    // every RFC bound and the store had a third, and the three did not agree.
     ...readRecurrence(value),
     seriesId: typeof value.seriesId === "string" ? value.seriesId : "",
     seriesKey: typeof value.seriesKey === "string" ? value.seriesKey : "",

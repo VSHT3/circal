@@ -11,7 +11,16 @@
  * ------------------------------------------------------------------ */
 
 import { dayKey, zonedToUtc } from "./time";
-import { countedUntil, instantKey, keyToInstant, recurrenceOf, splitRule } from "./recur";
+import {
+  MAX_INTERVAL,
+  SIGNED_MAX,
+  UNSIGNED_RANGE,
+  countedUntil,
+  instantKey,
+  keyToInstant,
+  recurrenceOf,
+  splitRule,
+} from "./recur";
 import {
   FREQUENCIES,
   NEVER,
@@ -515,18 +524,23 @@ function readRecurrence(block: Block, start: number): Recurrence {
 
   const rule: Recurrence = {
     repeat,
-    interval: Math.max(1, Math.trunc(Number(parts.INTERVAL)) || 1),
+    // Same ceiling a stored rule gets: a producer sending INTERVAL=100000 is
+    // corrupt or hostile, and `recur.ts` owns which of clamp-or-refuse this
+    // app answers with.
+    interval: Math.min(MAX_INTERVAL, Math.max(1, Math.trunc(Number(parts.INTERVAL)) || 1)),
     until: parts.UNTIL ? parseUntil(parts.UNTIL) : 0,
     wkst: parseWkst(parts.WKST),
-    byMonth: parts.BYMONTH ? parseIntListRanged(parts.BYMONTH, 1, 12) : [],
-    byWeekNo: parts.BYWEEKNO ? parseSignedList(parts.BYWEEKNO, 53) : [],
-    byYearDay: parts.BYYEARDAY ? parseSignedList(parts.BYYEARDAY, 366) : [],
-    byMonthDay: parts.BYMONTHDAY ? parseSignedList(parts.BYMONTHDAY, 31) : [],
+    // Every bound comes off `recur.ts`'s table — this parser reads strings
+    // rather than JSON, but what a legal BYMONTHDAY is cannot depend on that.
+    byMonth: parts.BYMONTH ? parseIntListRanged(parts.BYMONTH, ...UNSIGNED_RANGE.byMonth) : [],
+    byWeekNo: parts.BYWEEKNO ? parseSignedList(parts.BYWEEKNO, SIGNED_MAX.byWeekNo) : [],
+    byYearDay: parts.BYYEARDAY ? parseSignedList(parts.BYYEARDAY, SIGNED_MAX.byYearDay) : [],
+    byMonthDay: parts.BYMONTHDAY ? parseSignedList(parts.BYMONTHDAY, SIGNED_MAX.byMonthDay) : [],
     byDay: parts.BYDAY ? parseByDay(parts.BYDAY) : [],
-    byHour: parts.BYHOUR ? parseIntListRanged(parts.BYHOUR, 0, 23) : [],
-    byMinute: parts.BYMINUTE ? parseIntListRanged(parts.BYMINUTE, 0, 59) : [],
-    bySecond: parts.BYSECOND ? parseIntListRanged(parts.BYSECOND, 0, 60) : [],
-    bySetPos: parts.BYSETPOS ? parseSignedList(parts.BYSETPOS, 366) : [],
+    byHour: parts.BYHOUR ? parseIntListRanged(parts.BYHOUR, ...UNSIGNED_RANGE.byHour) : [],
+    byMinute: parts.BYMINUTE ? parseIntListRanged(parts.BYMINUTE, ...UNSIGNED_RANGE.byMinute) : [],
+    bySecond: parts.BYSECOND ? parseIntListRanged(parts.BYSECOND, ...UNSIGNED_RANGE.bySecond) : [],
+    bySetPos: parts.BYSETPOS ? parseSignedList(parts.BYSETPOS, SIGNED_MAX.bySetPos) : [],
     ...dates,
   };
   // COUNT and UNTIL are mutually exclusive in a valid rule; if a producer

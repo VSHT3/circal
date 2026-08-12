@@ -17,6 +17,7 @@
  * ------------------------------------------------------------------ */
 
 import { addDays, addMonths, dayKey, daysBetween, daysInMonth, startOfDay } from "./time";
+import { isRecord } from "./utils";
 
 /**
  * Every frequency RFC 5545 defines. The editor offers the five a person
@@ -172,6 +173,137 @@ export function recurrenceOf(source: Recurrence): Recurrence {
 /** Does this rule generate anything beyond its seed? */
 export function repeats(rule: Recurrence): boolean {
   return rule.repeat !== "never" || rule.rdates.length > 0;
+}
+
+/* ------------------------------- validation ------------------------------- */
+
+/**
+ * The RFC's own ranges, in one table, because three readers need them and
+ * three copies of a bound is three chances to disagree about what a legal
+ * rule is. §3.3.10: the unsigned parts are a plain interval (BYSECOND reaches
+ * 60 for a leap second), and the signed parts count from either end and
+ * exclude `0`, which names no day, week or position at all.
+ */
+export const UNSIGNED_RANGE = {
+  byMonth: [1, 12],
+  byHour: [0, 23],
+  byMinute: [0, 59],
+  bySecond: [0, 60],
+} as const;
+
+export const SIGNED_MAX = {
+  byWeekNo: 53,
+  byYearDay: 366,
+  byMonthDay: 31,
+  bySetPos: 366,
+} as const;
+
+/**
+ * The largest interval this app will store.
+ *
+ * The RFC names no ceiling, so the choice is between clamping and refusing.
+ * Clamping keeps the event and moves its later occurrences; refusing keeps
+ * the dates and loses the series. An interval in the thousands is a corrupt
+ * field or a hostile feed rather than somebody's plan, and 999 years is
+ * already past the horizon of anything this app draws.
+ */
+export const MAX_INTERVAL = 999;
+
+/** `0` = Sunday … `6` = Saturday, and a positional weekday is at most a
+ *  fifth-from-either-end one — there is no sixth week in a month. */
+const WEEKDAY_MAX = 6;
+const NTH_MAX = 5;
+
+/** Both of EXDATE's local forms: a whole day, or one instant of it. */
+const DATE_KEY = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2})?$/;
+
+function unsignedInts(v: unknown, [lo, hi]: readonly [number, number]): number[] {
+  return Array.isArray(v)
+    ? [...new Set(v.filter((n): n is number => Number.isInteger(n) && n >= lo && n <= hi))]
+    : [];
+}
+
+function signedInts(v: unknown, max: number): number[] {
+  return Array.isArray(v)
+    ? [
+        ...new Set(
+          v.filter((n): n is number => Number.isInteger(n) && n !== 0 && n >= -max && n <= max),
+        ),
+      ]
+    : [];
+}
+
+function dateKeys(v: unknown): string[] {
+  return Array.isArray(v)
+    ? [...new Set(v.filter((k): k is string => typeof k === "string" && DATE_KEY.test(k)))]
+    : [];
+}
+
+/**
+ * Anything claiming to be a rule → a rule, with every field inside its range.
+ *
+ * The one validator, and it exists because there were three: a backup's
+ * reader, the store's hydrator and the ICS parser each decided for themselves
+ * what a legal interval or a legal BYMONTHDAY was, and they did not agree.
+ * They still have three different *jobs* — validate untrusted JSON, fill in
+ * fields a blob predates, parse strings out of an RRULE — but only one answer
+ * to what the rules are, which is this.
+ *
+ * A field that cannot be read falls back whole rather than being repaired: a
+ * `wkst` of 9 names no weekday, and clamping it to Saturday would be inventing
+ * a rule nobody wrote.
+ *
+ * **The dates survive a `never`.** An RDATE-only series is a real thing —
+ * `repeats()` says so — so the two lists are read before the frequency is
+ * even looked at. Dropping them with the rule is how a round trip through a
+ * backup used to lose every date a producer had named explicitly.
+ */
+export function readRecurrence(value: unknown): Recurrence {
+  if (!isRecord(value)) return { ...NEVER };
+  const dates = { exdates: dateKeys(value.exdates), rdates: dateKeys(value.rdates) };
+
+  const { repeat, interval, until, wkst } = value;
+  if (!FREQUENCIES.includes(repeat as Repeat) || repeat === "never") {
+    return { ...NEVER, ...dates };
+  }
+
+  const byDay = Array.isArray(value.byDay)
+    ? value.byDay
+        .filter(
+          (d): d is WeekdayRule =>
+            isRecord(d) &&
+            Number.isInteger(d.day) &&
+            (d.day as number) >= 0 &&
+            (d.day as number) <= WEEKDAY_MAX &&
+            Number.isInteger(d.nth) &&
+            (d.nth as number) >= -NTH_MAX &&
+            (d.nth as number) <= NTH_MAX,
+        )
+        .map((d) => ({ day: d.day, nth: d.nth }))
+    : [];
+
+  return {
+    repeat: repeat as Repeat,
+    interval:
+      typeof interval === "number" && Number.isFinite(interval)
+        ? Math.min(MAX_INTERVAL, Math.max(1, Math.trunc(interval)))
+        : NEVER.interval,
+    until: typeof until === "number" && Number.isFinite(until) && until > 0 ? until : NEVER.until,
+    wkst:
+      Number.isInteger(wkst) && (wkst as number) >= 0 && (wkst as number) <= WEEKDAY_MAX
+        ? (wkst as number)
+        : NEVER.wkst,
+    byMonth: unsignedInts(value.byMonth, UNSIGNED_RANGE.byMonth),
+    byWeekNo: signedInts(value.byWeekNo, SIGNED_MAX.byWeekNo),
+    byYearDay: signedInts(value.byYearDay, SIGNED_MAX.byYearDay),
+    byMonthDay: signedInts(value.byMonthDay, SIGNED_MAX.byMonthDay),
+    byDay,
+    byHour: unsignedInts(value.byHour, UNSIGNED_RANGE.byHour),
+    byMinute: unsignedInts(value.byMinute, UNSIGNED_RANGE.byMinute),
+    bySecond: unsignedInts(value.bySecond, UNSIGNED_RANGE.bySecond),
+    bySetPos: signedInts(value.bySetPos, SIGNED_MAX.bySetPos),
+    ...dates,
+  };
 }
 
 /* ---------------------------------- keys ---------------------------------- */
