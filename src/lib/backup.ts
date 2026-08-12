@@ -12,7 +12,7 @@
  * was", including calendars and settings.
  * ------------------------------------------------------------------ */
 
-import { fromIcs, toIcs } from "./ics";
+import { fnv1a, fromIcs, toIcs } from "./ics";
 import { placeForZone } from "./places";
 import { DEFAULT_SETTINGS, newId, store, type Settings, type Snapshot } from "./store";
 import { notify } from "./notify";
@@ -286,6 +286,17 @@ function readDoneKeys(value: unknown): string[] {
 }
 
 /**
+ * The id an event with none of its own gets: its own content, hashed. Enough
+ * fields to separate two records that are genuinely different, and every one
+ * of them a field the exporter wrote — a `seriesKey` is in there because an
+ * override sits on the same day as the instance it replaces.
+ */
+function derivedId(value: Record<string, unknown>, start: number, end: number): string {
+  const text = (key: string) => (typeof value[key] === "string" ? (value[key] as string) : "");
+  return `${start}-${fnv1a([start, end, text("title"), text("location"), text("seriesKey")].join("|"))}`;
+}
+
+/**
  * A backup is external input, so nothing is trusted: every field is checked
  * and anything unreadable is dropped rather than allowed to become an event
  * with a `NaN` start, which renders as an arc of the whole day.
@@ -302,7 +313,12 @@ export function readEvent(value: unknown): CalEvent | null {
   const task = value.task === true;
   if (task ? end < start : end <= start) return null;
   return {
-    id: typeof id === "string" && id ? id : `${start}-${Math.random().toString(36).slice(2, 8)}`,
+    // Derived from the record's own fields, never minted: `Math.random()` gave
+    // a different id every read, so the same backup imported twice was two
+    // copies of every event with no way left to tell that they were one. The
+    // same fix, and the same hash, `ics.ts` already uses for a VEVENT that
+    // arrives with no UID.
+    id: typeof id === "string" && id ? id : derivedId(value, start, end),
     title: typeof title === "string" ? title : "Untitled",
     calendarId: typeof calendarId === "string" ? calendarId : "",
     start,

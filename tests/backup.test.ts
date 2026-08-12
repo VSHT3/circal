@@ -51,9 +51,24 @@ describe("readEvent — defaults", () => {
     expect(readEvent({ ...baseEvent })?.title).toBe("Untitled");
   });
 
-  it("generates an id when none is given", () => {
-    const result = readEvent({ ...baseEvent });
-    expect(result?.id).toMatch(new RegExp(`^${START}-`));
+  it("derives the same id every time it reads the same record", () => {
+    // It was `Math.random()`, so a backup imported twice was two copies of
+    // every event with nothing left to tell they were one.
+    const once = readEvent({ ...baseEvent, title: "Standup", location: "Room 2" });
+    const again = readEvent({ ...baseEvent, title: "Standup", location: "Room 2" });
+    expect(once?.id).toMatch(new RegExp(`^${START}-`));
+    expect(again?.id).toBe(once?.id);
+  });
+
+  it.each([
+    { name: "a different title", patch: { title: "Retro" } },
+    { name: "a different place", patch: { location: "Room 3" } },
+    { name: "a different end", patch: { end: END + 60_000 } },
+    { name: "the instance it overrides", patch: { seriesKey: "2026-03-15T09:00:00" } },
+  ])("gives a different id to a record with $name", ({ patch }) => {
+    const base = readEvent({ ...baseEvent, title: "Standup", location: "Room 2" });
+    const other = readEvent({ ...baseEvent, title: "Standup", location: "Room 2", ...patch });
+    expect.soft(other?.id).not.toBe(base?.id);
   });
 
   it("keeps a given id rather than generating one", () => {

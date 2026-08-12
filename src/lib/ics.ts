@@ -539,11 +539,25 @@ function readRecurrence(block: Block, start: number): Recurrence {
 }
 
 /**
+ * FNV-1a, base 36. Small, fast, and stable across runs — which is the whole
+ * point wherever it is used: an id derived from a record's own content is the
+ * same id the next time that record is read, and `Math.random()` is not.
+ */
+export function fnv1a(source: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < source.length; i++) {
+    h ^= source.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(36);
+}
+
+/**
  * A stable synthetic UID for a VEVENT that did not bring one.
  *
- * FNV-1a over the properties that identify an occurrence in practice. A hash
- * rather than the fields themselves because this ends up in a DOM key, and a
- * SUMMARY can be any length and contain anything.
+ * Over the properties that identify an occurrence in practice. A hash rather
+ * than the fields themselves because this ends up in a DOM key, and a SUMMARY
+ * can be any length and contain anything.
  */
 function derivedUid(block: Block["props"], start: number, end: number): string {
   const source = [
@@ -553,12 +567,7 @@ function derivedUid(block: Block["props"], start: number, end: number): string {
     block.LOCATION?.value ?? "",
     block["RECURRENCE-ID"]?.value ?? "",
   ].join("|");
-  let h = 0x811c9dc5;
-  for (let i = 0; i < source.length; i++) {
-    h ^= source.charCodeAt(i);
-    h = Math.imul(h, 0x01000193) >>> 0;
-  }
-  return `${h.toString(36)}@circal.local`;
+  return `${fnv1a(source)}@circal.local`;
 }
 
 function buildEvent(block: Block): IcsEvent | null {
