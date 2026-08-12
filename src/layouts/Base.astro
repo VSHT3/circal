@@ -1,6 +1,23 @@
 ---
 import "@/styles/global.css";
 
+/**
+ * The two faces the first paint actually uses, preloaded.
+ *
+ * Fontsource already ships `font-display: swap`, so the flash is a fallback
+ * rather than nothing — but the font is only *discovered* once the stylesheet
+ * has been fetched and parsed, which is one round trip after the HTML. These
+ * two links move that discovery into the first response. Latin only, and only
+ * the normal weight: the variable file carries every weight the app draws, and
+ * the other subsets are what `unicode-range` exists to keep off the wire.
+ *
+ * Imported rather than written as a path, because Vite content-hashes both
+ * files and a hardcoded URL would preload a 404 — which is worse than no
+ * preload, since it downloads and then discards.
+ */
+import geistLatin from "@fontsource-variable/geist/files/geist-latin-wght-normal.woff2?url";
+import geistMonoLatin from "@fontsource-variable/geist-mono/files/geist-mono-latin-wght-normal.woff2?url";
+
 interface Props {
   title: string;
   description: string;
@@ -40,6 +57,8 @@ const registerServiceWorker = `window.addEventListener("load",()=>{navigator.ser
     <title>{title}</title>
     <meta name="description" content={description} />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="preload" href={geistLatin} as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href={geistMonoLatin} as="font" type="font/woff2" crossorigin />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
