@@ -1322,7 +1322,7 @@ function Shell() {
           now={now}
           events={visible}
           calendars={calendars}
-          moonPhase={settings.moonPhase}
+          moon={settings.moon}
           actions={actions}
         />
 

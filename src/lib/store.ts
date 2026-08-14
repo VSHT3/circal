@@ -86,9 +86,10 @@ const FEED_BUDGET = 2_000_000;
  * Still 2 through the `clock` default going to `24h`, too. A default is what a
  * blob says when it says nothing; every blob that already exists says `12h` or
  * `24h` out loud, and neither of those changed meaning.
- * Still 2 through `task`, `doneKeys`, `moonPhase`, `remind` and `remindLead`
- * as well: five more fields, filled in on read, none of them a change to what
- * anything already stored means.
+ * Still 2 through `task`, `doneKeys`, `moon`, `remind` and `remindLead` as
+ * well: five more fields, filled in on read, none of them a change to what
+ * anything already stored means — `moon` arrives from a stored `moonPhase`
+ * through `migrateSettings`, which is a shape changing rather than a meaning.
  */
 const SCHEMA = 2;
 
@@ -134,24 +135,6 @@ export type ArcLabelMode = (typeof ARC_LABEL_MODES)[number];
 export const AMBIENT_DELAYS = [0, 1, 2, 5, 10, 30, 60] as const;
 
 export type AmbientDelay = (typeof AMBIENT_DELAYS)[number];
-
-/**
- * How the sidebar draws the moon, and it is a genuine choice of register
- * rather than a size. `minimal` is the app's own voice: one disc, the
- * terminator as a second disc in the background colour, a caption. `aperture`
- * is the watchmaker's — a slice of night sky behind an arched window, the
- * disc riding through it, a few stars.
- *
- * Both are offered because neither is obviously right here. Every other piece
- * of chrome in circal is greyscale and flat, which argues for `minimal`; but
- * the moon is the one complication that is a *picture* rather than a
- * measurement, and the dial's own lightcycle band already broke the greyscale
- * rule for the same reason. `off` is the default: chrome does not appear
- * unasked.
- */
-export const MOON_STYLES = ["off", "minimal", "aperture"] as const;
-
-export type MoonStyle = (typeof MOON_STYLES)[number];
 
 export interface Settings {
   /** Which face the dial wears — see `lib/dial.ts`. */
@@ -260,15 +243,22 @@ export interface Settings {
    *  read from a chair and this face is read from across a room. */
   ambientArcLabels: ArcLabelMode;
   /**
-   * The sidebar's moon, and in which register. See `MOON_STYLES`.
+   * The sidebar's moon: the lit part of it and nothing else, the terminator
+   * drawn as an ellipse over it, in the app's own greyscale.
    *
    * It lives in the sidebar rather than on the face because of the rule that
    * governs this app's one instrument: every radius the dial gains costs
    * `PAD` and legibility, and the moon is not a fact about the *day* the way
    * the lightcycle band is. It is the one complication here that is pure
    * eyecandy, and eyecandy belongs in the column you can close.
+   *
+   * A switch rather than a choice of register. A second drawing — the disc
+   * riding behind a watchmaker's aperture, in night blue with stars — was
+   * offered here and was the only chrome in circal that was neither greyscale
+   * nor flat; two answers to one question, one of them arguing with the rest
+   * of the screen, is worse than the answer this app's own voice gives.
    */
-  moonPhase: MoonStyle;
+  moon: boolean;
   /**
    * Notifications for what is about to start, while this tab is open.
    *
@@ -404,7 +394,7 @@ export const DEFAULT_SETTINGS: Settings = {
   ambientArcLabels: "off",
   // Off. It is the only thing in this app that draws something the calendar
   // does not contain, so it has to be asked for by name.
-  moonPhase: "off",
+  moon: false,
   // Off, and it is the one default here that is a promise rather than a
   // preference: nothing in circal has ever interrupted anybody, and the first
   // thing that can must be switched on deliberately.
@@ -530,12 +520,24 @@ const EMPTY: Snapshot = {
 };
 
 /**
- * `night` split into the pair `daylight` / `moonlight`. A blob still carrying
+ * Two keys that lost their shape rather than their meaning.
+ *
+ * `night` split into the pair `daylight` / `moonlight`: a blob still carrying
  * the old key keeps the choice it names — the dark half — and loses the key.
+ * `moonPhase` was `off | minimal | aperture` while the sidebar had two
+ * registers; with one drawing left it is the switch `moon`, and either
+ * register counts as on. Neither is a `SCHEMA` bump: a bump resets settings,
+ * and losing the choice is the thing this carries across.
  */
-function migrateSettings(stored: Partial<Settings> & { night?: boolean }): Partial<Settings> {
-  const { night, ...rest } = stored;
-  return night === undefined ? rest : { moonlight: night, ...rest };
+function migrateSettings(
+  stored: Partial<Settings> & { night?: boolean; moonPhase?: string },
+): Partial<Settings> {
+  const { night, moonPhase, ...rest } = stored;
+  return {
+    ...(night === undefined ? {} : { moonlight: night }),
+    ...(moonPhase === undefined ? {} : { moon: moonPhase !== "off" }),
+    ...rest,
+  };
 }
 
 /** Bounds on the life grid: 1 to 150 years, and a birth date that parses.
@@ -585,9 +587,6 @@ function sane(settings: Settings): Settings {
     ambientAfter: (AMBIENT_DELAYS as readonly number[]).includes(settings.ambientAfter)
       ? settings.ambientAfter
       : DEFAULT_SETTINGS.ambientAfter,
-    moonPhase: MOON_STYLES.includes(settings.moonPhase)
-      ? settings.moonPhase
-      : DEFAULT_SETTINGS.moonPhase,
     // A lead off the list is a warning the panel cannot show, and unlike a
     // stale ambient delay this one is a notification arriving at a time
     // nothing on screen ever named.
@@ -1331,11 +1330,6 @@ export const store = {
   setAmbientArcLabels(ambientArcLabels: ArcLabelMode) {
     const base = fresh();
     commit({ ...base, settings: { ...base.settings, ambientArcLabels } }, false);
-  },
-
-  setMoonPhase(moonPhase: MoonStyle) {
-    const base = fresh();
-    commit({ ...base, settings: { ...base.settings, moonPhase } }, false);
   },
 
   /** Minutes of warning before an event starts; `0` fires as it does. */

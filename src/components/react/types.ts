@@ -5,7 +5,7 @@ import type { Clock } from "@/lib/time";
 import type { CalEvent, Calendar, Occurrence } from "@/lib/events";
 import type { LifeRun, LifeStage } from "@/lib/life";
 import type { WeekStage } from "@/lib/week";
-import type { MoonStyle, Settings } from "@/lib/store";
+import type { Settings } from "@/lib/store";
 import type { QuickAdd } from "@/lib/quickadd";
 
 export type ViewMode = "day" | "week" | "year" | "life";
@@ -180,11 +180,11 @@ export interface SidebarProps {
   events: CalEvent[];
   calendars: Calendar[];
   /**
-   * How the moon is drawn at the foot of the column, or `off`. A scalar
-   * rather than the whole `Settings` object: this panel reads one field of
-   * it, and it should not be able to re-render on a twenty-eighth changing.
+   * Whether the moon is drawn at the foot of the column. A scalar rather than
+   * the whole `Settings` object: this panel reads one field of it, and it
+   * should not be able to re-render on a twenty-eighth changing.
    */
-  moonPhase: MoonStyle;
+  moon: boolean;
   actions: ShellActions;
 }
 

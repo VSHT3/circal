@@ -210,20 +210,13 @@ In the sidebar rather than on the face, because every radius the dial gains
 costs legibility and the moon is not a fact about the day the way the light on
 the rim is. It reads the day you have selected, so arrowing through a week
 walks the moon through its week. Off until you ask for it, in **Settings** →
-**Sidebar**, and it comes two ways:
+**Sidebar**.
 
-- **Minimal** draws the astronomy: one disc, the terminator as an ellipse over
-  it, in the app's own black and white.
-- **Aperture** draws the horology. The moon rides behind a curved window and is
-  occulted at each end by a circular bite of exactly its own radius, which is
-  the whole mechanism — a disc hidden by an equal disc leaves a lune, and a
-  lune is the shape a crescent moon is. It is the one place here that improves
-  on the thing it copies: a real complication turns at a constant rate and so
-  shows a crescent close to twice as full as the sky's, where this one is
-  driven by the lit fraction and agrees with the figure printed beside it.
-
-Both print the phase's name, how much of it is lit, and how many days to the
-next full or new moon.
+It draws the astronomy, in the app's own black and white, and it draws only the
+lit part: the terminator as an ellipse over it, no outline and no dark limb, so
+a crescent is a crescent rather than a disc with a crescent on it and a new
+moon is nothing at all. Beside it, the phase's name, how much of it is lit, and
+how many days to the next full or new moon.
 
 ## The week, as seven dials
 

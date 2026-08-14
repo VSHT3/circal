@@ -38,44 +38,44 @@ src/pages/index.astro   static HTML shell  (src/pages/manifesto.astro = prose, n
 
 ## Key Directories
 
-|Path|Purpose|
-|---|---|
-|`src/lib/dial.ts`|Polar geometry: `DIAL` radius table, `angleAt` / `polar` / `arcPath` / `minutesAtPoint` / `capInset` / `arcLabel`|
-|`src/lib/life.ts`|Life grid: `lifeSpan` / `lifeCellAt` / `lifeDensity` / `lifeStats` / `dayTally`, `dim`, loupe's `loupeLayout` / `loupeCell` / `loupeCellAt` / `loupeMonths`, drawn run's `lifeRange` / `lifeBands` / `loupeBands`|
-|`src/lib/year.ts`|Year ring: `YEAR` radius table, `dayAngle` / `yearAtPoint` / `dayAtPoint` / `markRadius` / `monthMarks`, `magnify` / `spread` / `ringDelta` for the pointer bulge, `unroller` + `faceToPanel` for the unroll|
-|`src/lib/week.ts`|Week strip: `weekLayout` / `weekStage` / `weekDays` / `weekFaceCentre` / `weekZoomScale`, `WEEK_META_H` + `WEEK_CAPTION_H` + `WEEK_MIN_FACE`|
-|`src/lib/time.ts`|`Clock` type, day arithmetic, formatting voice (`formatTime`, `parseClock`, `dayKey`), zone maths (`zonedToUtc`)|
-|`src/lib/quickadd.ts`|Palette parsers: `parseQuickAdd` (one line → one event), `parseRepeat`, `parseOffset`, `parseDate` (jump), `parseSlot` (free time), `defaultStart`, plus the two lengths every surface starts from — `DEFAULT_DURATION`, `MIN_DURATION`|
-|`src/lib/fuzzy.ts`|`fuzzyScore` — subsequence match with a score, one typo forgiven. Strings only; knows nothing about events|
-|`src/lib/recur.ts`|RFC 5545 recurrence: `Recurrence`, `startsBetween`, `countedUntil`, `instantKey`, `splitRule`, the one validator `readRecurrence` + the range tables every reader shares. Whole BY\* cascade|
-|`src/lib/describe.ts`|Recurrence in English: `describeRule` (rule the editor cannot spell), `isExpressible` (whether it has to), `nthLabel` (monthly position)|
-|`src/lib/events.ts`|`CalEvent` / `Calendar` / `Occurrence`, `occurrencesOn`, `dayAgenda`, `freeGaps`, `scoreEvent`, mark format (`markOf`, `isIconName`, `firstGrapheme`, `ICON_MAX`) (`packLanes` internal)|
-|`src/lib/sun.ts`|`Place`, `sunTimes` — NOAA solar position, minutes since local midnight|
-|`src/lib/moon.ts`|`moonPhase` / `moonForDay` / `nextPhase` — low-precision Meeus. Pure instant maths, no DOM, no colour|
-|`src/lib/remind.ts`|`dueReminders` / `reminderText` / `REMIND_LEADS` — occurrences due this minute. Pure half; hook is `useReminders`|
-|`src/lib/places.ts`|`PickedPlace`, `placeForZone`, `PLACE_OPTIONS` — IANA `zone.tab` coordinate table|
-|`src/lib/ics.ts`|`toIcs` / `fromIcs`. RFC 5545 incl. full RRULE, EXDATE, RDATE, RECURRENCE-ID. Hand-rolled, no dependency|
-|`src/lib/store.ts`|`useSyncExternalStore` over `localStorage`, `draftEvent`, seed data, undo history, `SCHEMA` version|
-|`src/lib/feeds.ts`|Subscription pulls, through `/api/feed` then direct|
-|`src/lib/backup.ts`|Export/import, only place validating external input. `readEvent`/`readSettings`/`readCalendar`/`importBackup` exported so validators are testable|
-|`src/lib/notify.ts`|Toast channel. Own store on purpose — a four-second message is not persisted state|
-|`src/lib/feedback.ts`|Dial's five cues: 3 ms noise impulse, seeded, through bandpass resonators. Owns shared `AudioContext`|
-|`src/lib/keys.ts`|Keyboard: every key a sum of damped sinusoids. No asset, no fetch|
-|`worker/index.ts`|Assets + `/api/feed` proxy. `followChecked` re-runs the SSRF guard on every redirect hop; `ssrfBlockReason` exported for its table|
-|`public/sw.js`|Offline cache. Runtime-only: Astro content-hashes filenames, so nothing to precache. Navigations cached under their own URL|
-|`public/favicon.svg`|Mark: black disc, one thin white circumference. `icon.svg` = same ring full-bleed for maskable crop|
-|`src/components/react/`|Island. `App.tsx` shell, `Face.tsx` drawing, `Dial.tsx` instrument, panels|
-|`src/components/react/ui/primitives.tsx`|Eleven shared controls all chrome is built from, `ColorPicker` included|
-|`src/components/react/ScopePrompt.tsx`|`EditScope` question: `ScopeChoices` (editor footer), `ScopeDialog` (a drag or ⌘⌫ on the dial)|
-|`src/components/react/MoonPanel.tsx`|Sidebar moon, two registers: `Minimal` draws the terminator, `Aperture` occults the disc behind a window|
-|`src/components/react/CalendarEditor.tsx`|Calendar card — name, colour, mark, delete. Only surface that mints a category|
-|`src/components/react/ui/icons.tsx`|`CalendarMark` / `MarkGlyph` (SVG-native) / `MarkPicker`. Mark's _renderer_; `lib/events.ts` owns its _format_, `ui/marks.ts` holds its paths|
-|`src/components/react/ui/marks.ts`|The 247 vendored Phosphor `bold` paths, nothing else. Own module: a quarter of the bundle, and the renderer beside it must draw on the first frame|
-|`src/components/react/transitions.ts`|`PANEL` — what a view panel does arriving and leaving, plus the four predicates saying which view pairs are geometrically related. Pure config, no shell state|
-|`src/components/react/lifeCanvas.ts`|Life grid pixels: `drawField` once into an offscreen canvas, `paintReveal` per wave frame, tone tables the loupe shares|
-|`src/components/react/types.ts`|**Every panel prop interface.** Edit shapes here|
-|`src/styles/global.css`|Design tokens, `@theme inline` colour mappings, five component classes|
-|`tests/`|**The suite — 1,201 cases.** `helpers.ts` = fixtures + matchers; one `*.test.ts` per module; `west/` = TZ re-runs|
+| Path                                      | Purpose                                                                                                                                                                                                                                 |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/lib/dial.ts`                         | Polar geometry: `DIAL` radius table, `angleAt` / `polar` / `arcPath` / `minutesAtPoint` / `capInset` / `arcLabel`                                                                                                                       |
+| `src/lib/life.ts`                         | Life grid: `lifeSpan` / `lifeCellAt` / `lifeDensity` / `lifeStats` / `dayTally`, `dim`, loupe's `loupeLayout` / `loupeCell` / `loupeCellAt` / `loupeMonths`, drawn run's `lifeRange` / `lifeBands` / `loupeBands`                       |
+| `src/lib/year.ts`                         | Year ring: `YEAR` radius table, `dayAngle` / `yearAtPoint` / `dayAtPoint` / `markRadius` / `monthMarks`, `magnify` / `spread` / `ringDelta` for the pointer bulge, `unroller` + `faceToPanel` for the unroll                            |
+| `src/lib/week.ts`                         | Week strip: `weekLayout` / `weekStage` / `weekDays` / `weekFaceCentre` / `weekZoomScale`, `WEEK_META_H` + `WEEK_CAPTION_H` + `WEEK_MIN_FACE`                                                                                            |
+| `src/lib/time.ts`                         | `Clock` type, day arithmetic, formatting voice (`formatTime`, `parseClock`, `dayKey`), zone maths (`zonedToUtc`)                                                                                                                        |
+| `src/lib/quickadd.ts`                     | Palette parsers: `parseQuickAdd` (one line → one event), `parseRepeat`, `parseOffset`, `parseDate` (jump), `parseSlot` (free time), `defaultStart`, plus the two lengths every surface starts from — `DEFAULT_DURATION`, `MIN_DURATION` |
+| `src/lib/fuzzy.ts`                        | `fuzzyScore` — subsequence match with a score, one typo forgiven. Strings only; knows nothing about events                                                                                                                              |
+| `src/lib/recur.ts`                        | RFC 5545 recurrence: `Recurrence`, `startsBetween`, `countedUntil`, `instantKey`, `splitRule`, the one validator `readRecurrence` + the range tables every reader shares. Whole BY\* cascade                                            |
+| `src/lib/describe.ts`                     | Recurrence in English: `describeRule` (rule the editor cannot spell), `isExpressible` (whether it has to), `nthLabel` (monthly position)                                                                                                |
+| `src/lib/events.ts`                       | `CalEvent` / `Calendar` / `Occurrence`, `occurrencesOn`, `dayAgenda`, `freeGaps`, `scoreEvent`, mark format (`markOf`, `isIconName`, `firstGrapheme`, `ICON_MAX`) (`packLanes` internal)                                                |
+| `src/lib/sun.ts`                          | `Place`, `sunTimes` — NOAA solar position, minutes since local midnight                                                                                                                                                                 |
+| `src/lib/moon.ts`                         | `moonPhase` / `moonForDay` / `nextPhase` — low-precision Meeus. Pure instant maths, no DOM, no colour                                                                                                                                   |
+| `src/lib/remind.ts`                       | `dueReminders` / `reminderText` / `REMIND_LEADS` — occurrences due this minute. Pure half; hook is `useReminders`                                                                                                                       |
+| `src/lib/places.ts`                       | `PickedPlace`, `placeForZone`, `PLACE_OPTIONS` — IANA `zone.tab` coordinate table                                                                                                                                                       |
+| `src/lib/ics.ts`                          | `toIcs` / `fromIcs`. RFC 5545 incl. full RRULE, EXDATE, RDATE, RECURRENCE-ID. Hand-rolled, no dependency                                                                                                                                |
+| `src/lib/store.ts`                        | `useSyncExternalStore` over `localStorage`, `draftEvent`, seed data, undo history, `SCHEMA` version                                                                                                                                     |
+| `src/lib/feeds.ts`                        | Subscription pulls, through `/api/feed` then direct                                                                                                                                                                                     |
+| `src/lib/backup.ts`                       | Export/import, only place validating external input. `readEvent`/`readSettings`/`readCalendar`/`importBackup` exported so validators are testable                                                                                       |
+| `src/lib/notify.ts`                       | Toast channel. Own store on purpose — a four-second message is not persisted state                                                                                                                                                      |
+| `src/lib/feedback.ts`                     | Dial's five cues: 3 ms noise impulse, seeded, through bandpass resonators. Owns shared `AudioContext`                                                                                                                                   |
+| `src/lib/keys.ts`                         | Keyboard: every key a sum of damped sinusoids. No asset, no fetch                                                                                                                                                                       |
+| `worker/index.ts`                         | Assets + `/api/feed` proxy. `followChecked` re-runs the SSRF guard on every redirect hop; `ssrfBlockReason` exported for its table                                                                                                      |
+| `public/sw.js`                            | Offline cache. Runtime-only: Astro content-hashes filenames, so nothing to precache. Navigations cached under their own URL                                                                                                             |
+| `public/favicon.svg`                      | Mark: black disc, one thin white circumference. `icon.svg` = same ring full-bleed for maskable crop                                                                                                                                     |
+| `src/components/react/`                   | Island. `App.tsx` shell, `Face.tsx` drawing, `Dial.tsx` instrument, panels                                                                                                                                                              |
+| `src/components/react/ui/primitives.tsx`  | Eleven shared controls all chrome is built from, `ColorPicker` included                                                                                                                                                                 |
+| `src/components/react/ScopePrompt.tsx`    | `EditScope` question: `ScopeChoices` (editor footer), `ScopeDialog` (a drag or ⌘⌫ on the dial)                                                                                                                                          |
+| `src/components/react/MoonPanel.tsx`      | Sidebar moon: one edgeless disc, the terminator as an ellipse over it. `settings.moon` switches it on                                                                                                                                   |
+| `src/components/react/CalendarEditor.tsx` | Calendar card — name, colour, mark, delete. Only surface that mints a category                                                                                                                                                          |
+| `src/components/react/ui/icons.tsx`       | `CalendarMark` / `MarkGlyph` (SVG-native) / `MarkPicker`. Mark's _renderer_; `lib/events.ts` owns its _format_, `ui/marks.ts` holds its paths                                                                                           |
+| `src/components/react/ui/marks.ts`        | The 247 vendored Phosphor `bold` paths, nothing else. Own module: a quarter of the bundle, and the renderer beside it must draw on the first frame                                                                                      |
+| `src/components/react/transitions.ts`     | `PANEL` — what a view panel does arriving and leaving, plus the four predicates saying which view pairs are geometrically related. Pure config, no shell state                                                                          |
+| `src/components/react/lifeCanvas.ts`      | Life grid pixels: `drawField` once into an offscreen canvas, `paintReveal` per wave frame, tone tables the loupe shares                                                                                                                 |
+| `src/components/react/types.ts`           | **Every panel prop interface.** Edit shapes here                                                                                                                                                                                        |
+| `src/styles/global.css`                   | Design tokens, `@theme inline` colour mappings, five component classes                                                                                                                                                                  |
+| `tests/`                                  | **The suite — 1,201 cases.** `helpers.ts` = fixtures + matchers; one `*.test.ts` per module; `west/` = TZ re-runs                                                                                                                       |
 
 ## Development Commands
 
@@ -111,15 +111,15 @@ Commit **regularly** — one commit per coherent change, not per session. A comm
 
 **Styling** — Tailwind v4, config-less; theme in `src/styles/global.css`. Use token utilities, not raw hex:
 
-|Utility|Token|Use|
-|---|---|---|
-|`bg-void`|`#000000`|canvas, true black|
-|`bg-surface` / `bg-surface-2`|`#131315` / `#1d1d20`|popovers & cards / controls inside them|
-|`border-hairline`|`rgba(255,255,255,.08)`|every divider|
-|`text-ink`|`#ffffff`|only pure white|
-|`text-ink-2` / `ink-3` / `ink-4`|`#8e8e93` / `#5c5c60` / `#2e2e31`|secondary / numerals / ticks & disabled|
-|`text-accent`|`#a3d9e4`|default calendar colour|
-|`text-danger`|`#ff5a5a`|destructive only|
+| Utility                          | Token                             | Use                                     |
+| -------------------------------- | --------------------------------- | --------------------------------------- |
+| `bg-void`                        | `#000000`                         | canvas, true black                      |
+| `bg-surface` / `bg-surface-2`    | `#131315` / `#1d1d20`             | popovers & cards / controls inside them |
+| `border-hairline`                | `rgba(255,255,255,.08)`           | every divider                           |
+| `text-ink`                       | `#ffffff`                         | only pure white                         |
+| `text-ink-2` / `ink-3` / `ink-4` | `#8e8e93` / `#5c5c60` / `#2e2e31` | secondary / numerals / ticks & disabled |
+| `text-accent`                    | `#a3d9e4`                         | default calendar colour                 |
+| `text-danger`                    | `#ff5a5a`                         | destructive only                        |
 
 `fill-*` / `stroke-*` variants exist too, used in SVG. Component classes: `.label` (uppercase 11px mono, label voice), `.caption` (12px sans at `ink-2`, prose voice — anything reading as a sentence), `.kbd`, `.fade-y` (mask both ends of a scroll area), `.fade-b` (bottom only, proportional — short list whose first row must stay crisp), `.no-scrollbar`. Pair fade with `.no-scrollbar` on every scroll region; apply fade **only when the list actually overflows** — permanent fade on a fitting list reads as a rendering fault. Chrome greyscale by rule: **colour belongs to events.** Never read `calendar.color` or `event.color` directly — call `colorOf(event, calendars)`: event override first, else its calendar. Presets in `PALETTE` (`src/lib/events.ts`): ten digital pastels, high value, moderate saturation so two can share a dial at 14-unit stroke.
 
@@ -149,23 +149,23 @@ if (seeded !== day) {
 
 ## Important Files
 
-|File|Why it matters|
-|---|---|
-|`src/pages/index.astro`|The app's route. Mounts `<App client:only="react" />` — `client:only` because live clock + `localStorage` makes any SSR markup wrong on hydrate|
-|`src/pages/manifesto.astro`|`/manifesto/`. The argument, in prose. Static markup, **no island** — and the only page that scrolls, via `Base.astro`'s `scroll` prop|
-|`src/layouts/Base.astro`|`<head>` for both pages: canonical, OG card, service-worker registration (PROD only), `scroll` to unlock `body` for prose|
-|`src/components/react/App.tsx`|Island root; owns view state and URL, builds `actions`, registers global hotkeys|
-|`src/components/react/Face.tsx`|One day, drawn. Draw order: glow → your lightcycle band → second zone's band → zone numerals → elapsed ring → ticks → numerals → drag annulus → event arcs (body → label → hit zones) → ghost arc → now-hand|
-|`src/components/react/Dial.tsx`|Instrument: a `<Face>` with every ring on, `CenterPanel` over its middle, and the gestures that make a day editable|
-|`src/components/react/LifeView.tsx`|Life grid. Offscreen canvas for field, masked one for reveal, SVG overlay for everything following the pointer, `Loupe` for the year under the pointer, birth prompt as its own empty state|
-|`src/components/react/YearView.tsx`|Year ring. Two canvases (`Ring` = 365 marks + magnifier, `Unroll` = both halves of ⌘Y ⇄ ⌘L) over an SVG frame of months and glow, plus an `sr-only` listbox for the keyboard and an HTML readout in the middle|
-|`src/components/react/WeekView.tsx`|Week strip. Seven `<Face>`s at one rotation, each a real `<button>`, one shared readout under them. Read-only: no drag targets, no interior|
-|`src/components/react/types.ts`|All panel prop contracts (`FaceProps`, `DialProps`, `CenterPanelProps` = three deliberate exceptions, declared locally)|
-|`astro.config.mjs`|`devToolbar: false` (floats over dial), `trailingSlash: "always"`|
-|`eslint.config.js`|Flat config; `jsx-a11y/no-autofocus` off for exactly `CommandPalette.tsx` and `EventEditor.tsx` (modals must take focus)|
-|`wrangler.jsonc`|`main` + `assets.binding` — Worker exists for `/api/feed` and nothing else|
-|`vitest.config.ts`|Two projects, `local` and `west`, each with its own pinned `TZ`. Pinning is not optional — see Testing|
-|`tests/helpers.ts`|**Fixtures and the three instant matchers.** Read before writing any test; extend here rather than re-declaring builders in a test file|
+| File                                | Why it matters                                                                                                                                                                                                 |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/pages/index.astro`             | The app's route. Mounts `<App client:only="react" />` — `client:only` because live clock + `localStorage` makes any SSR markup wrong on hydrate                                                                |
+| `src/pages/manifesto.astro`         | `/manifesto/`. The argument, in prose. Static markup, **no island** — and the only page that scrolls, via `Base.astro`'s `scroll` prop                                                                         |
+| `src/layouts/Base.astro`            | `<head>` for both pages: canonical, OG card, service-worker registration (PROD only), `scroll` to unlock `body` for prose                                                                                      |
+| `src/components/react/App.tsx`      | Island root; owns view state and URL, builds `actions`, registers global hotkeys                                                                                                                               |
+| `src/components/react/Face.tsx`     | One day, drawn. Draw order: glow → your lightcycle band → second zone's band → zone numerals → elapsed ring → ticks → numerals → drag annulus → event arcs (body → label → hit zones) → ghost arc → now-hand   |
+| `src/components/react/Dial.tsx`     | Instrument: a `<Face>` with every ring on, `CenterPanel` over its middle, and the gestures that make a day editable                                                                                            |
+| `src/components/react/LifeView.tsx` | Life grid. Offscreen canvas for field, masked one for reveal, SVG overlay for everything following the pointer, `Loupe` for the year under the pointer, birth prompt as its own empty state                    |
+| `src/components/react/YearView.tsx` | Year ring. Two canvases (`Ring` = 365 marks + magnifier, `Unroll` = both halves of ⌘Y ⇄ ⌘L) over an SVG frame of months and glow, plus an `sr-only` listbox for the keyboard and an HTML readout in the middle |
+| `src/components/react/WeekView.tsx` | Week strip. Seven `<Face>`s at one rotation, each a real `<button>`, one shared readout under them. Read-only: no drag targets, no interior                                                                    |
+| `src/components/react/types.ts`     | All panel prop contracts (`FaceProps`, `DialProps`, `CenterPanelProps` = three deliberate exceptions, declared locally)                                                                                        |
+| `astro.config.mjs`                  | `devToolbar: false` (floats over dial), `trailingSlash: "always"`                                                                                                                                              |
+| `eslint.config.js`                  | Flat config; `jsx-a11y/no-autofocus` off for exactly `CommandPalette.tsx` and `EventEditor.tsx` (modals must take focus)                                                                                       |
+| `wrangler.jsonc`                    | `main` + `assets.binding` — Worker exists for `/api/feed` and nothing else                                                                                                                                     |
+| `vitest.config.ts`                  | Two projects, `local` and `west`, each with its own pinned `TZ`. Pinning is not optional — see Testing                                                                                                         |
+| `tests/helpers.ts`                  | **Fixtures and the three instant matchers.** Read before writing any test; extend here rather than re-declaring builders in a test file                                                                        |
 
 ## Runtime/Tooling Preferences
 
@@ -180,42 +180,42 @@ if (seeded !== day) {
 
 **There IS a suite. Read it before writing one.** Vitest, `tests/`, 1,201 cases, ~800 ms, wired into `verify`. Adding coverage = adding cases to the file that already owns the module. Never scaffold a second harness, a second fixture style, or a `*.spec.ts`.
 
-|test file|covers|
-|---|---|
-|`tests/helpers.ts`|**not a test** — fixtures, builders, matchers. Extend, never fork|
-|`tests/time.test.ts`|`time.ts` — day arithmetic, DST, `parseClock`, `zonedToUtc`|
-|`tests/quickadd.test.ts`|`quickadd.ts` — every date form, the scanner, repeats, ambiguous pairs|
-|`tests/fuzzy.test.ts`|`fuzzy.ts` — matching, the forgiven typo, ranking order|
-|`tests/dial.test.ts`|`dial.ts` — `angleAt` ↔ `minutesAtPoint`, `arcPath`, `capInset`, `arcLabel`|
-|`tests/recur.test.ts`|`recur.ts` — RFC 5545 §3.8.5.3 worked examples, BY\* , BYSETPOS|
-|`tests/describe.test.ts`|`describe.ts` — `isExpressible`'s gate, `describeRule`'s clause order, BYSETPOS as an adjective|
-|`tests/events.test.ts`|`events.ts` — clipping, lanes, overrides, `freeGaps`, `colorOf`, `inkOn`|
-|`tests/ics.test.ts`|`ics.ts` — round-trip, folding, escaping, malformed feeds|
-|`tests/store.test.ts`|`store.ts` — write/delete/move, undo, cross-tab, `sane`, seeding|
-|`tests/backup.test.ts`|`backup.ts` — hostile input, orphan reparenting|
-|`tests/feeds.test.ts`|`feeds.ts` — id stability, errors, cross-tab undo|
-|`tests/life.test.ts`|`life.ts` — `lifeCellAt` inverse, splits, density policy, milestones, `lifeFraction`, loupe transpose, a run's bands|
-|`tests/year.test.ts`|`year.ts` — `dayAngle` ↔ `dayAtPoint`, month marks, `unroller`'s two ends|
-|`tests/week.test.ts`|`week.ts` — layout bounds, the scroll floor, the zoom's diameter contract|
-|`tests/sun.test.ts`|`sun.ts` — NOAA references, polar cases, no clipping|
-|`tests/moon.test.ts`|`moon.ts` — published new/full anchors, the 200-cycle walk, the eight names|
-|`tests/remind.test.ts`|`remind.ts` — the one-minute window, never catching up, all-day and ticked tasks|
-|`tests/worker.test.ts`|`ssrfBlockReason` — the hostname table|
-|`tests/worker-proxy.test.ts`|`/api/feed` — routing, redirect chain, caps|
-|`tests/west/*.test.ts`|zone-sensitive invariants, re-run west of UTC|
+| test file                    | covers                                                                                                               |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `tests/helpers.ts`           | **not a test** — fixtures, builders, matchers. Extend, never fork                                                    |
+| `tests/time.test.ts`         | `time.ts` — day arithmetic, DST, `parseClock`, `zonedToUtc`                                                          |
+| `tests/quickadd.test.ts`     | `quickadd.ts` — every date form, the scanner, repeats, ambiguous pairs                                               |
+| `tests/fuzzy.test.ts`        | `fuzzy.ts` — matching, the forgiven typo, ranking order                                                              |
+| `tests/dial.test.ts`         | `dial.ts` — `angleAt` ↔ `minutesAtPoint`, `arcPath`, `capInset`, `arcLabel`                                          |
+| `tests/recur.test.ts`        | `recur.ts` — RFC 5545 §3.8.5.3 worked examples, BY\* , BYSETPOS                                                      |
+| `tests/describe.test.ts`     | `describe.ts` — `isExpressible`'s gate, `describeRule`'s clause order, BYSETPOS as an adjective                      |
+| `tests/events.test.ts`       | `events.ts` — clipping, lanes, overrides, `freeGaps`, `colorOf`, `inkOn`                                             |
+| `tests/ics.test.ts`          | `ics.ts` — round-trip, folding, escaping, malformed feeds                                                            |
+| `tests/store.test.ts`        | `store.ts` — write/delete/move, undo, cross-tab, `sane`, seeding                                                     |
+| `tests/backup.test.ts`       | `backup.ts` — hostile input, orphan reparenting                                                                      |
+| `tests/feeds.test.ts`        | `feeds.ts` — id stability, errors, cross-tab undo                                                                    |
+| `tests/life.test.ts`         | `life.ts` — `lifeCellAt` inverse, splits, density policy, milestones, `lifeFraction`, loupe transpose, a run's bands |
+| `tests/year.test.ts`         | `year.ts` — `dayAngle` ↔ `dayAtPoint`, month marks, `unroller`'s two ends                                            |
+| `tests/week.test.ts`         | `week.ts` — layout bounds, the scroll floor, the zoom's diameter contract                                            |
+| `tests/sun.test.ts`          | `sun.ts` — NOAA references, polar cases, no clipping                                                                 |
+| `tests/moon.test.ts`         | `moon.ts` — published new/full anchors, the 200-cycle walk, the eight names                                          |
+| `tests/remind.test.ts`       | `remind.ts` — the one-minute window, never catching up, all-day and ticked tasks                                     |
+| `tests/worker.test.ts`       | `ssrfBlockReason` — the hostname table                                                                               |
+| `tests/worker-proxy.test.ts` | `/api/feed` — routing, redirect chain, caps                                                                          |
+| `tests/west/*.test.ts`       | zone-sensitive invariants, re-run west of UTC                                                                        |
 
 **Two projects; the split is load-bearing.** `local` runs `tests/**` at `TZ=Europe/Berlin`; `west` runs `tests/west/**` at `TZ=America/Los_Angeles`, own process. Nearly every date function here is deliberately local-time, so an unpinned suite passes in one zone and fails in the other. Own process because a TZ change after Node started is not reliably observed. **Touching `dayKey`, `zonedToUtc`, `startOfDay`, `addDays` or anything day-keyed? Add the case to `tests/west/` too.**
 
 **`tests/helpers.ts` = shared floor.** Import it in every test file — that import registers the matchers.
 
-|helper|use|
-|---|---|
-|`at("2026-03-08 09:30")`|local `Date`. **Never `new Date("2026-01-01")`** — parses as UTC|
-|`ms(stamp)` / `day("2026-03-08")`|epoch ms / local midnight|
-|`event({ start: "…", title: "…" })`|full `CalEvent`, all 16 recurrence fields defaulted|
-|`calendar()` / `rule()` / `byDay("1FR")`|`Calendar` / `Recurrence` / `WeekdayRule[]`|
-|`MemoryStorage`|`Storage` stand-in; `.quota = 0` makes `setItem` throw|
-|`show(dateOrMs)`|`2026-03-08 09:30 Sun` — the one way an instant is printed|
+| helper                                   | use                                                              |
+| ---------------------------------------- | ---------------------------------------------------------------- |
+| `at("2026-03-08 09:30")`                 | local `Date`. **Never `new Date("2026-01-01")`** — parses as UTC |
+| `ms(stamp)` / `day("2026-03-08")`        | epoch ms / local midnight                                        |
+| `event({ start: "…", title: "…" })`      | full `CalEvent`, all 16 recurrence fields defaulted              |
+| `calendar()` / `rule()` / `byDay("1FR")` | `Calendar` / `Recurrence` / `WeekdayRule[]`                      |
+| `MemoryStorage`                          | `Storage` stand-in; `.quota = 0` makes `setItem` throw           |
+| `show(dateOrMs)`                         | `2026-03-08 09:30 Sun` — the one way an instant is printed       |
 
 **Three matchers, and instants MUST use them** — they print aligned actual/expected columns with `(missing)` / `(unexpected)` / `(out of order)`, because a 40-instance RRULE diff as raw epoch integers is not a diff:
 
@@ -381,9 +381,9 @@ expect(occ.start).toBeSameInstantAs("2026-03-08 09:00");
 - **Zone ring measured against the viewer, never against UTC.** `delta = zoneOffset(now, zone) + now.getTimezoneOffset()` — the caption reads `Tokyo +7`, because you are the origin of this dial and "GMT+9" makes the reader do subtraction. Also the only form staying right in the weeks when one of two zones has changed for DST and the other has not.
 - **`sun.ts` returns minutes since local midnight and does not clip.** A place far from the viewer legitimately produces a negative sunrise or a sunset past 1440; `Face.tsx` samples inside `[0, 1440]` and lets the rest fall off the face.
 - **Place chosen by city, never typed.** `settings.place` carries the IANA zone it was picked by, and `placeForZone` is the only thing turning a zone into coordinates, so the picker can always show what the band is drawing. `store.parse()` drops a stored place with no `zone`: a band the settings panel says is off is worse than no band. Coordinates come from `zone.tab`, so they name the zone's principal city — a couple of minutes of sunrise error at worst, finer than the band draws.
-- **The moon lives in the sidebar, the one thing here that draws something the calendar does not contain.** Not on the face: every radius the dial gains costs `PAD` and legibility, and unlike the lightcycle band the moon is not a fact about the _day_. It reads the _selected_ day, which is what earns it — arrowing through a week walks the moon through its week. `moonPhase: "off"` by default, because chrome does not appear unasked.
-- **`Aperture`'s bites are exactly the moon's own radius; that equality is the whole mechanism.** A disc occulted by an equal disc leaves a lune, the shape a crescent moon is; an end that merely tapers to a point cuts a _wedge_, which is not. It follows that the journey is `4r` end to end. The bites clip the **disc only**, never the sky, so the slot is free to be whatever shape reads best. The disc is driven by `apStandoff(illumination)` rather than linearly in phase: linear is what real complications do and why they show a crescent close to twice as full as the sky's, forgivable on a wrist and not two centimetres from a caption printing the true figure.
-- **`light(m)`'s rule again, for the moon: `Minimal` draws the terminator as an ellipse of `rx = r|1 − 2k|` over the lit half**, filled with the sky below half and with the moon above it. `k = 0.5` collapses it to nothing, exactly the straight edge a quarter moon has — one function covers all eight phases with no branch per phase.
+- **The moon lives in the sidebar, the one thing here that draws something the calendar does not contain.** Not on the face: every radius the dial gains costs `PAD` and legibility, and unlike the lightcycle band the moon is not a fact about the _day_. It reads the _selected_ day, which is what earns it — arrowing through a week walks the moon through its week. `moon: false` by default, because chrome does not appear unasked.
+- **One drawing, in this app's own voice.** There was a second register — `Aperture`, the disc occulted behind a watchmaker's window by bites of exactly its own radius, in night blue with stars — and it went: the mechanism was the more interesting picture and it was the only chrome in circal that was neither greyscale nor flat, which is a fight eyecandy does not get to win. `MOON_STYLES` / `MoonStyle` went with it; a stored `moonPhase` string becomes `moon` in `migrateSettings`, and a backup's in `readSettings`, since either register was a moon somebody asked for.
+- **`light(m)`'s rule again, for the moon: the terminator is an ellipse of `rx = r|1 − 2k|` over the lit half**, filled with black below half and with the moon above it. `k = 0.5` collapses it to nothing, exactly the straight edge a quarter moon has — one function covers all eight phases with no branch per phase. Only the **lit** part is drawn: no circumference and no dark limb, so a crescent is a crescent rather than a disc with a crescent on it, and a new moon is nothing at all. The shadow is still a painted `#000000` fill rather than a hole, because it occludes the lit half by covering it.
 
 ### Shell, sidebar, top bar, focus
 

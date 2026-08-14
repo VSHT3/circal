@@ -165,7 +165,7 @@ export default function Settings({
     lifeLoupe,
     yearQuote,
     inheritMarks,
-    moonPhase,
+    moon,
     remind,
     remindLead,
     defaultDuration,
@@ -510,19 +510,15 @@ export default function Settings({
                   ring" rule says it may never be. */}
               <Section title="Sidebar">
                 <FieldRow label="Moon" align="top" last>
-                  <Segmented
-                    value={moonPhase}
-                    onChange={store.setMoonPhase}
-                    options={[
-                      { id: "off" as const, label: "Off" },
-                      { id: "minimal" as const, label: "Minimal" },
-                      { id: "aperture" as const, label: "Aperture" },
-                    ]}
+                  <Toggle
+                    label="Phase"
+                    name="Moon phase in the sidebar"
+                    checked={moon}
+                    onChange={(on) => store.setToggle("moon", on)}
                   />
                   <span className="caption">
-                    The phase of the selected day. Minimal draws the terminator; Aperture rides the
-                    disc behind a window and lets its lobes cut the crescent, which is what the
-                    mechanism on a wrist does
+                    The phase of the selected day, drawn as the astronomy: one disc, the terminator
+                    as an ellipse over it, no outline
                   </span>
                 </FieldRow>
               </Section>

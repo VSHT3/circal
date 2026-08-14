@@ -153,11 +153,10 @@ export function readSettings(value: unknown): Settings {
     // Both of these appear because the user asked for them, so an absent one
     // is off rather than on — the opposite reading from the dial switches
     // above, and for the opposite reason: one is a thing the face already
-    // drew, these are things that were never there. `sane()` pins the two
-    // that are picked off a list.
-    moonPhase: (typeof value.moonPhase === "string"
-      ? value.moonPhase
-      : DEFAULT_SETTINGS.moonPhase) as Settings["moonPhase"],
+    // drew, these are things that were never there. `sane()` pins the lead.
+    // A file written while the moon had two registers carries the string
+    // `moonPhase` instead, and either register is a moon that was asked for.
+    moon: value.moon === true || (typeof value.moonPhase === "string" && value.moonPhase !== "off"),
     remind: value.remind === true,
     remindLead:
       typeof value.remindLead === "number" ? value.remindLead : DEFAULT_SETTINGS.remindLead,

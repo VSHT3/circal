@@ -41,7 +41,7 @@ export default function Sidebar({
   now,
   events,
   calendars,
-  moonPhase,
+  moon,
   actions,
 }: SidebarProps) {
   const drawer = mode === "drawer";
@@ -195,7 +195,7 @@ export default function Sidebar({
                 sits at the foot of a dial. It reads the *selected* day, which
                 is what makes it worth having: arrowing through a week walks
                 the moon through its week. */}
-      <MoonPanel day={day} style={moonPhase} />
+      {moon && <MoonPanel day={day} />}
     </div>
   );
 

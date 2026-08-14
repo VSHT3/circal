@@ -19,17 +19,16 @@ code it constrains.
 
 ## the list, and what I think of it
 
-0. ~~Moonphases somewhere as an optional eyecandy~~ — _done, in the sidebar, in two registers._ It
-   is not on the face and it is not going to be: every radius the dial gains costs `PAD` and
-   legibility, and unlike the lightcycle band the moon is not a fact about the _day_. It reads the
-   **selected** day, which is what earns it — arrowing through a week walks the moon through its
-   week. `Minimal` draws the terminator as an ellipse; `Aperture` occults the disc behind a curved
-   window with bites of exactly the moon's own radius, which is the mechanism itself rather than a
-   picture of one, and it is driven by the lit fraction rather than linearly in phase — a real
-   complication's linear disc shows a crescent close to twice as full as the sky's, which is
-   forgivable on a wrist and not two centimetres from a caption printing the true figure. Both are
-   shipped because the question was which register this app wants, and that is worth being able to
-   switch between rather than arguing about.
+0. ~~Moonphases somewhere as an optional eyecandy~~ — _done, in the sidebar._ It is not on the face
+   and it is not going to be: every radius the dial gains costs `PAD` and legibility, and unlike the
+   lightcycle band the moon is not a fact about the _day_. It reads the **selected** day, which is
+   what earns it — arrowing through a week walks the moon through its week. It draws the lit part
+   and nothing else, the terminator as an ellipse over it: no outline, no dark limb. There was a
+   second register
+   for a while — the disc occulted behind a watchmaker's aperture, bites of exactly its own radius,
+   night blue and a few stars — and it went: the mechanism was the more interesting drawing and it
+   was the only chrome in circal that was neither greyscale nor flat, which is a fight the eyecandy
+   does not get to win.
 1. ~~Intro animation like what animejs has~~ — _done, and the first attempt is the instructive
    failure._ That one was a rotating conic-gradient mask over the whole instrument: one line of
    CSS, honest about the geometry, and **a wipe**. Nothing had mass, nothing arrived, and the
