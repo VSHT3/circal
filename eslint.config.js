@@ -10,8 +10,11 @@ import reactHooks from "eslint-plugin-react-hooks";
 import globals from "globals";
 
 export default defineConfig([
-  // `.wrangler/` holds the dev server's generated bundles — not source.
-  globalIgnores(["dist/", ".astro/", ".wrangler/", "node_modules/", "public/"]),
+  // `.wrangler/` holds the dev server's generated bundles — not source, and
+  // neither is `mcp/dist/`, which is esbuild's single-file output for the MCP
+  // server. Linting a bundle reports every tree-shaken import as an unused
+  // variable, which is a paragraph of warnings about code nobody wrote.
+  globalIgnores(["dist/", ".astro/", ".wrangler/", "mcp/dist/", "node_modules/", "public/"]),
 
   js.configs.recommended,
   tseslint.configs.recommended,

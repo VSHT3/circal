@@ -20,12 +20,15 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
+    "build:mcp": "esbuild mcp/index.ts --bundle --platform=node --format=esm --target=node22 --outfile=mcp/dist/circal-mcp.mjs --packages=external --alias:@=./src",
+    "mcp": "pnpm build:mcp && node mcp/dist/circal-mcp.mjs",
     "verify": "pnpm format:check && pnpm lint && pnpm check && pnpm test && pnpm build"
   },
   "dependencies": {
     "@astrojs/react": "^6.0.2",
     "@fontsource-variable/geist": "^5.3.0",
     "@fontsource-variable/geist-mono": "^5.3.0",
+    "@modelcontextprotocol/server": "^2.0.0",
     "@tailwindcss/vite": "^4.3.3",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
@@ -36,12 +39,14 @@
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "tailwind-merge": "^3.6.0",
-    "tailwindcss": "^4.3.3"
+    "tailwindcss": "^4.3.3",
+    "zod": "^4.2.0"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.10",
     "@eslint/js": "^10.0.1",
     "@types/node": "^26.1.2",
+    "esbuild": "^0.28.2",
     "eslint": "^10.8.0",
     "eslint-plugin-astro": "^3.0.1",
     "eslint-plugin-jsx-a11y": "^6.10.2",

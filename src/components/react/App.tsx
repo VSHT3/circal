@@ -35,6 +35,7 @@ import { cue } from "@/lib/feedback";
 import { placeForZone } from "@/lib/places";
 import { refreshFeed } from "@/lib/feeds";
 import { notify } from "@/lib/notify";
+import { startMirror } from "@/lib/mirrorLink";
 import { defaultStart } from "@/lib/quickadd";
 import {
   MINUTES_PER_DAY,
@@ -559,6 +560,11 @@ function Shell() {
   // Subscriptions are a mirror, so they are pulled on arrival, on a timer and
   // whenever the tab comes back — see `useFeedRefresh`.
   useFeedRefresh();
+
+  // The file mirror: its own external store, like `mirrorLink`'s sibling
+  // `notify` — started once for this tab, torn down with it, and otherwise
+  // driving `Settings`' Mirror section entirely on its own.
+  useEffect(() => startMirror(), []);
 
   /**
    * Ambient, and the fullscreen it does not take on its own.

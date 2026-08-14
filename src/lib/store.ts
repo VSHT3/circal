@@ -41,12 +41,11 @@ import {
   instantKey,
   keyToInstant,
   readRecurrence,
-  splitRule,
-  toggleDoneKey,
   type CalEvent,
   type Calendar,
   type Repeat,
 } from "./events";
+import { applyRemove, applySplit, applyToggleDone, applyTruncate, applyUpdate } from "./mutate";
 import { DEFAULT_DURATION, MIN_DURATION } from "./quickadd";
 import { REMIND_LEADS } from "./remind";
 import type { PickedPlace } from "./places";
@@ -1219,87 +1218,34 @@ export const store = {
 
   update(id: string, patch: Partial<CalEvent>) {
     const base = fresh();
-    commit({
-      ...base,
-      events: base.events.map((e) => (e.id === id ? { ...e, ...patch } : e)),
-    });
+    commit({ ...base, events: applyUpdate(base.events, id, patch) });
   },
 
-  /**
-   * Tick one occurrence of a task off, or back on.
-   *
-   * By occurrence, not by event: a weekly task ticked this Monday is not
-   * ticked every Monday, and `doneKeys` is the list that says which. Recorded
-   * in history like any other edit — a tick is a keystroke away and ⌘Z is the
-   * only way back from the wrong one.
-   */
+  /** Recorded in history like any other edit — a tick is a keystroke away and
+   *  ⌘Z is the only way back from the wrong one. */
   toggleDone(id: string, at: Date | number) {
     const base = fresh();
-    commit({
-      ...base,
-      events: base.events.map((e) =>
-        e.id === id ? { ...e, doneKeys: toggleDoneKey(e.doneKeys, at) } : e,
-      ),
-    });
+    commit({ ...base, events: applyToggleDone(base.events, id, at) });
   },
 
-  /**
-   * The event and every override that detached from it — deleting a series
-   * cannot leave its exceptions behind, because an orphaned override is an
-   * ordinary event on the day it replaced, with nothing left to explain it and
-   * no surface that can find it.
-   */
   remove(id: string) {
     const base = fresh();
-    commit({ ...base, events: base.events.filter((e) => e.id !== id && e.seriesId !== id) });
+    commit({ ...base, events: applyRemove(base.events, id) });
   },
 
-  /**
-   * "This and all future events": the series stops the instant before `at` and
-   * a new one starts there carrying `tail`, in one undoable step — two commits
-   * would be two ⌘Z presses for one edit, and the state between them is a
-   * series that has lost its future.
-   *
-   * An override past the cut is re-pointed at the new series rather than
-   * dropped. Its `seriesKey` still names the instant it replaces; leaving it on
-   * the head means nothing suppresses that occurrence any more, so the day
-   * shows the override *and* the new series' own arc.
-   */
+  /** One commit, not two — a second would be a second ⌘Z press for one edit,
+   *  and the state between them would be a series with no future. */
   splitSeries(id: string, at: number, tail: Omit<CalEvent, "id">): CalEvent | null {
     const base = fresh();
-    const original = base.events.find((e) => e.id === id);
-    if (!original) return null;
-    const split = splitRule(original, original.start, at);
-    const created: CalEvent = { ...tail, ...split.tail, seriesId: "", seriesKey: "", id: newId() };
-    const seed = new Date(original.start);
-    const detached = (e: CalEvent) =>
-      e.seriesId === id && (keyToInstant(e.seriesKey, seed) ?? -Infinity) >= at;
-    commit({
-      ...base,
-      events: [
-        ...base.events.map((e) =>
-          e.id === id ? { ...e, ...split.head } : detached(e) ? { ...e, seriesId: created.id } : e,
-        ),
-        created,
-      ],
-    });
-    return created;
+    const split = applySplit(base.events, id, at, tail, newId);
+    if (!split.created) return null;
+    commit({ ...base, events: split.events });
+    return split.created;
   },
 
-  /** "Delete this and all future events": the same cut with nothing on the far
-   *  side of it, so the overrides past it go rather than move. */
   truncateSeries(id: string, at: number) {
     const base = fresh();
-    const original = base.events.find((e) => e.id === id);
-    if (!original) return;
-    const split = splitRule(original, original.start, at);
-    const seed = new Date(original.start);
-    commit({
-      ...base,
-      events: base.events
-        .filter((e) => !(e.seriesId === id && (keyToInstant(e.seriesKey, seed) ?? -Infinity) >= at))
-        .map((e) => (e.id === id ? { ...e, ...split.head } : e)),
-    });
+    commit({ ...base, events: applyTruncate(base.events, id, at) });
   },
 
   /* ------------------------------ calendars ------------------------------- */
@@ -1604,6 +1550,34 @@ export const store = {
       true,
       // The one undoable action that replaces settings, so the one whose undo
       // step has to carry them back.
+      true,
+    );
+  },
+
+  /**
+   * A whole-store replacement that came from outside this browser — the
+   * mirror file, written by something that is not a circal tab. Undoable and
+   * owns its settings, exactly as `restore` does, so a wrong answer from an
+   * assistant is one ⌘Z away.
+   *
+   * It says nothing itself because the caller is the only one that can say
+   * anything useful: it knows which file moved and whether this was a sync or
+   * a reconnect, and this action knows neither.
+   */
+  adopt(next: Pick<Snapshot, "events" | "calendars" | "settings">) {
+    // Only for its side effect, the same reason `restore` calls it: `commit`
+    // records the *current* snapshot as the step to undo onto.
+    fresh();
+    sweepFeeds(next.calendars);
+    commit(
+      {
+        schema: SCHEMA,
+        events: next.events,
+        calendars: next.calendars,
+        settings: sane({ ...DEFAULT_SETTINGS, ...next.settings }),
+        feeds: readFeeds(next.calendars),
+      },
+      true,
       true,
     );
   },

@@ -465,6 +465,34 @@ Install it (Add to Home Screen, or the browser's install button) and it works
 offline. On iOS that is also what stops the seven-day storage eviction from
 taking your calendar with it.
 
+## The mirror, and an AI that can read it
+
+Optional, off, and in **Settings** → **Mirror**. Connect a file and circal
+keeps a live `.json` copy of the whole store in it — the same format
+**Backup** writes, so the two are interchangeable. That is a backup which
+survives "Clear site data" without anybody remembering to take it.
+
+It is also the one surface something outside the browser can hold. `mcp/` is a
+small [MCP](https://modelcontextprotocol.io) server that reads and writes that
+same file, so an assistant in Claude, Claude Code or Cursor can answer what is
+on Thursday, find you a free hour, and write the appointment you just agreed
+to. It works with the tab closed, because a file does.
+
+It is not a second calendar engine. The server imports circal's own domain
+layer, so a typed line goes through the same grammar `⌘P` uses and a repeating
+event asks the same three-way question the editor asks — and **refuses** to
+act on one until it is answered, rather than guessing that "delete my standup"
+meant all fifty-two of them. Subscriptions stay read-only there too.
+
+```sh
+pnpm build:mcp   # → mcp/dist/circal-mcp.mjs
+```
+
+See [`mcp/README.md`](mcp/README.md) for the client config. One thing to know
+before switching it on: while the file is connected, anything that can read
+that file can read and change your calendar. Nothing on the network changes —
+there is still no account, no sync and no server.
+
 ## Interaction
 
 |                           |                                                                                   |

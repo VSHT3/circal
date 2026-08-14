@@ -19,11 +19,22 @@
 
 import { useState, type ReactNode } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { ArrowUpRight, Download, RefreshCw, RotateCcw, Trash2, Upload, X } from "lucide-react";
+import {
+  ArrowUpRight,
+  Download,
+  Link2,
+  RefreshCw,
+  RotateCcw,
+  Trash2,
+  Unlink2,
+  Upload,
+  X,
+} from "lucide-react";
 import { refreshFeed } from "@/lib/feeds";
 import { canVibrate } from "@/lib/feedback";
 import { formatCount, formatLifeDate, lifeSpan } from "@/lib/life";
 import { notify } from "@/lib/notify";
+import { mirror, mirrorSupported, useMirror } from "@/lib/mirrorLink";
 import { REMIND_LEADS } from "@/lib/remind";
 import {
   AMBIENT_DELAYS,
@@ -41,6 +52,7 @@ import {
   allZones,
   atMinutes,
   dayKey,
+  formatDuration,
   formatTimeShort,
   fromDayKey,
   startOfDay,
@@ -52,6 +64,7 @@ import type { Calendar } from "@/lib/events";
 import { useFocusTrap } from "@/components/react/hooks";
 import type { SettingsPanelProps } from "@/components/react/types";
 import {
+  ActionPill,
   DateField,
   FieldRow,
   IconButton,
@@ -119,6 +132,15 @@ function relativeAge(at: number): string {
   return hours < 24 ? `${hours}h ago` : `${Math.round(hours / 24)}d ago`;
 }
 
+/** "just now" / "3m ago" / "1h 20m ago" — reuses `formatDuration` so a
+ *  mirror's age reads in the same voice as every other duration in the app,
+ *  rather than inventing a second one for this single caption. */
+function mirrorAge(at: number): string {
+  if (!at) return "never";
+  const minutes = (Date.now() - at) / 60_000;
+  return minutes < 1 ? "just now" : `${formatDuration(minutes)} ago`;
+}
+
 /** A group of rows under one word, as a card. The titles are the panel's
  *  only orientation, and a card is what lets the group be moved into a
  *  column without its rows coming apart from their heading — `break-inside`
@@ -180,6 +202,7 @@ export default function Settings({
   const [feedUrl, setFeedUrl] = useState("");
   const [pulling, setPulling] = useState<string | null>(null);
   const dialog = useFocusTrap<HTMLDivElement>(open);
+  const mirrorStatus = useMirror();
 
   const subscriptions = calendars.filter((c) => c.feed);
   const sun = place ? sunTimes(startOfDay(new Date()), place) : null;
@@ -193,6 +216,9 @@ export default function Settings({
   /** Same rule for the vibration switch: no motor, no offer. Desktop and iOS
    *  are both in that camp, and only the sound half is shown there. */
   const vibrates = canVibrate();
+  /** Same rule for the mirror: no file handle, no offer — an unusable
+   *  Connect button is worse than a section that says plainly it cannot. */
+  const canMirror = mirrorSupported();
 
   /** The life the grid would draw with what is set right now — the row prints
    *  where it ends, so the number beside it is never an abstraction. Plain
@@ -817,6 +843,98 @@ export default function Settings({
                   <span className="caption">
                     Events live only in this browser. A backup is the only copy that survives it
                   </span>
+                </FieldRow>
+              </Section>
+
+              {/* Same subject as Data/Backup above — the only copy of the
+                  user's calendar — but this copy is *live*: a file on disk
+                  the app keeps in sync rather than a snapshot taken once and
+                  set aside. That is also what makes it the one surface an
+                  outside program (an AI assistant, a script) can read and
+                  write without circal growing a server. */}
+              <Section title="Mirror">
+                <FieldRow label="File" align="top" last>
+                  {!canMirror ? (
+                    <span className="caption">
+                      This browser can't hold a file handle for a live mirror — Export above still
+                      works
+                    </span>
+                  ) : (
+                    <>
+                      {mirrorStatus.state === "off" && (
+                        <>
+                          <ActionPill
+                            label="Connect a mirror file"
+                            icon={<Link2 size={13} strokeWidth={1.75} />}
+                            onClick={() => void mirror.connect()}
+                          />
+                          <span className="caption">
+                            Circal keeps a live .json copy in a file you choose. That file is a
+                            backup that survives "Clear site data", and it's the file a local AI
+                            assistant reads and writes
+                          </span>
+                        </>
+                      )}
+                      {mirrorStatus.state === "prompt" && (
+                        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
+                          <ActionPill
+                            label="Resume the mirror"
+                            icon={<Link2 size={13} strokeWidth={1.75} />}
+                            onClick={() => void mirror.reconnect()}
+                          />
+                          <span className="truncate text-[13px] text-ink">{mirrorStatus.name}</span>
+                        </div>
+                      )}
+                      {mirrorStatus.state === "live" && (
+                        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
+                          <span className="flex min-w-0 flex-col">
+                            <span className="truncate text-[13px] text-ink">
+                              {mirrorStatus.name}
+                            </span>
+                            <span className="caption tabular-nums">
+                              synced {mirrorAge(mirrorStatus.at)}
+                            </span>
+                          </span>
+                          <ActionPill
+                            label="Sync now"
+                            icon={<RefreshCw size={13} strokeWidth={1.75} />}
+                            onClick={() => void mirror.syncNow()}
+                          />
+                          <ActionPill
+                            label="Disconnect the mirror"
+                            icon={<Unlink2 size={13} strokeWidth={1.75} />}
+                            onClick={() => void mirror.disconnect()}
+                          />
+                        </div>
+                      )}
+                      {mirrorStatus.state === "error" && (
+                        <>
+                          <span className="caption text-danger">{mirrorStatus.message}</span>
+                          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
+                            <ActionPill
+                              label="Resume the mirror"
+                              icon={<Link2 size={13} strokeWidth={1.75} />}
+                              onClick={() => void mirror.reconnect()}
+                            />
+                            <ActionPill
+                              label="Disconnect the mirror"
+                              icon={<Unlink2 size={13} strokeWidth={1.75} />}
+                              onClick={() => void mirror.disconnect()}
+                            />
+                          </div>
+                        </>
+                      )}
+                      {/* Said plainly, once, regardless of state: a file
+                          circal keeps open for an assistant to write is a
+                          file anything that can read it can write to, and
+                          that is a property of the feature, not a warning
+                          that goes away once you already trust it. */}
+                      <span className="caption">
+                        While the file is connected, anything that can read it can read and change
+                        your calendar
+                      </span>
+                    </>
+                  )}
                 </FieldRow>
               </Section>
 

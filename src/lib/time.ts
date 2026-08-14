@@ -376,7 +376,7 @@ export function formatOffset(minutes: number): string {
   return rest === 0 ? `${sign}${hours}` : `${sign}${hours}:${`${rest}`.padStart(2, "0")}`;
 }
 
-function localZone(): string {
+export function localZone(): string {
   return Intl.DateTimeFormat().resolvedOptions().timeZone;
 }
 

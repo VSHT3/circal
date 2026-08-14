@@ -276,12 +276,21 @@ export function readCalendar(value: unknown): Calendar | null {
   };
 }
 
-export function importBackup(text: string) {
-  const parsed: unknown = JSON.parse(text);
-  if (!isRecord(parsed) || parsed.app !== "circal") {
-    notify("Not a circal backup", "error");
-    return;
-  }
+/**
+ * The validated contents of a backup, or why it is not one.
+ *
+ * Split out of `importBackup` because the mirror file *is* a backup file —
+ * same shape, same readers — and a second parser for it would be a second
+ * opinion about what a legal event is, which is the mistake `recur.ts`
+ * already documents one layer down. `importBackup` is this plus a store write
+ * and two notices; `mirror.ts` is this plus a revision number.
+ */
+export type BackupRead =
+  | { ok: true; events: CalEvent[]; calendars: Calendar[]; settings: Settings }
+  | { ok: false; reason: "not-circal" | "no-calendars" };
+
+export function readBackup(parsed: unknown): BackupRead {
+  if (!isRecord(parsed) || parsed.app !== "circal") return { ok: false, reason: "not-circal" };
   const events = (Array.isArray(parsed.events) ? parsed.events : [])
     .map(readEvent)
     .filter((e): e is CalEvent => e !== null);
@@ -289,10 +298,7 @@ export function importBackup(text: string) {
     .map(readCalendar)
     .filter((c): c is Calendar => c !== null);
 
-  if (calendars.length === 0) {
-    notify("Backup has no calendars", "error");
-    return;
-  }
+  if (calendars.length === 0) return { ok: false, reason: "no-calendars" };
   // An event pointing at a calendar the backup did not carry would render in
   // the orphan colour forever; park it on the first calendar instead.
   const known = new Set(calendars.map((c) => c.id));
@@ -302,7 +308,8 @@ export function importBackup(text: string) {
   // seen, and there is no parent here to hide it from — so it stands alone.
   const seriesIds = new Set(events.map((e) => e.id));
 
-  store.restore({
+  return {
+    ok: true,
     events: events.map((e) => {
       const parented = known.has(e.calendarId) ? e : { ...e, calendarId: fallback };
       return e.seriesId && !seriesIds.has(e.seriesId)
@@ -311,8 +318,20 @@ export function importBackup(text: string) {
     }),
     calendars,
     settings: readSettings(parsed.settings),
-  });
-  notify(`Restored ${events.length} events — ⌘Z to undo`);
+  };
+}
+
+export function importBackup(text: string) {
+  const read = readBackup(JSON.parse(text));
+  if (!read.ok) {
+    notify(
+      read.reason === "not-circal" ? "Not a circal backup" : "Backup has no calendars",
+      "error",
+    );
+    return;
+  }
+  store.restore(read);
+  notify(`Restored ${read.events.length} events — ⌘Z to undo`);
 }
 
 function importIcs(text: string, filename: string) {
