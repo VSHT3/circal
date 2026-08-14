@@ -144,6 +144,23 @@ export function atMinutes(day: Date, minutes: number): Date {
  * so the only thing missing is the inverse direction, which is `zonedToUtc`.
  */
 
+/**
+ * Whether `value` names a zone `Intl` recognises — the one validity test a
+ * zone gets anywhere in this app. Throwing is the only signal the platform
+ * gives (there is no membership list cheap enough to probe per property), so
+ * `ics.ts`'s reader and `backup.ts`'s route through this rather than each
+ * keeping its own copy of the same try/catch.
+ */
+export function isZone(value: string): boolean {
+  if (!value) return false;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: value });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** `Intl.DateTimeFormat` construction is expensive and these are hot. */
 const ZONE_FORMATTERS = new Map<string, Intl.DateTimeFormat>();
 
@@ -221,6 +238,11 @@ export function zoneOffset(at: Date, zone: string): number {
  *    immediately after the gap.
  *  - **Fall back.** The wall time happens twice. Both candidates read back,
  *    and the pre-transition offset is taken, which is the first of the two.
+ *
+ * The trailing `second` (default `0`) exists for `instantOfWall`: a
+ * sub-daily rule's own seconds must survive the round trip through wall
+ * time, and a truncated one would land the read-back instant up to
+ * fifty-nine seconds off the source.
  */
 export function zonedToUtc(
   year: number,
@@ -229,8 +251,9 @@ export function zonedToUtc(
   hour: number,
   minute: number,
   zone: string,
+  second = 0,
 ): number {
-  const naive = Date.UTC(year, month - 1, day, hour, minute);
+  const naive = Date.UTC(year, month - 1, day, hour, minute, second);
   const before = naive - zoneOffset(new Date(naive - DAY_MS), zone) * 60_000;
   const after = naive - zoneOffset(new Date(naive + DAY_MS), zone) * 60_000;
 
@@ -241,13 +264,55 @@ export function zonedToUtc(
       p.month === month &&
       p.day === day &&
       p.hour === hour &&
-      p.minute === minute
+      p.minute === minute &&
+      p.second === second
     );
   };
 
   if (reads(before)) return before;
   if (reads(after)) return after;
   return before;
+}
+
+/**
+ * The wall clock `zone` is showing at `at`, as a *local* `Date` — its
+ * `getFullYear`/`getHours`/… read like `zone`'s own clock even though the
+ * engine still thinks they are this machine's. Built off `zoneParts` rather
+ * than an offset sum, because a wall clock is six fields and an offset is
+ * one number, and going through the `Date` constructor once is what makes
+ * `getDay()` and every calendar function downstream agree with what `zone`
+ * would actually print.
+ *
+ * Paired with `instantOfWall`, its exact inverse. A recurrence rule read
+ * from another zone's calendar is that rule walked over *that zone's* wall
+ * clock — its own DST transitions, on its own dates, not this machine's —
+ * so the whole of zone support for recurrence is this: shift into wall
+ * time with `wallClockIn`, walk `startsBetween` over it exactly as if it
+ * were the local rule it now looks like, and shift the result back with
+ * `instantOfWall`.
+ */
+export function wallClockIn(at: Date | number, zone: string): Date {
+  const p = zoneParts(new Date(at), zone);
+  return new Date(p.year, p.month - 1, p.day, p.hour, p.minute, p.second);
+}
+
+/**
+ * The inverse of `wallClockIn`: a wall-clock `Date` — one whose fields are
+ * to be read as `zone`'s own clock, not this machine's — back to the
+ * instant it names. `zonedToUtc` already carries the ambiguous-hour rules
+ * a DST transition needs; the trailing second is `wall.getSeconds()`,
+ * or a sub-daily rule loses them to `zonedToUtc`'s default of `:00`.
+ */
+export function instantOfWall(wall: Date, zone: string): number {
+  return zonedToUtc(
+    wall.getFullYear(),
+    wall.getMonth() + 1,
+    wall.getDate(),
+    wall.getHours(),
+    wall.getMinutes(),
+    zone,
+    wall.getSeconds(),
+  );
 }
 
 /**

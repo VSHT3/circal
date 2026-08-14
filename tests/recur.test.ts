@@ -17,8 +17,10 @@ import {
   repeats,
   splitRule,
   startsBetween,
+  startsBetweenIn,
   type Recurrence,
 } from "@/lib/recur";
+import { wallClockIn, zonedToUtc } from "@/lib/time";
 import { at, byDay, ms, rule } from "./helpers";
 
 /* ------------------------ RFC 5545 §3.8.5.3, day-level ------------------------ */
@@ -711,6 +713,80 @@ describe("DST — Europe/Berlin", () => {
       "2026-10-27 09:00",
       "2026-10-28 09:00",
     ]);
+  });
+});
+
+/* ------------------------------- startsBetweenIn ----------------------------- */
+
+describe("startsBetweenIn", () => {
+  it("a weekly 09:00 New York rule read from Berlin holds 09:00 New York across the three weeks the two zones' transition dates disagree", () => {
+    // AUDIT.md's own example: the US springs forward 2026-03-08, the EU
+    // 2026-03-29 — three weeks apart — so a rule read against *Berlin's*
+    // own transition (this file's pinned TZ) would land an hour wrong on
+    // every Sunday in between if the walk used the reader's zone instead
+    // of the event's own.
+    const seed = zonedToUtc(2026, 2, 15, 9, 0, "America/New_York");
+    const from = zonedToUtc(2026, 2, 1, 0, 0, "America/New_York");
+    const to = zonedToUtc(2026, 4, 1, 0, 0, "America/New_York");
+    const sundays = [
+      [2, 15],
+      [2, 22],
+      [3, 1],
+      [3, 8],
+      [3, 15],
+      [3, 22],
+      [3, 29],
+    ] as const;
+    const expected = sundays.map(([mo, d]) => zonedToUtc(2026, mo, d, 9, 0, "America/New_York"));
+    const result = startsBetweenIn(rule({ repeat: "weekly" }), seed, from, to, "America/New_York");
+    expect(result).toBeInstants(expected);
+  });
+
+  it('zone: "" delegates straight to `startsBetween` — the path every user event takes', () => {
+    const seed = ms("2026-03-01 09:00");
+    const r = rule({ repeat: "daily" });
+    const from = seed;
+    const to = ms("2026-03-10");
+    expect(startsBetweenIn(r, seed, from, to, "")).toEqual(startsBetween(r, seed, from, to));
+  });
+
+  it("an unrecognised zone degrades to the unzoned walk rather than throwing", () => {
+    const seed = ms("2026-03-01 09:00");
+    const r = rule({ repeat: "daily" });
+    const from = seed;
+    const to = ms("2026-03-05");
+    expect(() => startsBetweenIn(r, seed, from, to, "Not/AZone")).not.toThrow();
+    expect(startsBetweenIn(r, seed, from, to, "Not/AZone")).toEqual(
+      startsBetween(r, seed, from, to),
+    );
+  });
+
+  it("an EXDATE naming the zone's own wall instant excludes it", () => {
+    // §3.8.5.1's own reading of an EXDATE on a TZID event: the key names a
+    // slot on the event's clock, not the reader's, so it has to exclude the
+    // wall instant the walk generates rather than some UTC coincidence.
+    const seed = zonedToUtc(2026, 3, 1, 9, 0, "America/New_York");
+    const r = rule({ repeat: "weekly", exdates: ["2026-03-08T09:00:00"] });
+    const from = zonedToUtc(2026, 3, 1, 0, 0, "America/New_York");
+    const to = zonedToUtc(2026, 3, 22, 0, 0, "America/New_York");
+    const result = startsBetweenIn(r, seed, from, to, "America/New_York");
+    expect(result).toBeInstants([
+      zonedToUtc(2026, 3, 1, 9, 0, "America/New_York"),
+      zonedToUtc(2026, 3, 15, 9, 0, "America/New_York"),
+    ]);
+  });
+
+  it("every result reads back as the zone's own wall clock, via `wallClockIn`", () => {
+    const seed = zonedToUtc(2026, 1, 4, 9, 0, "America/New_York");
+    const from = zonedToUtc(2026, 1, 1, 0, 0, "America/New_York");
+    const to = zonedToUtc(2026, 2, 1, 0, 0, "America/New_York");
+    const result = startsBetweenIn(rule({ repeat: "weekly" }), seed, from, to, "America/New_York");
+    expect(result.length).toBeGreaterThan(0);
+    for (const at of result) {
+      const wall = wallClockIn(at, "America/New_York");
+      expect.soft(wall.getHours()).toBe(9);
+      expect.soft(wall.getMinutes()).toBe(0);
+    }
   });
 });
 

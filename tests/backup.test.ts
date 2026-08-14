@@ -89,6 +89,15 @@ describe("readEvent — defaults", () => {
   );
 
   it.each([
+    { name: "a recognised IANA zone", value: "America/New_York", expected: "America/New_York" },
+    { name: "an unrecognised zone", value: "Not/AZone", expected: "" },
+    { name: "an empty string", value: "", expected: "" },
+    { name: "a wrong-typed value", value: 42, expected: "" },
+  ])("tzid $name reads as $expected — a hostile tzid is refused", ({ value, expected }) => {
+    expect(readEvent({ ...baseEvent, tzid: value })?.tzid).toBe(expected);
+  });
+
+  it.each([
     { input: true, expected: true },
     { input: "true", expected: false },
     { input: 1, expected: false },

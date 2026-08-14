@@ -16,7 +16,17 @@
  *    hostile feed is a real thing, so every entry point caps what it returns.
  * ------------------------------------------------------------------ */
 
-import { addDays, addMonths, dayKey, daysBetween, daysInMonth, startOfDay } from "./time";
+import {
+  addDays,
+  addMonths,
+  dayKey,
+  daysBetween,
+  daysInMonth,
+  instantOfWall,
+  isZone,
+  startOfDay,
+  wallClockIn,
+} from "./time";
 import { isRecord } from "./utils";
 
 /**
@@ -757,6 +767,61 @@ export function startsBetween(
     .filter((at) => !excluded(rule, at))
     .sort((a, b) => a - b)
     .slice(0, MAX_INSTANTS);
+}
+
+/** Hours of slack widened onto `startsBetweenIn`'s wall window at each end.
+ *  An offset shift moves a wall time by an hour, two under double summer
+ *  time (Ireland's proposed "winter time", and a handful of zones that
+ *  actually ran it once) — so a bound cut exactly at the naive window's edge
+ *  would drop the first or last instant a transition moved across it. */
+const ZONE_SLACK = 3 * 60 * 60_000;
+
+/**
+ * `startsBetween`, read against `zone`'s wall clock rather than this
+ * machine's — what a feed's `TZID` means: the rule was written against
+ * *that* clock's transitions, not the reader's.
+ *
+ * `zone === ""`, or anything `isZone` refuses, delegates straight to
+ * `startsBetween` — the path every user-written event takes, since a
+ * floating event has no zone to walk — so a rule with no zone costs one
+ * string check more than it did before.
+ *
+ * Otherwise: the seed, the window and `rule.until` all move into `zone`'s
+ * wall time with `wallClockIn`, `startsBetween` walks that wall clock
+ * exactly as it would walk this machine's own, and every result moves back
+ * with `instantOfWall`. `exdates`/`rdates` are resolved *inside*
+ * `startsBetween`, against the same walked wall seed — so they are read as
+ * *this zone's* wall keys without anything here having to convert them,
+ * which is what EXDATE means on a `TZID` event: a producer writing
+ * `EXDATE;TZID=…` names a slot on its own clock, and excluding the wall
+ * instant the walk generates is what lines the two back up.
+ *
+ * The wall window is widened by `ZONE_SLACK` at each end before the walk,
+ * and the real `[from, to)` is re-applied to what comes back: a rule whose
+ * wall time an offset shift moved just inside or outside the naive window
+ * would otherwise lose its first or last instant. The widened call shares
+ * `startsBetween`'s own `MAX_INSTANTS`, so a dense rule read through a zone
+ * truncates exactly as it already did read directly.
+ */
+export function startsBetweenIn(
+  rule: Recurrence,
+  seedMs: number,
+  from: number,
+  to: number,
+  zone: string,
+): number[] {
+  if (!isZone(zone)) return startsBetween(rule, seedMs, from, to);
+
+  const wallSeed = wallClockIn(seedMs, zone).getTime();
+  const wallFrom = wallClockIn(from - ZONE_SLACK, zone).getTime();
+  const wallTo = wallClockIn(to + ZONE_SLACK, zone).getTime();
+  const wallRule =
+    rule.until > 0 ? { ...rule, until: wallClockIn(rule.until, zone).getTime() } : rule;
+
+  return startsBetween(wallRule, wallSeed, wallFrom, wallTo)
+    .map((wallAt) => instantOfWall(new Date(wallAt), zone))
+    .filter((at) => at >= from && at < to)
+    .sort((a, b) => a - b);
 }
 
 /**

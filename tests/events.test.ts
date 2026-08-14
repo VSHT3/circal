@@ -19,7 +19,7 @@ import {
   statusOf,
   type Gap,
 } from "@/lib/events";
-import { MINUTES_PER_DAY } from "@/lib/time";
+import { MINUTES_PER_DAY, zonedToUtc } from "@/lib/time";
 
 const cal = calendar();
 
@@ -805,5 +805,27 @@ describe("scoreEvent", () => {
     // The grid lights every match, so its reach is exactly the palette's: one
     // typo forgiven, and no second, stricter matcher anywhere.
     expect(scoreEvent(event({ title: "Morning run" }), "mornng run")).not.toBeNull();
+  });
+});
+
+/* --------------------------- occurrencesOn: zoned events -------------------------- */
+
+describe("occurrencesOn: a zoned event lands on the day its own zone says", () => {
+  it("a London-zoned weekly Monday-night rule shows on the viewer's Tuesday, an hour east", () => {
+    // 23:30 Monday in London is 00:30 Tuesday in Berlin (this file's pinned
+    // TZ, an hour further east in winter) — so BYDAY=Monday has to be matched
+    // against *London's* calendar to fire at all. Matched against the
+    // viewer's, the seed itself already reads Tuesday and a Monday-only rule
+    // would never generate it.
+    const seedMs = zonedToUtc(2026, 1, 5, 23, 30, "Europe/London"); // Monday
+    const e = event({
+      start: seedMs,
+      end: seedMs + 30 * 60_000,
+      tzid: "Europe/London",
+      repeat: "weekly",
+      byDay: [{ day: 1, nth: 0 }], // Monday
+    });
+    expect.soft(occurrencesOn([e], [cal], day("2026-01-06"))).toHaveLength(1); // Tue, Berlin
+    expect.soft(occurrencesOn([e], [cal], day("2026-01-05"))).toHaveLength(0); // Mon, Berlin
   });
 });

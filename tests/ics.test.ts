@@ -184,33 +184,11 @@ describe("round-trip", () => {
  * says it is lossy fails and has to be rewritten. That failure is the point:
  * it is the only way a fix announces itself here.
  *
- * The first one is a real defect rather than an unmodelled extra — see
- * `AUDIT.md`, "Events have no timezone". */
+ * The TZID case used to live here — see `AUDIT.md`, "Events have no
+ * timezone" — and its failure is exactly how this fix announced itself. It
+ * now lives in "TZID round-trip" below, keeping rather than losing. */
 
 describe("what the round trip drops", () => {
-  it("loses TZID: an event imported in its own zone is re-exported in UTC", () => {
-    // 09:00 in New York, said in the way every real feed says it.
-    const feed = singleVevent([
-      "SUMMARY:Standup",
-      "DTSTART;TZID=America/New_York:20260615T090000",
-      "DTEND;TZID=America/New_York:20260615T093000",
-    ]);
-    const { events } = fromIcs(feed);
-    // Reading it is correct: 09:00 EDT is 13:00 UTC.
-    expect(events[0].start).toBeSameInstantAs(Date.UTC(2026, 5, 15, 13, 0, 0));
-
-    const out = toIcs(
-      [{ ...event({ title: "Standup" }), start: events[0].start, end: events[0].end }],
-      "Work",
-    );
-    // And writing it back throws the zone away. The instant survives; the
-    // wall-clock intent — "nine in the morning, in New York" — does not, so a
-    // consumer in another zone cannot recover what was meant, and a recurring
-    // rule now expands against whatever zone reads it rather than its own.
-    expect.soft(out).not.toContain("TZID");
-    expect.soft(out).toContain("DTSTART:20260615T130000Z");
-  });
-
   it("drops the collaboration and alarm properties on the way in", () => {
     const feed = singleVevent([
       "SUMMARY:Review",
@@ -256,6 +234,97 @@ describe("what the round trip drops", () => {
     expect.soft(out).toContain("X-CIRCAL-TASK:TRUE");
     expect.soft(out).not.toContain("DTEND");
     expect.soft(out).not.toContain("BEGIN:VTODO");
+  });
+});
+
+/* ------------------------------------ TZID ---------------------------------- *
+ * Tier 0 item 1 of `AUDIT.md`: a subscribed event keeps the zone it was
+ * published in, all the way through export. The intermediate the audit
+ * blesses — a feed's TZID rides on the event; a user's own event stays
+ * floating, which `helpers.ts`'s `event()` defaults to. */
+
+describe("TZID round-trip", () => {
+  it("keeps the zone: a TZID VEVENT in, the same wall clock and the same TZID out", () => {
+    const feed = singleVevent([
+      "SUMMARY:Standup",
+      "DTSTART;TZID=America/New_York:20260615T090000",
+      "DTEND;TZID=America/New_York:20260615T093000",
+    ]);
+    const { events } = fromIcs(feed);
+    // Reading it is correct: 09:00 EDT is 13:00 UTC.
+    expect.soft(events[0].start).toBeSameInstantAs(Date.UTC(2026, 5, 15, 13, 0, 0));
+    expect.soft(events[0].tzid).toBe("America/New_York");
+
+    const zoned = {
+      ...event({ title: "Standup" }),
+      start: events[0].start,
+      end: events[0].end,
+      tzid: events[0].tzid,
+    };
+    const out = toIcs([zoned], "Work");
+    // The wall clock survives on the wire, not just the instant.
+    expect.soft(out).toContain("DTSTART;TZID=America/New_York:20260615T090000");
+    expect.soft(out).toContain("DTEND;TZID=America/New_York:20260615T093000");
+
+    const roundTripped = fromIcs(out).events[0];
+    expect.soft(roundTripped.start).toBeSameInstantAs(events[0].start);
+    expect.soft(roundTripped.tzid).toBe("America/New_York");
+  });
+
+  it("emits `;TZID=` on EXDATE and RDATE, with the key's own digits — nothing converted", () => {
+    const zoned = event({
+      title: "Standup",
+      start: "2026-06-08 09:00",
+      end: "2026-06-08 09:30",
+      tzid: "America/New_York",
+      repeat: "weekly",
+      exdates: ["2026-06-22T09:00:00"],
+      rdates: ["2026-06-29T09:00:00"],
+    });
+    const out = toIcs([zoned], "Work");
+    expect.soft(out).toContain("EXDATE;TZID=America/New_York:20260622T090000");
+    expect.soft(out).toContain("RDATE;TZID=America/New_York:20260629T090000");
+  });
+
+  it("keeps UNTIL a UTC stamp even though DTSTART carries a TZID — §3.3.10 requires exactly that", () => {
+    const zoned = event({
+      title: "Standup",
+      start: "2026-06-08 09:00",
+      tzid: "America/New_York",
+      repeat: "weekly",
+      until: ms("2026-12-31 23:59:59"),
+    });
+    const out = toIcs([zoned], "Work");
+    const rruleLine = out
+      .replace(/\r\n[ \t]/g, "")
+      .split("\r\n")
+      .find((l) => l.startsWith("RRULE:"))!;
+    expect.soft(rruleLine).toMatch(/UNTIL=\d{8}T\d{6}Z$/);
+    expect.soft(rruleLine).not.toContain("TZID");
+  });
+
+  it("leaves VALUE=DATE untouched — an all-day event is never zoned", () => {
+    const feed = singleVevent(["DTSTART;VALUE=DATE:20260615", "DTEND;VALUE=DATE:20260616"]);
+    const { events } = fromIcs(feed);
+    expect.soft(events[0].allDay).toBe(true);
+    expect.soft(events[0].tzid).toBe("");
+
+    const asCalEvent = {
+      ...event({ title: "Trip", allDay: true }),
+      start: events[0].start,
+      end: events[0].end,
+      tzid: events[0].tzid,
+    };
+    const out = toIcs([asCalEvent], "Work");
+    expect.soft(out).toContain("DTSTART;VALUE=DATE:20260615");
+    expect.soft(out).not.toContain("TZID");
+  });
+
+  it("an unrecognised TZID reads as floating — not thrown on, not zoned", () => {
+    const feed = singleVevent(["DTSTART;TZID=Not/AZone:20260615T090000"]);
+    const { events } = fromIcs(feed);
+    expect.soft(events[0].tzid).toBe("");
+    expect.soft(events[0].start).toBeSameInstantAs(ms("2026-06-15 09:00"));
   });
 });
 

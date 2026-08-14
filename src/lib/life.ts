@@ -19,7 +19,7 @@
  * ------------------------------------------------------------------ */
 
 import { colorOf, occurrencesOn, type CalEvent, type Calendar } from "./events";
-import { startsBetween } from "./recur";
+import { startsBetweenIn } from "./recur";
 import { MONTHS, addDays, dayKey, daysInMonth, fromDayKey, mondayOffset, startOfDay } from "./time";
 
 const DAY_MS = 86_400_000;
@@ -546,7 +546,7 @@ function yearlyStarts(event: CalEvent, from: number, to: number): number[] {
   while (cursor < to && out.length < MAX_MARKS_PER_EVENT) {
     const nextYear = new Date(cursor).getFullYear() + 1;
     const sliceEnd = Math.min(new Date(nextYear, 0, 1).getTime(), to);
-    out.push(...startsBetween(event, event.start, cursor, sliceEnd));
+    out.push(...startsBetweenIn(event, event.start, cursor, sliceEnd, event.tzid));
     cursor = sliceEnd;
   }
   return out;

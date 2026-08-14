@@ -145,6 +145,7 @@ export function event(
     start: startMs,
     end: endMs,
     allDay: false,
+    tzid: "",
     location: "",
     url: "",
     notes: "",

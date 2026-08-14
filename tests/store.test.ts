@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { at, calendar, ms, event, MemoryStorage } from "./helpers";
 import { instantKey, PALETTE, type CalEvent, type Repeat } from "@/lib/events";
 import { DEFAULT_SETTINGS, LIFE_EXPECTANCY_RANGE, duplicateOf } from "@/lib/store";
-import { addDays, addMonths, dayKey, daysBetween, startOfDay } from "@/lib/time";
+import { MINUTES_PER_DAY, addDays, addMonths, dayKey, daysBetween, startOfDay } from "@/lib/time";
 import type * as StoreModule from "@/lib/store";
 import type * as NotifyModule from "@/lib/notify";
 
@@ -932,7 +932,9 @@ describe("hydrateEvents", () => {
     expect(hydrated.byDay).toEqual([]);
     expect(hydrated.exdates).toEqual([]);
     expect(hydrated.rdates).toEqual([]);
-    expect(hydrated.seriesId).toBe(""); // already a string — untouched, not re-defaulted wrong
+    // already a string — untouched, not re-defaulted wrong
+    expect.soft(hydrated.seriesId).toBe("");
+    expect.soft(hydrated.tzid).toBe("");
   });
 });
 
@@ -1349,6 +1351,11 @@ describe("draftEvent", () => {
     expect.soft(new Date(drafted.end).getHours()).toBe(0);
     expect.soft(dayKey(new Date(drafted.end))).toBe("2026-03-31");
   });
+
+  it("mints a floating event — a draft has no zone until a feed gives it one", async () => {
+    const s = await freshStore();
+    expect(s.draftEvent(at("2026-03-08"), 0, 60, "personal").tzid).toBe("");
+  });
 });
 
 /* ------------------------------ duplicateOf ------------------------------ */
@@ -1379,6 +1386,11 @@ describe("duplicateOf", () => {
     expect.soft(copy.notes).toBe("bring the thing");
     expect.soft(copy.color).toBe("#8bf0b8");
     expect.soft(copy.icon).toBe("barbell");
+  });
+
+  it("carries the zone — a copy of a New York standup is a New York standup", () => {
+    const source = event({ title: "Standup", start: "2026-03-08 09:00", tzid: "America/New_York" });
+    expect(duplicateOf(source).tzid).toBe("America/New_York");
   });
 
   it("detaches a copy of an override — two events cannot claim one occurrence", () => {

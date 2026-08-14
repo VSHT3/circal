@@ -454,6 +454,7 @@ function seed(): CalEvent[] {
     start,
     end,
     allDay: false,
+    tzid: "",
     location: "",
     url: "",
     notes: "",
@@ -647,6 +648,7 @@ function hydrateEvents(value: unknown): CalEvent[] {
       icon,
       task,
       doneKeys,
+      tzid,
     } = event;
     if (
       typeof interval === "number" &&
@@ -667,7 +669,8 @@ function hydrateEvents(value: unknown): CalEvent[] {
       typeof seriesKey === "string" &&
       typeof icon === "string" &&
       typeof task === "boolean" &&
-      Array.isArray(doneKeys)
+      Array.isArray(doneKeys) &&
+      typeof tzid === "string"
     ) {
       return event;
     }
@@ -679,6 +682,10 @@ function hydrateEvents(value: unknown): CalEvent[] {
       icon: typeof icon === "string" ? icon : "",
       task: task === true,
       doneKeys: Array.isArray(doneKeys) ? doneKeys : [],
+      // A blob written before this field existed carries every event
+      // floating, which is what those events already were — nothing zoned
+      // an event but `fromIcs`'s own DTSTART reader.
+      tzid: typeof tzid === "string" ? tzid : "",
     };
   });
 }
@@ -1606,6 +1613,7 @@ export function draftEvent(
     start: allDay ? base : base + startMin * 60_000,
     end: allDay ? addDays(startOfDay(day), days).getTime() : base + endMin * 60_000,
     allDay,
+    tzid: "",
     location: "",
     url: "",
     notes: "",

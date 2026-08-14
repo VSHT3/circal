@@ -73,6 +73,9 @@ export async function refreshFeed(calendar: Calendar): Promise<void> {
         start: e.start,
         end: e.end,
         allDay: e.allDay,
+        // `fromIcs`'s DTSTART reader is `tzid`'s one writer; this mirror
+        // just carries what it read across, same as every other field here.
+        tzid: e.tzid,
         location: e.location,
         url: e.url,
         notes: e.notes,

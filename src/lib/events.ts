@@ -8,7 +8,7 @@
 
 import { fuzzyScore } from "./fuzzy";
 import { MINUTES_PER_DAY, addDays, daysBetween, minutesOfDay, startOfDay } from "./time";
-import { instantKey, startsBetween, type Recurrence, type Repeat } from "./recur";
+import { instantKey, startsBetweenIn, type Recurrence, type Repeat } from "./recur";
 
 export {
   FREQUENCIES,
@@ -104,6 +104,21 @@ export interface CalEvent extends Recurrence {
   /** Epoch ms, exclusive. */
   end: number;
   allDay: boolean;
+  /**
+   * The IANA zone this event's *rule* is read against — never its instants,
+   * which stay epoch milliseconds throughout, as does `end - start`. `""`
+   * is floating: read against the viewer's own midnight, which is every
+   * event the user writes, including the travel case `AUDIT.md` leaves
+   * open — one dragged onto a face in this browser reads the same way
+   * wherever it is next opened. A non-empty name arrives only from a
+   * feed's own DTSTART `TZID` (`fromIcs` is the one writer) and names the
+   * clock `startsBetweenIn` walks the rule over, so a subscribed weekly
+   * standup keeps its own 09:00 whatever zone the viewer is in. An all-day
+   * event is never zoned — `fromIcs` never sets one on one — because its
+   * date is the one the calendar printed, not an hour a transition could
+   * move to either side of midnight.
+   */
+  tzid: string;
   location: string;
   url: string;
   notes: string;
@@ -284,7 +299,7 @@ export function occurrencesOn(events: CalEvent[], calendars: Calendar[], day: Da
     const from = dayStart.getTime() - Math.min(span, lookbackCap(event.repeat));
     const skip = replaced.get(event.id);
 
-    for (const at of startsBetween(event, event.start, from, dayEnd.getTime())) {
+    for (const at of startsBetweenIn(event, event.start, from, dayEnd.getTime(), event.tzid)) {
       // An occurrence somebody moved is not drawn twice: the series skips it,
       // and the override event draws itself.
       if (skip?.has(instantKey(at))) continue;

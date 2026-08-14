@@ -32,6 +32,7 @@ import {
   fromDayKey,
   minutesOfDay,
   parseClock,
+  zoneCity,
   startOfDay,
   type Clock,
 } from "@/lib/time";
@@ -585,6 +586,15 @@ export default function EventEditor({
                   </>
                 )}
               </Row>
+
+              {/* A subscription's hours are read against another clock, and
+                  an event that does not say so is a wrong answer that looks
+                  right. Read-only, and print-only — there is no picker here,
+                  and no way to earn one: a zone rides on the event only
+                  because a feed's own TZID put it there. */}
+              {readOnly && draft.tzid && (
+                <p className="caption -mt-1 px-3.5 pb-2">Times in {zoneCity(draft.tzid)}</p>
+              )}
 
               <Row label="Where">
                 <input

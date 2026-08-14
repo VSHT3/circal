@@ -10,7 +10,7 @@
  * VALUE=DATE, DURATION-instead-of-DTEND) all get a fallback.
  * ------------------------------------------------------------------ */
 
-import { dayKey, zonedToUtc } from "./time";
+import { dayKey, isZone, wallClockIn, zonedToUtc } from "./time";
 import {
   MAX_INTERVAL,
   SIGNED_MAX,
@@ -49,6 +49,13 @@ export interface IcsEvent extends Recurrence {
   start: number;
   end: number;
   allDay: boolean;
+  /**
+   * DTSTART's own zone — `""` for UTC, floating, all-day, or a `TZID` this
+   * build's `Intl` does not recognise. Becomes `CalEvent.tzid` verbatim
+   * once a consumer (`feeds.ts`, `backup.ts`'s `.ics` import) copies this
+   * event across; nothing here reads it back.
+   */
+  tzid: string;
   location: string;
   url: string;
   notes: string;
@@ -147,6 +154,15 @@ function dateStamp(d: Date): string {
   return dayKey(d).replace(/-/g, "");
 }
 
+/** The wall-clock stamp DTSTART/DTEND/RECURRENCE-ID take with a `TZID`
+ *  param — `YYYYMMDDTHHMMSS`, no trailing `Z`, because the param already
+ *  says which clock the digits are on. `d` is expected to already be a
+ *  wall-clock `Date` from `wallClockIn`, not a real instant. */
+function zonedStamp(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}T${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+}
+
 /* ------------------------------- recurrence -------------------------------- */
 
 /** RFC 5545's two-letter weekdays, indexed by `Date.getDay()`. */
@@ -184,8 +200,11 @@ function rruleOf(event: CalEvent): string | null {
   if (event.bySetPos.length > 0) parts.push(`BYSETPOS=${event.bySetPos.join(",")}`);
   if (event.until > 0) {
     // UNTIL takes DTSTART's value type (§3.3.10) — a DATE for an all-day
-    // series, a UTC datetime for a timed one. Mixing the two is the part of
-    // this property strict consumers reject outright.
+    // series, a UTC datetime for a timed one, *even when DTSTART carries a
+    // TZID*: §3.3.10 requires exactly that once a zone is present, which
+    // makes this UTC stamp load-bearing rather than incidental now — a
+    // wall-clock UNTIL would read differently depending on which zone
+    // resolved it, and RFC's own fix is to pin it to UTC instead.
     const until = new Date(event.until);
     parts.push(`UNTIL=${event.allDay ? dateStamp(until) : utcStamp(until)}`);
   }
@@ -195,10 +214,22 @@ function rruleOf(event: CalEvent): string | null {
 /**
  * EXDATE/RDATE lines for one property, grouped by the value type each key
  * already names: a day key (`YYYY-MM-DD`) goes on one `VALUE=DATE` line, an
- * instant key (`YYYY-MM-DDTHH:mm:ss`) on one plain line as a UTC datetime.
- * RFC lets the property repeat, but never mixes value types on a line.
+ * instant key (`YYYY-MM-DDTHH:mm:ss`) goes on one plain line — UTC for a
+ * floating event, `;TZID=<zone>:` for a zoned one. RFC lets the property
+ * repeat, but never mixes value types on a line.
+ *
+ * A zoned key's digits are not converted: `parseDateList` put that zone's
+ * own wall-clock digits there on the way in (see its own comment), so
+ * `20260615T090000` comes back out exactly as `2026-06-15T09:00:00` went in
+ * — the identity `keyToInstant`/`utcStamp` only need for the floating case,
+ * where the key has no zone of its own to carry.
  */
-function recurDateLines(name: "EXDATE" | "RDATE", keys: string[], seed: Date): string[] {
+function recurDateLines(
+  name: "EXDATE" | "RDATE",
+  keys: string[],
+  seed: Date,
+  zone: string,
+): string[] {
   const days = keys.filter((k) => !k.includes("T")).sort();
   const instants = keys.filter((k) => k.includes("T")).sort();
 
@@ -207,18 +238,35 @@ function recurDateLines(name: "EXDATE" | "RDATE", keys: string[], seed: Date): s
     lines.push(`${name};VALUE=DATE:${days.map((k) => k.replace(/-/g, "")).join(",")}`);
   }
   if (instants.length > 0) {
-    const stamps = instants
-      .map((k) => keyToInstant(k, seed))
-      .filter((ms): ms is number => ms !== null)
-      .map((ms) => utcStamp(new Date(ms)));
-    if (stamps.length > 0) lines.push(`${name}:${stamps.join(",")}`);
+    if (zone) {
+      const stamps = instants.map((k) => k.replace(/[-:]/g, ""));
+      lines.push(`${name};TZID=${zone}:${stamps.join(",")}`);
+    } else {
+      const stamps = instants
+        .map((k) => keyToInstant(k, seed))
+        .filter((ms): ms is number => ms !== null)
+        .map((ms) => utcStamp(new Date(ms)));
+      if (stamps.length > 0) lines.push(`${name}:${stamps.join(",")}`);
+    }
   }
   return lines;
 }
 
 /* -------------------------------- serialise -------------------------------- */
 
-/** `name` becomes X-WR-CALNAME. */
+/**
+ * `name` becomes X-WR-CALNAME.
+ *
+ * No VTIMEZONE component, zoned event or not. Every mainstream consumer
+ * (Google, Apple, Outlook) resolves an IANA `TZID` against its own tz
+ * database rather than reading the one a file brought — RFC 5545 allows
+ * either, but nothing worth writing for prefers the file's copy — and a
+ * synthesised VTIMEZONE would have to either duplicate that whole database
+ * (every rule, every historical transition) or lie about the DST rules
+ * outside the one range it bothered to write. A wrong DST rule reads as a
+ * *correct* time that is quietly an hour off, which is worse than the UTC
+ * export this feature replaces: that one at least loses cleanly.
+ */
 export function toIcs(events: CalEvent[], name: string): string {
   const lines: string[] = [
     "BEGIN:VCALENDAR",
@@ -237,6 +285,7 @@ export function toIcs(events: CalEvent[], name: string): string {
     const overrides =
       event.seriesId && event.seriesKey ? events.find((e) => e.id === event.seriesId) : undefined;
     const uid = overrides ? `${overrides.id}@circal.app` : `${event.id}@circal.app`;
+    const zone = event.tzid;
 
     lines.push("BEGIN:VEVENT");
     lines.push(`UID:${uid}`);
@@ -245,6 +294,13 @@ export function toIcs(events: CalEvent[], name: string): string {
     if (event.allDay) {
       lines.push(`DTSTART;VALUE=DATE:${dateStamp(new Date(event.start))}`);
       lines.push(`DTEND;VALUE=DATE:${dateStamp(new Date(event.end))}`);
+    } else if (zone) {
+      lines.push(`DTSTART;TZID=${zone}:${zonedStamp(wallClockIn(event.start, zone))}`);
+      // No DTEND on a task — see the comment on the floating branch below,
+      // which applies here unchanged.
+      if (!event.task) {
+        lines.push(`DTEND;TZID=${zone}:${zonedStamp(wallClockIn(event.end, zone))}`);
+      }
     } else {
       lines.push(`DTSTART:${utcStamp(new Date(event.start))}`);
       // No DTEND on a task. §3.6.1 requires DTEND to be strictly later than
@@ -260,7 +316,9 @@ export function toIcs(events: CalEvent[], name: string): string {
         lines.push(
           event.allDay
             ? `RECURRENCE-ID;VALUE=DATE:${dateStamp(new Date(at))}`
-            : `RECURRENCE-ID:${utcStamp(new Date(at))}`,
+            : zone
+              ? `RECURRENCE-ID;TZID=${zone}:${zonedStamp(wallClockIn(at, zone))}`
+              : `RECURRENCE-ID:${utcStamp(new Date(at))}`,
         );
       }
     }
@@ -270,8 +328,8 @@ export function toIcs(events: CalEvent[], name: string): string {
     const rrule = rruleOf(event);
     if (rrule) lines.push(`RRULE:${rrule}`);
     const seed = new Date(event.start);
-    lines.push(...recurDateLines("EXDATE", event.exdates, seed));
-    lines.push(...recurDateLines("RDATE", event.rdates, seed));
+    lines.push(...recurDateLines("EXDATE", event.exdates, seed, zone));
+    lines.push(...recurDateLines("RDATE", event.rdates, seed, zone));
     // One comma list rather than a line each, which is what EXDATE's own
     // multi-value form does — and a done key contains no comma, so it needs
     // no escaping beyond that.
@@ -342,8 +400,12 @@ function parseDuration(value: string): number | null {
   return sign * (((days * 24 + hours) * 60 + minutes) * 60 + seconds) * 1000;
 }
 
-/** DTSTART/DTEND → an instant plus whether it read as an all-day date. */
-function parseDateProp(prop: PropEntry | undefined): { ms: number; allDay: boolean } | null {
+/** DTSTART/DTEND → an instant, whether it read as an all-day date, and the
+ *  zone it was read in — `""` for UTC, floating, `VALUE=DATE`, or a `TZID`
+ *  `isZone` refuses. */
+function parseDateProp(
+  prop: PropEntry | undefined,
+): { ms: number; allDay: boolean; tzid: string } | null {
   if (!prop) return null;
   const { params, value } = prop;
 
@@ -351,31 +413,25 @@ function parseDateProp(prop: PropEntry | undefined): { ms: number; allDay: boole
     const m = /^(\d{4})(\d{2})(\d{2})$/.exec(value);
     if (!m) return null;
     const [y, mo, d] = m.slice(1).map(Number);
-    return { ms: new Date(y, mo - 1, d).getTime(), allDay: true };
+    return { ms: new Date(y, mo - 1, d).getTime(), allDay: true, tzid: "" };
   }
 
   const utc = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/.exec(value);
   if (utc) {
     const [y, mo, d, h, mi, s] = utc.slice(1).map(Number);
-    return { ms: Date.UTC(y, mo - 1, d, h, mi, s), allDay: false };
+    return { ms: Date.UTC(y, mo - 1, d, h, mi, s), allDay: false, tzid: "" };
   }
 
   const local = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})$/.exec(value);
   if (!local) return null;
   const [y, mo, d, h, mi, s] = local.slice(1).map(Number);
 
-  const tzid = params.TZID;
-  if (tzid) {
-    try {
-      // Cheap validity probe: Intl throws on a TZID it doesn't recognise,
-      // and that's the only signal it gives — there's no `isValidTimeZone`.
-      new Intl.DateTimeFormat("en-US", { timeZone: tzid });
-      return { ms: zonedToUtc(y, mo, d, h, mi, tzid), allDay: false };
-    } catch {
-      // Fall through: treat it as floating local time instead of throwing.
-    }
+  if (params.TZID && isZone(params.TZID)) {
+    return { ms: zonedToUtc(y, mo, d, h, mi, params.TZID, s), allDay: false, tzid: params.TZID };
   }
-  return { ms: new Date(y, mo - 1, d, h, mi, s).getTime(), allDay: false };
+  // An unrecognised TZID falls through here too: read as floating local
+  // time rather than thrown on, same as no TZID at all.
+  return { ms: new Date(y, mo - 1, d, h, mi, s).getTime(), allDay: false, tzid: "" };
 }
 
 /**
@@ -479,13 +535,27 @@ function propKey(prop: PropEntry | undefined): string {
  * rather than one property. A `VALUE=PERIOD` entry (RDATE only) is
  * start/end or start/duration; only the start half identifies an occurrence,
  * so the rest is dropped on the way in.
+ *
+ * A zoned event's key is that *zone's* wall clock, not `propKey`'s reading
+ * of it. `startsBetweenIn` walks the rule over the zone's own wall time
+ * (see its comment in `recur.ts`), so an EXDATE has to name a slot on that
+ * same walked clock or the day it excludes there is not the day it names
+ * here. `eventTzid` is DTSTART's own zone, read whenever a line omits a
+ * `TZID` of its own — the common shape, since only a pedantic producer
+ * repeats it on every EXDATE line RFC lets it carry one.
  */
-function parseDateList(entries: PropEntry[]): string[] {
+function parseDateList(entries: PropEntry[], eventTzid: string): string[] {
   const out: string[] = [];
   for (const entry of entries) {
+    const lineTzid = entry.params.TZID && isZone(entry.params.TZID) ? entry.params.TZID : "";
+    const zone = lineTzid || eventTzid;
     for (const raw of entry.value.split(",")) {
       const token = entry.params.VALUE === "PERIOD" ? raw.trim().split("/")[0] : raw.trim();
-      const key = propKey({ params: entry.params, value: token });
+      const parsed = parseDateProp({ params: entry.params, value: token });
+      if (!parsed) continue;
+      const key = parsed.allDay
+        ? dayKey(new Date(parsed.ms))
+        : instantKey(zone ? wallClockIn(parsed.ms, zone) : parsed.ms);
       if (key && !out.includes(key)) out.push(key);
     }
   }
@@ -501,15 +571,15 @@ function parseDateList(entries: PropEntry[]): string[] {
  * and a value outside its RFC range is dropped rather than failing the
  * VEVENT.
  */
-function readRecurrence(block: Block, start: number): Recurrence {
+function readRecurrence(block: Block, start: number, tzid: string): Recurrence {
   // EXDATE and RDATE are properties of the VEVENT, not of the RRULE, and
   // RFC 5545 allows a series made of RDATEs alone. The model handles that —
   // `repeats()` is true for rdates with `repeat: "never"`, and
   // `startsBetween` adds them whatever the frequency — so dropping them with
   // the rule lost dates a producer had named explicitly.
   const dates = {
-    exdates: parseDateList(block.exdates),
-    rdates: parseDateList(block.rdates),
+    exdates: parseDateList(block.exdates, tzid),
+    rdates: parseDateList(block.rdates, tzid),
   };
 
   const rrule = block.props.RRULE?.value;
@@ -625,6 +695,7 @@ function buildEvent(block: Block): IcsEvent | null {
     start: dtstart.ms,
     end,
     allDay: dtstart.allDay,
+    tzid: dtstart.tzid,
     location: props.LOCATION ? unescapeText(props.LOCATION.value) : "",
     url: props.URL ? unescapeText(props.URL.value) : "",
     notes: props.DESCRIPTION ? unescapeText(props.DESCRIPTION.value) : "",
@@ -632,7 +703,7 @@ function buildEvent(block: Block): IcsEvent | null {
     doneKeys: (props["X-CIRCAL-DONE"]?.value ?? "")
       .split(",")
       .filter((k) => /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(k)),
-    ...readRecurrence(block, dtstart.ms),
+    ...readRecurrence(block, dtstart.ms, dtstart.tzid),
   };
 }
 

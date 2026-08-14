@@ -16,7 +16,7 @@ import { fnv1a, fromIcs, toIcs } from "./ics";
 import { placeForZone } from "./places";
 import { DEFAULT_SETTINGS, newId, store, type Settings, type Snapshot } from "./store";
 import { notify } from "./notify";
-import { dayKey } from "./time";
+import { dayKey, isZone } from "./time";
 import { isRecord } from "./utils";
 import { ICON_MAX, readRecurrence, recurrenceOf, type CalEvent, type Calendar } from "./events";
 
@@ -226,6 +226,10 @@ export function readEvent(value: unknown): CalEvent | null {
     start,
     end,
     allDay: value.allDay === true,
+    // An unknown zone must not come back as a zone, and a dropped one
+    // degrades to floating — which is what the app did with every event
+    // before this field existed, so the failure mode is not a new one.
+    tzid: typeof value.tzid === "string" && isZone(value.tzid) ? value.tzid : "",
     location: typeof value.location === "string" ? value.location : "",
     url: typeof value.url === "string" ? value.url : "",
     notes: typeof value.notes === "string" ? value.notes : "",
@@ -328,6 +332,7 @@ function importIcs(text: string, filename: string) {
         start: e.start,
         end: e.end,
         allDay: e.allDay,
+        tzid: e.tzid,
         location: e.location,
         url: e.url,
         notes: e.notes,
