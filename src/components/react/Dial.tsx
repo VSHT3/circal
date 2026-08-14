@@ -363,6 +363,8 @@ export default function Dial({
     totalsAt,
     tickSound,
     tickHaptics,
+    wakingFrom,
+    wakingTo,
   } = settings;
   const [stageRef, width, height] = useElementSize<HTMLDivElement>();
   /** Every gesture's capture target, and the frame its coordinates are read
@@ -771,6 +773,7 @@ export default function Dial({
           ambient={ambient}
           totals={totals}
           totalsAt={totalsAt}
+          waking={{ from: wakingFrom, to: wakingTo }}
           drag={ghost && ghost.end > ghost.start ? ghost : adjust ? dragSpan(adjust, day) : null}
           hovered={hovered}
           onHover={setHovered}

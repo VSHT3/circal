@@ -44,8 +44,8 @@ import {
   formatTime,
   fromDayKey,
   isSameDay,
-  mondayOffset,
   startOfDay,
+  weekOffset,
 } from "@/lib/time";
 import { LIFE_META_H, lifeDot, lifeStage, type LifeRun } from "@/lib/life";
 import { weekFaceCentre, weekStage, weekZoomScale } from "@/lib/week";
@@ -60,6 +60,7 @@ import {
   useNow,
   useOnInput,
   useReminders,
+  useTitleCountdown,
   useTypingSound,
   useWakeLock,
 } from "./hooks";
@@ -260,18 +261,19 @@ function Shell() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   /**
-   * The query lighting the life grid. Held here rather than in the palette
-   * because the thread outlives it: ⌘P closes and the field stays lit, so the
-   * answer can be read at the size it is drawn.
+   * The query lighting the life grid and the year ring — the same field,
+   * one face over. Held here rather than in the palette because the thread
+   * outlives it: ⌘P closes and the answer stays lit, so it can be read at
+   * the size either face draws it.
    */
-  const [lifeSearch, setLifeSearch] = useState("");
+  const [search, setSearch] = useState("");
   // Opening the palette starts a fresh search, so the box and the field always
   // say the same thing. Adjusted during render rather than in an effect, as
   // everywhere else in this repo that new props must reset local state.
   const [searchSeeded, setSearchSeeded] = useState(paletteOpen);
   if (searchSeeded !== paletteOpen) {
     setSearchSeeded(paletteOpen);
-    if (paletteOpen) setLifeSearch("");
+    if (paletteOpen) setSearch("");
   }
   /** The pointer, parked. An arrow over a desk clock is the one piece of
    *  chrome the mode cannot remove by not rendering it. */
@@ -386,16 +388,18 @@ function Shell() {
         settings.lifeExpectancy,
         stageWidth - 2 * PANEL_PAD,
         stageHeight - 2 * PANEL_PAD,
+        settings.weekStart,
       ),
-    [settings.birth, settings.lifeExpectancy, stageWidth, stageHeight],
+    [settings.birth, settings.lifeExpectancy, stageWidth, stageHeight, settings.weekStart],
   );
 
   /** The week grid, resolved against the same box and for the same reason:
    *  the dial has to know which face it is shrinking onto before the grid
    *  that draws that face exists. */
   const weekBox = useMemo(
-    () => weekStage(day, stageWidth - 2 * PANEL_PAD, stageHeight - 2 * PANEL_PAD),
-    [day, stageWidth, stageHeight],
+    () =>
+      weekStage(day, stageWidth - 2 * PANEL_PAD, stageHeight - 2 * PANEL_PAD, settings.weekStart),
+    [day, stageWidth, stageHeight, settings.weekStart],
   );
 
   /**
@@ -443,7 +447,7 @@ function Shell() {
   const face = useMemo<ZoomFrame>(() => {
     if (!weekBox) return { scale: 1, dx: 0, dy: 0 };
     const { layout, box } = weekBox;
-    const centre = weekFaceCentre(layout, mondayOffset(day));
+    const centre = weekFaceCentre(layout, weekOffset(day, settings.weekStart));
     // Border-box coordinates throughout: `transform-origin` resolves against
     // the padded box, and the panel's padding is what `PANEL_PAD` names.
     const scale = weekZoomScale(layout, box.width, box.height);
@@ -457,7 +461,7 @@ function Shell() {
       dx: f.x - o.x - (c.x - o.x) * scale,
       dy: f.y - o.y - (c.y - o.y) * scale,
     };
-  }, [weekBox, day, originPoint, stageWidth, stageHeight]);
+  }, [weekBox, day, originPoint, stageWidth, stageHeight, settings.weekStart]);
 
   /**
    * The location as of *now*, not as of the render this callback was made in.
@@ -882,8 +886,8 @@ function Shell() {
         setSidebarOpen(false);
         return;
       }
-      if (lifeSearch) {
-        setLifeSearch("");
+      if (search) {
+        setSearch("");
         return;
       }
       if (inAmbient) enterAmbient("off", true);
@@ -951,6 +955,14 @@ function Shell() {
       [go, actions],
     ),
   });
+
+  /**
+   * The document title as the reminder that survives a backgrounded tab —
+   * push needs a server and this needs none. Same tick, same event pool as
+   * `useReminders` above; see `useTitleCountdown` for why it carries no
+   * switch of its own and why a visible tab does not get one.
+   */
+  useTitleCountdown(visible, calendars, now);
 
   /**
    * A panel arriving says so, from wherever it was opened — ⌘P, the top bar,
@@ -1307,7 +1319,14 @@ function Shell() {
         animate={{ height: inAmbient ? 0 : TOP_BAR_H, opacity: inAmbient ? 0 : 1 }}
         transition={reducedMotion ? { duration: 0 } : { duration: MODE_MS / 1000, ease: EASE }}
       >
-        <TopBar day={day} view={view} sidebarOpen={sidebarOpen} onStep={step} actions={actions} />
+        <TopBar
+          day={day}
+          view={view}
+          sidebarOpen={sidebarOpen}
+          onStep={step}
+          weekStart={settings.weekStart}
+          actions={actions}
+        />
       </motion.div>
 
       {/* `relative`, because the drawer and its scrim are absolute inside this
@@ -1323,6 +1342,7 @@ function Shell() {
           events={visible}
           calendars={calendars}
           moon={settings.moon}
+          weekStart={settings.weekStart}
           actions={actions}
         />
 
@@ -1389,6 +1409,10 @@ function Shell() {
                   settings={settings}
                   onSelectDay={(next) => actions.goDay(next)}
                   onOpenEvent={openOccurrence}
+                  // The strip's own span drag, handed to the same function the
+                  // ring and the grid use: which face drew the run is not
+                  // something the editor can tell, and must not be.
+                  onCreateSpan={(from, days) => openDraft(0, days * MINUTES_PER_DAY, from)}
                 />
               )}
               {view === "year" && (
@@ -1402,6 +1426,8 @@ function Shell() {
                   stage={stage}
                   flow={flow}
                   pending={pendingDays}
+                  search={search}
+                  onClearSearch={() => setSearch("")}
                   onSelectDay={(next) => actions.goDay(next)}
                   // A run of whole days, in the minutes `draftEvent` decides
                   // all-day by: the ring gesture and this one hand over to the
@@ -1418,9 +1444,9 @@ function Shell() {
                   selected={day}
                   events={visible}
                   calendars={calendars}
-                  search={lifeSearch}
+                  search={search}
                   pending={pendingDays}
-                  onClearSearch={() => setLifeSearch("")}
+                  onClearSearch={() => setSearch("")}
                   draw={lifeRun}
                   onDraw={setLifeRun}
                   onSelectDay={(next) => actions.goDay(next)}
@@ -1481,11 +1507,9 @@ function Shell() {
         events={visible}
         calendars={calendars}
         occurrences={agenda.all}
-        clock={settings.clock}
-        inheritMarks={settings.inheritMarks}
-        defaultDuration={settings.defaultDuration}
+        settings={settings}
         actions={actions}
-        onSearchLife={setLifeSearch}
+        onSearch={setSearch}
       />
 
       {calendarCardOpen && (

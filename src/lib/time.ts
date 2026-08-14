@@ -58,27 +58,41 @@ export function addDays(d: Date, n: number): Date {
 }
 
 /**
- * Monday-first weekday: 0 for Monday, 6 for Sunday.
- *
- * The app's one answer to "which day of the week is this". The life grid's
- * columns are built on it (a year starts as many blank slots in as its 1
- * January is deep into its own week), the mini-month's grid is, and so is the
- * week strip — three surfaces you navigate between, which have to agree about
- * where a week starts or the moves between them stop lining up.
+ * Which weekday a week is considered to start on: Sunday, Monday or
+ * Saturday — the three starts anybody actually picks (ISO, US, and the
+ * Islamic-calendar-adjacent convention some Middle Eastern locales use). The
+ * arithmetic below works for any weekday; the type is narrowed to these three
+ * because that is the whole of what the settings picker offers, and a fourth
+ * option would be a control with nothing behind it.
  */
-export function mondayOffset(d: Date): number {
-  return (d.getDay() + 6) % 7;
+export type WeekStart = 0 | 1 | 6;
+
+/**
+ * `d`'s weekday, counted from `weekStart`: `0` for the day the week starts
+ * on, `6` for the day just before it comes back around.
+ *
+ * The app's one answer to "how far into its week is this day". The life
+ * grid's columns are built on it (a year starts as many blank slots in as
+ * its 1 January is deep into its own week), the mini-month's grid is, and so
+ * is the week strip — three surfaces you navigate between, which have to
+ * agree about where a week starts or the moves between them stop lining up.
+ * No default: an implicit Monday here is exactly the bug this generalised —
+ * every caller names the week it means.
+ */
+export function weekOffset(d: Date, weekStart: WeekStart): number {
+  return (d.getDay() - weekStart + 7) % 7;
 }
 
 /**
- * The Monday on or before `d`, at local midnight.
+ * The start of the `weekStart`-aligned week containing `d`, at local
+ * midnight.
  *
  * Steps with `addDays` rather than subtracting milliseconds: a week that
  * crosses a DST transition is 167 or 169 hours long, and a millisecond walk
  * lands an hour off midnight — which keys the wrong day west of UTC.
  */
-export function startOfWeek(d: Date): Date {
-  return addDays(startOfDay(d), -mondayOffset(d));
+export function startOfWeek(d: Date, weekStart: WeekStart): Date {
+  return addDays(startOfDay(d), -weekOffset(d, weekStart));
 }
 
 export function addMonths(d: Date, n: number): Date {

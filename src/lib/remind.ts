@@ -103,3 +103,38 @@ export function reminderText(reminder: Reminder, clock: Clock): { title: string;
   const when = reminder.lead === 0 ? verb : `in ${formatDuration(reminder.lead)}`;
   return { title, body: `${when} · ${formatTimeShort(reminder.start, clock)}` };
 }
+
+/* -------------------------------------------------------------------------- *
+ * The document title
+ * -------------------------------------------------------------------------- */
+
+/**
+ * The tab title's countdown to the next thing today: the first timed,
+ * non-past occurrence, which is the same subject `CenterPanel`'s headline
+ * row already resolves — an all-day event is context there and is never it
+ * here either. `occurrencesOn` already returns the day in start order, so
+ * the first survivor of the filter is the answer.
+ *
+ * Rounds *down*, as `untilText` does: a title promising more time than is
+ * left is worse than a plain one. An occurrence already running reads `now`
+ * rather than `0m` — `0m` is a countdown that has arrived and stays arrived
+ * for the whole meeting, and "Now" is the word `CenterPanel`'s headline row
+ * already uses for exactly this state. Its own end is deliberately not
+ * counted down to: that is a second sentence on a line with room for one.
+ *
+ * Returns the whole suffix, ready to append to whatever the tab's own title
+ * already is — `null` when there is nothing due today.
+ */
+export function titleCountdown(
+  events: CalEvent[],
+  calendars: Calendar[],
+  now: Date,
+): string | null {
+  const next = occurrencesOn(events, calendars, startOfDay(now)).find(
+    (occ) => !occ.event.allDay && occ.end.getTime() > now.getTime(),
+  );
+  if (!next) return null;
+  const title = next.event.title || "Untitled";
+  const minutes = Math.floor((next.start.getTime() - now.getTime()) / MINUTE_MS);
+  return `· ${minutes > 0 ? formatDuration(minutes) : "now"} · ${title}`;
+}

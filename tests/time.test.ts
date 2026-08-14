@@ -17,12 +17,12 @@ import {
   fromDayKey,
   isSameDay,
   minutesOfDay,
-  mondayOffset,
   parseClock,
   snap,
   splitTime,
   startOfDay,
   startOfWeek,
+  weekOffset,
   zoneOffset,
   zonedToUtc,
 } from "@/lib/time";
@@ -92,17 +92,47 @@ describe("addDays across DST", () => {
   });
 });
 
-describe("mondayOffset / startOfWeek", () => {
-  // 2026-08-09 is a Sunday, so it belongs to the week that began on the 3rd —
-  // the trap a `getDay()`-based implementation falls into, since Sunday is 0
-  // and a naive subtraction sends it forward six days instead of back one.
+describe("weekOffset / startOfWeek", () => {
+  // 2026-08-09 is a Sunday, so on a Monday-start week it belongs to the week
+  // that began on the 3rd — the trap a `getDay()`-based implementation falls
+  // into, since Sunday is 0 and a naive subtraction sends it forward six days
+  // instead of back one.
   it.each([
     { on: "2026-08-03", weekday: "Monday", offset: 0 },
     { on: "2026-08-06", weekday: "Thursday", offset: 3 },
     { on: "2026-08-09", weekday: "Sunday", offset: 6 },
-  ])("$weekday is offset $offset and belongs to the week of Aug 3", ({ on, offset }) => {
-    expect.soft(mondayOffset(day(on))).toBe(offset);
-    expect.soft(startOfWeek(day(on))).toBeSameInstantAs(day("2026-08-03"));
+  ])(
+    "Monday-start: $weekday is offset $offset and belongs to the week of Aug 3",
+    ({ on, offset }) => {
+      expect.soft(weekOffset(day(on), 1)).toBe(offset);
+      expect.soft(startOfWeek(day(on), 1)).toBeSameInstantAs(day("2026-08-03"));
+    },
+  );
+
+  // The same week on a Sunday start: 2026-08-02 is the Sunday it begins on,
+  // and 2026-08-09 — the very day that trips the Monday case above — is now
+  // offset 0 rather than 6, the trap turned around.
+  it.each([
+    { on: "2026-08-02", weekday: "Sunday", offset: 0 },
+    { on: "2026-08-06", weekday: "Thursday", offset: 4 },
+    { on: "2026-08-09", weekday: "next Sunday", offset: 0 },
+  ])("Sunday-start: $weekday is offset $offset", ({ on, offset }) => {
+    expect(weekOffset(day(on), 0)).toBe(offset);
+  });
+  it("Sunday-start week of Aug 9 begins on Aug 9 itself", () => {
+    expect(startOfWeek(day("2026-08-09"), 0)).toBeSameInstantAs(day("2026-08-09"));
+  });
+
+  // Saturday start: 2026-08-08 is the Saturday the week begins on.
+  it.each([
+    { on: "2026-08-08", weekday: "Saturday", offset: 0 },
+    { on: "2026-08-09", weekday: "Sunday", offset: 1 },
+    { on: "2026-08-06", weekday: "Thursday", offset: 5 },
+  ])("Saturday-start: $weekday is offset $offset", ({ on, offset }) => {
+    expect(weekOffset(day(on), 6)).toBe(offset);
+  });
+  it("Saturday-start week of Aug 8 begins on Aug 8 itself", () => {
+    expect(startOfWeek(day("2026-08-08"), 6)).toBeSameInstantAs(day("2026-08-08"));
   });
 
   // The life grid's columns are built on this: a year starts as many blank
@@ -110,25 +140,34 @@ describe("mondayOffset / startOfWeek", () => {
   it.each([
     { name: "1 Jan 1990 is a Monday", date: day("1990-01-01"), want: 0 },
     { name: "1 Jan 2023 is a Sunday", date: day("2023-01-01"), want: 6 },
-  ])("$name -> offset $want", ({ date, want }) => {
-    expect(mondayOffset(date)).toBe(want);
+  ])("$name -> Monday-start offset $want", ({ date, want }) => {
+    expect(weekOffset(date, 1)).toBe(want);
   });
 
   it("takes a time of day down to the week's own midnight", () => {
-    expect(startOfWeek(at("2026-08-09 23:59"))).toBeSameInstantAs(day("2026-08-03"));
+    expect(startOfWeek(at("2026-08-09 23:59"), 1)).toBeSameInstantAs(day("2026-08-03"));
   });
 
   it("is idempotent, and seven of them is one week back", () => {
-    const monday = startOfWeek(day("2026-08-06"));
-    expect(startOfWeek(monday)).toBeSameInstantAs(monday);
-    expect(startOfWeek(addDays(monday, -1))).toBeSameInstantAs(addDays(monday, -7));
+    const monday = startOfWeek(day("2026-08-06"), 1);
+    expect(startOfWeek(monday, 1)).toBeSameInstantAs(monday);
+    expect(startOfWeek(addDays(monday, -1), 1)).toBeSameInstantAs(addDays(monday, -7));
   });
 
   // Berlin springs forward on 2026-03-29, a Sunday — so the week containing it
   // is 167 hours long and a millisecond walk back lands at 01:00 on the 23rd.
-  it("lands on local midnight through a spring-forward week", () => {
-    const out = startOfWeek(day("2026-03-29"));
+  it("lands on local midnight through a spring-forward week, Monday-start", () => {
+    const out = startOfWeek(day("2026-03-29"), 1);
     expect(out).toBeSameInstantAs(day("2026-03-23"));
+    expect(minutesOfDay(out)).toBe(0);
+  });
+
+  // Same transition, Sunday-start: the week itself begins one day later, and
+  // 29 March — the transition day — is now the week's own start rather than
+  // its last day, so the walk-back is only zero days instead of six.
+  it("lands on local midnight through a spring-forward week, Sunday-start", () => {
+    const out = startOfWeek(day("2026-03-29"), 0);
+    expect(out).toBeSameInstantAs(day("2026-03-29"));
     expect(minutesOfDay(out)).toBe(0);
   });
 });

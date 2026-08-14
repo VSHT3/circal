@@ -31,7 +31,7 @@ import { useFocusTrap } from "@/components/react/hooks";
 import { Kbd, MOD } from "@/components/react/ui/primitives";
 import { CalendarMark } from "@/components/react/ui/icons";
 import type { CommandPaletteProps } from "@/components/react/types";
-import { colorOf, freeGaps, markOf, scoreEvent, WAKING, type CalEvent } from "@/lib/events";
+import { colorOf, freeGaps, markOf, scoreEvent, type CalEvent } from "@/lib/events";
 import { fuzzyScore } from "@/lib/fuzzy";
 import { parseDate, parseQuickAdd, parseSlot, repeatPhrase } from "@/lib/quickadd";
 import {
@@ -94,12 +94,12 @@ export default function CommandPalette({
   events,
   calendars,
   occurrences,
-  clock,
   actions,
-  inheritMarks,
-  defaultDuration,
-  onSearchLife,
+  settings,
+  onSearch,
 }: CommandPaletteProps) {
+  const { clock, inheritMarks, defaultDuration, wakingFrom, wakingTo } = settings;
+
   const reducedMotion = useReducedMotion();
   const [query, setQuery] = useState("");
   const [highlighted, setHighlighted] = useState(0);
@@ -183,7 +183,7 @@ export default function CommandPalette({
 
     // A slot that started twenty minutes ago is not free, it is late.
     const earliest = isSameDay(day, now) ? snap(minutesOfDay(now) + 7.5, 15) : 0;
-    const waking = { from: Math.max(WAKING.from, earliest), to: WAKING.to };
+    const waking = { from: Math.max(wakingFrom, earliest), to: wakingTo };
     const whole = { from: earliest, to: MINUTES_PER_DAY };
 
     // Waking hours first; only offer 6 AM or 11 PM when the day has nothing else.
@@ -200,7 +200,7 @@ export default function CommandPalette({
         onClose();
       },
     }));
-  }, [query, occurrences, day, now, clock, actions, onClose]);
+  }, [query, occurrences, day, now, clock, actions, onClose, wakingFrom, wakingTo]);
 
   /**
    * Every event, ranked rather than filtered. `scoreEvent` answers "how well
@@ -598,7 +598,7 @@ export default function CommandPalette({
                 onChange={(e) => {
                   setQuery(e.target.value);
                   setHighlighted(0);
-                  if (view === "life") onSearchLife(e.target.value);
+                  if (view === "life" || view === "year") onSearch(e.target.value);
                 }}
                 placeholder="Search, jump to a date, find 45m free, run a command…"
                 aria-label="Search, jump to a date, find free time, run a command"

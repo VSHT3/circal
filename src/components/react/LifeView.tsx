@@ -433,9 +433,10 @@ function LifeGrid({
             // lost it.
             box.height / 3 - LOUPE_PAD * 2 - LOUPE_HEADER_H - LOUPE_MONTHS_H,
             layout.radius,
+            layout.weekStart,
           )
         : null,
-    [loupeOn, box, layout.radius],
+    [loupeOn, box, layout.radius, layout.weekStart],
   );
 
   /**
@@ -1343,7 +1344,11 @@ function Loupe({
    * elements is one React bails out of instead of diffing.
    */
   const { cells, carried } = useMemo(() => {
-    const { offset, from, to } = lifeYearRange(span, year - span.birth.getFullYear());
+    const { offset, from, to } = lifeYearRange(
+      span,
+      year - span.birth.getFullYear(),
+      layout.weekStart,
+    );
     const deathMs = span.death.getTime();
     const todayMs = today.getTime();
     const marked = found ?? density;
@@ -1385,12 +1390,15 @@ function Loupe({
     return { cells: nodes, carried: counted };
   }, [layout, span, year, today, density, found]);
 
-  const months = useMemo(() => loupeMonths(span, year), [span, year]);
+  const months = useMemo(
+    () => loupeMonths(span, year, layout.weekStart),
+    [span, year, layout.weekStart],
+  );
 
   /** A day's centre in the cell group. Three rings ride on this and they have
    *  to sit on the dot the loop above drew, not near it. */
   const ringAt = (date: Date) => {
-    const { col, row } = loupeCell(date);
+    const { col, row } = loupeCell(date, layout.weekStart);
     return { cx: col * layout.pitch + layout.pitch / 2, cy: row * layout.pitch + layout.pitch / 2 };
   };
   const rings = [
@@ -1401,7 +1409,7 @@ function Loupe({
 
   /** The run, in this year's weeks. Empty for the seventy-nine years it does
    *  not touch, which is the usual answer. */
-  const bands = run ? loupeBands(span, year, run.from, run.to) : [];
+  const bands = run ? loupeBands(span, year, run.from, run.to, layout.weekStart) : [];
 
   /** The pointer, in cell coordinates. `null` on a blank — the leading days of
    *  the first week and the trailing days of the last — and a blank is ignored

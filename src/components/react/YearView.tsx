@@ -41,7 +41,10 @@ import {
   useSpring,
   type MotionValue,
 } from "motion/react";
+import { Search, X } from "lucide-react";
 import type { YearViewProps } from "@/components/react/types";
+import { IconButton } from "@/components/react/ui/primitives";
+import { scoreEvent } from "@/lib/events";
 import { DIAL, VIEW_BOX, VIEW_SIZE, polar } from "@/lib/dial";
 import { LIFE_META_H, dayTally, formatLifeDate, lifeDot, type LifeStage } from "@/lib/life";
 import {
@@ -214,7 +217,10 @@ const CHROME_MS = 260;
  * Under it, the standing line. The dial's interior answers what a day is made
  * of; a year has no equivalent answer worth printing every time you open it,
  * so the space goes to something the user wrote instead. It appears only at
- * rest: pointing at a day is a question, and a quote is not an answer to it.
+ * rest, and a lit query is not rest: pointing at a day is a question, and so
+ * is typing one — a quote is not an answer to either. The search chip takes
+ * the subtitle's own slot for the same reason it is one line: the count *is*
+ * the answer, and the ring is the shape of it.
  */
 function Readout({
   year,
@@ -223,6 +229,9 @@ function Readout({
   tally,
   today,
   quote,
+  search,
+  found,
+  onClearSearch,
   u,
 }: {
   year: number;
@@ -232,6 +241,12 @@ function Readout({
   tally: Mark | null;
   today: Date;
   quote: string;
+  /** The query, and what it lit — mirrors the life grid's own pair exactly,
+   *  since this is the same question asked of the same engine, one face
+   *  over. */
+  search: string;
+  found: { count: number } | null;
+  onClearSearch: () => void;
   u: number;
 }) {
   // A range, printed the way the dial prints one: the value and its size, and
@@ -264,10 +279,14 @@ function Readout({
         >
           {year}
         </span>
-        <span className="label text-ink-3" style={{ fontSize: `${11 * u}px` }}>
-          {year === today.getFullYear() ? formatLifeDate(today) : `${daysInYear(year)} days`}
-        </span>
-        {quote && (
+        {found ? (
+          <SearchChip query={search} days={found.count} onClear={onClearSearch} u={u} />
+        ) : (
+          <span className="label text-ink-3" style={{ fontSize: `${11 * u}px` }}>
+            {year === today.getFullYear() ? formatLifeDate(today) : `${daysInYear(year)} days`}
+          </span>
+        )}
+        {quote && !found && (
           // The one place in the app where a line is allowed to wrap: it is
           // the user's sentence and the ring is round, so the width is capped
           // well inside the numerals rather than left to the viewport.
@@ -327,6 +346,47 @@ function Centre({ u, children }: { u: number; children: ReactNode }) {
   );
 }
 
+/**
+ * What the ring is currently showing you, where the year's own subtitle
+ * usually goes — the life grid's `SearchChip`, scaled by `u` for the reason
+ * everything else in this readout is: it sits inside the same SVG-proportional
+ * column, not a fixed-pixel strip. The count is the point, exactly as it is
+ * there: "42 days" is the answer, and the ring is the shape of it.
+ */
+function SearchChip({
+  query,
+  days,
+  onClear,
+  u,
+}: {
+  query: string;
+  days: number;
+  onClear: () => void;
+  u: number;
+}) {
+  return (
+    <span
+      className="label pointer-events-auto flex max-w-full items-center gap-1.5 text-ink-3"
+      style={{ fontSize: `${11 * u}px` }}
+    >
+      <Search size={11 * u} strokeWidth={1.75} className="shrink-0" />
+      <span className="max-w-[16ch] truncate text-ink-2 normal-case">{query}</span>
+      <span className="text-ink-4">·</span>
+      <span className="shrink-0 text-ink-2">
+        {days} day{days === 1 ? "" : "s"}
+      </span>
+      <IconButton
+        label="Clear the search"
+        onClick={onClear}
+        className="ml-0.5 shrink-0"
+        style={{ width: `${20 * u}px`, height: `${20 * u}px` }}
+      >
+        <X size={12 * u} strokeWidth={1.75} />
+      </IconButton>
+    </span>
+  );
+}
+
 /* --------------------------------- the face -------------------------------- */
 
 export default function YearView({
@@ -341,6 +401,8 @@ export default function YearView({
   pending,
   onSelectDay,
   onCreateSpan,
+  search,
+  onClearSearch,
 }: YearViewProps) {
   const reducedMotion = useReducedMotion();
   const [stageRef, width, height] = useElementSize<HTMLDivElement>();
@@ -390,6 +452,28 @@ export default function YearView({
     }
     return out;
   }, [year, days, events, calendars]);
+
+  /**
+   * The days the query lit, over the same `dayTally` `marks` above is built
+   * from — one engine, so the ring can never light for a query the palette's
+   * list would not have found. Filtered first with `scoreEvent`, exactly as
+   * the life grid's own thread is: title, then location and notes at a
+   * penalty.
+   */
+  const found = useMemo(() => {
+    const q = search.trim();
+    if (!q) return null;
+    const matches = events.filter((event) => scoreEvent(event, q) !== null);
+    const lit = new Array<boolean>(days).fill(false);
+    let count = 0;
+    for (let i = 0; i < days; i++) {
+      if (dayTally(matches, calendars, dateOfYear(year, i)).count > 0) {
+        lit[i] = true;
+        count++;
+      }
+    }
+    return { lit, count };
+  }, [search, events, calendars, year, days]);
 
   /**
    * Which slot the bulge is centred on, and how much of it is up.
@@ -785,6 +869,7 @@ export default function YearView({
           selected={selectedIndex}
           today={todayIndex}
           pending={lit}
+          matched={found?.lit ?? null}
           at={pointerAt}
           amount={amount}
         />
@@ -825,6 +910,9 @@ export default function YearView({
           tally={activeMark}
           today={today}
           quote={settings.yearQuote}
+          search={search}
+          found={found}
+          onClearSearch={onClearSearch}
           u={u}
         />
       </div>
@@ -856,9 +944,11 @@ export default function YearView({
  * pointing at is smaller than the pointer, and a highlight that only changed
  * its colour would leave you counting teeth.
  *
- * It grows **inwards**. The outer tip is the datum — it is the whole of what
- * this face says about the day — so magnifying it outwards would make a
- * hovered empty day look like a booked one.
+ * It grows **outwards**, away from the centre, which reads as the day coming
+ * up to meet you. Inwards was a draft, on the argument that the outer tip is
+ * the datum and pushing it out makes a hovered empty day look like a booked
+ * one — true, and the wrong trade: inwards read as a smudge, and length out
+ * here costs nothing, where width costs the ring's own air.
  *
  * Driven off motion values rather than props: the position changes on every
  * `pointermove` and the amount is a spring, and 365 SVG nodes re-diffed at
@@ -872,6 +962,7 @@ function Ring({
   selected,
   today,
   pending,
+  matched,
   at,
   amount,
 }: {
@@ -883,6 +974,16 @@ function Ring({
   /** The event about to exist, or `null`. Drawn on the days it covers as a day
    *  that carries it: one more thing on the day, in its ink. */
   pending: Pending | null;
+  /**
+   * Which days the active query lit, index-aligned with `marks`, or `null`
+   * when there is nothing to search. A matched day keeps its colour and
+   * grows a touch, exactly as a day the pending draft covers does; an
+   * unmatched one loses its colour to the same grey an empty day already
+   * carries — white is spoken for twice on this face already (the
+   * selection, the hover's empty-day light), so a third meaning is not
+   * available to a search.
+   */
+  matched: boolean[] | null;
   at: MotionValue<number>;
   amount: MotionValue<number>;
 }) {
@@ -925,8 +1026,10 @@ function Ring({
       // when the drag hands over to the editor or when the editor saves. It is
       // the ghost arc's job in this face's own terms.
       const carries = i >= from && i <= to;
+      const searchHit = matched !== null && matched[i];
+      const searchMiss = matched !== null && !matched[i];
       const angle = dayAngle(i + shift, days);
-      const base = carries ? markRadius(mark.count + 1) : mark.outer;
+      const base = carries || searchHit ? markRadius(mark.count + 1) : mark.outer;
       const grown = base + YEAR.GROW_OUT * lift ** FALLOFF.length;
       const inner = face.at(...radial(YEAR.DAY_INNER, angle));
       const outer = face.at(...radial(grown, angle));
@@ -935,7 +1038,7 @@ function Ring({
       ctx.beginPath();
       ctx.moveTo(inner.x, inner.y);
       ctx.lineTo(outer.x, outer.y);
-      ctx.strokeStyle = carries ? ink : mark.color;
+      ctx.strokeStyle = carries ? ink : searchMiss ? EMPTY_MARK : mark.color;
       ctx.stroke();
 
       // Light instead of a colour, never over one. An empty day has nothing
@@ -970,7 +1073,7 @@ function Ring({
         ctx.fill();
       }
     }
-  }, [box.width, box.height, days, marks, selected, today, pending, at, amount]);
+  }, [box.width, box.height, days, marks, selected, today, pending, matched, at, amount]);
 
   useMotionValueEvent(at, "change", paint);
   useMotionValueEvent(amount, "change", paint);

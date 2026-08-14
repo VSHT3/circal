@@ -3,7 +3,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "re
 import { keyDown, keyUp } from "@/lib/keys";
 import { FEED_CHECK_MS, refreshStaleFeeds } from "@/lib/feeds";
 import { store } from "@/lib/store";
-import { dueReminders, reminderText } from "@/lib/remind";
+import { dueReminders, reminderText, titleCountdown } from "@/lib/remind";
 import type { CalEvent, Calendar } from "@/lib/events";
 import type { Clock } from "@/lib/time";
 
@@ -462,6 +462,41 @@ export function useReminders(options: {
       };
     }
   }, [now, enabled]);
+}
+
+/**
+ * The document title as the reminder that survives a backgrounded tab.
+ * `useReminders`' notification needs the browser's permission and is an
+ * interruption; this needs neither, so it carries no `settings` switch of
+ * its own — a tab title is not a notification, it is the page already open.
+ *
+ * Rewritten only while the tab is *hidden*. A visible one already has the
+ * answer on screen, in the ring and the headline row, and a title repeating
+ * it is the same fact twice — the mistake this app's own readouts have
+ * already been rewritten once to avoid.
+ *
+ * The title found on mount is the one restored: on the last occurrence
+ * clearing, on the tab coming back to the front, and on unmount, so this
+ * hook can never leave the tab wearing a countdown after it stops running.
+ */
+export function useTitleCountdown(events: CalEvent[], calendars: Calendar[], now: Date) {
+  const original = useRef<string | null>(null);
+  const [hidden, setHidden] = useState(() => document.visibilityState === "hidden");
+
+  useEffect(() => {
+    const onVisibility = () => setHidden(document.visibilityState === "hidden");
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, []);
+
+  useEffect(() => {
+    if (original.current === null) original.current = document.title;
+    const countdown = hidden ? titleCountdown(events, calendars, now) : null;
+    document.title = countdown ? `${original.current} ${countdown}` : original.current;
+    return () => {
+      if (original.current !== null) document.title = original.current;
+    };
+  }, [events, calendars, now, hidden]);
 }
 
 /**

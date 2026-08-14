@@ -3,7 +3,7 @@ import { at, calendar, day, event, ms } from "./helpers";
 import {
   ICON_MAX,
   PALETTE,
-  WAKING,
+  DEFAULT_WAKING,
   colorOf,
   dayAgenda,
   dayLoad,
@@ -477,7 +477,7 @@ describe("freeGaps", () => {
       name: "an empty day is one gap spanning the whole waking window",
       events: [],
       min: 30,
-      expected: [{ start: WAKING.from, end: WAKING.to }],
+      expected: [{ start: DEFAULT_WAKING.from, end: DEFAULT_WAKING.to }],
     },
     {
       name: "a day booked exactly across the window has no gaps",
@@ -493,21 +493,21 @@ describe("freeGaps", () => {
       ],
       min: 30,
       expected: [
-        { start: WAKING.from, end: 540 },
-        { start: 660, end: WAKING.to },
+        { start: DEFAULT_WAKING.from, end: 540 },
+        { start: 660, end: DEFAULT_WAKING.to },
       ],
     },
     {
       name: "an event starting before the window clips to it",
       events: [{ start: "2026-03-08 07:00", end: "2026-03-08 09:00" }],
       min: 30,
-      expected: [{ start: 540, end: WAKING.to }],
+      expected: [{ start: 540, end: DEFAULT_WAKING.to }],
     },
     {
       name: "an event ending after the window clips to it",
       events: [{ start: "2026-03-08 21:00", end: "2026-03-08 23:00" }],
       min: 30,
-      expected: [{ start: WAKING.from, end: 1260 }],
+      expected: [{ start: DEFAULT_WAKING.from, end: 1260 }],
     },
     {
       name: "a gap narrower than minMinutes is dropped",
@@ -517,32 +517,36 @@ describe("freeGaps", () => {
       ],
       min: 30,
       expected: [
-        { start: WAKING.from, end: 540 },
-        { start: 660, end: WAKING.to },
+        { start: DEFAULT_WAKING.from, end: 540 },
+        { start: 660, end: DEFAULT_WAKING.to },
       ],
     },
     {
       name: "an all-day event does not occupy a gap",
       events: [{ start: "2026-03-08 00:00", end: "2026-03-09 00:00", allDay: true }],
       min: 30,
-      expected: [{ start: WAKING.from, end: WAKING.to }],
+      expected: [{ start: DEFAULT_WAKING.from, end: DEFAULT_WAKING.to }],
     },
   ];
 
   it.each(rows)("$name", ({ events, min, expected }) => {
-    const gaps = freeGaps(build(events), min, WAKING.from, WAKING.to);
+    const gaps = freeGaps(build(events), min, DEFAULT_WAKING.from, DEFAULT_WAKING.to);
     expect(gaps).toEqual(expected);
   });
 });
 
 describe("dayLoad", () => {
-  const load = (specs: Array<{ start: string; end: string; allDay?: boolean }>) =>
+  const load = (
+    specs: Array<{ start: string; end: string; allDay?: boolean }>,
+    waking: { from: number; to: number } = DEFAULT_WAKING,
+  ) =>
     dayLoad(
       occurrencesOn(
         specs.map((s) => event(s)),
         [cal],
         day("2026-03-08"),
       ),
+      waking,
     );
 
   // The distinction the return type exists for: a day with nothing timed on it
@@ -562,20 +566,47 @@ describe("dayLoad", () => {
     expect(overlapping?.booked).toBe(180);
   });
 
-  // Booked is the whole revolution, free is only `WAKING`, and they are
-  // deliberately not complements: nobody reads "nineteen hours free" as an
-  // offer. An event outside the waking window is booked and costs no free.
+  // Booked is the whole revolution, free is only the given window, and they
+  // are deliberately not complements: nobody reads "nineteen hours free" as
+  // an offer. An event outside the waking window is booked and costs no free.
   it("counts a night event as booked without taking it off the free window", () => {
     const night = load([{ start: "2026-03-08 05:00", end: "2026-03-08 06:00" }]);
     expect(night?.booked).toBe(60);
-    expect(night?.free).toBe(WAKING.to - WAKING.from);
+    expect(night?.free).toBe(DEFAULT_WAKING.to - DEFAULT_WAKING.from);
   });
 
   it("does not sum to a day, or to anything", () => {
     const some = load([{ start: "2026-03-08 09:00", end: "2026-03-08 10:00" }])!;
     expect(some.booked).toBe(60);
-    expect(some.free).toBe(WAKING.to - WAKING.from - 60);
+    expect(some.free).toBe(DEFAULT_WAKING.to - DEFAULT_WAKING.from - 60);
     expect(some.booked + some.free).not.toBe(MINUTES_PER_DAY);
+  });
+
+  // `waking` is now the caller's own argument, not a module constant `dayLoad`
+  // reads for itself — so free has to track whatever window it is handed,
+  // including one nowhere near `DEFAULT_WAKING`.
+  it("free tracks the window it is given, not a fixed default", () => {
+    const midnight = load([{ start: "2026-03-08 01:00", end: "2026-03-08 01:30" }], {
+      from: 0,
+      to: 120,
+    })!;
+    expect(midnight.booked).toBe(30);
+    expect(midnight.free).toBe(90);
+  });
+
+  // A naive implementation could measure `booked` against the given window
+  // too, instead of the whole revolution — the two would then "add up" to
+  // the window's own width and look plausible. Here the event sits entirely
+  // outside a narrow window: `booked` must still count it in full while
+  // `free` reports the window untouched, so the pair does not collapse into
+  // the window width the way a naive reading would.
+  it("booked ignores the given window entirely — a bug that reused it would undercount", () => {
+    const outside = load([{ start: "2026-03-08 23:00", end: "2026-03-09 00:00" }], {
+      from: 9 * 60,
+      to: 10 * 60,
+    })!;
+    expect(outside.booked).toBe(60);
+    expect(outside.free).toBe(60);
   });
 });
 

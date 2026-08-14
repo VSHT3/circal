@@ -20,7 +20,16 @@
 
 import { colorOf, occurrencesOn, type CalEvent, type Calendar } from "./events";
 import { startsBetweenIn } from "./recur";
-import { MONTHS, addDays, dayKey, daysInMonth, fromDayKey, mondayOffset, startOfDay } from "./time";
+import {
+  MONTHS,
+  addDays,
+  dayKey,
+  daysInMonth,
+  fromDayKey,
+  startOfDay,
+  weekOffset,
+  type WeekStart,
+} from "./time";
 
 const DAY_MS = 86_400_000;
 const WEEK = 7;
@@ -108,6 +117,10 @@ export function lifeSpan(birth: Date, expectancyYears: number): LifeSpan {
 export interface LifeLayout {
   birthYear: number;
   years: number;
+  /** Which weekday the columns are cut on — everything below reads it off the
+   *  layout rather than taking it as a parameter, so a day ⇒ cell function
+   *  only ever needs the layout it was handed. */
+  weekStart: WeekStart;
   /** Lines one year is drawn on, and the columns each of those lines holds. */
   linesPerYear: number;
   colsPerLine: number;
@@ -159,7 +172,12 @@ function fit(boxWidth: number, boxHeight: number, years: number, weeksPerLine: n
  * Ties go to the earlier candidate — fewer lines per year is easier to read,
  * so the split only gets finer when it actually buys legibility.
  */
-function lifeLayout(boxWidth: number, boxHeight: number, span: LifeSpan): LifeLayout {
+function lifeLayout(
+  boxWidth: number,
+  boxHeight: number,
+  span: LifeSpan,
+  weekStart: WeekStart,
+): LifeLayout {
   let best = fit(boxWidth, boxHeight, span.years, SPLITS[0]);
   for (const weeks of SPLITS.slice(1)) {
     const candidate = fit(boxWidth, boxHeight, span.years, weeks);
@@ -169,6 +187,7 @@ function lifeLayout(boxWidth: number, boxHeight: number, span: LifeSpan): LifeLa
   return {
     birthYear: span.birth.getFullYear(),
     years: span.years,
+    weekStart,
     linesPerYear: best.linesPerYear,
     colsPerLine: best.colsPerLine,
     rows: best.rows,
@@ -203,6 +222,7 @@ export function lifeStage(
   expectancyYears: number,
   panelWidth: number,
   panelHeight: number,
+  weekStart: WeekStart,
 ): LifeStage | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(birth)) return null;
   const start = fromDayKey(birth);
@@ -212,7 +232,7 @@ export function lifeStage(
   if (box.width < 1 || box.height < 1) return null;
 
   const span = lifeSpan(start, expectancyYears);
-  return { span, layout: lifeLayout(box.width, box.height, span), box };
+  return { span, layout: lifeLayout(box.width, box.height, span, weekStart), box };
 }
 
 /** 0 for 1 January. Rounded for the same DST reason as `lifeSpan`. */
@@ -227,7 +247,7 @@ function dayOfYear(date: Date): number {
  * the split turns that into a line and a column.
  */
 function lifeCell(layout: LifeLayout, date: Date): { row: number; col: number } {
-  const slot = mondayOffset(new Date(date.getFullYear(), 0, 1)) + dayOfYear(date);
+  const slot = weekOffset(new Date(date.getFullYear(), 0, 1), layout.weekStart) + dayOfYear(date);
   const line = Math.floor(slot / layout.colsPerLine);
   return {
     row: (date.getFullYear() - layout.birthYear) * layout.linesPerYear + line,
@@ -255,18 +275,18 @@ export function lifeDot(layout: LifeLayout, span: LifeSpan, date: Date): LifePoi
  */
 export interface LifeYearRange {
   year: number;
-  /** Leading blank slots: the Monday-first weekday of 1 January. */
+  /** Leading blank slots: `year`'s 1 January, counted from `weekStart`. */
   offset: number;
   /** Inclusive, 0-based day-of-year bounds. */
   from: number;
   to: number;
 }
 
-export function lifeYearRange(span: LifeSpan, index: number): LifeYearRange {
+export function lifeYearRange(span: LifeSpan, index: number, weekStart: WeekStart): LifeYearRange {
   const year = span.birth.getFullYear() + index;
   return {
     year,
-    offset: mondayOffset(new Date(year, 0, 1)),
+    offset: weekOffset(new Date(year, 0, 1), weekStart),
     from: year === span.birth.getFullYear() ? dayOfYear(span.birth) : 0,
     to:
       year === span.death.getFullYear() ? dayOfYear(span.death) : dayOfYear(new Date(year, 11, 31)),
@@ -310,7 +330,8 @@ export function lifeCellAt(layout: LifeLayout, span: LifeSpan, x: number, y: num
 
   const year = layout.birthYear + Math.floor(row / layout.linesPerYear);
   const line = row % layout.linesPerYear;
-  const offset = line * layout.colsPerLine + col - mondayOffset(new Date(year, 0, 1));
+  const offset =
+    line * layout.colsPerLine + col - weekOffset(new Date(year, 0, 1), layout.weekStart);
   if (offset < 0) return null;
   const date = new Date(year, 0, 1 + offset);
   if (date.getFullYear() !== year) return null;
@@ -361,6 +382,10 @@ export interface LoupeLayout {
   radius: number;
   width: number;
   height: number;
+  /** Which weekday the loupe's rows are cut on — carried on the layout for
+   *  the same reason `LifeLayout` carries its own, and always the field's:
+   *  the two pictures have to agree about where a week starts. */
+  weekStart: WeekStart;
 }
 
 /**
@@ -371,17 +396,26 @@ export function loupeLayout(
   boxWidth: number,
   boxHeight: number,
   fieldRadius: number,
+  weekStart: WeekStart,
 ): LoupeLayout | null {
   const pitch = Math.min(LOUPE_MAX_PITCH, boxWidth / LOUPE_COLS, boxHeight / WEEK);
   const radius = pitch * 0.4;
   if (pitch < LOUPE_MIN_PITCH || radius < fieldRadius * LOUPE_MIN_GAIN) return null;
-  return { cols: LOUPE_COLS, pitch, radius, width: LOUPE_COLS * pitch, height: WEEK * pitch };
+  return {
+    cols: LOUPE_COLS,
+    pitch,
+    radius,
+    width: LOUPE_COLS * pitch,
+    height: WEEK * pitch,
+    weekStart,
+  };
 }
 
-/** A day's cell in the loupe. Monday is row 0 — the same week the field's own
- *  groups are cut on, so the two pictures agree about where a week starts. */
-export function loupeCell(date: Date): { col: number; row: number } {
-  const slot = mondayOffset(new Date(date.getFullYear(), 0, 1)) + dayOfYear(date);
+/** A day's cell in the loupe. Row 0 is `weekStart` — the same week the
+ *  field's own groups are cut on, so the two pictures agree about where a
+ *  week starts. */
+export function loupeCell(date: Date, weekStart: WeekStart): { col: number; row: number } {
+  const slot = weekOffset(new Date(date.getFullYear(), 0, 1), weekStart) + dayOfYear(date);
   return { col: Math.floor(slot / WEEK), row: slot % WEEK };
 }
 
@@ -401,7 +435,7 @@ export function loupeCellAt(
   const col = Math.floor(x / layout.pitch);
   const row = Math.floor(y / layout.pitch);
   if (col < 0 || col >= layout.cols || row < 0 || row >= WEEK) return null;
-  const offset = col * WEEK + row - mondayOffset(new Date(year, 0, 1));
+  const offset = col * WEEK + row - weekOffset(new Date(year, 0, 1), layout.weekStart);
   if (offset < 0) return null;
   const date = new Date(year, 0, 1 + offset);
   if (date.getFullYear() !== year) return null;
@@ -415,8 +449,12 @@ export function loupeCellAt(
  * what keeps the birth year's first label on the birthday's own week instead
  * of off the left of a strip that does not begin in January.
  */
-export function loupeMonths(span: LifeSpan, year: number): { month: number; col: number }[] {
-  const { offset, from, to } = lifeYearRange(span, year - span.birth.getFullYear());
+export function loupeMonths(
+  span: LifeSpan,
+  year: number,
+  weekStart: WeekStart,
+): { month: number; col: number }[] {
+  const { offset, from, to } = lifeYearRange(span, year - span.birth.getFullYear(), weekStart);
   const out: { month: number; col: number }[] = [];
   for (let month = 0; month < 12; month++) {
     const first = dayOfYear(new Date(year, month, 1));
@@ -498,13 +536,19 @@ export function lifeBands(layout: LifeLayout, span: LifeSpan, a: Date, b: Date):
 /** The same run in the loupe's columns, clipped to the year it is showing —
  *  `line` is a week and the bounds are weekdays. Empty when the run misses
  *  that year entirely, which is most of them. */
-export function loupeBands(span: LifeSpan, year: number, a: Date, b: Date): CellBand[] {
+export function loupeBands(
+  span: LifeSpan,
+  year: number,
+  a: Date,
+  b: Date,
+  weekStart: WeekStart,
+): CellBand[] {
   const run = lifeRange(span, a, b);
   const first = new Date(year, 0, 1);
   const last = new Date(year, 11, 31);
   if (run.to < first || run.from > last) return [];
-  const from = loupeCell(run.from < first ? first : run.from);
-  const to = loupeCell(run.to > last ? last : run.to);
+  const from = loupeCell(run.from < first ? first : run.from, weekStart);
+  const to = loupeCell(run.to > last ? last : run.to, weekStart);
   return cellBands({ line: from.col, cell: from.row }, { line: to.col, cell: to.row }, WEEK);
 }
 

@@ -170,6 +170,15 @@ export function readSettings(value: unknown): Settings {
         ? value.defaultDuration
         : DEFAULT_SETTINGS.defaultDuration,
     defaultCalendar: typeof value.defaultCalendar === "string" ? value.defaultCalendar : "",
+    // Types only: `sane()` is what pins an illegal weekday or an inverted
+    // waking window to the defaults, same as every other bounded field here.
+    weekStart:
+      value.weekStart === 0 || value.weekStart === 1 || value.weekStart === 6
+        ? value.weekStart
+        : DEFAULT_SETTINGS.weekStart,
+    wakingFrom:
+      typeof value.wakingFrom === "number" ? value.wakingFrom : DEFAULT_SETTINGS.wakingFrom,
+    wakingTo: typeof value.wakingTo === "number" ? value.wakingTo : DEFAULT_SETTINGS.wakingTo,
   };
 }
 

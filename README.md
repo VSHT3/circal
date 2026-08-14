@@ -110,6 +110,11 @@ meeting. Nothing ever catches up either: a reminder fires in its own minute or
 not at all, because a notification for a meeting that started an hour ago is
 worse than none.
 
+The tab title is the other half, and it needs no permission and no switch:
+while circal is in a background tab it reads `· 14m · Standup`, so the answer
+is in the tab strip of whatever you went off to do instead. It goes back to
+plain the moment you come back to it, because the dial is already saying it.
+
 ## Editing something that repeats
 
 A repeating event is asked what an edit means, at the moment it lands rather
@@ -170,7 +175,9 @@ four moods and picks between them itself:
 **Totals** (off, in Settings) adds one line: how much of the day is spoken for,
 and how much of it is still free. Booked counts the whole revolution — a six
 o'clock run is time spent — while free counts only the hours you would book in,
-because nobody reads "nineteen hours free" as an offer. The nine-cell picker
+because nobody reads "nineteen hours free" as an offer. Those hours are yours
+to set, in **Settings → Day → Hours**; the palette's free-slot search reads the
+same pair, so both mean the same thing by "free". The nine-cell picker
 beside the switch says where it sits: under the list, or in any corner or edge
 of the window, which on anything wider than it is tall is black the circle
 never reaches.
@@ -251,6 +258,18 @@ Seven faces is seven tab stops, so this one needs no cursor of its own: tab
 through the week and `↵` opens the day you are on. `←` and `→` step a whole
 week, because a step should move the picture by exactly the picture.
 
+A week also takes the gesture the year ring and the life grid already have:
+**press, drag across faces, release** and you get one event across those days,
+the readout naming the range as you go. A press that never leaves its face is
+still a click. That is the only thing on this strip you can write — the arcs
+themselves stay read-only, because seven faces of drag handles are seven
+chances to edit the wrong day, and the dial is one keystroke away.
+
+Which day the week starts on is yours: **Settings → Week**, Monday, Sunday or
+Saturday. It is one setting for a reason — the strip, the sidebar's mini-month
+and the life grid's columns are all built out of real weeks, so they move
+together and cannot end up disagreeing.
+
 ## The year, on one revolution
 
 `⌘Y` is the same instrument asked a bigger question. One revolution is one
@@ -289,6 +308,12 @@ day because you are living in it; a year has no answer worth printing every
 time you open one, so the space goes to something you wrote instead. It shows
 only at rest, and it is yours to change in **Settings** — or to empty, which
 leaves the middle bare.
+
+And like the life grid, the ring answers a question. Open `⌘P` while it is up
+and every day carrying a matching event keeps its colour and swells; the rest
+of the year falls back to a grey. "When in the year do I do this" has a shape,
+and this is the scale it has it at. The count sits under the year, the thread
+stays lit after the palette closes, and `esc` clears it.
 
 ## Your life, in days
 
@@ -429,7 +454,12 @@ sent anywhere, which also means nothing is backed up anywhere:
 **Subscriptions** mirror a public ICS URL — a Google, Apple or Fastmail
 "secret address" — as a read-only calendar, pulled on launch and on demand.
 Their events draw on the dial and open in the editor, but every field is
-locked: it is somebody else's calendar.
+locked: it is somebody else's calendar. A subscription that publishes a
+timezone keeps it — a weekly 09:00 New York standup stays 09:00 in New York
+whatever your own clock is doing, including the weeks when the two hemispheres
+change on different dates — and the editor says which city its hours are read
+against. Export keeps it too, so a round trip through circal no longer
+flattens somebody else's morning into UTC.
 
 Install it (Add to Home Screen, or the browser's install button) and it works
 offline. On iOS that is also what stops the seven-day storage eviction from
@@ -580,7 +610,7 @@ src/
     CommandPalette.tsx  Settings.tsx  Toast.tsx
 worker/index.ts  assets + the /api/feed proxy
 public/sw.js     offline cache
-tests/           907 cases over src/lib and the worker's guards
+tests/           1,265 cases over src/lib and the worker's guards
 ```
 
 Two overlapping events are pushed onto concentric rings by `packLanes`, so

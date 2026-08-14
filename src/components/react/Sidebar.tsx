@@ -14,7 +14,7 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { ChevronLeft, ChevronRight, Pencil, Plus } from "lucide-react";
 import { useMemo, useState } from "react";
 import { colorOf, occurrencesOn } from "@/lib/events";
-import { addMonths, isSameDay, WEEKDAYS } from "@/lib/time";
+import { addMonths, isSameDay, weekOffset, WEEKDAYS } from "@/lib/time";
 import { EASE } from "@/lib/motion";
 import type { SidebarProps } from "@/components/react/types";
 import { cn } from "@/lib/utils";
@@ -22,9 +22,6 @@ import { IconButton } from "@/components/react/ui/primitives";
 import { useFocusTrap } from "@/components/react/hooks";
 import { CalendarMark } from "@/components/react/ui/icons";
 import MoonPanel from "@/components/react/MoonPanel";
-
-// Monday-first week order — the reference app never starts a row on Sunday.
-const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0];
 
 /**
  * The column's width, in pixels, and the shell needs the number: it decides
@@ -42,6 +39,7 @@ export default function Sidebar({
   events,
   calendars,
   moon,
+  weekStart,
   actions,
 }: SidebarProps) {
   const drawer = mode === "drawer";
@@ -67,9 +65,17 @@ export default function Sidebar({
   const cells = useMemo(() => {
     const year = displayMonth.getFullYear();
     const month = displayMonth.getMonth();
-    const offset = (new Date(year, month, 1).getDay() + 6) % 7;
+    const offset = weekOffset(new Date(year, month, 1), weekStart);
     return Array.from({ length: 42 }, (_, i) => new Date(year, month, 1 - offset + i));
-  }, [displayMonth]);
+  }, [displayMonth, weekStart]);
+
+  /** The header letters, cut on the same weekday the grid above is — a row
+   *  that always read Mon-first regardless of the setting would agree with
+   *  the numerals only one week start out of three. */
+  const weekOrder = useMemo(
+    () => Array.from({ length: 7 }, (_, i) => (weekStart + i) % 7),
+    [weekStart],
+  );
 
   const body = (
     <div className="fade-y no-scrollbar flex h-full w-[260px] flex-col gap-5 overflow-y-auto p-3">
@@ -92,7 +98,7 @@ export default function Sidebar({
         </div>
 
         <div className="grid grid-cols-7 gap-y-1">
-          {WEEK_ORDER.map((i) => (
+          {weekOrder.map((i) => (
             <span key={i} className="label text-center text-[9px] text-ink-4">
               {WEEKDAYS[i][0]}
             </span>

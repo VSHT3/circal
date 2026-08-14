@@ -1,7 +1,7 @@
 /* Shared prop contracts between the shell (`App.tsx`) and its panels. */
 
 import type { RefObject } from "react";
-import type { Clock } from "@/lib/time";
+import type { Clock, WeekStart } from "@/lib/time";
 import type { CalEvent, Calendar, Occurrence } from "@/lib/events";
 import type { LifeRun, LifeStage } from "@/lib/life";
 import type { WeekStage } from "@/lib/week";
@@ -164,6 +164,9 @@ export interface TopBarProps {
   sidebarOpen: boolean;
   /** −1 / +1: a day in day view, a year in year view. */
   onStep: (delta: number) => void;
+  /** Which weekday a week starts on — the top bar's own range label follows
+   *  it, exactly as the strip and the mini-month do. */
+  weekStart: WeekStart;
   actions: ShellActions;
 }
 
@@ -185,6 +188,9 @@ export interface SidebarProps {
    * should not be able to re-render on a twenty-eighth changing.
    */
   moon: boolean;
+  /** As `TopBarProps.weekStart` — the mini-month's grid and header follow
+   *  it too. */
+  weekStart: WeekStart;
   actions: ShellActions;
 }
 
@@ -274,6 +280,13 @@ export interface YearViewProps {
    * multi-day one — and the shell turns both into a draft in the editor.
    */
   onCreateSpan: (from: Date, days: number) => void;
+  /**
+   * The query lighting the ring — the same string the life grid is handed,
+   * one face over: `App` holds it face-neutrally now that both grids answer
+   * it. `""` when there is nothing to search.
+   */
+  search: string;
+  onClearSearch: () => void;
 }
 
 export interface WeekViewProps {
@@ -300,6 +313,13 @@ export interface WeekViewProps {
    *  seven faces of drag targets is seven chances to edit the wrong day, and
    *  the editor is a modal, so it lands over the week rather than leaving it. */
   onOpenEvent: (occ: Occurrence) => void;
+  /**
+   * A drag across the strip: an all-day event running `days` days from
+   * `from`, both ends inclusive — the ring's and the grid's own gesture, at
+   * the one scale that was missing it. The shell turns it into a draft in
+   * the editor exactly as it does for the other two faces.
+   */
+  onCreateSpan: (from: Date, days: number) => void;
 }
 
 export interface LifeViewProps {
@@ -372,20 +392,23 @@ export interface CommandPaletteProps {
   calendars: Calendar[];
   /** The selected day's agenda — what the free-time search works against. */
   occurrences: Occurrence[];
-  clock: Clock;
   actions: ShellActions;
-  /** As `SidebarProps.inheritMarks` — its event rows resolve a mark too. */
-  inheritMarks: boolean;
-  /** What a quick-add line that names a time and no length is worth. Threaded
-   *  rather than read from a whole `settings` because this panel is still at
-   *  three fields; the fourth converts it, as `LifeView`'s sixth did. */
-  defaultDuration: number;
   /**
-   * Every keystroke, while the life view is the one behind us. The shell holds
-   * it rather than this panel because the grid outlives the palette: the
-   * thread stays lit after ⌘P closes, so it can be read.
+   * Whole, rather than one prop per field. This panel reached five of them —
+   * the clock its rows print times on, the mark inheritance its event rows
+   * resolve, the length a quick-add line with no end takes, and the two ends
+   * of the working day its free-slot search means by "free" — which is the
+   * count `LifeView` converted at, and for the same reason: the sixth would
+   * otherwise be another five files to edit.
    */
-  onSearchLife: (query: string) => void;
+  settings: Settings;
+  /**
+   * Every keystroke, while the life view or the year ring is the one behind
+   * us — both grids answer a query with `scoreEvent`, one face apart. The
+   * shell holds it rather than this panel because the grid outlives the
+   * palette: the thread stays lit after ⌘P closes, so it can be read.
+   */
+  onSearch: (query: string) => void;
 }
 
 /**

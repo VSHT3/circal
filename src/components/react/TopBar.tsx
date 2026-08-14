@@ -36,7 +36,14 @@ const WORDMARK = WIDE_MOD ? "min-[1660px]:flex" : "min-[1430px]:flex";
 const WORDMARK_RULE = WIDE_MOD ? "min-[1660px]:block" : "min-[1430px]:block";
 const READOUT = WIDE_MOD ? "min-[1450px]:block" : "min-[1220px]:block";
 
-export default function TopBar({ day, view, sidebarOpen, onStep, actions }: TopBarProps) {
+export default function TopBar({
+  day,
+  view,
+  sidebarOpen,
+  onStep,
+  weekStart,
+  actions,
+}: TopBarProps) {
   const { weekday, date } = formatDayHeader(day);
 
   return (
@@ -125,7 +132,7 @@ export default function TopBar({ day, view, sidebarOpen, onStep, actions }: TopB
               {weekday} <span className="text-ink-4">·</span> {date}
             </>
           ) : view === "week" ? (
-            formatDayRange(startOfWeek(day), addDays(startOfWeek(day), 6))
+            formatDayRange(startOfWeek(day, weekStart), addDays(startOfWeek(day, weekStart), 6))
           ) : view === "year" ? (
             day.getFullYear()
           ) : (

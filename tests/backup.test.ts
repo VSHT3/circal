@@ -393,6 +393,27 @@ describe("readSettings", () => {
   ])("arcLabels reads $name", ({ value, expected }) => {
     expect(readSettings(value).arcLabels).toBe(expected);
   });
+
+  // `weekStart`'s legal values are exactly its type's three members, so this
+  // check is necessarily also the validity check — unlike `wakingFrom`/`to`
+  // below, which stay real numbers of any size until `sane()` bounds them.
+  it.each([
+    { name: "absent, so the default stands", value: {}, expected: DEFAULT_SETTINGS.weekStart },
+    { name: "a legal, non-default weekday", value: { weekStart: 0 }, expected: 0 },
+    { name: "an illegal weekday", value: { weekStart: 3 }, expected: DEFAULT_SETTINGS.weekStart },
+    { name: "a non-number", value: { weekStart: "0" }, expected: DEFAULT_SETTINGS.weekStart },
+  ])("weekStart reads $name", ({ value, expected }) => {
+    expect(readSettings(value).weekStart).toBe(expected);
+  });
+
+  it.each(["wakingFrom", "wakingTo"] as const)(
+    "%s reads absent as the default, a number as itself, and anything else as the default",
+    (field) => {
+      expect.soft(readSettings({})[field]).toBe(DEFAULT_SETTINGS[field]);
+      expect.soft(readSettings({ [field]: 100 })[field]).toBe(100);
+      expect.soft(readSettings({ [field]: "100" })[field]).toBe(DEFAULT_SETTINGS[field]);
+    },
+  );
 });
 
 /* --------------------------------- readCalendar ---------------------------- */
@@ -575,6 +596,41 @@ describe("importBackup", () => {
     const snap = store.snapshot();
     expect(snap.events).toHaveLength(1);
     expect(snap.events[0].id).toBe("ok");
+  });
+
+  it("a restored blob carrying hostile weekStart/waking values comes back sane", async () => {
+    const { backup, store } = await load();
+    backup.importBackup(
+      JSON.stringify({
+        app: "circal",
+        calendars: [calendar({ id: "cal-a" })],
+        events: [],
+        settings: { weekStart: 9, wakingFrom: 2000, wakingTo: -50 },
+      }),
+    );
+    const settings = store.snapshot().settings;
+    expect.soft(settings.weekStart).toBe(DEFAULT_SETTINGS.weekStart);
+    // wakingFrom clamps to 1440, wakingTo clamps to 0 — still inverted after
+    // clamping, so `sane()` reverts the pair rather than keeping one half of
+    // a broken window.
+    expect.soft(settings.wakingFrom).toBe(DEFAULT_SETTINGS.wakingFrom);
+    expect.soft(settings.wakingTo).toBe(DEFAULT_SETTINGS.wakingTo);
+  });
+
+  it("a backup written before weekStart/waking existed restores on their defaults", async () => {
+    const { backup, store } = await load();
+    backup.importBackup(
+      JSON.stringify({
+        app: "circal",
+        calendars: [calendar({ id: "cal-a" })],
+        events: [],
+        settings: { clock: "24h" }, // a settings object from before these fields existed
+      }),
+    );
+    const settings = store.snapshot().settings;
+    expect.soft(settings.weekStart).toBe(DEFAULT_SETTINGS.weekStart);
+    expect.soft(settings.wakingFrom).toBe(DEFAULT_SETTINGS.wakingFrom);
+    expect.soft(settings.wakingTo).toBe(DEFAULT_SETTINGS.wakingTo);
   });
 });
 

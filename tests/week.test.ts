@@ -217,14 +217,37 @@ describe("weekFaceCentre", () => {
 /* -------------------------------- weekStage -------------------------------- */
 
 describe("weekStage", () => {
-  it("starts on the week's Monday whichever day of it is selected", () => {
-    for (const on of ["2026-08-03", "2026-08-06", "2026-08-09"]) {
-      expect.soft(dayKey(weekStage(day(on), 1400, 700)!.from)).toBe("2026-08-03");
+  it.each([
+    {
+      name: "Monday",
+      weekStart: 1 as const,
+      on: ["2026-08-03", "2026-08-06", "2026-08-09"],
+      wants: "2026-08-03",
+    },
+    {
+      name: "Sunday",
+      weekStart: 0 as const,
+      on: ["2026-08-02", "2026-08-05", "2026-08-08"],
+      wants: "2026-08-02",
+    },
+    {
+      name: "Saturday",
+      weekStart: 6 as const,
+      on: ["2026-08-08", "2026-08-09", "2026-08-11"],
+      wants: "2026-08-08",
+    },
+  ])("starts on the week's $name whichever day of it is selected", ({ weekStart, on, wants }) => {
+    // Each row includes a Sunday: under a Monday start it is the trailing
+    // edge (2026-08-09), under a Sunday start it is the week's own leading
+    // edge (2026-08-02), and under a Saturday start it falls mid-week
+    // (2026-08-09) — the day every `getDay()`-based off-by-one lands on.
+    for (const selected of on) {
+      expect.soft(dayKey(weekStage(day(selected), 1400, 700, weekStart)!.from)).toBe(wants);
     }
   });
 
   it("lays out against the whole panel, readout included", () => {
-    const stage = weekStage(day("2026-08-06"), 1400, 700)!;
+    const stage = weekStage(day("2026-08-06"), 1400, 700, 1)!;
     const { layout } = stage;
     expect(stage.box.height).toBe(700);
     // Every row's caption, every row's face, and the one readout: that is the
@@ -235,8 +258,8 @@ describe("weekStage", () => {
   });
 
   it("is null before the panel has been measured, or when it is too short to hold a group", () => {
-    expect(weekStage(day("2026-08-06"), 0, 0)).toBeNull();
-    expect(weekStage(day("2026-08-06"), 1400, WEEK_CAPTION_H + WEEK_META_H - 1)).toBeNull();
+    expect(weekStage(day("2026-08-06"), 0, 0, 1)).toBeNull();
+    expect(weekStage(day("2026-08-06"), 1400, WEEK_CAPTION_H + WEEK_META_H - 1, 1)).toBeNull();
   });
 });
 

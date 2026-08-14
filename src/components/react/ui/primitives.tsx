@@ -11,8 +11,9 @@
  * ------------------------------------------------------------------ */
 
 import { ChevronsUpDown } from "lucide-react";
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+import { useState, type ButtonHTMLAttributes, type ReactNode } from "react";
 import { PALETTE } from "@/lib/events";
+import { formatTime, minutesOfDay, parseClock, type Clock } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
 /**
@@ -481,6 +482,80 @@ export function NumberField({
       />
       {suffix && <span className="label text-ink-3">{suffix}</span>}
     </span>
+  );
+}
+
+/**
+ * A twelve- or twenty-four-hour clock field. Free text while focused,
+ * normalised on blur or Enter; ↑/↓ nudge by five minutes so keyboard-only
+ * editing is not a retype.
+ *
+ * `input[type="time"]` is banned in this app for the reason every other
+ * typed field here is hand-rolled: it renders in the browser's own locale,
+ * which disagrees with `Clock` the moment a Safari user has picked 24-hour
+ * time at the OS level and circal is showing 12. The editor's start/end pair
+ * was the only caller until the settings panel's waking-hours row became a
+ * second, which is what earns it a place beside the other eleven controls.
+ */
+export function TimeField({
+  value,
+  clock,
+  onCommit,
+  label,
+  disabled,
+}: {
+  value: Date;
+  clock: Clock;
+  onCommit: (minutes: number) => void;
+  label: string;
+  disabled?: boolean;
+}) {
+  // `null` means "not being typed in" — the field then simply renders the
+  // draft. That keeps the two in sync without an effect that copies props
+  // into state on every re-render.
+  const [typed, setTyped] = useState<string | null>(null);
+  const text = typed ?? formatTime(value, clock);
+
+  function commit(raw: string) {
+    const minutes = parseClock(raw);
+    if (minutes !== null) onCommit(minutes);
+    setTyped(null);
+  }
+
+  function nudge(delta: number) {
+    const base = parseClock(text) ?? minutesOfDay(value);
+    onCommit((Math.round(base) + delta + 1440) % 1440);
+    setTyped(null);
+  }
+
+  return (
+    <input
+      aria-label={label}
+      disabled={disabled}
+      value={text}
+      spellCheck={false}
+      onFocus={(e) => {
+        setTyped(formatTime(value, clock));
+        e.currentTarget.select();
+      }}
+      onChange={(e) => setTyped(e.target.value)}
+      onBlur={(e) => commit(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" && !e.metaKey && !e.ctrlKey) {
+          e.preventDefault();
+          e.stopPropagation();
+          commit(text);
+          e.currentTarget.blur();
+        } else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+          e.preventDefault();
+          nudge(e.key === "ArrowUp" ? 5 : -5);
+        }
+      }}
+      className={cn(
+        "rounded-[6px] px-1 py-0.5 text-ink tabular-nums transition-colors hover:bg-white/6 focus:bg-white/8",
+        clock === "24h" ? "w-[56px]" : "w-[76px]",
+      )}
+    />
   );
 }
 

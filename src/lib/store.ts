@@ -23,9 +23,19 @@
  * ------------------------------------------------------------------ */
 
 import { useSyncExternalStore } from "react";
-import { MINUTES_PER_DAY, addDays, addMonths, dayKey, startOfDay, type Clock } from "./time";
+import {
+  MINUTES_PER_DAY,
+  addDays,
+  addMonths,
+  clamp,
+  dayKey,
+  startOfDay,
+  type Clock,
+  type WeekStart,
+} from "./time";
 import { notify } from "./notify";
 import {
+  DEFAULT_WAKING,
   NEVER,
   PALETTE,
   instantKey,
@@ -135,6 +145,13 @@ export type ArcLabelMode = (typeof ARC_LABEL_MODES)[number];
 export const AMBIENT_DELAYS = [0, 1, 2, 5, 10, 30, 60] as const;
 
 export type AmbientDelay = (typeof AMBIENT_DELAYS)[number];
+
+/**
+ * The three starts the week strip, the mini-month and the life grid may cut
+ * on, in the order the picker offers them — Monday first, since it is the
+ * default every blob before this setting existed already drew.
+ */
+export const WEEK_STARTS: readonly WeekStart[] = [1, 0, 6];
 
 export interface Settings {
   /** Which face the dial wears — see `lib/dial.ts`. */
@@ -290,6 +307,24 @@ export interface Settings {
    * never expressed. A stale id simply falls back.
    */
   defaultCalendar: string;
+  /**
+   * Which weekday the week is considered to start on. One setting rather
+   * than three, because it is not really about the week strip — it is also
+   * the mini-month's grid and the life grid's own columns (`LifeLayout` and
+   * `LoupeLayout` both carry it as `weekStart`), and those three surfaces
+   * would drift apart the moment they each had their own answer.
+   */
+  weekStart: WeekStart;
+  /**
+   * The window free time is counted against, in minutes since midnight —
+   * `DEFAULT_WAKING`'s two fields, now a setting rather than a constant.
+   * "Free" only means something measured against hours you would use, and
+   * the palette's slot search and the dial's totals line have to keep
+   * meaning the same thing by the word, which is why both read this rather
+   * than each carrying a copy.
+   */
+  wakingFrom: number;
+  wakingTo: number;
 }
 
 /** The switches: every field of `Settings` that is a plain boolean. */
@@ -411,6 +446,15 @@ export const DEFAULT_SETTINGS: Settings = {
   // to be. Naming one here would be naming a seed calendar, and the seed is
   // not something a returning user still has.
   defaultCalendar: "",
+  // Monday, which is what the app has always drawn and what most of the
+  // world already expects — ISO 8601's own answer, and the one that needed
+  // no setting until this one arrived to make it a choice rather than an
+  // assumption.
+  weekStart: 1,
+  // `DEFAULT_WAKING`'s own pair: this setting exists to replace the constant,
+  // not to disagree with it on day one.
+  wakingFrom: DEFAULT_WAKING.from,
+  wakingTo: DEFAULT_WAKING.to,
 };
 
 const DEFAULT_CALENDARS: Calendar[] = [
@@ -561,6 +605,22 @@ export const YEAR_QUOTE_MAX = 72;
  */
 function sane(settings: Settings): Settings {
   const years = Math.round(settings.lifeExpectancy);
+  // Clamped into the day before they are compared, so a value that only
+  // needed rounding is not thrown away for the sin of the one beside it.
+  const wakingFrom = Number.isFinite(settings.wakingFrom)
+    ? clamp(Math.round(settings.wakingFrom), 0, MINUTES_PER_DAY)
+    : DEFAULT_SETTINGS.wakingFrom;
+  const wakingTo = Number.isFinite(settings.wakingTo)
+    ? clamp(Math.round(settings.wakingTo), 0, MINUTES_PER_DAY)
+    : DEFAULT_SETTINGS.wakingTo;
+  // Both revert together rather than one clamping onto the other: an
+  // inverted or zero-width window is a day with no free time in it, which
+  // reads as a broken feature rather than a choice, and the pair is the
+  // unit the setting was written as.
+  const waking =
+    wakingFrom < wakingTo
+      ? { wakingFrom, wakingTo }
+      : { wakingFrom: DEFAULT_SETTINGS.wakingFrom, wakingTo: DEFAULT_SETTINGS.wakingTo };
   return {
     ...settings,
     place: settings.place?.zone ? settings.place : null,
@@ -606,6 +666,10 @@ function sane(settings: Settings): Settings {
     // would be checked against can change in another tab a second later.
     // `defaultCalendarId` resolves it at the moment it is used.
     defaultCalendar: typeof settings.defaultCalendar === "string" ? settings.defaultCalendar : "",
+    weekStart: WEEK_STARTS.includes(settings.weekStart)
+      ? settings.weekStart
+      : DEFAULT_SETTINGS.weekStart,
+    ...waking,
   };
 }
 
@@ -1397,6 +1461,23 @@ export const store = {
   setLife(birth: string, lifeExpectancy: number) {
     const base = fresh();
     commit({ ...base, settings: sane({ ...base.settings, birth, lifeExpectancy }) }, false);
+  },
+
+  /** Which weekday the strip, the mini-month and the life grid all cut their
+   *  columns on. `sane()` is what pins a stray value to one of the three the
+   *  picker offers. */
+  setWeekStart(weekStart: WeekStart) {
+    const base = fresh();
+    commit({ ...base, settings: sane({ ...base.settings, weekStart }) }, false);
+  },
+
+  /** The window free time is counted against, in minutes since midnight.
+   *  `sane()` is what reverts an inverted or zero-width pair to the default —
+   *  both fields travel together because the shape the setting is wrong in
+   *  is the pair, not either half of it. */
+  setWaking(wakingFrom: number, wakingTo: number) {
+    const base = fresh();
+    commit({ ...base, settings: sane({ ...base.settings, wakingFrom, wakingTo }) }, false);
   },
 
   /**

@@ -196,7 +196,7 @@ export function drawField(
   };
 
   for (let index = 0; index < layout.years; index++) {
-    const { year, offset, from, to } = lifeYearRange(span, index);
+    const { year, offset, from, to } = lifeYearRange(span, index, layout.weekStart);
     const firstRow = index * layout.linesPerYear;
     // One Date per year, walked with `setMonth`, which rolls over: day 59 of a
     // year is Feb 29 or Mar 1 depending on the year, and that is the calendar's

@@ -21,10 +21,23 @@
  * moves, and everywhere else on a face is the day it belongs to.
  * ------------------------------------------------------------------ */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { colorOf, dayAgenda, dayLoad, spanLabel, type Occurrence } from "@/lib/events";
-import { WEEK_CAPTION_H, WEEK_META_H, WEEK_SCALE_FACE, weekDays, weekFaceCentre } from "@/lib/week";
+import {
+  WEEK_CAPTION_H,
+  WEEK_DAYS,
+  WEEK_META_H,
+  WEEK_SCALE_FACE,
+  weekDays,
+  weekFaceCentre,
+} from "@/lib/week";
 import {
   MONTHS,
   WEEKDAYS,
@@ -42,6 +55,7 @@ import type { Clock } from "@/lib/time";
 import type { Calendar } from "@/lib/events";
 import type { WeekViewProps } from "@/components/react/types";
 import Face from "./Face";
+import { useHotkeys } from "./hooks";
 
 /**
  * How much a face grows under the pointer, as a fraction of its own size.
@@ -83,6 +97,7 @@ export default function WeekView({
   settings,
   onSelectDay,
   onOpenEvent,
+  onCreateSpan,
 }: WeekViewProps) {
   const reducedMotion = useReducedMotion();
   const [active, setActive] = useState<Subject | null>(null);
@@ -104,9 +119,10 @@ export default function WeekView({
    */
   const week = useMemo<WeekDay[]>(() => {
     if (!fromKey) return [];
+    const waking = { from: settings.wakingFrom, to: settings.wakingTo };
     return weekDays(fromDayKey(fromKey)).map((date) => {
       const { all } = dayAgenda(events, calendars, date);
-      const load = dayLoad(all);
+      const load = dayLoad(all, waking);
       return {
         date,
         today: dayKey(date) === todayKey,
@@ -116,7 +132,7 @@ export default function WeekView({
         count: all.length,
       };
     });
-  }, [events, calendars, fromKey, todayKey]);
+  }, [events, calendars, fromKey, todayKey, settings.wakingFrom, settings.wakingTo]);
 
   /**
    * Once the grid scrolls, the day you arrived on has to be the day you can
@@ -132,6 +148,33 @@ export default function WeekView({
   useEffect(() => {
     selectedFace.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [selectedKey, fromKey]);
+
+  /**
+   * A press, a drag, a release across the faces — the ring's and the life
+   * grid's own grammar, at the one scale that was missing it. A press that
+   * never left its face is still a click; anything wider is a run of whole
+   * days, handed to `onCreateSpan` exactly as the other two faces hand it
+   * over — the editor cannot tell which face drew the draft, and must not
+   * be able to.
+   *
+   * `run.from` is the anchor and never moves once the press starts, so
+   * nothing else needs to remember it. Held in state rather than a ref: the
+   * faces it covers have to re-render to grow and mark themselves, unlike
+   * the life grid's run, which paints on a canvas nothing here has.
+   *
+   * Above the early return with every other hook, because that is where
+   * hooks live: the strip renders nothing until the shell has measured it.
+   */
+  const [run, setRun] = useState<{ from: number; to: number } | null>(null);
+  const fieldRef = useRef<HTMLDivElement>(null);
+
+  // Escape abandons a run in flight, exactly as it does on the dial and the
+  // life grid: a drag is the one thing on this strip you can start by
+  // accident, and before this the only way out of a press was to let go,
+  // which committed it. The pointer stays captured on purpose — the two
+  // handlers below bail on a missing run, so the release that follows does
+  // nothing, no cue because nothing happened.
+  useHotkeys({ escape: () => setRun(null) }, run !== null);
 
   if (!stage || week.length === 0) return null;
   const { layout } = stage;
@@ -154,16 +197,82 @@ export default function WeekView({
     cue("slide", { sound: settings.tickSound, haptics: settings.tickHaptics });
   };
 
+  /**
+   * Which of the seven faces a point in the panel's own content box is
+   * nearest to — resolved from `weekLayout`'s own centres, never the DOM.
+   * `week.ts` belongs to another slice this round, so this stays local
+   * rather than becoming a fifth export there for the one caller that wants
+   * it: seven comparisons against numbers this view already has.
+   */
+  const faceAt = (x: number, y: number): number => {
+    let best = 0;
+    let bestDist = Infinity;
+    for (let i = 0; i < WEEK_DAYS; i++) {
+      const c = weekFaceCentre(layout, i);
+      const dist = Math.hypot(x - c.x, y - c.y);
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = i;
+      }
+    }
+    return best;
+  };
+
+  const beginRun = (e: ReactPointerEvent<HTMLButtonElement>, index: number) => {
+    if (e.button !== 0) return;
+    // The keyboard never reaches this: a synthetic pointerdown has no button
+    // press behind it, and `PointerEvent.button` on one is `-1`, not `0`.
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setRun({ from: index, to: index });
+  };
+  const extendRun = (e: ReactPointerEvent<HTMLButtonElement>) => {
+    if (!run) return;
+    const rect = fieldRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const at = faceAt(e.clientX - rect.left, e.clientY - rect.top);
+    // Bail on an identical run: a pointer crossing one face fires a dozen
+    // moves and each one that changes state re-renders all seven.
+    if (at === run.to) return;
+    setRun({ from: run.from, to: at });
+  };
+  const endRun = () => {
+    if (!run) return;
+    setRun(null);
+    const lo = Math.min(run.from, run.to);
+    const hi = Math.max(run.from, run.to);
+    if (lo === hi) {
+      onSelectDay(week[lo].date);
+      return;
+    }
+    onCreateSpan(week[lo].date, hi - lo + 1);
+  };
+  /** The run's two ends as slots, or `null` — precomputed once rather than
+   *  per face below. */
+  const runRange = run ? ([Math.min(run.from, run.to), Math.max(run.from, run.to)] as const) : null;
+  /** The run, in the readout's own terms — both ends as dates and the day
+   *  count, mirroring the year ring's own span readout. */
+  const runSpan = runRange
+    ? {
+        from: week[runRange[0]].date,
+        to: week[runRange[1]].date,
+        days: runRange[1] - runRange[0] + 1,
+      }
+    : null;
+
   return (
     <div className="relative h-full w-full">
       <div
         className={cn("absolute inset-0", layout.scrolls && "no-scrollbar overflow-y-auto")}
         onPointerLeave={() => setActive(null)}
       >
-        <div className="relative" style={{ height: layout.scrolls ? layout.groupHeight : "100%" }}>
+        <div
+          ref={fieldRef}
+          className="relative"
+          style={{ height: layout.scrolls ? layout.groupHeight : "100%" }}
+        >
           {week.map((d, i) => {
             const centre = weekFaceCentre(layout, i);
-            const on = active?.index === i;
+            const on = runRange ? i >= runRange[0] && i <= runRange[1] : active?.index === i;
             /**
              * What the pointer found inside this face — an arc, an all-day
              * mark, or nothing at all now it has left one.
@@ -191,6 +300,10 @@ export default function WeekView({
                   d.count === 1 ? "1 event" : `${d.count} events`
                 }`}
                 onPointerEnter={() => enter(i)}
+                onPointerDown={(e) => beginRun(e, i)}
+                onPointerMove={extendRun}
+                onPointerUp={endRun}
+                onPointerCancel={() => setRun(null)}
                 onFocus={() => enter(i)}
                 onBlur={() => setActive(null)}
                 // One control, whose meaning is whatever it is pointing at:
@@ -199,7 +312,13 @@ export default function WeekView({
                 // need, and a control inside a control is not a thing HTML
                 // has. The keyboard never lands on an arc, so Enter is always
                 // the day — which is the answer this face's tab stop is for.
-                onClick={() => (peeked && on ? onOpenEvent(peeked) : onSelectDay(d.date))}
+                onClick={(e) => {
+                  // Only the keyboard's click: a pointer press is the gesture
+                  // above, and a mouse-originated click's `detail` is never 0.
+                  if (e.detail !== 0) return;
+                  if (peeked && on) onOpenEvent(peeked);
+                  else onSelectDay(d.date);
+                }}
               >
                 <FaceCaption
                   day={d.date}
@@ -230,7 +349,7 @@ export default function WeekView({
                     elapsed={d.today}
                     hand={d.today}
                     inheritMarks={settings.inheritMarks}
-                    hovered={active && on ? active.key : null}
+                    hovered={!run && active && on ? active.key : null}
                     // Hover only: this is what puts a hit stroke on the arc,
                     // and there is deliberately no `onGrab` behind it.
                     onHover={peek}
@@ -247,7 +366,7 @@ export default function WeekView({
                     calendars={calendars}
                     size={layout.size}
                     named={detailed}
-                    peeked={active && on ? active.key : null}
+                    peeked={!run && active && on ? active.key : null}
                     onPeek={peek}
                   />
                 </motion.div>
@@ -264,6 +383,7 @@ export default function WeekView({
               from={stage.from}
               subject={subject}
               peeked={peeked}
+              run={runSpan}
               calendars={calendars}
               clock={settings.clock}
             />
@@ -426,6 +546,7 @@ function Readout({
   from,
   subject,
   peeked,
+  run,
   calendars,
   clock,
 }: {
@@ -433,18 +554,30 @@ function Readout({
   from: Date;
   subject: WeekDay | null;
   peeked: Occurrence | null;
+  /** The run being dragged, both ends inclusive, or `null`. Takes the whole
+   *  readout over `subject` and `peeked` alike while it is live: a card
+   *  naming one end of a run — or one arc under a face the pointer is not
+   *  even on anymore, once the capture has it — is a second answer to a
+   *  question that has one. */
+  run: { from: Date; to: Date; days: number } | null;
   calendars: Calendar[];
   clock: Clock;
 }) {
-  const head = subject
-    ? `${WEEKDAYS[subject.date.getDay()].slice(0, 3)} ${subject.date.getDate()}`
-    : formatDayRange(from, week[week.length - 1].date);
+  const head = run
+    ? formatDayRange(run.from, run.to)
+    : subject
+      ? `${WEEKDAYS[subject.date.getDay()].slice(0, 3)} ${subject.date.getDate()}`
+      : formatDayRange(from, week[week.length - 1].date);
 
   return (
     <div className="flex items-center justify-center gap-2.5 px-4" style={{ height: WEEK_META_H }}>
       <span className="label shrink-0 text-[11px] text-ink-2">{head}</span>
       <span aria-hidden="true" className="h-3 w-px shrink-0 bg-hairline" />
-      {peeked ? (
+      {run ? (
+        <span className="caption tabular-nums">
+          {run.days} day{run.days === 1 ? "" : "s"}
+        </span>
+      ) : peeked ? (
         <>
           <span
             aria-hidden="true"

@@ -406,12 +406,13 @@ export interface Gap {
 }
 
 /**
- * The hours a day is actually booked in. Free time is counted against these
- * rather than against the whole revolution: nobody reads "nineteen hours
- * free" as an offer, and both the palette's slot search and the dial's
- * totals mean the same thing by the word.
+ * The hours a day is measured against by default, before a setting says
+ * otherwise. Free time is counted against these rather than against the
+ * whole revolution: nobody reads "nineteen hours free" as an offer, and both
+ * the palette's slot search and the dial's totals mean the same thing by the
+ * word — see `Settings.wakingFrom` / `wakingTo`, which this seeds.
  */
-export const WAKING = { from: 8 * 60, to: 22 * 60 };
+export const DEFAULT_WAKING = { from: 8 * 60, to: 22 * 60 };
 
 /**
  * The holes in a day, at least `minMinutes` wide, inside `[from, to]`.
@@ -450,21 +451,24 @@ export function freeGaps(
  *
  * The two are measured against *different* windows on purpose. Booked is the
  * whole revolution — a six o'clock run is time spent — while free is only
- * `WAKING`, because "nineteen hours free" is not an offer. They do not sum to
- * anything and nobody adds them.
+ * `waking`, the caller's own working-hours window, because "nineteen hours
+ * free" is not an offer. They do not sum to anything and nobody adds them.
  *
  * Both come out of `freeGaps`, which already merges overlaps: two events on
  * the same hour are one hour booked, not two. `null` for a day with nothing
  * timed on it, which is how a caller tells "nothing booked" from "no answer" —
  * an all-day event is context, and it books no hours.
  */
-export function dayLoad(occurrences: Occurrence[]): { booked: number; free: number } | null {
+export function dayLoad(
+  occurrences: Occurrence[],
+  waking: { from: number; to: number },
+): { booked: number; free: number } | null {
   if (!occurrences.some((occ) => !occ.event.allDay)) return null;
   const idle = (from: number, to: number) =>
     freeGaps(occurrences, 1, from, to).reduce((sum, gap) => sum + (gap.end - gap.start), 0);
   return {
     booked: MINUTES_PER_DAY - idle(0, MINUTES_PER_DAY),
-    free: idle(WAKING.from, WAKING.to),
+    free: idle(waking.from, waking.to),
   };
 }
 

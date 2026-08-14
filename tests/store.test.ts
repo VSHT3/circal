@@ -595,6 +595,8 @@ const SETTINGS_ACTIONS: { name: string; act: (s: StoreHandle) => void }[] = [
     act: (s) => s.store.setPlace({ lat: 48.85, lon: 2.35, label: "Paris", zone: "Europe/Paris" }),
   },
   { name: "setLife", act: (s) => s.store.setLife("2000-01-01", 90) },
+  { name: "setWeekStart", act: (s) => s.store.setWeekStart(0) },
+  { name: "setWaking", act: (s) => s.store.setWaking(7 * 60, 21 * 60) },
   { name: "toggleCalendar", act: (s) => s.store.toggleCalendar("personal") },
   { name: "addFeed", act: (s) => void s.store.addFeed("https://example.com/feed.ics", "Feed") },
   {
@@ -834,6 +836,78 @@ describe("sane() via parsing a stored blob", () => {
     expect(settings.ambientMoonlight).toBe(true);
     expect(settings.ambientZoneRing).toBe(false);
     expect(settings.ambientArcLabels).toBe("off");
+  });
+
+  it.each([
+    {
+      name: "an illegal weekday falls back to the default",
+      stored: 3,
+      want: DEFAULT_SETTINGS.weekStart,
+    },
+    { name: "a legal, non-default weekday is kept", stored: 0, want: 0 },
+  ])("weekStart: $name", async ({ stored, want }) => {
+    const storage = new MemoryStorage();
+    storage.setItem(
+      KEY,
+      JSON.stringify({
+        schema: 2,
+        events: [],
+        calendars: [],
+        feeds: {},
+        settings: { weekStart: stored },
+      }),
+    );
+    const s = await freshStore(storage);
+    expect(s.store.snapshot().settings.weekStart).toBe(want);
+  });
+
+  // Both revert together rather than one clamping onto the other: an
+  // inverted or zero-width window is a day with no free time in it.
+  it.each([
+    {
+      name: "an inverted waking window reverts both fields to the defaults",
+      wakingFrom: 600,
+      wakingTo: 300,
+    },
+    {
+      name: "a zero-width waking window reverts both fields to the defaults",
+      wakingFrom: 480,
+      wakingTo: 480,
+    },
+  ])("$name", async ({ wakingFrom, wakingTo }) => {
+    const storage = new MemoryStorage();
+    storage.setItem(
+      KEY,
+      JSON.stringify({
+        schema: 2,
+        events: [],
+        calendars: [],
+        feeds: {},
+        settings: { wakingFrom, wakingTo },
+      }),
+    );
+    const s = await freshStore(storage);
+    const settings = s.store.snapshot().settings;
+    expect.soft(settings.wakingFrom).toBe(DEFAULT_SETTINGS.wakingFrom);
+    expect.soft(settings.wakingTo).toBe(DEFAULT_SETTINGS.wakingTo);
+  });
+
+  it("clamps an out-of-range waking window into the day rather than rejecting it", async () => {
+    const storage = new MemoryStorage();
+    storage.setItem(
+      KEY,
+      JSON.stringify({
+        schema: 2,
+        events: [],
+        calendars: [],
+        feeds: {},
+        settings: { wakingFrom: -120, wakingTo: 2000 },
+      }),
+    );
+    const s = await freshStore(storage);
+    const settings = s.store.snapshot().settings;
+    expect.soft(settings.wakingFrom).toBe(0);
+    expect.soft(settings.wakingTo).toBe(MINUTES_PER_DAY);
   });
 });
 

@@ -53,6 +53,11 @@ export interface CenterPanelProps {
   /** Whether to print what the day is made of, and where on the stage. */
   totals: boolean;
   totalsAt: TotalsPosition;
+  /** The window "free" is measured against — `Settings.wakingFrom`/
+   *  `wakingTo`, threaded rather than read from a whole `settings` because
+   *  this panel is otherwise a dozen narrow props and a setting the totals
+   *  line does not otherwise need is not a reason to convert it. */
+  waking: { from: number; to: number };
   /** Live drag-to-create range, in minutes since midnight. */
   drag: { start: number; end: number } | null;
   hovered: string | null;
@@ -133,6 +138,7 @@ export default function CenterPanel({
   ambient,
   totals,
   totalsAt,
+  waking,
   drag,
   hovered,
   onHover,
@@ -214,7 +220,7 @@ export default function CenterPanel({
    */
   const shown = ambient ? rows.filter((occ) => occ.key === (hovered ?? headline)) : rows;
 
-  const load = totals && !drag ? dayLoad(occurrences) : null;
+  const load = totals && !drag ? dayLoad(occurrences, waking) : null;
   /**
    * The line itself, built once and placed twice: under the card when the
    * position is `center`, in a corner of the stage otherwise.

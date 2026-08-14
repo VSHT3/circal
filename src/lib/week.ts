@@ -24,7 +24,7 @@
  * life grid exists.
  * ------------------------------------------------------------------ */
 
-import { addDays, startOfWeek } from "./time";
+import { addDays, startOfWeek, type WeekStart } from "./time";
 
 export const WEEK_DAYS = 7;
 
@@ -191,10 +191,15 @@ export function weekLayout(width: number, height: number): WeekLayout {
  * not been measured yet — the shell asks for this on its first render, before
  * the `ResizeObserver` has said anything.
  */
-export function weekStage(day: Date, panelWidth: number, panelHeight: number): WeekStage | null {
+export function weekStage(
+  day: Date,
+  panelWidth: number,
+  panelHeight: number,
+  weekStart: WeekStart,
+): WeekStage | null {
   const box = { width: panelWidth, height: panelHeight };
   if (box.width < 1 || box.height < WEEK_CAPTION_H + WEEK_META_H) return null;
-  return { from: startOfWeek(day), layout: weekLayout(box.width, box.height), box };
+  return { from: startOfWeek(day, weekStart), layout: weekLayout(box.width, box.height), box };
 }
 
 /** The seven days of the week, in day order. */

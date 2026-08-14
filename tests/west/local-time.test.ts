@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { at, day } from "../helpers";
+import { at, day, rule } from "../helpers";
 import {
   lifeFraction,
   lifeMilestones,
@@ -16,7 +16,10 @@ import {
   minutesOfDay,
   startOfDay,
   startOfWeek,
+  weekOffset,
+  zonedToUtc,
 } from "@/lib/time";
+import { startsBetweenIn } from "@/lib/recur";
 
 /* ------------------------------------------------------------------ *
  * Re-runs the zone-sensitive invariants from tests/time.test.ts under
@@ -73,23 +76,23 @@ describe("startOfWeek across the US DST transitions", () => {
     { name: "the spring-forward Sunday", on: "2026-03-08", monday: "2026-03-02" },
     { name: "the fall-back Sunday", on: "2026-11-01", monday: "2026-10-26" },
   ])("puts $name on the Monday of $monday, at local midnight", ({ on, monday }) => {
-    const out = startOfWeek(day(on));
+    const out = startOfWeek(day(on), 1);
     expect.soft(out).toBeSameInstantAs(day(monday));
     expect.soft(dayKey(out)).toBe(monday);
     expect.soft(minutesOfDay(out)).toBe(0);
   });
 
   it("agrees with addDays for every day of a transition week", () => {
-    const monday = startOfWeek(day("2026-03-08"));
+    const monday = startOfWeek(day("2026-03-08"), 1);
     for (let i = 0; i < 7; i += 1) {
-      expect.soft(startOfWeek(addDays(monday, i))).toBeSameInstantAs(monday);
+      expect.soft(startOfWeek(addDays(monday, i), 1)).toBeSameInstantAs(monday);
     }
   });
 
   // A late-evening instant on the Sunday: the trap is reading UTC fields,
   // which west of UTC have already rolled into Monday and start a new week.
   it("keeps a Sunday evening in the week that is ending, not the one starting", () => {
-    expect(startOfWeek(at("2026-03-08 23:30"))).toBeSameInstantAs(day("2026-03-02"));
+    expect(startOfWeek(at("2026-03-08 23:30"), 1)).toBeSameInstantAs(day("2026-03-02"));
   });
 });
 
@@ -153,12 +156,12 @@ describe("the loupe's cells stay on local days west of UTC", () => {
   // drift an hour across — which lands a day one row up or down, and a row
   // here is a *weekday*. Both transitions are inside the year walked below.
   const span = lifeSpan(day("1990-03-12"), 80);
-  const layout = loupeLayout(800, 200, 1.9);
+  const layout = loupeLayout(800, 200, 1.9, 1);
   if (!layout) throw new Error("a strip this size must resolve");
 
   it("puts every day of a year on its own weekday's row, both transitions included", () => {
     for (let d = day("2026-01-01"); d.getFullYear() === 2026; d = addDays(d, 1)) {
-      expect.soft(loupeCell(d).row).toBe((d.getDay() + 6) % 7);
+      expect.soft(loupeCell(d, 1).row).toBe(weekOffset(d, 1));
     }
   });
 
@@ -167,7 +170,7 @@ describe("the loupe's cells stay on local days west of UTC", () => {
     // the fall-back one: the two days most likely to come back off by one.
     for (const key of ["2026-03-08", "2026-11-01"]) {
       const d = day(key);
-      const { col, row } = loupeCell(d);
+      const { col, row } = loupeCell(d, 1);
       const back = loupeCellAt(
         layout,
         span,
@@ -178,5 +181,58 @@ describe("the loupe's cells stay on local days west of UTC", () => {
       expect(back).toBeSameInstantAs(d);
       expect(dayKey(back!)).toBe(key);
     }
+  });
+});
+
+describe("a Sunday-start week and the loupe's rows stay on local days west of UTC", () => {
+  // Same two transitions as above, but cut on Sunday rather than Monday: the
+  // spring-forward and fall-back Sundays are now the week's own leading edge
+  // rather than its last day, so a `getDay()`-based reader that only ever
+  // saw the Monday case would still get this one wrong.
+  it("startOfWeek: each transition Sunday begins its own week, at local midnight", () => {
+    for (const on of ["2026-03-08", "2026-11-01"]) {
+      const out = startOfWeek(day(on), 0);
+      expect.soft(out).toBeSameInstantAs(day(on));
+      expect.soft(minutesOfDay(out)).toBe(0);
+    }
+  });
+
+  it("loupeCell: every day of the year lands on its own weekday row, both transitions included", () => {
+    for (let d = day("2026-01-01"); d.getFullYear() === 2026; d = addDays(d, 1)) {
+      expect.soft(loupeCell(d, 0).row).toBe(weekOffset(d, 0));
+    }
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * `startsBetweenIn` shifts a rule into its *own* zone's wall clock before
+ * walking it, never the reader's — so the same feed, expanded from this
+ * file's Los Angeles process, must hold the exact instants
+ * `tests/recur.test.ts` gets from Berlin. Nothing here is TZ-pinned by
+ * construction the way `dayKey`/`startOfWeek` are; this is the negative
+ * case, proving the reader's own zone never leaks in. ------------------- */
+
+describe("startsBetweenIn: a zoned rule expands the same from LA as from Berlin", () => {
+  it("a weekly 09:00 New York rule holds 09:00 New York across the US/EU transition gap", () => {
+    // Same fixture as `tests/recur.test.ts`'s Berlin case: the US springs
+    // forward 2026-03-08, the EU 2026-03-29 — the three weeks AUDIT.md's
+    // own example names. Every instant below is built through `zonedToUtc`,
+    // so it names the same real moments regardless of which process built
+    // it, and the assertion is that `startsBetweenIn` agrees from here too.
+    const seed = zonedToUtc(2026, 2, 15, 9, 0, "America/New_York");
+    const from = zonedToUtc(2026, 2, 1, 0, 0, "America/New_York");
+    const to = zonedToUtc(2026, 4, 1, 0, 0, "America/New_York");
+    const sundays = [
+      [2, 15],
+      [2, 22],
+      [3, 1],
+      [3, 8],
+      [3, 15],
+      [3, 22],
+      [3, 29],
+    ] as const;
+    const expected = sundays.map(([mo, d]) => zonedToUtc(2026, mo, d, 9, 0, "America/New_York"));
+    const result = startsBetweenIn(rule({ repeat: "weekly" }), seed, from, to, "America/New_York");
+    expect(result).toBeInstants(expected);
   });
 });

@@ -27,46 +27,58 @@ import {
   type LifeSpan,
 } from "@/lib/life";
 import { LIFE_EXPECTANCY_RANGE } from "@/lib/store";
-import { addDays, mondayOffset } from "@/lib/time";
+import { addDays, weekOffset, type WeekStart } from "@/lib/time";
 import { calendar, day, event, ms, show } from "./helpers";
+
+/** The three legal week starts, for tests walking all of them. */
+const WEEK_STARTS: { name: string; weekStart: WeekStart }[] = [
+  { name: "Monday", weekStart: 1 },
+  { name: "Sunday", weekStart: 0 },
+  { name: "Saturday", weekStart: 6 },
+];
 
 /* ------------------------------ lifeCellAt ------------------------------ */
 
 describe("lifeCellAt is the exact inverse of lifeDotX/lifeDotY", () => {
   // A realistic desktop panel — wide enough that the split algorithm has
   // room to breathe.
-  const stage = lifeStage("1990-01-01", 40, 1400, 900);
+  const stage = lifeStage("1990-01-01", 40, 1400, 900, 1);
   if (!stage) throw new Error("stage must resolve for a normal desktop box");
   const { span, layout } = stage;
 
-  it("round-trips every day of several representative years", () => {
-    // 1990: birth year, 1 Jan is a Monday (offset 0, no leading blanks).
-    // 2023: 1 Jan is a Sunday — the widest leading gap a row can have.
-    // 2024: a leap year, so the row carries the extra day.
-    // 2028: a leap year whose 1 Jan also falls late in the week (Saturday).
-    // 2030: death year — birth + 40 years lands on 1 Jan, so only its first
-    //       day is actually inside the span.
-    const years = [1990, 2023, 2024, 2028, 2030];
-    const failures: string[] = [];
+  it.each(WEEK_STARTS)(
+    "round-trips every day of several representative years, week cut on $name",
+    ({ weekStart }) => {
+      // 1990: birth year, 1 Jan is a Monday (offset 0, no leading blanks).
+      // 2023: 1 Jan is a Sunday — the widest leading gap a row can have.
+      // 2024: a leap year, so the row carries the extra day.
+      // 2028: a leap year whose 1 Jan also falls late in the week (Saturday).
+      // 2030: death year — birth + 40 years lands on 1 Jan, so only its first
+      //       day is actually inside the span.
+      const cut = lifeStage("1990-01-01", 40, 1400, 900, weekStart);
+      if (!cut) throw new Error("stage must resolve for a normal desktop box");
+      const years = [1990, 2023, 2024, 2028, 2030];
+      const failures: string[] = [];
 
-    for (const year of years) {
-      for (let d = new Date(year, 0, 1); d.getFullYear() === year; d = addDays(d, 1)) {
-        if (d < span.birth || d > span.death) continue;
-        const dot = lifeDot(layout, span, d);
-        if (!dot) {
-          failures.push(`${show(d)}: lifeDot returned null for a day inside the span`);
-          continue;
-        }
-        const back = lifeCellAt(layout, span, dot.x, dot.y);
-        if (!back || +back !== +d) {
-          failures.push(`${show(d)} -> ${back ? show(back) : "null"}`);
+      for (const year of years) {
+        for (let d = new Date(year, 0, 1); d.getFullYear() === year; d = addDays(d, 1)) {
+          if (d < cut.span.birth || d > cut.span.death) continue;
+          const dot = lifeDot(cut.layout, cut.span, d);
+          if (!dot) {
+            failures.push(`${show(d)}: lifeDot returned null for a day inside the span`);
+            continue;
+          }
+          const back = lifeCellAt(cut.layout, cut.span, dot.x, dot.y);
+          if (!back || +back !== +d) {
+            failures.push(`${show(d)} -> ${back ? show(back) : "null"}`);
+          }
         }
       }
-    }
 
-    // Report the first few, not thousands of individual assertions.
-    expect(failures.slice(0, 5)).toEqual([]);
-  });
+      // Report the first few, not thousands of individual assertions.
+      expect(failures.slice(0, 5)).toEqual([]);
+    },
+  );
 
   it("snaps to the nearest dot inside the gap between week groups", () => {
     // Column 6 is the Sunday of the birth week (1 Jan 1990 was a Monday, so
@@ -152,21 +164,21 @@ describe("lifeStage", () => {
     { name: "an empty birth date", birth: "" },
     { name: "a birth date that fails the YYYY-MM-DD shape", birth: "not-a-date" },
   ])("returns null for $name", ({ birth }) => {
-    expect(lifeStage(birth, 80, 1400, 900)).toBeNull();
+    expect(lifeStage(birth, 80, 1400, 900, 1)).toBeNull();
   });
 
   it.each([
     { name: "zero width", w: 0, h: 900 },
     { name: "height no taller than the readout strip", w: 1400, h: 28 },
   ])("returns null for a box too small to be a field ($name)", ({ w, h }) => {
-    expect(lifeStage("1990-01-01", 80, w, h)).toBeNull();
+    expect(lifeStage("1990-01-01", 80, w, h, 1)).toBeNull();
   });
 
   it("draws more lines per year on a phone-shaped panel than a desktop one", () => {
     // A wide window can smear a year's dots sideways into dashes if it is
     // forced onto one line — this is the split existing to prevent that.
-    const phone = lifeStage("1990-01-01", 40, 390, 844);
-    const desktop = lifeStage("1990-01-01", 40, 1728, 1000);
+    const phone = lifeStage("1990-01-01", 40, 390, 844, 1);
+    const desktop = lifeStage("1990-01-01", 40, 1728, 1000, 1);
     if (!phone || !desktop) throw new Error("both boxes should resolve to a stage");
     expect(phone.layout.linesPerYear).toBeGreaterThan(desktop.layout.linesPerYear);
   });
@@ -177,7 +189,7 @@ describe("lifeStage", () => {
     { name: "ultra-wide monitor", w: 3440, h: 900 },
     { name: "square-ish tablet", w: 900, h: 900 },
   ])("the chosen split for a $name box always divides into whole weeks", ({ w, h }) => {
-    const stage = lifeStage("1990-01-01", 40, w, h);
+    const stage = lifeStage("1990-01-01", 40, w, h, 1);
     if (!stage) throw new Error("stage should resolve");
     expect(stage.layout.colsPerLine % 7).toBe(0);
   });
@@ -187,7 +199,7 @@ describe("lifeStage", () => {
 
 describe("the loupe is one year, transposed", () => {
   const span = lifeSpan(day("1990-01-01"), 80);
-  const layout = loupeLayout(800, 200, 1.9);
+  const layout = loupeLayout(800, 200, 1.9, 1);
   if (!layout) throw new Error("a strip this size must resolve");
 
   const centre = (col: number, row: number) => ({
@@ -203,7 +215,7 @@ describe("the loupe is one year, transposed", () => {
   ])("round-trips every day of $name", ({ year }) => {
     const failures: string[] = [];
     for (let d = new Date(year, 0, 1); d.getFullYear() === year; d = addDays(d, 1)) {
-      const { col, row } = loupeCell(d);
+      const { col, row } = loupeCell(d, 1);
       const { x, y } = centre(col, row);
       const back = loupeCellAt(layout, span, year, x, y);
       if (!back || +back !== +d) failures.push(`${show(d)} -> ${back ? show(back) : "null"}`);
@@ -211,26 +223,29 @@ describe("the loupe is one year, transposed", () => {
     expect(failures.slice(0, 5)).toEqual([]);
   });
 
-  it("puts every day on the row its weekday is, Monday first", () => {
-    // The whole claim of the transpose: a column is a week, so the row a day
-    // lands on is its weekday and nothing else. Get this wrong and the strip
-    // is a picture of a different year.
-    for (let d = new Date(2024, 0, 1); d.getFullYear() === 2024; d = addDays(d, 1)) {
-      expect.soft(loupeCell(d).row).toBe(mondayOffset(d));
-    }
-  });
+  it.each(WEEK_STARTS)(
+    "puts every day on the row its weekday is, cut on $name",
+    ({ weekStart }) => {
+      // The whole claim of the transpose: a column is a week, so the row a
+      // day lands on is its weekday counted from `weekStart` and nothing
+      // else. Get this wrong and the strip is a picture of a different year.
+      for (let d = new Date(2024, 0, 1); d.getFullYear() === 2024; d = addDays(d, 1)) {
+        expect.soft(loupeCell(d, weekStart).row).toBe(weekOffset(d, weekStart));
+      }
+    },
+  );
 
   it("steps down a column and wraps to the next, seven days on", () => {
     const monday = day("2024-01-01");
-    expect(loupeCell(monday)).toEqual({ col: 0, row: 0 });
-    expect(loupeCell(addDays(monday, 6))).toEqual({ col: 0, row: 6 });
-    expect(loupeCell(addDays(monday, 7))).toEqual({ col: 1, row: 0 });
+    expect(loupeCell(monday, 1)).toEqual({ col: 0, row: 0 });
+    expect(loupeCell(addDays(monday, 6), 1)).toEqual({ col: 0, row: 6 });
+    expect(loupeCell(addDays(monday, 7), 1)).toEqual({ col: 1, row: 0 });
   });
 
   it("never needs more columns than it draws", () => {
     for (let year = 1990; year <= 2070; year++) {
       const dec31 = new Date(year, 11, 31);
-      expect.soft(loupeCell(dec31).col).toBeLessThan(LOUPE_COLS);
+      expect.soft(loupeCell(dec31, 1).col).toBeLessThan(LOUPE_COLS);
     }
   });
 
@@ -257,7 +272,7 @@ describe("the loupe is one year, transposed", () => {
 
 describe("loupeLayout", () => {
   it("is seven rows of square cells, however the box is shaped", () => {
-    const wide = loupeLayout(5000, 5000, 1);
+    const wide = loupeLayout(5000, 5000, 1, 1);
     if (!wide) throw new Error("a huge box must resolve");
     // Capped: past this the dots are beads and the field loses the room for
     // nothing.
@@ -267,7 +282,7 @@ describe("loupeLayout", () => {
   });
 
   it("takes the tighter of the two dimensions", () => {
-    const short = loupeLayout(5000, 70, 1);
+    const short = loupeLayout(5000, 70, 1, 1);
     if (!short) throw new Error("a short box still resolves");
     expect(short.pitch).toBeCloseTo(10);
   });
@@ -275,12 +290,12 @@ describe("loupeLayout", () => {
   it("refuses to draw when it would not beat the field's own dot", () => {
     // Same box, a field whose dots are already nearly this size: a second
     // picture the size of the first is worth none of the room.
-    expect(loupeLayout(800, 200, 1.9)).not.toBeNull();
-    expect(loupeLayout(800, 200, 5)).toBeNull();
+    expect(loupeLayout(800, 200, 1.9, 1)).not.toBeNull();
+    expect(loupeLayout(800, 200, 5, 1)).toBeNull();
   });
 
   it("refuses to draw when the cells would be stipple, whatever the gain", () => {
-    expect(loupeLayout(200, 200, 0.1)).toBeNull();
+    expect(loupeLayout(200, 200, 0.1, 1)).toBeNull();
   });
 });
 
@@ -288,7 +303,7 @@ describe("loupeMonths", () => {
   const span = lifeSpan(day("1990-03-12"), 80); // 1990-03-12 .. 2070-03-12
 
   it("names all twelve of a whole year, left to right", () => {
-    const months = loupeMonths(span, 2024);
+    const months = loupeMonths(span, 2024, 1);
     expect(months.map((m) => m.month)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
     expect(months[0].col).toBe(0);
     for (let i = 1; i < months.length; i++) {
@@ -297,16 +312,29 @@ describe("loupeMonths", () => {
   });
 
   it("drops the months before the birthday and hangs the first on its own week", () => {
-    const months = loupeMonths(span, 1990);
+    const months = loupeMonths(span, 1990, 1);
     // Born 12 March: January and February are not drawn at all, and March's
     // label belongs over the birth week rather than over 1 March, which is a
     // column this strip does not have.
     expect(months.map((m) => m.month)).toEqual([2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
-    expect(months[0].col).toBe(loupeCell(day("1990-03-12")).col);
+    expect(months[0].col).toBe(loupeCell(day("1990-03-12"), 1).col);
   });
 
   it("drops the months past the estimate", () => {
-    expect(loupeMonths(span, 2070).map((m) => m.month)).toEqual([0, 1, 2]);
+    expect(loupeMonths(span, 2070, 1).map((m) => m.month)).toEqual([0, 1, 2]);
+  });
+
+  it.each([
+    { name: "Sunday", weekStart: 0 as const },
+    { name: "Saturday", weekStart: 6 as const },
+  ])("still lands each column on the month's own first day, cut on $name", ({ weekStart }) => {
+    // Every month here is well past the birthday and well before the
+    // estimate, so nothing is clipped: a column has to be exactly the cell
+    // `loupeCell` gives the month's own first day, whatever the cut.
+    const months = loupeMonths(span, 2024, weekStart);
+    for (const { month, col } of months) {
+      expect.soft(col).toBe(loupeCell(new Date(2024, month, 1), weekStart).col);
+    }
   });
 });
 
@@ -345,7 +373,7 @@ describe("lifeRange", () => {
 });
 
 describe("lifeBands", () => {
-  const stage = lifeStage("1990-01-01", 80, 1400, 900);
+  const stage = lifeStage("1990-01-01", 80, 1400, 900, 1);
   if (!stage) throw new Error("stage must resolve for a normal desktop box");
   const { span, layout } = stage;
   const cols = layout.colsPerLine;
@@ -383,56 +411,66 @@ describe("lifeBands", () => {
     expect(bands[1].to).toBe(cols - 1);
   });
 
-  it("its two ends are the run's two dots, and the rows between leave no gap", () => {
-    const bands = lifeBands(layout, span, day("2026-03-05"), day("2026-09-20"));
-    const first = lifeDot(layout, span, day("2026-03-05"));
-    const last = lifeDot(layout, span, day("2026-09-20"));
-    if (!first || !last) throw new Error("both days are inside this span");
+  it.each(WEEK_STARTS)(
+    "its two ends are the run's two dots, and the rows between leave no gap, cut on $name",
+    ({ weekStart }) => {
+      const cut = lifeStage("1990-01-01", 80, 1400, 900, weekStart);
+      if (!cut) throw new Error("stage must resolve for a normal desktop box");
+      const bands = lifeBands(cut.layout, cut.span, day("2026-03-05"), day("2026-09-20"));
+      const first = lifeDot(cut.layout, cut.span, day("2026-03-05"));
+      const last = lifeDot(cut.layout, cut.span, day("2026-09-20"));
+      if (!first || !last) throw new Error("both days are inside this span");
 
-    // Contiguous: each band picks up on the line the one before it ended.
-    for (let i = 1; i < bands.length; i++) {
-      expect.soft(bands[i].line).toBe(bands[i - 1].line + bands[i - 1].lines);
-    }
-    // And the band's own corners are the dots the run was drawn between —
-    // which is the whole claim, since nothing here inverts the geometry twice.
-    const tail = bands[bands.length - 1];
-    expect(lifeDotX(layout, bands[0].from)).toBeCloseTo(first.x);
-    expect(lifeDotY(layout, bands[0].line)).toBeCloseTo(first.y);
-    expect(lifeDotX(layout, tail.to)).toBeCloseTo(last.x);
-    expect(lifeDotY(layout, tail.line + tail.lines - 1)).toBeCloseTo(last.y);
-  });
+      // Contiguous: each band picks up on the line the one before it ended.
+      for (let i = 1; i < bands.length; i++) {
+        expect.soft(bands[i].line).toBe(bands[i - 1].line + bands[i - 1].lines);
+      }
+      // And the band's own corners are the dots the run was drawn between —
+      // which is the whole claim, since nothing here inverts the geometry
+      // twice — whatever weekday the columns are cut on.
+      const tail = bands[bands.length - 1];
+      expect(lifeDotX(cut.layout, bands[0].from)).toBeCloseTo(first.x);
+      expect(lifeDotY(cut.layout, bands[0].line)).toBeCloseTo(first.y);
+      expect(lifeDotX(cut.layout, tail.to)).toBeCloseTo(last.x);
+      expect(lifeDotY(cut.layout, tail.line + tail.lines - 1)).toBeCloseTo(last.y);
+    },
+  );
 });
 
 describe("loupeBands", () => {
   const span = lifeSpan(day("1990-01-01"), 80);
 
   it("is empty for a year the run never reaches", () => {
-    expect(loupeBands(span, 2040, day("2026-03-01"), day("2026-03-20"))).toEqual([]);
+    expect(loupeBands(span, 2040, day("2026-03-01"), day("2026-03-20"), 1)).toEqual([]);
   });
 
   it("a Monday-to-Sunday week is one whole column", () => {
     // The transpose's own claim: a week is a column here, so seven days from a
     // Monday must be one band covering all seven rows.
-    const bands = loupeBands(span, 2024, day("2024-03-04"), day("2024-03-10"));
+    const bands = loupeBands(span, 2024, day("2024-03-04"), day("2024-03-10"), 1);
     expect(bands).toHaveLength(1);
     expect(bands[0].lines).toBe(1);
     expect(bands[0].from).toBe(0);
     expect(bands[0].to).toBe(6);
   });
 
-  it("clips a run that runs past both ends of the year it is showing", () => {
-    const bands = loupeBands(span, 2026, day("2024-06-01"), day("2029-06-01"));
-    // The year is entirely inside the run, so the band runs from 1 January's
-    // own cell to 31 December's — not from the corner of the plate, because
-    // 1 January 2026 is a Thursday and the three cells above it are blanks.
-    const first = loupeCell(day("2026-01-01"));
-    const last = loupeCell(day("2026-12-31"));
-    expect(bands[0].line).toBe(first.col);
-    expect(bands[0].from).toBe(first.row);
-    const tail = bands[bands.length - 1];
-    expect(tail.line + tail.lines - 1).toBe(last.col);
-    expect(tail.to).toBe(last.row);
-  });
+  it.each(WEEK_STARTS)(
+    "clips a run that runs past both ends of the year it is showing, cut on $name",
+    ({ weekStart }) => {
+      const bands = loupeBands(span, 2026, day("2024-06-01"), day("2029-06-01"), weekStart);
+      // The year is entirely inside the run, so the band runs from 1 January's
+      // own cell to 31 December's — not from the corner of the plate, because
+      // 1 January 2026 is a Thursday and the cells above it (however many the
+      // cut leaves) are blanks.
+      const first = loupeCell(day("2026-01-01"), weekStart);
+      const last = loupeCell(day("2026-12-31"), weekStart);
+      expect(bands[0].line).toBe(first.col);
+      expect(bands[0].from).toBe(first.row);
+      const tail = bands[bands.length - 1];
+      expect(tail.line + tail.lines - 1).toBe(last.col);
+      expect(tail.to).toBe(last.row);
+    },
+  );
 });
 
 /* -------------------------------- lifeDensity ------------------------------ */
@@ -534,7 +572,7 @@ describe("lifeYearRange", () => {
   const span = lifeSpan(day("1985-06-15"), 5); // death: 1990-06-15
 
   it("clips the birth year's range to the birthday, with 1 January's real weekday offset", () => {
-    const yr = lifeYearRange(span, 0);
+    const yr = lifeYearRange(span, 0, 1);
     expect(yr.year).toBe(1985);
     expect(yr.offset).toBe(1); // 1 Jan 1985 was a Tuesday
     expect(yr.from).toBe(165); // 15 June is day 165 (0-based) of a non-leap year
@@ -542,7 +580,7 @@ describe("lifeYearRange", () => {
   });
 
   it("gives an ordinary in-between year its full range", () => {
-    const yr = lifeYearRange(span, 3); // 1988, a leap year
+    const yr = lifeYearRange(span, 3, 1); // 1988, a leap year
     expect(yr.year).toBe(1988);
     expect(yr.offset).toBe(4);
     expect(yr.from).toBe(0);
@@ -550,7 +588,7 @@ describe("lifeYearRange", () => {
   });
 
   it("clips the death year's range to the death day", () => {
-    const yr = lifeYearRange(span, 5);
+    const yr = lifeYearRange(span, 5, 1);
     expect(yr.year).toBe(1990);
     expect(yr.offset).toBe(0); // 1 Jan 1990 was a Monday
     expect(yr.from).toBe(0);
@@ -558,16 +596,16 @@ describe("lifeYearRange", () => {
   });
 
   it("agrees with lifeDot on where a year's 1 January lands", () => {
-    const stage = lifeStage("1985-06-15", 5, 1400, 900);
+    const stage = lifeStage("1985-06-15", 5, 1400, 900, 1);
     if (!stage) throw new Error("stage must resolve");
-    const yr = lifeYearRange(stage.span, 3); // 1988
+    const yr = lifeYearRange(stage.span, 3, 1); // 1988
     const jan1Dot = lifeDot(stage.layout, stage.span, new Date(1988, 0, 1));
     expect(jan1Dot).not.toBeNull();
     expect(jan1Dot!.x).toBeCloseTo(lifeDotX(stage.layout, yr.offset));
   });
 
   it("lifeRowTop sits exactly half a line above the dot centre lifeDotY draws", () => {
-    const stage = lifeStage("1985-06-15", 5, 1400, 900);
+    const stage = lifeStage("1985-06-15", 5, 1400, 900, 1);
     if (!stage) throw new Error("stage must resolve");
     const { layout } = stage;
     expect(lifeDotY(layout, 2) - lifeRowTop(layout, 2)).toBeCloseTo(layout.pitchY / 2);

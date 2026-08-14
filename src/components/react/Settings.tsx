@@ -45,6 +45,7 @@ import {
   fromDayKey,
   startOfDay,
   zoneLabel,
+  type WeekStart,
 } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import type { Calendar } from "@/lib/events";
@@ -60,6 +61,7 @@ import {
   PositionField,
   Segmented,
   Select,
+  TimeField,
   Toggle,
 } from "@/components/react/ui/primitives";
 import { CalendarMark } from "@/components/react/ui/icons";
@@ -170,6 +172,9 @@ export default function Settings({
     remindLead,
     defaultDuration,
     defaultCalendar,
+    weekStart,
+    wakingFrom,
+    wakingTo,
   } = settings;
   const reducedMotion = useReducedMotion();
   const [feedUrl, setFeedUrl] = useState("");
@@ -499,6 +504,55 @@ export default function Settings({
                   <span className="caption">
                     Chrome away, dial to the window — <Kbd>F</Kbd>, or <Kbd>⇧F</Kbd> for the whole
                     screen
+                  </span>
+                </FieldRow>
+              </Section>
+
+              {/* Its own card rather than a row inside Face: it is not
+                  really about the dial, it is the mini-month and the life
+                  grid's columns too, and filing it under Face would leave
+                  the other two surfaces owning something they cannot see. */}
+              <Section title="Week">
+                <FieldRow label="Starts on" align="top" last>
+                  <Segmented
+                    value={String(weekStart) as "1" | "0" | "6"}
+                    onChange={(next) => store.setWeekStart(Number(next) as WeekStart)}
+                    options={[
+                      { id: "1" as const, label: "MON" },
+                      { id: "0" as const, label: "SUN" },
+                      { id: "6" as const, label: "SAT" },
+                    ]}
+                  />
+                  <span className="caption">
+                    Moves the strip, the mini-month and the life grid's columns together — the three
+                    surfaces read one setting so they cannot disagree about where a week starts
+                  </span>
+                </FieldRow>
+              </Section>
+
+              {/* Also its own card: working hours are not a face setting
+                  either, and the two rows they touch — the totals line and
+                  the palette's slot search — are both elsewhere. */}
+              <Section title="Day">
+                <FieldRow label="Hours" align="top" last>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <TimeField
+                      label="Waking hours start"
+                      clock={clock}
+                      value={atMinutes(new Date(), wakingFrom)}
+                      onCommit={(minutes) => store.setWaking(minutes, wakingTo)}
+                    />
+                    <span className="text-ink-3">–</span>
+                    <TimeField
+                      label="Waking hours end"
+                      clock={clock}
+                      value={atMinutes(new Date(), wakingTo)}
+                      onCommit={(minutes) => store.setWaking(wakingFrom, minutes)}
+                    />
+                  </div>
+                  <span className="caption">
+                    What free time is measured against — the dial's totals line and the palette's
+                    slot search both mean the same thing by "free" because they read this
                   </span>
                 </FieldRow>
               </Section>
