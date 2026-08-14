@@ -64,7 +64,6 @@ import type { Calendar } from "@/lib/events";
 import { useFocusTrap } from "@/components/react/hooks";
 import type { SettingsPanelProps } from "@/components/react/types";
 import {
-  ActionPill,
   DateField,
   FieldRow,
   IconButton,
@@ -861,13 +860,21 @@ export default function Settings({
                     </span>
                   ) : (
                     <>
+                      {/* `DataButton`, not `ActionPill` — the pill is the top
+                          bar's vocabulary, where `label` is only ever the
+                          aria-label and an icon is the whole control. In a
+                          settings row that renders as a bare glyph with no
+                          words on it, which is a poor thing for the one
+                          button that turns a feature on. These sit directly
+                          under Export/Backup/Import and speak the same way. */}
                       {mirrorStatus.state === "off" && (
                         <>
-                          <ActionPill
-                            label="Connect a mirror file"
+                          <DataButton
                             icon={<Link2 size={13} strokeWidth={1.75} />}
                             onClick={() => void mirror.connect()}
-                          />
+                          >
+                            Connect a file…
+                          </DataButton>
                           <span className="caption">
                             Circal keeps a live .json copy in a file you choose. That file is a
                             backup that survives "Clear site data", and it's the file a local AI
@@ -876,17 +883,18 @@ export default function Settings({
                         </>
                       )}
                       {mirrorStatus.state === "prompt" && (
-                        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
-                          <ActionPill
-                            label="Resume the mirror"
+                        <>
+                          <DataButton
                             icon={<Link2 size={13} strokeWidth={1.75} />}
                             onClick={() => void mirror.reconnect()}
-                          />
-                          <span className="truncate text-[13px] text-ink">{mirrorStatus.name}</span>
-                        </div>
+                          >
+                            Resume
+                          </DataButton>
+                          <span className="caption truncate">{mirrorStatus.name}</span>
+                        </>
                       )}
                       {mirrorStatus.state === "live" && (
-                        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
+                        <>
                           <span className="flex min-w-0 flex-col">
                             <span className="truncate text-[13px] text-ink">
                               {mirrorStatus.name}
@@ -895,32 +903,38 @@ export default function Settings({
                               synced {mirrorAge(mirrorStatus.at)}
                             </span>
                           </span>
-                          <ActionPill
-                            label="Sync now"
-                            icon={<RefreshCw size={13} strokeWidth={1.75} />}
-                            onClick={() => void mirror.syncNow()}
-                          />
-                          <ActionPill
-                            label="Disconnect the mirror"
-                            icon={<Unlink2 size={13} strokeWidth={1.75} />}
-                            onClick={() => void mirror.disconnect()}
-                          />
-                        </div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <DataButton
+                              icon={<RefreshCw size={13} strokeWidth={1.75} />}
+                              onClick={() => void mirror.syncNow()}
+                            >
+                              Sync now
+                            </DataButton>
+                            <DataButton
+                              icon={<Unlink2 size={13} strokeWidth={1.75} />}
+                              onClick={() => void mirror.disconnect()}
+                            >
+                              Disconnect
+                            </DataButton>
+                          </div>
+                        </>
                       )}
                       {mirrorStatus.state === "error" && (
                         <>
                           <span className="caption text-danger">{mirrorStatus.message}</span>
-                          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
-                            <ActionPill
-                              label="Resume the mirror"
+                          <div className="flex flex-wrap items-center gap-2">
+                            <DataButton
                               icon={<Link2 size={13} strokeWidth={1.75} />}
                               onClick={() => void mirror.reconnect()}
-                            />
-                            <ActionPill
-                              label="Disconnect the mirror"
+                            >
+                              Resume
+                            </DataButton>
+                            <DataButton
                               icon={<Unlink2 size={13} strokeWidth={1.75} />}
                               onClick={() => void mirror.disconnect()}
-                            />
+                            >
+                              Disconnect
+                            </DataButton>
                           </div>
                         </>
                       )}
