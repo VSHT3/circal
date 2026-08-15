@@ -58,6 +58,7 @@ import {
   useHotkeys,
   useIdle,
   useIdleAfter,
+  useNoDragSelection,
   useNow,
   useOnInput,
   useReminders,
@@ -917,7 +918,14 @@ function Shell() {
       // equivalent, which this app already overrides four times over — and the
       // segment in the top bar prints the chip, so the mnemonic is not what
       // anybody finds it by.
+      //
+      // ⌘W is bound *as well*, and costs nothing to bind: a browser never
+      // delivers it, so this line is dead on the web and correct in the macOS
+      // shell (`mac/main.swift`), where no menu item claims the chord and the
+      // keydown reaches the page. The chip stays ⌘E, because that is the one
+      // spelling true on every platform.
       "mod+e": () => actions.setView("week"),
+      "mod+w": () => actions.setView("week"),
       "mod+b": actions.toggleSidebar,
       "mod+l": () => actions.setView("life"),
       "mod+,": actions.openSettings,
@@ -936,6 +944,10 @@ function Shell() {
   // setting called Sound, because a user who turned the dial quiet did not
   // ask for a keyboard.
   useTypingSound(settings.tickSound);
+
+  // A press on a face is a gesture, never the start of a selection. Document
+  // wide, for the reason above it: nothing in the app has to know about it.
+  useNoDragSelection();
 
   /**
    * The one thing in circal that speaks first. Driven off the same minute

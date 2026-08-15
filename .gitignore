@@ -1,6 +1,7 @@
 # build output
 dist/
 mcp/dist/
+mac/build/
 .astro/
 
 # dependencies

@@ -65,8 +65,74 @@ function picker(): FilePickerWindow["showSaveFilePicker"] {
     : (window as unknown as FilePickerWindow).showSaveFilePicker;
 }
 
+/**
+ * The macOS shell's side of the same file, injected as `window.__circalMirror`
+ * (see `mac/main.swift`). It exists because `WKWebView` ships none of the File
+ * System Access API — measured, not assumed: `showSaveFilePicker`,
+ * `showOpenFilePicker` and `showDirectoryPicker` are all `undefined` there. The
+ * mirror is the only way an assistant reads this calendar, so a shell without
+ * this is a shell that quietly drops the feature.
+ *
+ * A path is deliberately not in this interface. The panel prints a file's name
+ * and nothing here needs more, so the shell keeps the path on its own side and
+ * the app's copy stays true on every platform.
+ */
+interface NativeMirror {
+  /** `""` when the save panel was dismissed. */
+  pick(suggestedName: string): Promise<string>;
+  /** `""` when the shell is holding nothing. */
+  remembered(): Promise<string>;
+  read(): Promise<string>;
+  write(body: string): Promise<void>;
+  forget(): Promise<void>;
+}
+
+interface ShellWindow {
+  __circalMirror?: NativeMirror;
+}
+
+function nativeMirror(): NativeMirror | undefined {
+  if (typeof window === "undefined") return undefined;
+  // Injected by `mac/main.swift` before the first script of the page runs, so
+  // it is unexpressible in the DOM types — the same boundary `picker()` crosses
+  // one function up, and the cast is named rather than read through inline.
+  const shell = window as unknown as ShellWindow;
+  return shell.__circalMirror;
+}
+
+/**
+ * A `MirrorHandle` over the shell's file, so everything downstream — the poll,
+ * the digest, the three verdicts, the settle timer — runs unchanged.
+ *
+ * No permission methods, on purpose: `permitted` reads their absence as
+ * granted, which is the truth for an app that was handed a file at a save
+ * panel. The writable buffers rather than streams, because `write` above hands
+ * over a whole calendar in one call and a half-written mirror is the one
+ * outcome this feature may not produce.
+ */
+function nativeHandle(native: NativeMirror, name: string): MirrorHandle {
+  const shell = {
+    kind: "file" as const,
+    name,
+    isSameEntry: async (other: FileSystemHandle) => other.name === name,
+    getFile: async () => new File([await native.read()], name, { type: "application/json" }),
+    createWritable: async () => {
+      let body = "";
+      return {
+        write: (chunk: string) => {
+          body += chunk;
+        },
+        close: () => native.write(body),
+      };
+    },
+  };
+  // One cast, at the boundary: the shape above is every member this file
+  // touches, and the DOM interface declares several a shell cannot answer.
+  return shell as unknown as MirrorHandle;
+}
+
 export function mirrorSupported(): boolean {
-  return picker() !== undefined;
+  return picker() !== undefined || nativeMirror() !== undefined;
 }
 
 /* -------------------------------- the handle ------------------------------ */
@@ -82,7 +148,13 @@ const DB_KEY = "current";
  * is harmless exactly once and a loop if the clock is unlucky.
  */
 interface StoredLink {
-  handle: MirrorHandle;
+  /**
+   * `null` under the macOS shell, which remembers the file itself: a bookmark
+   * outlives a move and needs no second gesture, so the revision is the only
+   * part left for the browser to keep — and a native handle carries methods,
+   * which structured clone refuses outright.
+   */
+  handle: MirrorHandle | null;
   rev: number;
 }
 
@@ -184,7 +256,8 @@ function fail(message: string) {
  */
 async function remember(): Promise<void> {
   try {
-    await withStore("readwrite", (s) => s.put({ handle, rev: localRev } as StoredLink, DB_KEY));
+    const stored: StoredLink = { handle: nativeMirror() ? null : handle, rev: localRev };
+    await withStore("readwrite", (s) => s.put(stored, DB_KEY));
   } catch {
     // Deliberately silent: the sync worked, and there is nothing the user
     // could do about this that reconnecting next time does not already do.
@@ -296,6 +369,43 @@ async function permitted(candidate: MirrorHandle): Promise<boolean> {
   return ((await candidate.requestPermission?.({ mode: "readwrite" })) ?? "denied") === "granted";
 }
 
+/**
+ * Pick up the file the shell is already holding, which is the whole of the
+ * native side's restore: no picker, no permission, no gesture.
+ *
+ * The revision still comes out of IndexedDB and nowhere else. The file cannot
+ * supply it — its own `rev` is the thing being compared against — and starting
+ * from zero would read our own last write as somebody else's and adopt it.
+ */
+async function resumeNative(native: NativeMirror): Promise<void> {
+  const name = await native.remembered();
+  if (!name) return;
+  const link = await withStore<StoredLink | undefined>("readonly", (s) => s.get(DB_KEY)).catch(
+    () => undefined,
+  );
+  handle = nativeHandle(native, name);
+  localRev = link?.rev ?? 0;
+  lastDigest = "";
+  setStatus({ state: "live", name, message: "", at: 0 });
+  await poll();
+}
+
+/** The browser's own restore: a handle out of IndexedDB, and the permission
+ *  question it may answer with `prompt`. */
+async function resumeStored(): Promise<void> {
+  const link = await withStore<StoredLink | undefined>("readonly", (s) => s.get(DB_KEY));
+  if (!link?.handle) return;
+  const state = (await link.handle.queryPermission?.({ mode: "readwrite" })) ?? "granted";
+  if (state !== "granted") {
+    setStatus({ state: "prompt", name: link.handle.name, at: 0, message: "" });
+    return;
+  }
+  handle = link.handle;
+  localRev = link.rev;
+  setStatus({ state: "live", name: link.handle.name, message: "", at: 0 });
+  await poll();
+}
+
 export const mirror = {
   /**
    * Pick a file and start mirroring into it.
@@ -306,6 +416,24 @@ export const mirror = {
    * clearing site data means by choosing their own mirror file.
    */
   async connect(): Promise<void> {
+    const native = nativeMirror();
+    if (native) {
+      // No cancel exception to catch: a save panel that was dismissed answers
+      // with an empty name, which is the same non-event as the picker's throw.
+      const name = await native.pick("circal.json");
+      if (!name) {
+        if (!handle) setStatus(OFF);
+        return;
+      }
+      handle = nativeHandle(native, name);
+      localRev = 0;
+      lastDigest = "";
+      setStatus({ state: "live", name, message: "", at: 0 });
+      await remember();
+      await poll();
+      return;
+    }
+
     const show = picker();
     if (!show) return;
     try {
@@ -329,10 +457,17 @@ export const mirror = {
     }
   },
 
-  /** Re-grant a lapsed permission on the handle already remembered. */
+  /** Re-grant a lapsed permission on the handle already remembered. The shell
+   *  has none to lapse, so there this is a plain restore. */
   async reconnect(): Promise<void> {
+    const native = nativeMirror();
+    if (native) {
+      await resumeNative(native);
+      if (!handle) setStatus(OFF);
+      return;
+    }
     const link = await withStore<StoredLink | undefined>("readonly", (s) => s.get(DB_KEY));
-    if (!link) {
+    if (!link?.handle) {
       setStatus(OFF);
       return;
     }
@@ -352,6 +487,10 @@ export const mirror = {
     localRev = 0;
     lastDigest = "";
     clearTimeout(settleTimer);
+    // The shell is holding a bookmark, not a permission: forgetting it is what
+    // "disconnect" means on that side, and it must happen before the record
+    // goes, or a restart resumes the file this just let go of.
+    await nativeMirror()?.forget();
     await withStore("readwrite", (s) => s.delete(DB_KEY));
     setStatus(OFF);
   },
@@ -373,18 +512,13 @@ export function startMirror(): () => void {
   if (!mirrorSupported()) return () => {};
 
   let live = true;
-  void withStore<StoredLink | undefined>("readonly", (s) => s.get(DB_KEY))
-    .then(async (link) => {
-      if (!live || !link) return;
-      const state = (await link.handle.queryPermission?.({ mode: "readwrite" })) ?? "granted";
-      if (state !== "granted") {
-        setStatus({ state: "prompt", name: link.handle.name, at: 0, message: "" });
-        return;
-      }
-      handle = link.handle;
-      localRev = link.rev;
-      setStatus({ state: "live", name: link.handle.name, message: "", at: 0 });
-      await poll();
+  const native = nativeMirror();
+  void (native ? resumeNative(native) : resumeStored())
+    .then(() => {
+      // Unmounted while the restore was in flight — development's double effect,
+      // or a fast navigation. Drop what it picked up rather than leaving a
+      // handle nothing is polling.
+      if (!live) handle = null;
     })
     .catch(() => setStatus(OFF));
 

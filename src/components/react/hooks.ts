@@ -500,6 +500,44 @@ export function useTitleCountdown(events: CalEvent[], calendars: Calendar[], now
 }
 
 /**
+ * An instrument is dragged, not read.
+ *
+ * Every gesture in this app starts with a press on a face — the dial's ring and
+ * arcs, a week strip, the year ring, the life grid — and without this a press
+ * that crosses an hour numeral selects it, so one drag round the dial leaves
+ * half the face highlighted in accent blue and the next drag begins by clearing
+ * it. Reported from the macOS shell, where a face is all there is to point at.
+ *
+ * A `selectstart` listener rather than `user-select: none`, which is the obvious
+ * answer and does not work: `CSS.supports("user-select", "none")` is **false**
+ * in WKWebView — measured, twice — because WebKit still ships the property only
+ * under `-webkit-`, and the prefixed declaration does not survive the CSS
+ * pipeline either, since Lightning CSS folds it back into the unprefixed form
+ * for its own baseline. Between a rule that two build steps disagree about and
+ * one listener that every engine honours, the listener is the honest one. It is
+ * also the same argument `useTypingSound` makes one screen up: selection, like
+ * "is the user typing", is a property of the document rather than of a
+ * component, so one pair of listeners covers every surface added later.
+ *
+ * Fields are the exception, because typing in one means selecting in it: a
+ * double-clicked word in a title, a dragged-over time, ⌘A before retyping.
+ */
+export function useNoDragSelection() {
+  useEffect(() => {
+    const onSelectStart = (event: Event) => {
+      const target = event.target;
+      // `closest` rather than a tag test: the target of a selection starting
+      // inside a field can be a text node's parent, and every field in this app
+      // sits inside a label or a row that would otherwise answer for it.
+      if (target instanceof Element && target.closest("input, textarea")) return;
+      event.preventDefault();
+    };
+    document.addEventListener("selectstart", onSelectStart);
+    return () => document.removeEventListener("selectstart", onSelectStart);
+  }, []);
+}
+
+/**
  * Keep the subscriptions from going stale under an open tab.
  *
  * A feed used to be pulled exactly once, in a mount effect, which is right for

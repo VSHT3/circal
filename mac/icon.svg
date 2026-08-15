@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!--
+    The dock tile. Same mark as `public/favicon.svg` — a black disc and one thin
+    white circumference — but drawn to Apple's macOS grid rather than full-bleed:
+    an 824px body centred in 1024 with a 185.4px corner radius, which is the
+    shape every other icon in the dock is already wearing. `public/icon.svg` is
+    the wrong source here; it is full-bleed for a maskable crop the dock does
+    not perform, so it would sit a fifth larger than its neighbours.
+
+    Ring proportions are favicon.svg's, scaled to the 824px body: r = 20.6% of
+    the side, stroke 4.5%.
+  -->
+  <rect x="100" y="100" width="824" height="824" rx="185.4" fill="#000000" />
+  <circle cx="512" cy="512" r="169.7" fill="none" stroke="#ffffff" stroke-width="37.1" />
+</svg>

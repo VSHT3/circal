@@ -1,64 +1,203 @@
 # app
 
-Findings on shipping circal as a desktop app alongside the website. Researched 2026-08-07;
-nothing here is built yet.
+circal as a desktop app alongside the website. Researched 2026-08-07, **built for macOS 2026-08-15**:
+`mac/` is a Swift shell around a `WKWebView`, and `pnpm mac` produces a 1.3 MB `.app` (1.6 MB
+universal). Windows is still unwritten and still wants Tauri. Linux gets the PWA.
 
-**Verdict: Tauri, macOS and Windows only. Linux gets the PWA.** The reason to do it is not the
-icon — it is that a browser eats six of the app's shortcuts, including two it will not give back.
+The reason to do it was never the icon — it is that a browser eats six of the app's shortcuts,
+including two it will not give back. What the shell turned out to be worth beyond that: reminders,
+trackpad haptics, the mirror file the MCP server reads, a menu bar countdown and one global chord.
 
-## what already ships
+## what ships
 
-The PWA is complete and nobody has to write anything for it.
-`public/manifest.webmanifest` is `display: standalone` with 192/512/maskable icons and a black
-theme; `public/sw.js` runtime-caches. Add to Dock in Safari or ⌘⇧A in Chrome and it is a windowed
-app today. Offline is free because there is no server-side state to lose — user events live in
-`localStorage` under `circal.v1`, and the only route in the project is `/api/feed`.
+**The PWA**, complete, and nobody had to write anything for it. `public/manifest.webmanifest` is
+`display: standalone` with 192/512/maskable icons and a black theme; `public/sw.js` runtime-caches.
+Add to Dock in Safari or ⌘⇧A in Chrome and it is a windowed app. Offline is free because there is no
+server-side state to lose — user events live in `localStorage` under `circal.v1`, and the only route
+in the project is `/api/feed`.
 
-So the question is never "can this be an app". It is "what does a shell buy over the PWA".
+**The macOS shell**, `mac/`, four files and no dependency:
 
-## what a shell buys
+| file         | what it is                                                                        |
+| ------------ | --------------------------------------------------------------------------------- |
+| `main.swift` | the shell: loopback server, webview, menu, status item, hot key, three bridges    |
+| `Info.plist` | bundle id `app.circal.mac`, single-instance, ATS local networking                 |
+| `icon.svg`   | the favicon's mark on Apple's icon grid — an 824px body in 1024, radius 185.4     |
+| `build.sh`   | `rsvg-convert` × 10 → `iconutil` → `swiftc` → `codesign`. ~3s, `--universal` ~40s |
 
-**Six shortcuts back.** This is the whole argument, and it is a product argument rather than a
-packaging one. `hooks.ts:143` binds `e.metaKey || e.ctrlKey`, so the bindings themselves are sound,
-but the browser resolves these before the page ever sees them:
+`pnpm build:mac` builds the site and the bundle; `pnpm mac` also opens it. `mac/build/` is ignored by
+git, eslint and prettier — it holds a copy of `dist/`, and linting a build is a page of warnings
+about code nobody wrote.
 
-| circal         | browser           |
-| -------------- | ----------------- |
-| `⌘D` day view  | bookmark          |
-| `⌘L` life view | focus address bar |
-| `⌘N` new event | new window        |
-| `⌘Y` year view | history (Safari)  |
-| `⌘P` palette   | print             |
-| `⌘,` settings  | settings (Chrome) |
+## what the shell buys
 
-`⌘N` and `⌘L` are handled above the page and cannot be reclaimed with `preventDefault` at all.
-[INFERENCE — documented browser behaviour, not keyboard-tested here; synthetic events cannot test
-it, since they never reach browser chrome.] The rest are recoverable but hostile: a user who has
-not yet learned the app will bookmark the page trying to see their day.
+**Six shortcuts back, and a seventh the web can never have.** This is the whole original argument, and
+it is a product argument rather than a packaging one:
 
-A keyboard-first calendar losing a third of its keyboard is not a cosmetic problem. Everything else
-below is a rounding error next to this.
+| circal         | browser           | in the shell                    |
+| -------------- | ----------------- | ------------------------------- |
+| `⌘D` day view  | bookmark          | reaches the page — **verified** |
+| `⌘L` life view | focus address bar | reaches the page — **verified** |
+| `⌘P` palette   | print             | reaches the page — **verified** |
+| `⌘W` week view | closes the tab    | reaches the page — **verified** |
+| `⌘N` new event | new window        | reaches the page                |
+| `⌘Y` year view | history (Safari)  | reaches the page                |
+| `⌘,` settings  | settings (Chrome) | reaches the page                |
 
-**`/api/feed` stops mattering.** The Worker route exists only because no calendar host sends CORS
-headers (`worker/index.ts`, 299 lines). Native HTTP has no CORS, so a shell fetches ICS directly
-and `lib/feeds.ts` (89 lines) grows one platform branch. The route stays for the website; app users
-skip the proxy hop entirely.
+`⌘N` and `⌘L` cannot be reclaimed with `preventDefault` in any browser, which is what made a shell the
+only route. In Cocoa a ⌘-chord is offered to the menu bar first and to the first responder second, so
+**the menus in `main.swift` work by omission**: no File menu (⌘N, ⌘P), no Settings item (⌘,), no
+Undo/Redo in Edit (⌘Z, ⇧⌘Z, which the app's own sixty-step history takes instead), and no ⌘W on the
+window item. Cut, Copy, Paste and Select All stay, because a text field needs the responder chain to
+be told about them and none of those four is a circal binding.
 
-**Menu bar, dock icon, no URL bar, a global shortcut to summon the dial.** Worth having, not worth
-building for.
+⌘W is the interesting one. `App.tsx` binds `mod+w` **as well as** `mod+e`, and the line costs nothing
+on the web: a browser closes the tab and never delivers the keydown, so it is dead there and correct
+here. The chip in the top bar stays ⌘E, because that is the spelling true on every platform.
 
-## tauri vs electron
+**Reminders, through the system, and they work on an ad-hoc build.**
+`Notification.requestPermission()` answers `denied` in a WKWebView (measured): the grant path is
+WebKit SPI. So `BRIDGE_JS` replaces `window.Notification` with a shim that posts to the shell, which
+asks `UNUserNotificationCenter` and answers with the real verdict; a tapped banner hands the
+occurrence's tag back to the page, where `note.onclick` already knows to focus and open the event.
+`hooks.ts` and `remind.ts` are untouched.
 
-Rust is not the reason to pick Tauri, and it will not make the dial faster. The frontend is the
-same SVG, canvas and React either way; the shell language owns the window and the menus and nothing
-on the render path. **Frame time is decided by the webview engine.** Tauri's win is binary size and
-memory — 5–10 MB against Electron's 90–150 MB.
+Verified end to end on this ad-hoc signed build: the system prompt appeared under circal's own name
+and icon, the log recorded `Requested authorization [ didGrant: 1 hasError: 0 ]` and
+`Authorization set for app.circal.mac to allow: YES`, and a reminder ten minutes out arrived as a
+banner reading `Reminder probe · in 10m · 09:54` **while the window was hidden** — which is the case
+the whole put-away-rather-than-quit decision exists for.
 
-Electron's win is one engine everywhere. That matters here more than it usually would, because this
-codebase is full of rendering constraints it had to discover the hard way, and every one of them was
-verified against exactly two engines. But it turns out you can have both, because:
+There is a fallback behind it, and the reason is worth keeping even though circal does not need it: a
+bundle the notification system declines is refused outright with `UNErrorDomain` code 1,
+_"Notifications are not allowed for this application"_ — measured on a throwaway ad-hoc bundle, via
+LaunchServices and directly, with a regular activation policy. Whatever distinguishes that bundle
+from this one, a switch that turns on and then never fires is worse than one that says no, so an
+**error** (never a plain refusal from the user) drops the bridge onto `osascript`'s own
+`display notification`, which an ad-hoc bundle may use (measured: exit 0, no TCC prompt, no
+Automation gate). It costs the banner its icon and its click, and it is remembered in `UserDefaults`
+so the switch survives a reload. On this machine that flag reads `0`: the real path was taken.
 
-**Tauri's engine risk is entirely Linux.**
+**Trackpad haptics, which the web build has never had at all.** `navigator.vibrate` is undefined in
+every desktop browser, so `canVibrate()` was false and the Vibration toggle never appeared. The shim
+maps the pattern `feedback.ts` already speaks — on, off, on — onto `NSHapticFeedbackManager`, one
+`.alignment` strike per contact. The dial's fifteen-minute detent is now a detent you can feel.
+
+**The mirror file, so the MCP server works in the app.** `WKWebView` ships none of the File System
+Access API (`showSaveFilePicker`, `showOpenFilePicker`, `showDirectoryPicker` are all undefined —
+measured), so `mirrorSupported()` was false and the assistant story was silently missing. The shell
+provides `window.__circalMirror` and `mirrorLink.ts` branches onto it: a save panel, then a
+**security-scoped bookmark** rather than a browser handle, which follows the file when it moves and
+needs no second gesture on a later launch. Everything downstream — the poll, the digest, the three
+verdicts, `store.adopt` — is the same code the browser path runs.
+
+**A menu bar item that carries the countdown.** `useTitleCountdown` already writes `· 14m · Standup`
+into `document.title` while the tab is hidden, and a window ordered out **is** hidden (measured). So
+the shell observes the webview's title and prints the suffix beside the ring: the reminder that
+survives a put-away window, with no new state, no second clock and nothing asked of the page.
+
+**⌥⌘C, from anywhere, into the palette.** Carbon's `RegisterEventHotKey`, not
+`NSEvent.addGlobalMonitorForEvents`, because the latter wants Accessibility permission — a system
+prompt and a privacy-pane entry that a calendar does not deserve for one chord. The chord shows the
+window and dispatches ⌘P at it, so the palette opens through the app's own binding rather than a
+second entry point that could drift from it; pressing it again while circal is frontmost puts the
+window away. That is quick-add from anywhere, using the parser `quickadd.ts` already has.
+
+**`/api/feed` stops being a Worker.** The route only ever existed because no calendar host sends CORS
+headers, and native HTTP has no CORS. `main.swift` answers the same path with `URLSession`, carrying
+the parts that are not incidental: the SSRF hostname guard, re-run on every redirect hop exactly as
+`followChecked` does it, the 5 MB cap, and `looksLikeCalendar`'s `BEGIN:VCALENDAR` sniff. The guard
+matters **more** here than on the Worker: a pasted feed URL naming `127.0.0.1` would otherwise reach
+this app's own server, and everything else listening on the user's machine.
+
+**The window is put away, not closed.** `applicationShouldTerminateAfterLastWindowClosed` is false,
+the red button hides, and the status item, the dock icon and ⌥⌘C all bring it back. A calendar that
+quits when you put it away cannot answer a reminder or hold a mirror file in step, which are the two
+things it is most useful for while out of sight. `show()` calls `NSApp.unhide` first, and that is not
+optional: an application hidden with `NSApp.hide` stays hidden through
+`activate(ignoringOtherApps:)`, so ⌥⌘C did nothing at all until it was added.
+
+## two bugs the shell found in the app
+
+Both were app bugs the web build had all along; the shell is just where they became obvious.
+
+**Dragging the dial selected the face.** A press that crosses an hour numeral starts a selection, so
+one drag round the dial left half the numerals highlighted in accent blue and the next drag began by
+clearing it. The fix is `useNoDragSelection` in `hooks.ts` — one `selectstart` listener, fields
+exempt — and it is a listener rather than `user-select: none` because that provably does not work
+here: `CSS.supports("user-select", "none")` is **false** in WKWebView, which still ships the property
+only under `-webkit-`, and the prefixed declaration does not survive the CSS pipeline either, since
+Lightning CSS folds it back into the unprefixed form for its own baseline. Verified through the app's
+own page: `selectstart` is prevented on an SVG numeral and on chrome, and **not** prevented in the
+palette's input.
+
+**A white flash on a cold start.** Three separate whites, and it took all three:
+`underPageBackgroundColor` for the over-scroll and the pre-paint colour, `drawsBackground = false`
+(KVC — the property is not in the public header) so the webview never paints an opaque sheet over the
+window's black, and `suppressesIncrementalRendering = true` so the first paint waits for content.
+The first attempt was to hide the view and reveal it on a message from the page once it had painted;
+it deadlocks, and the log says why — WebKit takes a hidden view as a background one and suspends the
+web process (`WebProcessProxy::didChangeThrottleState(Suspended)`), so the frame being waited for is
+a frame that will never be drawn. Gating rendering on rendering does not work however it is spelled.
+
+## how the shell works, and the one number that matters
+
+**The port is fixed at 47531, and it has to be.** `localStorage` is keyed by origin and an origin
+includes its port, so an ephemeral port hands the app a brand-new empty store on every launch — every
+event still on disk, under a number nothing will ever ask for again. Below 49152 so the kernel cannot
+hand it to somebody's outbound connection, and `LSMultipleInstancesProhibited` is the other half:
+two copies would race for that socket and the loser has no calendar.
+
+Everything else follows from serving over loopback rather than `file:`. A `file:` origin has no usable
+`localStorage` and no service worker, which for a local-first calendar is not a trade, it is the
+product. `http://127.0.0.1` is a potentially-trustworthy origin, so **both work, verified**: the
+webview's own registration table holds `http://127.0.0.1:47531/sw.js`, and `isSecureContext` is true.
+
+The server is blocking, thread-per-connection BSD sockets on purpose. It serves about twenty files
+once per launch — the service worker takes over after that — and it has no asynchrony for a bug to
+hide in. `trailingSlash: "always"` is the one subtlety: every link the site writes ends in `/`, so a
+path is a directory and the file under it is `index.html`.
+
+Two window decisions worth keeping. The titlebar is transparent over a black window, which is a black
+strip with the traffic lights in it — deliberately **not** `fullSizeContentView`, because the lights
+would then land on `TopBar`'s left button group and three buttons under three buttons is a bar nobody
+can aim at. And `allowsBackForwardNavigationGestures` is off: the app steps days through
+`history.pushState`, so a two-finger swipe would be "yesterday", mid-drag on the dial.
+
+## handing it to somebody else
+
+Right now `build.sh` ad-hoc signs, which is enough to launch a locally built app and nothing more. A
+build somebody else can double-click needs four things, in order:
+
+1. **Universal binary.** `bash mac/build.sh --universal` — two `swiftc` passes and a `lipo`. 1.6 MB.
+2. **Developer ID.** An Apple Developer account ($99/year) for a `Developer ID Application`
+   certificate. `CIRCAL_SIGN_ID="Developer ID Application: Name (TEAMID)" pnpm build:mac` switches
+   `codesign` to it, with `--timestamp --options runtime` (hardened runtime), which notarisation
+   requires.
+3. **Notarise and staple.** `ditto -c -k --keepParent mac/build/circal.app circal.zip`, then
+   `xcrun notarytool submit circal.zip --apple-id … --team-id … --password … --wait`, then
+   `xcrun stapler staple mac/build/circal.app`. Without this, Gatekeeper on another Mac refuses the
+   app outright — the right-click-Open escape hatch is gone as of macOS 15.
+4. **Ship the bytes.** A `.dmg` (`hdiutil create -srcfolder`) or the stapled zip on a URL. A Homebrew
+   cask is the cheapest distribution after that: a formula naming the URL and the SHA, `brew install
+--cask circal`, and updates are `brew upgrade`. There is no updater in the app and no plan for
+   one; a 1.3 MB download is not a problem worth Sparkle.
+
+Unsigned is not a shortcut worth documenting for other people: the flash of "circal is damaged" is
+indistinguishable from malware to the person you sent it to.
+
+## why swift and not tauri
+
+Tauri's macOS target **is** `WKWebView`. So on this platform Rust owns the window and the menus and
+nothing on the render path — same engine, same frame time, same SVG and canvas — and the entire delta
+is what the shell weighs and what it costs to build. Swift wins both here: the toolchain ships with
+the Command Line Tools, where Tauri wants a ~1.5 GB Rust install before it can print a window, and
+the result is 1.3 MB with nothing bundled.
+
+That is not an argument against Tauri, it is an argument about which platform is asking. **Windows
+still wants it**: WebView2 is Chromium, the engine Chrome visitors already run, and nobody is writing
+a Win32 shell by hand. Electron remains the wrong trade in both directions — 90–150 MB on every
+platform to defend against an engine problem that exists on one:
 
 | platform | engine    | new risk                                                            |
 | -------- | --------- | ------------------------------------------------------------------- |
@@ -66,9 +205,19 @@ verified against exactly two engines. But it turns out you can have both, becaus
 | Windows  | WebView2  | none — Chromium, the engine Chrome visitors already run             |
 | Linux    | WebKitGTK | real, and circal is unusually exposed                               |
 
-So Electron would bundle 150 MB on every platform to defend against a problem that exists on one.
-Ship mac and Windows from Tauri, point Linux at the PWA — which already works in Chromium — and the
-defence costs nothing.
+## what the shell still does not have
+
+- **A settable hot key.** ⌥⌘C is compiled in. If something else has it, `RegisterEventHotKey` fails
+  and the shell says so on stderr rather than fighting for it.
+- **A quick-add panel of its own.** ⌥⌘C summons the window and opens the palette; a borderless
+  `NSPanel` with its own webview would be the Spotlight-shaped version, and it needs a route in the
+  app that renders the palette alone. Worth doing only if the window turns out to be in the way.
+- **Notarisation, an updater, a Windows build.**
+- **Tests, and by design.** `AGENTS.md`'s rule is a test file per `src/lib/` module; the suite is
+  vitest with no DOM and cannot reach AppKit, and the shell holds no domain logic to pin. The one
+  place it repeats the app rather than hosting it is the feed proxy's SSRF table, which is the
+  Worker's `ssrfBlockReason` re-spelt in Swift — worth knowing if that table ever moves. Anything in
+  `mac/` that starts wanting to know what an event is belongs in `src/lib/` instead.
 
 ## why linux specifically
 
@@ -78,15 +227,14 @@ that land directly on this app.
 > canvas content can silently land on a slow path while the rest of the app looks fine… There is no
 > error to catch.
 
-`LifeView.tsx:383-387` blits an offscreen field canvas and `:407` masks it with a radial gradient in
-`destination-in`, **once per frame** of the zoom wave, at a budget of about 4 ms. The whole reason
-the field lives in its own canvas (`:431-434`) is that thirty thousand arcs per frame is not
-affordable. Land that on a software rasterizer and the wave stutters, with nothing thrown and
-nothing to log.
+`LifeView.tsx` blits an offscreen field canvas and masks it with a radial gradient in
+`destination-in`, **once per frame** of the zoom wave, at a budget of about 4 ms. The whole reason the
+field lives in its own canvas is that thirty thousand arcs per frame is not affordable. Land that on
+a software rasterizer and the wave stutters, with nothing thrown and nothing to log.
 
 And [discussion #9088](https://github.com/tauri-apps/tauri/discussions/9088): _"when a CSS animation
-is playing, the rest of the app gets blurry."_ Per `astro.config.mjs:8-10`, _"the whole product is
-one continuously-animating clock."_
+is playing, the rest of the app gets blurry."_ Per `astro.config.mjs`, _"the whole product is one
+continuously-animating clock."_
 
 The workaround ladder ends at `WEBKIT_DISABLE_COMPOSITING_MODE=1`, which for a 288-segment gradient
 rim and a 30k-dot canvas is not a workaround. Upstream: [tauri#9394](https://github.com/tauri-apps/tauri/issues/9394),
@@ -97,57 +245,37 @@ pretending it is equivalent.
 
 ## risk surface, audited
 
-Smaller than first assumed. Two of the scares were wrong:
+Two of the original scares were wrong, and three absences turned out to be the interesting part:
 
-| feature                  | where                    | verdict                                                                                                                                                |
-| ------------------------ | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `backdrop-filter`        | —                        | **not used.** `CenterPanel.tsx:278-282` documents deliberately _not_ using it                                                                          |
-| `destination-in`         | `LifeView.tsx:407`       | ancient, universally supported. The risk is the _slow path_, not support                                                                               |
-| `mask-image`, unprefixed | `global.css:127,140`     | needs `-webkit-` on older WebKit; lightningcss prefixes from targets                                                                                   |
-| Tailwind v4 output       | `astro.config.mjs:19-21` | no explicit targets, so Tailwind's own baseline applies — Safari 16.4 / Chrome 111. Fine on WKWebView and WebView2; a WebKitGTK version floor on Linux |
-| `showPicker()`           | `primitives.tsx:318-328` | already guarded and already documented as absent in some engines. Degrades to a typeable field                                                         |
-| `createBiquadFilter`     | `feedback.ts:341,354`    | universal. The _tuning_ is measured against Chromium and WKWebView only                                                                                |
-| `userSpaceOnUse`         | `Dial.tsx:1332`          | ancient SVG                                                                                                                                            |
-| `devicePixelRatio`       | `LifeView.tsx:383,431`   | fine                                                                                                                                                   |
-| fonts                    | Fontsource, self-hosted  | no system fallback drift                                                                                                                               |
+| feature                  | where              | verdict                                                                                                                                                               |
+| ------------------------ | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `backdrop-filter`        | —                  | **not used.** `CenterPanel.tsx` documents deliberately _not_ using it                                                                                                 |
+| `destination-in`         | `LifeView.tsx`     | ancient, universally supported. The risk is the _slow path_, not support                                                                                              |
+| `mask-image`, unprefixed | `global.css`       | needs `-webkit-` on older WebKit; lightningcss prefixes from targets                                                                                                  |
+| `user-select`            | `hooks.ts`         | **unsupported unprefixed in WKWebView**, and the prefix does not survive the CSS pipeline. Hence `useNoDragSelection`                                                 |
+| Tailwind v4 output       | `astro.config.mjs` | no explicit targets, so Tailwind's own baseline applies — Safari 16.4 / Chrome 111. Fine on WKWebView and WebView2; a WebKitGTK version floor on Linux                |
+| `showPicker()`           | `primitives.tsx`   | already guarded and already documented as absent in some engines. Degrades to a typeable field                                                                        |
+| File System Access       | `mirrorLink.ts`    | **absent in WKWebView.** Replaced by the shell's own bridge                                                                                                           |
+| `Notification`           | `remind.ts`        | **`denied` in WKWebView.** Bridged onto `UNUserNotificationCenter`, granted and delivering on this ad-hoc build; `osascript` fallback for a bundle the system refuses |
+| `navigator.vibrate`      | `feedback.ts`      | absent on every desktop browser; the shell is the first place the haptic channel exists                                                                               |
+| `createBiquadFilter`     | `feedback.ts`      | universal. The _tuning_ is measured against Chromium and WKWebView only                                                                                               |
+| `userSpaceOnUse`         | `Dial.tsx`         | ancient SVG                                                                                                                                                           |
+| fonts                    | Fontsource         | self-hosted, no system fallback drift                                                                                                                                 |
 
-## work, in order
+## done since this file was first written
 
-**1. ⌘/Ctrl labels — do this regardless, it is a live bug.** `hooks.ts:143` and
-`EventEditor.tsx:404` both accept Ctrl, so the behaviour is already cross-platform. Every label is
-not. Windows and Linux visitors are told, right now, to press a key their keyboard does not have:
-
-- `TopBar.tsx:51-53` view segments, `:95` palette pill, `:101` new-event pill
-- `CommandPalette.tsx:294,318,333,348,399,414` — six hints
-- `EventEditor.tsx:811` Delete, `:829` Save
-- `App.tsx:545`, `backup.ts:310,351` — three "⌘Z to undo" toasts
-
-**Open decision, and it is not mine.** `primitives.tsx:17` documents `Kbd` as _"Renders the glyph,
-never the word (`⌘`, not `Cmd`)"_, and `AGENTS.md` carries the rule. There is no Ctrl glyph anyone
-reads — Windows expects the word — so platform-aware labels break a rule that was written on
-purpose. Two ways out:
-
-- `⌘` / `Ctrl` — correct for users, breaks the glyph rule on Windows
-- `⌘` / `⌃` — keeps the rule, and `⌃` means nothing to a Windows user
-
-Pick one before the rest. It is ~8 files and a `MOD` constant either way, plus a `platform.ts`
-in `src/lib/` — which by `AGENTS.md`'s standing rule owes a `tests/platform.test.ts`.
-
-**2. Scaffold `src-tauri/`.** Point it at `dist/`. Check `trailingSlash: "always"`
-(`astro.config.mjs:13`) against Tauri's asset protocol before assuming index resolution works.
-
-**3. Branch `lib/feeds.ts`** onto native fetch, no proxy.
-
-**4. Native menu and global shortcuts** for the six reclaimed keys.
-
-**5. Icons.** Add `.icns` and `.ico` to the existing `rsvg-convert` recipe in `AGENTS.md`. Bump
-`CACHE` in `sw.js` if any `public/` icon changes, per the standing rule.
+**⌘/Ctrl labels.** `MOD` in `ui/primitives.tsx` reads the platform once at module scope and is the
+only place a modifier is spelled. `⌘` / `Ctrl` was the answer — the word, not `⌃`, which means nothing
+to a Windows user — and `Kbd`'s glyph rule carries `MOD` as its one documented exception. The
+consequence is measured in `TopBar`: `Ctrl` is 40px against ⌘'s 18, so its two breakpoints are a pair
+and are written as whole class strings.
 
 ## the alternative worth naming
 
 A true native rewrite (SwiftUI, CoreGraphics) is weeks, and the dial is not the expensive part.
-`src/lib` is 5,474 lines of pure domain logic that would all have to be re-derived: `recur.ts` (685,
-the RFC 5545 expand/limit cascade), `ics.ts` (634, hand-rolled parser with folding, EXDATE,
-RECURRENCE-ID), `store.ts` (832), `life.ts` (536), `sun.ts` (NOAA solar position). Plus the 602-case
-suite that pins their correctness. Redrawing the instrument is days; re-earning that correctness in
-another language is the cost, and it buys nothing a webview does not already deliver.
+`src/lib` is pure domain logic that would all have to be re-derived: `recur.ts` (the RFC 5545
+expand/limit cascade), `ics.ts` (hand-rolled parser with folding, EXDATE, RECURRENCE-ID), `store.ts`,
+`life.ts`, `sun.ts` — plus the suite that pins their correctness. Redrawing the instrument is days;
+re-earning that correctness in another language is the cost, and it buys nothing a webview does not
+already deliver. The Swift in `mac/main.swift` is the whole of what native was actually good for
+here: a window, a menu, six keys, and the three capabilities WebKit withholds from a page.

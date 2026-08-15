@@ -14,7 +14,16 @@ export default defineConfig([
   // neither is `mcp/dist/`, which is esbuild's single-file output for the MCP
   // server. Linting a bundle reports every tree-shaken import as an unused
   // variable, which is a paragraph of warnings about code nobody wrote.
-  globalIgnores(["dist/", ".astro/", ".wrangler/", "mcp/dist/", "node_modules/", "public/"]),
+  // `mac/build/` is the same build again, copied inside an .app bundle.
+  globalIgnores([
+    "dist/",
+    ".astro/",
+    ".wrangler/",
+    "mcp/dist/",
+    "mac/build/",
+    "node_modules/",
+    "public/",
+  ]),
 
   js.configs.recommended,
   tseslint.configs.recommended,
