@@ -16,16 +16,45 @@ import { McpServer } from "@modelcontextprotocol/server";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 
 import { resolveFilePath, type MirrorEnv } from "./file";
+import { runFind } from "./find";
 import { registerTools } from "./tools";
+
+const HELP = `circal-mcp — reads and writes circal's mirror file over stdio (MCP)
+
+Usage:
+  circal-mcp --file <path>   Start the server against a mirror file
+  circal-mcp --find          Search common locations for a mirror file and
+                              print a ready-to-paste client config (read-only,
+                              does not start the server)
+  circal-mcp --help          Print this message
+
+Environment:
+  CIRCAL_FILE                 Mirror file path, same as --file
+  CIRCAL_ALLOW_ZONE_MISMATCH   Set to 1 to allow writes when this process's
+                              zone does not match the file's recorded zone
+`;
+
+const argv = process.argv.slice(2);
+
+if (argv.includes("--help") || argv.includes("-h")) {
+  console.log(HELP);
+  process.exit(0);
+}
+
+if (argv.includes("--find")) {
+  await runFind();
+  process.exit(0);
+}
 
 // Fails fast, before the transport ever connects: a client that cannot say
 // where the file is should see one clear line on stderr, not a stack trace
 // buried in a JSON-RPC error later.
 let path: string;
 try {
-  path = resolveFilePath(process.argv.slice(2), process.env);
+  path = resolveFilePath(argv, process.env);
 } catch (error) {
-  console.error(error instanceof Error ? error.message : String(error));
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(`${message} Run \`circal-mcp --find\` to search common locations for one.`);
   process.exit(1);
 }
 const ctx: MirrorEnv = { path, env: process.env };

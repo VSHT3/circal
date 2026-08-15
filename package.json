@@ -20,7 +20,7 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "build:mcp": "esbuild mcp/index.ts --bundle --platform=node --format=esm --target=node22 --outfile=mcp/dist/circal-mcp.mjs --packages=external --alias:@=./src",
+    "build:mcp": "esbuild mcp/index.ts --bundle --platform=node --format=esm --target=node22 --outfile=mcp/dist/circal-mcp.mjs --external:@modelcontextprotocol/server --external:zod --alias:@=./src",
     "mcp": "pnpm build:mcp && node mcp/dist/circal-mcp.mjs",
     "verify": "pnpm format:check && pnpm lint && pnpm check && pnpm test && pnpm build"
   },

@@ -916,6 +916,19 @@ export default function Settings({
                             >
                               Disconnect
                             </DataButton>
+                            {/* Anchor, not button — an assistant reads this
+                                file once it is live, and setup is a page,
+                                not an action. Opens in a new tab for the
+                                same reason as the Manifesto link below. */}
+                            <a
+                              href="/assistant/"
+                              target="_blank"
+                              rel="noopener"
+                              className="flex h-8 w-fit items-center gap-1.5 rounded-[8px] border border-hairline bg-surface-2 px-2.5 text-[13px] text-ink transition-colors hover:bg-white/10"
+                            >
+                              <ArrowUpRight size={13} strokeWidth={1.75} />
+                              Set up an assistant
+                            </a>
                           </div>
                         </>
                       )}

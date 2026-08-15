@@ -16,23 +16,23 @@ thing this server reads or writes; if circal's tab is open and connected, it
 picks up the change and its own next write moves the file's `rev` forward
 again, the same as any second writer would.
 
-## Build
+## Quick start
+
+A `FileSystemFileHandle` (what the browser hands circal when the mirror is
+turned on) never exposes the full path it came from: that is deliberate
+browser privacy design, so circal cannot print it for you. `--find` searches
+the places a mirror file usually lands and does that work instead.
 
 ```sh
-pnpm build:mcp
+npx -y circal-mcp --find
 ```
 
-Produces a single ESM bundle at `mcp/dist/circal-mcp.mjs`. `pnpm mcp` builds
-and runs it directly, for local testing.
+It prints every mirror file it located (path, event and calendar counts,
+zone, revision) plus a ready-to-paste config block. Paste that block into
+your client below, swap the path if it picked up the wrong file, then
+restart the client.
 
-## Configure the file
-
-Every client below needs an **absolute path** to a mirror file and an
-absolute path to the built bundle. Turn mirroring on once from circal's
-Settings panel to create the file (or point at an existing circal `.json`
-backup — a mirror file _is_ one, plus a zone and a revision).
-
-## Claude Desktop
+### Claude Desktop
 
 Add to `claude_desktop_config.json`:
 
@@ -40,19 +40,17 @@ Add to `claude_desktop_config.json`:
 {
   "mcpServers": {
     "circal": {
-      "command": "node",
-      "args": ["/absolute/path/to/circal/mcp/dist/circal-mcp.mjs"],
-      "env": { "CIRCAL_FILE": "/absolute/path/to/your/calendar.json" }
+      "command": "npx",
+      "args": ["-y", "circal-mcp", "--file", "/absolute/path/to/your/calendar.json"]
     }
   }
 }
 ```
 
-## Claude Code
+### Claude Code
 
 ```sh
-claude mcp add circal --env CIRCAL_FILE=/absolute/path/to/your/calendar.json \
-  -- node /absolute/path/to/circal/mcp/dist/circal-mcp.mjs
+claude mcp add circal -- npx -y circal-mcp --file /absolute/path/to/your/calendar.json
 ```
 
 Or in `.mcp.json`:
@@ -61,15 +59,14 @@ Or in `.mcp.json`:
 {
   "mcpServers": {
     "circal": {
-      "command": "node",
-      "args": ["/absolute/path/to/circal/mcp/dist/circal-mcp.mjs"],
-      "env": { "CIRCAL_FILE": "/absolute/path/to/your/calendar.json" }
+      "command": "npx",
+      "args": ["-y", "circal-mcp", "--file", "/absolute/path/to/your/calendar.json"]
     }
   }
 }
 ```
 
-## Cursor
+### Cursor
 
 Add to `.cursor/mcp.json` (project) or `~/.cursor/mcp.json` (global):
 
@@ -77,13 +74,30 @@ Add to `.cursor/mcp.json` (project) or `~/.cursor/mcp.json` (global):
 {
   "mcpServers": {
     "circal": {
-      "command": "node",
-      "args": ["/absolute/path/to/circal/mcp/dist/circal-mcp.mjs"],
-      "env": { "CIRCAL_FILE": "/absolute/path/to/your/calendar.json" }
+      "command": "npx",
+      "args": ["-y", "circal-mcp", "--file", "/absolute/path/to/your/calendar.json"]
     }
   }
 }
 ```
+
+No mirror file yet: turn it on from circal's Settings panel, then run
+`--find` again. Run `npx -y circal-mcp --help` for the full flag and
+environment variable list.
+
+## From source (contributors)
+
+Building from a checkout instead of the published package:
+
+```sh
+pnpm install
+pnpm build:mcp
+```
+
+Produces the same single-file ESM bundle at `mcp/dist/circal-mcp.mjs`.
+`pnpm mcp` builds and runs it directly, for local testing. Point a client's
+`command`/`args` at `node` and the absolute path to that bundle instead of
+`npx`, with the same `env`/`--file` as above.
 
 ## What it refuses, and why
 

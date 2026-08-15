@@ -1,0 +1,204 @@
+---
+import Base from "@/layouts/Base.astro";
+
+/**
+ * `/assistant/` — the on-ramp from "I connected a mirror file" to "an
+ * assistant can read it". Static markup, no island, same reasoning as
+ * `manifesto.astro`: this is a page you read once and leave, and shipping
+ * React to print a JSON snippet would cost more than the snippet.
+ *
+ * It cannot be smarter than the platform lets it be. A `FileSystemFileHandle`
+ * exposes `.name` and nothing else — no path, by design, because a page
+ * knowing where on your disk a file sits is the exact privacy leak the File
+ * System Access API exists to prevent. So this page cannot look up the path
+ * and cannot pre-fill it anywhere; it can only point at `circal-mcp --find`,
+ * the one thing standing outside the browser that is allowed to look.
+ *
+ * Linked from Settings → Mirror → "Set up an assistant" once a file is live,
+ * and from the README. Not linked from the app shell itself: it is setup,
+ * not a feature, and the instrument has nowhere to put a link to it.
+ */
+---
+
+<Base
+  title="Set up an assistant · circal"
+  description="Three steps to let an MCP-speaking assistant read and write the calendar in your mirror file."
+  scroll
+>
+  <main class="mx-auto w-full max-w-[36rem] px-6 pt-14 pb-24 sm:pt-20">
+    <a
+      href="/"
+      class="inline-flex items-center gap-2 text-ink-2 transition-colors hover:text-ink"
+      aria-label="Open circal"
+    >
+      <svg viewBox="0 0 24 24" class="size-[15px]" aria-hidden="true">
+        <circle cx="12" cy="12" r="10.5" fill="none" stroke="currentColor" stroke-width="1.5"
+        ></circle>
+      </svg>
+      <span class="text-[15px] font-medium tracking-[-0.02em]">circal</span>
+    </a>
+
+    <h1
+      class="mt-14 text-[34px] leading-[1.08] font-medium tracking-[-0.035em] text-balance text-ink sm:text-[44px]"
+    >
+      Let an assistant read your calendar.
+    </h1>
+
+    <p class="mt-5 text-[15px] leading-[1.6] text-ink-3">Three steps, one of them in a terminal.</p>
+
+    <p class="mt-10 text-[17px] leading-[1.75] text-ink-2">
+      Your calendar lives in this browser. Mirroring it writes a live copy to a file on your
+      computer, and an assistant that can read that file can answer questions about your calendar
+      and add things to it. Nothing goes to the internet: there is still no account and no server
+      that sees your events.
+    </p>
+
+    <div class="mt-12">
+      <h2 class="label text-ink-2">What you need</h2>
+      <p class="mt-3 text-[15px] leading-[1.7] text-ink-2">
+        Node.js 20 or later, from <a
+          href="https://nodejs.org"
+          class="text-ink underline decoration-hairline underline-offset-2 hover:decoration-ink-2"
+          >nodejs.org</a
+        >, and an assistant that speaks MCP: Claude Desktop, Claude Code, Cursor, VS Code and Zed
+        all do. The step below is the one that needs a terminal; there is no way around it, since it
+        is also the only thing that can find your file for you.
+      </p>
+    </div>
+
+    {
+      /* `flex flex-col gap-*` rather than `space-y-*`: this page was the only
+        place in the app reaching for `space-y`, and the utility is not in the
+        generated stylesheet at all, so every gap it claimed to set measured
+        zero. `gap` cannot fail quietly the same way. */
+    }
+    <ol class="mt-12 flex flex-col gap-10">
+      <li>
+        <h2 class="label text-ink-2">Step 1 · Find your file</h2>
+        <p class="mt-3 text-[15px] leading-[1.7] text-ink-2">
+          circal can't tell you where the file is. The browser only ever hands the page a handle to
+          it, never a path, on purpose: a web page is not supposed to know your filesystem layout.
+          Run this instead:
+        </p>
+        <pre
+          class="mt-4 overflow-x-auto rounded-[10px] border border-hairline bg-surface-2 p-3.5"><code class="text-[13px] leading-[1.6] text-ink font-mono">npx -y circal-mcp --find</code></pre>
+        <p class="mt-3 text-[15px] leading-[1.7] text-ink-2">
+          It searches the usual places, prints the path to every valid mirror file it finds, and a
+          config block underneath ready to paste into the next step.
+        </p>
+      </li>
+
+      <li>
+        <h2 class="label text-ink-2">Step 2 · Tell your assistant</h2>
+        <p class="mt-3 text-[15px] leading-[1.7] text-ink-2">
+          Most MCP clients read a JSON file. Put this in it, with the path from Step 1 in place of
+          the placeholder:
+        </p>
+        <pre
+          class="mt-4 overflow-x-auto rounded-[10px] border border-hairline bg-surface-2 p-3.5"><code class="text-[13px] leading-[1.6] text-ink font-mono">{`{
+  "mcpServers": {
+    "circal": {
+      "command": "npx",
+      "args": ["-y", "circal-mcp", "--file", "/absolute/path/to/circal.json"]
+    }
+  }
+}`}</code></pre>
+        <p class="mt-4 text-[15px] leading-[1.7] text-ink-2">
+          <span class="text-ink">Claude Desktop</span> reads it from Settings → Developer → Edit Config,
+          which opens <code class="font-mono text-[13px] text-ink-2"
+            >claude_desktop_config.json</code
+          >.
+        </p>
+        <p class="mt-3 text-[15px] leading-[1.7] text-ink-2">
+          <span class="text-ink">Cursor</span> reads it from <code
+            class="font-mono text-[13px] text-ink-2">~/.cursor/mcp.json</code
+          >, or <code class="font-mono text-[13px] text-ink-2">.cursor/mcp.json</code> in one project
+          only.
+        </p>
+        <p class="mt-3 text-[15px] leading-[1.7] text-ink-2">
+          <span class="text-ink">Claude Code</span> is easier from the command line, no file to find or
+          edit:
+        </p>
+        <pre
+          class="mt-4 overflow-x-auto rounded-[10px] border border-hairline bg-surface-2 p-3.5"><code class="text-[13px] leading-[1.6] text-ink font-mono">claude mcp add circal -- npx -y circal-mcp --file /absolute/path/to/circal.json</code></pre>
+      </li>
+
+      <li>
+        <h2 class="label text-ink-2">Step 3 · Restart it and ask</h2>
+        <p class="mt-3 text-[15px] leading-[1.7] text-ink-2">
+          Restart the assistant so it picks up the new server, then talk to it the way you would
+          talk to a person:
+        </p>
+        <ul class="mt-4 flex flex-col gap-2">
+          <li
+            class="rounded-[10px] border border-hairline bg-surface p-3 text-[14px] text-ink-2 italic"
+          >
+            "What's on Thursday?"
+          </li>
+          <li
+            class="rounded-[10px] border border-hairline bg-surface p-3 text-[14px] text-ink-2 italic"
+          >
+            "Find me an hour free tomorrow afternoon."
+          </li>
+          <li
+            class="rounded-[10px] border border-hairline bg-surface p-3 text-[14px] text-ink-2 italic"
+          >
+            "Book dentist next Tuesday at 2."
+          </li>
+          <li
+            class="rounded-[10px] border border-hairline bg-surface p-3 text-[14px] text-ink-2 italic"
+          >
+            "Move my standup to 10."
+          </li>
+        </ul>
+      </li>
+    </ol>
+
+    <div class="mt-14">
+      <h2 class="label text-ink-2">What it will not do</h2>
+      <ul class="mt-3 flex flex-col gap-2.5 text-[15px] leading-[1.7] text-ink-2">
+        <li class="flex gap-2.5">
+          <span class="text-ink-4" aria-hidden="true">·</span>
+          <span>It will not touch a subscribed calendar. Those stay read-only.</span>
+        </li>
+        <li class="flex gap-2.5">
+          <span class="text-ink-4" aria-hidden="true">·</span>
+          <span>
+            It will not guess what "delete my standup" means for a repeating event. It asks which
+            occurrences you meant, every time.
+          </span>
+        </li>
+        <li class="flex gap-2.5">
+          <span class="text-ink-4" aria-hidden="true">·</span>
+          <span>
+            It will not write at all if it is running in a different timezone from the one the file
+            was written in.
+          </span>
+        </li>
+      </ul>
+    </div>
+
+    <div class="mt-14 border-t border-hairline pt-8">
+      <h2 class="label text-ink-2">The trade</h2>
+      <p class="mt-3 text-[15px] leading-[1.7] text-ink-2">
+        While the file is connected, anything on your computer that can read files can read and
+        change your calendar. Turning the mirror off in Settings stops it.
+      </p>
+    </div>
+
+    <div class="mt-16 flex flex-wrap items-center gap-3 border-t border-hairline pt-8">
+      <a
+        href="/"
+        class="inline-flex h-9 items-center rounded-[9px] bg-ink px-4 text-[13.5px] font-medium text-void transition-opacity hover:opacity-90"
+      >
+        Open circal
+      </a>
+      <a
+        href="/manifesto/"
+        class="inline-flex h-9 items-center rounded-[9px] border border-hairline px-4 text-[13.5px] font-medium text-ink-2 transition-colors hover:text-ink"
+      >
+        Read the manifesto
+      </a>
+    </div>
+  </main>
+</Base>

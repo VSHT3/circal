@@ -1,0 +1,37 @@
+{
+  "name": "circal-mcp",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "MCP server for circal — read and write your calendar through its mirror file",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/VSHT3/circal.git",
+    "directory": "mcp"
+  },
+  "homepage": "https://github.com/VSHT3/circal/tree/main/mcp#readme",
+  "bugs": "https://github.com/VSHT3/circal/issues",
+  "bin": {
+    "circal-mcp": "dist/circal-mcp.mjs"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "prepack": "cd .. && pnpm build:mcp"
+  },
+  "keywords": [
+    "mcp",
+    "modelcontextprotocol",
+    "calendar",
+    "circal"
+  ],
+  "dependencies": {
+    "@modelcontextprotocol/server": "^2.0.0",
+    "zod": "^4.2.0"
+  }
+}

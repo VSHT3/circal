@@ -484,14 +484,19 @@ event asks the same three-way question the editor asks — and **refuses** to
 act on one until it is answered, rather than guessing that "delete my standup"
 meant all fifty-two of them. Subscriptions stay read-only there too.
 
+Setup is a page, not a manual: connect a file above, then open **`/assistant/`**
+in this app for the client config, or run this in a terminal:
+
 ```sh
-pnpm build:mcp   # → mcp/dist/circal-mcp.mjs
+npx -y circal-mcp --find
 ```
 
-See [`mcp/README.md`](mcp/README.md) for the client config. One thing to know
-before switching it on: while the file is connected, anything that can read
-that file can read and change your calendar. Nothing on the network changes —
-there is still no account, no sync and no server.
+Building from source instead: `pnpm build:mcp` produces
+`mcp/dist/circal-mcp.mjs`, and [`mcp/README.md`](mcp/README.md) has the
+client config for that path. One thing to know before switching it on: while
+the file is connected, anything that can read that file can read and change
+your calendar. Nothing on the network changes, there is still no account, no
+sync and no server.
 
 ## Interaction
 
