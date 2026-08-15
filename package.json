@@ -5,7 +5,7 @@
   "private": true,
   "packageManager": "pnpm@11.2.2",
   "engines": {
-    "node": ">=22.12.0"
+    "node": ">=22.22.3"
   },
   "scripts": {
     "dev": "astro dev",
@@ -15,14 +15,14 @@
     "dev:worker": "astro build && wrangler dev",
     "astro": "astro",
     "check": "astro check",
-    "format": "prettier --write .",
-    "format:check": "prettier --check .",
-    "lint": "eslint .",
+    "format": "prettier --write . --cache",
+    "format:check": "prettier --check . --cache",
+    "lint": "eslint . --cache --cache-location node_modules/.cache/eslint",
     "test": "vitest run",
     "test:watch": "vitest",
     "build:mcp": "esbuild mcp/index.ts --bundle --platform=node --format=esm --target=node22 --outfile=mcp/dist/circal-mcp.mjs --external:@modelcontextprotocol/server --external:zod --alias:@=./src",
-    "mcp": "pnpm build:mcp && node mcp/dist/circal-mcp.mjs",
-    "verify": "pnpm format:check && pnpm lint && pnpm check && pnpm test && pnpm build"
+    "mcp": "\"$npm_execpath\" run build:mcp && node mcp/dist/circal-mcp.mjs",
+    "verify": "\"$npm_execpath\" run format:check && \"$npm_execpath\" run lint && \"$npm_execpath\" run check && \"$npm_execpath\" run test && \"$npm_execpath\" run build"
   },
   "dependencies": {
     "@astrojs/react": "^6.0.2",

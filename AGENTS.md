@@ -98,6 +98,8 @@ pnpm deploy     # astro build && wrangler deploy
 
 `pnpm verify` = only quality gate; run before declaring work done. Steps: `pnpm format:check`, `pnpm lint` (eslint), `pnpm check` (astro check / tsc), `pnpm test` (vitest), `pnpm build`.
 
+Format and lint carry `--cache`, written into `node_modules/.cache/` (already ignored, no new entry): the whole gate is ~25s cold and ~8s on a repeat, which is the difference between running it and not. Both caches key on config **content**, not mtime — an edited rule or a changed `printWidth` re-checks every file, verified by injecting a rule and by moving `printWidth` to 40 and counting the 95 files it flags either way. A fresh checkout and CI have no cache, so they gain nothing and risk nothing.
+
 ## Git & Commits
 
 Commit **regularly** — one commit per coherent change, not per session. A commit touching dial geometry, store schema and a doc in one breath cannot be reverted, bisected or reviewed.
@@ -176,7 +178,7 @@ if (seeded !== day) {
 
 ## Runtime/Tooling Preferences
 
-- **Node ≥ 22.12.0**, **pnpm 11.2.2** (pinned via `packageManager`). Not Bun, not npm — `pnpm-lock.yaml` and `pnpm-workspace.yaml` authoritative.
+- **Node ≥ 22.22.3**, **pnpm 11.2.2** (pinned via `packageManager`). Not Bun, not npm — `pnpm-lock.yaml` and `pnpm-workspace.yaml` authoritative. The floor is `22.22.3` and not the older `22.12.0` because `astro-eslint-parser` and `eslint-plugin-astro` require it by `engines`; under it every install prints two unsupported-engine warnings.
 - `pnpm-workspace.yaml` is **not** a monorepo marker; it holds the `allowBuilds` whitelist for native deps (`esbuild`, `@tailwindcss/oxide`, `lightningcss`, `sharp`, `workerd`). Add to it if a new dep needs a build script.
 - Animation = **`motion`**, not `framer-motion` — `import { motion, useReducedMotion } from "motion/react"`; always honour `useReducedMotion`.
 - Chrome icons = `lucide-react` at `size={14}`–`15`, `strokeWidth={1.75}`. **Calendar marks = separate vocabulary**: 247 Phosphor `bold` paths vendored as data in `ui/marks.ts`, no dependency. Two vocabularies, two jobs: lucide is the app talking, Phosphor is the user choosing. Nothing in `ui/icons.tsx` may use lucide; no chrome may use a mark.
