@@ -6,6 +6,13 @@ mcp/dist/
 # dependencies
 node_modules/
 
+# pnpm is the only package manager here (`packageManager` pins it), so an npm
+# or yarn lockfile is always the residue of a mistyped command. Ignored rather
+# than tolerated: committed, one would let somebody `npm ci` a dependency tree
+# nothing in this repo has ever resolved.
+package-lock.json
+yarn.lock
+
 # logs
 *.log
 npm-debug.log*
