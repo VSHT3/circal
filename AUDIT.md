@@ -18,6 +18,18 @@ has not done since the day it shipped; and the week strip's new hooks sat below 
 which only `eslint` noticed. The lesson holds: the parts that have been argued for in prose are
 excellent, and the drift is in the prose.
 
+**Round five, for the record.** The macOS shell (`mac/`, `APP.md`) is the first round that added a
+platform rather than a feature, and the interesting part is what it _found_. Two defects had been in
+the web build all along and were invisible there: a drag across the dial selected the hour numerals,
+and `user-select: none` cannot fix it because `CSS.supports("user-select", "none")` is **false** in
+WKWebView and Lightning CSS folds the `-webkit-` form back to the unprefixed one — so the utility was
+doing nothing in the one place this app ships as an app. Three capabilities turned out to be absent
+rather than merely awkward (`Notification` answers `denied`, `navigator.vibrate` is undefined, the
+File System Access picker does not exist), which is why the shell has three bridges and no logic. The
+lesson this time is narrower than round four's and worth as much: **a rule that lives only in CSS or
+only in a browser API is a rule with no test**, and every one of these was caught by running the
+thing, not by reading it.
+
 ---
 
 ## Tier 0 — actually broken, or will bite
@@ -90,7 +102,10 @@ are still here:
 - **Data safety is one wrong click from zero.** `localStorage` is the only copy and nothing ever
   prompts a backup. Two cheap, on-thesis fixes: a nudge when the last export was N days ago, and the
   File System Access API keeping a rolling `.json` in a folder the user picks. No server, no account,
-  and "I cleared site data" stops being fatal.
+  and "I cleared site data" stops being fatal. **Half-answered**: the mirror is that rolling file, and
+  it works in the macOS app now that the shell provides the picker WKWebView lacks — but it is
+  opt-in and the app makes the user choose a path for no reason, which is Tier 6 item 2. In a browser
+  without the API (Safari, Firefox) the nudge is still the only available answer.
 - **Export fidelity, minus the zone.** `VALARM`, `ATTENDEE`, `STATUS` and `CATEGORIES` are still
   dropped, and a task still leaves as a zero-length VEVENT with `X-CIRCAL-` lines, so another app
   shows an instantaneous event and no ticks. `tests/ics.test.ts`'s `what the round trip drops` block
@@ -132,12 +147,70 @@ that writes no DOM. Not worth it until the view is open for another reason.
 
 ---
 
+## Tier 6 — the macOS app, now that there is one
+
+`mac/` shipped (see `APP.md` for what it is and what was measured). It closed the six-shortcut
+argument, gave the app reminders, trackpad haptics and the mirror file, and found two app bugs on the
+way. What it opened:
+
+### 1. Nobody but the author can install it
+
+The blocker is a certificate, not code. `build.sh` ad-hoc signs, and an ad-hoc bundle on another Mac
+is refused outright — macOS 15 removed the right-click-Open escape hatch, so the recipient sees
+"circal is damaged", which is indistinguishable from malware. The path is known and half-wired
+(`--universal` builds both slices, `CIRCAL_SIGN_ID` switches `codesign` to hardened runtime):
+
+1. Apple Developer account, $99/year → `Developer ID Application` certificate. **This machine has no
+   signing identity at all** (`security find-identity -v -p codesigning` → 0 valid identities), so
+   this step cannot be done from the repo.
+2. `notarytool submit` + `stapler staple`, about two minutes per build.
+3. A `.dmg` or the stapled zip on GitHub Releases; a Homebrew cask on top is a formula, a URL and a
+   SHA.
+4. An updater only after all of that, and `brew upgrade` may be answer enough — a 1.3 MB download is
+   not worth Sparkle.
+
+Until step 1, the only honest distribution is `clone && pnpm mac`, which is developers only. Nothing
+in the repo should pretend otherwise.
+
+### 2. The mirror asks the app user to pick a file, which is ceremony
+
+The mirror is **not** how the app stores anything — events live in this origin's `localStorage`
+exactly as on the web — and it is only ever needed by an outside process, which today means the MCP
+server. In a browser the picker is unavoidable: a page may not choose a path. A shell may, and
+`AGENTS.md`'s standing complaint that "circal cannot tell a user where their own mirror file lives"
+stops being true the moment the shell owns it.
+
+So: default it to `~/Library/Application Support/circal/calendar.json`, connected on first launch,
+with the picker still there for somebody who wants it in iCloud Drive or a repo. Two consequences
+worth having — `circal-mcp --find` finds it without anybody knowing a path, and Tier 2's "data safety
+is one wrong click from zero" is closed for app users, because the rolling `.json` that bullet asks
+for is then always on.
+
+### 3. The list, cheapest first
+
+| thing                                                                                    | cost       | verdict                                                                                                                                                 |
+| ---------------------------------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Wake-from-sleep refresh.** `NSWorkspace.didWakeNotification` → nudge the page          | ~10 lines  | **the one actual defect**: after a lid close the minute tick is stale until it next fires, so the hand and every countdown are wrong for up to a minute |
+| **Drop a `.ics` on the dock icon** → import through `fromIcs`                            | ~20 lines  | yes. It is how a person moves a calendar in, and the parser is already there                                                                            |
+| **Default mirror path** (item 2 above)                                                   | ~20 lines  | yes                                                                                                                                                     |
+| **Launch at login** (`SMAppService`) and a menu-bar-only mode                            | ~30 lines  | yes for something that keeps a countdown and fires reminders                                                                                            |
+| **Notification actions** — Snooze 10m / Open on the banner, via `UNNotificationAction`   | ~30 lines  | real, and the tag already routes a tap back to the page                                                                                                 |
+| **The dial drawn live on the dock icon**                                                 | ~60 lines  | a gimmick, and a good one                                                                                                                               |
+| **`circal://` URL scheme** so Shortcuts or Raycast can quick-add through `parseQuickAdd` | ~40 lines  | only if the user lives in Shortcuts                                                                                                                     |
+| **Sparkle updater**                                                                      | half a day | after distribution exists, not before                                                                                                                   |
+| **WidgetKit widget**                                                                     | days       | no. A SwiftUI target, an app group and the dial re-derived natively — the rewrite `APP.md` argues against, for a 2×2 tile                               |
+
+If it were one: the wake refresh, because it is wrong rather than missing.
+
+---
+
 ## If it were three things
 
 1. Ask the timezone question the model can now hold — the travel notice.
 2. Split `Settings` and `EventEditor` off the first byte, then answer the first-frame question for
    the marks.
-3. Make losing the browser's storage survivable: a nudge, or a rolling file.
+3. Make losing the browser's storage survivable: a nudge, or a rolling file — and on the Mac that is
+   Tier 6 item 2, which is twenty lines and turns the mirror on by default.
 
 Everything above finishes something already started. Nothing needs a new screen except onboarding,
-which was already known.
+which was already known — and one certificate, which needs a credit card rather than a decision.
