@@ -18,7 +18,8 @@ import { PALETTE } from "@/lib/events";
 import { cn } from "@/lib/utils";
 import { useFocusTrap } from "@/components/react/hooks";
 import { ColorPicker, FieldRow as Row, Kbd, MOD } from "@/components/react/ui/primitives";
-import { CalendarMark, MarkPicker } from "@/components/react/ui/icons";
+import { CalendarMark } from "@/components/react/ui/icons";
+import { MarkPicker } from "@/components/react/MarkPicker";
 import type { CalendarEditorProps } from "@/components/react/types";
 
 /** What deleting costs, in a sentence. The count is the point: a calendar
@@ -45,6 +46,12 @@ export default function CalendarEditor({
    *  second card on this one — the same swap the event editor's scope question
    *  makes, and for the same reason. */
   const [confirming, setConfirming] = useState(false);
+  /** The mark browser is a full-screen grid over this card, so Escape belongs
+   *  to it before it belongs to the card — the shell's own peel order, one
+   *  layer in. It is held here rather than inside the picker because the key
+   *  is taken here: see `MarkBrowser`. */
+  const [browsing, setBrowsing] = useState(false);
+  const [markQuery, setMarkQuery] = useState("");
 
   const feed = target?.feed;
   const trimmed = name.trim();
@@ -52,6 +59,16 @@ export default function CalendarEditor({
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
+      // Everything is off while the grid is over the card, ⌘↵ included: a save
+      // committed from under a surface the user is still working in is the
+      // shell's own `busy` bug, one layer in.
+      if (browsing) {
+        if (e.key !== "Escape") return;
+        e.preventDefault();
+        e.stopPropagation();
+        setBrowsing(false);
+        return;
+      }
       if (e.key === "Escape") {
         e.preventDefault();
         // Captured at `window`, so stopping here keeps the press from also
@@ -69,7 +86,7 @@ export default function CalendarEditor({
     }
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [onClose, onSave, trimmed, color, icon]);
+  }, [browsing, onClose, onSave, trimmed, color, icon]);
 
   return (
     <AnimatePresence>
@@ -117,6 +134,10 @@ export default function CalendarEditor({
               color={color}
               noneLabel="No mark, just the colour"
               onChange={setIcon}
+              query={markQuery}
+              onQuery={setMarkQuery}
+              browsing={browsing}
+              onBrowse={setBrowsing}
             />
           </Row>
 

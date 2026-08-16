@@ -47,7 +47,8 @@ import {
   Toggle,
   openDatePicker,
 } from "@/components/react/ui/primitives";
-import { CalendarMark, MarkPicker } from "@/components/react/ui/icons";
+import { CalendarMark } from "@/components/react/ui/icons";
+import { MarkPicker } from "@/components/react/MarkPicker";
 import { ScopeChoices } from "@/components/react/ScopePrompt";
 import type { EditScope, EventEditorProps } from "@/components/react/types";
 
@@ -192,6 +193,17 @@ export default function EventEditor({
   const scoped = !readOnly && target.id !== null && repeating;
   const [pending, setPending] = useState<"save" | "delete" | null>(null);
 
+  /**
+   * Whether the full-screen mark grid is up. Held here rather than inside the
+   * picker because the key is taken here: Escape belongs to whatever is on
+   * top, and every modal in this app claims it on a `window` capture listener,
+   * which fire in the order they were added — so this one always wins and a
+   * listener inside the picker could only ever close the card as well. The
+   * shell holds the life grid's drawn run for exactly the same reason.
+   */
+  const [browsing, setBrowsing] = useState(false);
+  const [markQuery, setMarkQuery] = useState("");
+
   function save(scope: EditScope) {
     onSave(
       { ...draft, title: draft.title.trim() || (draft.task ? "New task" : "New event") },
@@ -212,6 +224,16 @@ export default function EventEditor({
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       const mod = e.metaKey || e.ctrlKey;
+      // Everything is off while the mark grid is over this card, ⌘↵ and ⌘⌫
+      // included: a save or a delete committed from under a surface the user
+      // is still working in is the shell's own `busy` bug, one layer in.
+      if (browsing) {
+        if (e.key !== "Escape") return;
+        e.preventDefault();
+        e.stopPropagation();
+        setBrowsing(false);
+        return;
+      }
       if (e.key === "Escape") {
         e.preventDefault();
         // Captured at `window`, so stopping here keeps the press from also
@@ -236,7 +258,7 @@ export default function EventEditor({
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft, target.id, readOnly, pending, scoped, onClose, onDelete]);
+  }, [draft, target.id, readOnly, pending, scoped, browsing, onClose, onDelete]);
 
   const calendar = calendars.find((c) => c.id === draft.calendarId);
 
@@ -573,6 +595,10 @@ export default function EventEditor({
                   color={colorOf(draft, calendars)}
                   noneLabel="Follow the calendar"
                   onChange={(icon) => patch({ icon })}
+                  query={markQuery}
+                  onQuery={setMarkQuery}
+                  browsing={browsing}
+                  onBrowse={setBrowsing}
                 />
               </Row>
 

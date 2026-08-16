@@ -44,6 +44,15 @@ A calendar can also carry a **mark**: one of 247 icons — searchable — or any
 emoji you type. It stands wherever the calendar is named: the sidebar, the
 palette, the event editor's **Calendar** row.
 
+The row that picks one shows four rows of eight, which is a porthole onto a set
+of 247. The button at the end of it opens every mark at once, full screen, at
+nearly twice the size, with the same search box — type `first aid`, `firstaid`
+or `aid` and all three land on the same glyph. Picking closes it; `Escape` or a
+click outside leaves the card you were filling in exactly as it was.
+
+Point at any mark, in either grid, and it says its name in a small bubble over
+itself. Tab does the same, so the names are reachable without a pointer at all.
+
 An event can carry its own, from the editor's **Mark** row, and then it rides
 along the arc in front of the name. Colour and mark are two channels read
 separately — the mark says what kind of thing this is, the colour still says

@@ -37,8 +37,7 @@
  * use it. This set is the *user's*, and the user picked Phosphor.
  * ------------------------------------------------------------------ */
 
-import { useState } from "react";
-import { ICON_MAX, firstGrapheme, isIconName } from "@/lib/events";
+import { isIconName } from "@/lib/events";
 import { cn } from "@/lib/utils";
 import { MARK_PATHS } from "./marks";
 
@@ -146,119 +145,5 @@ export function CalendarMark({
       // outweighs every glyph beside it in the same list.
       style={{ width: size * 0.64, height: size * 0.64, backgroundColor: color }}
     />
-  );
-}
-
-/**
- * The mark, as three ways of saying the same thing: nothing, an emoji you
- * type, or one of the 247 glyphs. One row rather than a mode switch, because
- * they are alternatives and a mode would make you choose twice.
- *
- * Shared by the calendar card and the event editor, which is the whole reason
- * it lives here rather than in one of them — the two differ only in what
- * "nothing" means, and `noneLabel` is that difference. On a calendar it is a
- * plain colour dot; on an event it is "follow the calendar", which is the same
- * empty string standing for a different sentence.
- *
- * The grid scrolls at four rows: 247 swatches unrolled is a card taller than
- * the window. **No fade on it** — the fade elsewhere in the app hints that a
- * list continues, and here it dimmed the glyphs you were choosing between,
- * which is the one thing this control exists to let you see. A scroll bar's
- * worth of hint is not worth a row of unreadable icons, and the search box
- * above is the real answer to a list this long anyway.
- *
- * Search is a second way in, not a replacement for the grid: 247 names are
- * fast to scan when you know the shape and slow when you know the word, so a
- * query narrows the same grid rather than opening a second surface. It matches
- * on bare letters — hyphens in the name and spaces in the query both fall away
- * first — so "first aid", "firstaid" and "aid" all land on `first-aid`.
- * `fuzzyScore` is deliberately not used: it is tuned for the palette's command
- * titles, and its subsequence match ranks `bird` over `barbell` for "b", which
- * is the wrong answer for a name you are trying to recall exactly.
- */
-export function MarkPicker({
-  icon,
-  color,
-  noneLabel,
-  onChange,
-}: {
-  icon: string;
-  /** What the chosen glyph is drawn in — the calendar's colour, or the one the
-   *  event has resolved to. The unchosen ones stay grey; a grid of 247 in the
-   *  event's colour is a swatch book, not a picker. */
-  color: string;
-  /** What `""` means here. */
-  noneLabel: string;
-  onChange: (icon: string) => void;
-}) {
-  const emoji = icon !== "" && !isIconName(icon);
-  const [query, setQuery] = useState("");
-  const bare = (s: string) => s.replace(/[^a-z0-9]/gi, "").toLowerCase();
-  const wanted = bare(query);
-  const shown =
-    wanted === "" ? CALENDAR_ICONS : CALENDAR_ICONS.filter((n) => bare(n).includes(wanted));
-  return (
-    <div className="flex w-full min-w-0 flex-col gap-2 py-1.5">
-      <div className="flex items-center gap-2">
-        <button
-          type="button"
-          aria-label={noneLabel}
-          aria-pressed={icon === ""}
-          title={noneLabel}
-          onClick={() => onChange("")}
-          className={cn(
-            "grid size-[26px] shrink-0 place-items-center rounded-[7px] transition-colors hover:bg-white/8",
-            icon === "" && "bg-white/10",
-          )}
-        >
-          <CalendarMark icon="" color={color} size={14} />
-        </button>
-        {/* A divider, so "nothing" and "an emoji" read as two different kinds
-            of answer from the grid of glyphs under them. */}
-        <span aria-hidden className="h-4 w-px bg-white/15" />
-        <input
-          value={emoji ? icon : ""}
-          onChange={(e) => onChange(firstGrapheme(e.target.value))}
-          placeholder="Emoji"
-          aria-label="Emoji mark"
-          maxLength={ICON_MAX}
-          className={cn(
-            "h-[26px] w-[72px] min-w-0 shrink-0 rounded-[7px] bg-surface-2 px-2 text-[13px] text-ink outline-none placeholder:text-ink-3",
-            emoji && "ring-1 ring-ink/40",
-          )}
-        />
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search"
-          aria-label="Search marks"
-          className="h-[26px] min-w-0 flex-1 rounded-[7px] bg-surface-2 px-2 text-[13px] text-ink outline-none placeholder:text-ink-3"
-        />
-      </div>
-      <div className="no-scrollbar grid max-h-[108px] grid-cols-8 gap-1 overflow-y-auto">
-        {shown.length === 0 ? (
-          <span className="label col-span-8 py-2 text-ink-4">
-            No mark called that — try an emoji
-          </span>
-        ) : (
-          shown.map((name) => (
-            <button
-              key={name}
-              type="button"
-              aria-label={name.replace(/-/g, " ")}
-              aria-pressed={icon === name}
-              title={name.replace(/-/g, " ")}
-              onClick={() => onChange(name)}
-              className={cn(
-                "grid size-[26px] place-items-center rounded-[7px] transition-colors hover:bg-white/8",
-                icon === name && "bg-white/10",
-              )}
-            >
-              <CalendarMark icon={name} color={icon === name ? color : "var(--ink-2)"} size={15} />
-            </button>
-          ))
-        )}
-      </div>
-    </div>
   );
 }
