@@ -14,7 +14,14 @@
 
 import { fnv1a, fromIcs, toIcs } from "./ics";
 import { placeForZone } from "./places";
-import { DEFAULT_SETTINGS, newId, store, type Settings, type Snapshot } from "./store";
+import {
+  DEFAULT_SETTINGS,
+  markBackedUp,
+  newId,
+  store,
+  type Settings,
+  type Snapshot,
+} from "./store";
 import { notify } from "./notify";
 import { dayKey, isZone } from "./time";
 import { isRecord } from "./utils";
@@ -101,7 +108,38 @@ export async function exportBackup(snapshot: Snapshot) {
     "application/json",
     JSON.stringify(backup, null, 2),
   );
-  if (saved) notify("Backup saved");
+  // Only on a written file: `download` returns false for a cancelled save
+  // panel, and a cancel that reset the backup clock would silence the nudge
+  // over a backup that was never taken. This is the one `.json` write, so it
+  // is the one place the clock advances — the `.ics` export never touches it,
+  // because an .ics is events handed to another app, not a restore path.
+  if (saved) {
+    markBackedUp();
+    notify("Backup saved");
+  }
+}
+
+/* --------------------------------- the nudge ------------------------------- */
+
+const DAY_MS = 86_400_000;
+
+/**
+ * Whether the main screen should say a `.json` backup is overdue: `now` is at
+ * least `intervalDays` past `lastBackup`.
+ *
+ * A `lastBackup` of `0` — this browser has never written one — is due at once
+ * rather than after the interval: a calendar with no backup at all is exactly
+ * the maximum-risk case the whole feature exists for, and "you have never
+ * backed up" is a truer thing to say than nothing. Dismissing restarts the
+ * interval, so it does not nag past the first no.
+ *
+ * Pure and clockless by argument: the caller passes `now`, so the predicate
+ * says the same thing in every zone and can be pinned in a test without a
+ * clock to stub. Whether the *setting* is on, and whether a mirror is live,
+ * are the caller's questions — this one is only about the interval.
+ */
+export function backupDue(lastBackup: number, intervalDays: number, now: number): boolean {
+  return now - lastBackup >= intervalDays * DAY_MS;
 }
 
 /* --------------------------------- import --------------------------------- */
@@ -190,6 +228,15 @@ export function readSettings(value: unknown): Settings {
     remind: value.remind === true,
     remindLead:
       typeof value.remindLead === "number" ? value.remindLead : DEFAULT_SETTINGS.remindLead,
+    // Absent-as-on, like the dial switches: a backup written before the nudge
+    // existed came from a build that could not have turned this data-safety
+    // warning off, so it reads as the default rather than as a choice.
+    backupNudge: value.backupNudge !== false,
+    // Types only: `sane()` pins an interval off the list to the default.
+    backupInterval:
+      typeof value.backupInterval === "number"
+        ? value.backupInterval
+        : DEFAULT_SETTINGS.backupInterval,
     // What a new event starts as. `sane()` clamps the length; the calendar is
     // an id and is deliberately not checked against the backup's own
     // calendars — `defaultCalendarId` resolves it at the moment it is used,

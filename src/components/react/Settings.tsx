@@ -38,6 +38,7 @@ import { mirror, mirrorSupported, useMirror } from "@/lib/mirrorLink";
 import { REMIND_LEADS } from "@/lib/remind";
 import {
   AMBIENT_DELAYS,
+  BACKUP_INTERVALS,
   LIFE_EXPECTANCY_RANGE,
   TOTALS_POSITIONS,
   YEAR_QUOTE_MAX,
@@ -122,6 +123,12 @@ const REMIND_OPTIONS = REMIND_LEADS.map((minutes) => ({
   label: minutes === 0 ? "As it starts" : `${minutes} min before`,
 }));
 
+/** The backup intervals, as the row prints them. */
+const BACKUP_OPTIONS = BACKUP_INTERVALS.map((days) => ({
+  value: String(days),
+  label: `Every ${days} days`,
+}));
+
 function relativeAge(at: number): string {
   if (!at) return "never pulled";
   const minutes = Math.round((Date.now() - at) / 60_000);
@@ -191,6 +198,8 @@ export default function Settings({
     moon,
     remind,
     remindLead,
+    backupNudge,
+    backupInterval,
     defaultDuration,
     defaultCalendar,
     weekStart,
@@ -818,7 +827,7 @@ export default function Settings({
                   </div>
                 </FieldRow>
 
-                <FieldRow label="Backup" align="top" last>
+                <FieldRow label="Backup" align="top">
                   <div className="flex flex-wrap items-center gap-2">
                     <DataButton
                       icon={<Download size={13} strokeWidth={1.75} />}
@@ -841,6 +850,33 @@ export default function Settings({
                   </div>
                   <span className="caption">
                     Events live only in this browser. A backup is the only copy that survives it
+                  </span>
+                </FieldRow>
+
+                <FieldRow label="Nudge" align="top" last>
+                  <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
+                    <Toggle
+                      label="On"
+                      name="Warn when a backup is overdue"
+                      checked={backupNudge}
+                      onChange={(on) => store.setToggle("backupNudge", on)}
+                    />
+                    {backupNudge && (
+                      <Select
+                        value={String(backupInterval)}
+                        onChange={(next) => store.setBackupInterval(Number(next))}
+                        label="How long between backups"
+                        options={BACKUP_OPTIONS}
+                      />
+                    )}
+                  </div>
+                  {/* Said here because the nudge itself is one quiet line with
+                      no room to explain why it only speaks in some browsers: a
+                      live mirror is the better answer where it exists, and this
+                      warning stands in for it where it cannot. */}
+                  <span className="caption">
+                    On the main screen, when no backup has been saved in a while. Silent while a
+                    mirror is connected below — that copy is already live
                   </span>
                 </FieldRow>
               </Section>

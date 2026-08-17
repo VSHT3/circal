@@ -147,6 +147,16 @@ export const AMBIENT_DELAYS = [0, 1, 2, 5, 10, 30, 60] as const;
 export type AmbientDelay = (typeof AMBIENT_DELAYS)[number];
 
 /**
+ * How many days may pass without a `.json` backup before the main screen says
+ * so, offered as a short fixed list for the same reason `AMBIENT_DELAYS` is: a
+ * backup cadence is one decision (a week, a fortnight, a month, a quarter) and
+ * a free number field invites tuning a value with no wrong answer worth typing.
+ */
+export const BACKUP_INTERVALS = [7, 14, 30, 60, 90] as const;
+
+export type BackupInterval = (typeof BACKUP_INTERVALS)[number];
+
+/**
  * The three starts the week strip, the mini-month and the life grid may cut
  * on, in the order the picker offers them — Monday first, since it is the
  * default every blob before this setting existed already drew.
@@ -287,6 +297,22 @@ export interface Settings {
   remind: boolean;
   /** Minutes of warning, from `REMIND_LEADS`. `0` fires as it starts. */
   remindLead: number;
+  /**
+   * Whether the main screen says so when this browser has gone too long
+   * without a `.json` backup.
+   *
+   * On, unlike `remind`: a reminder is a convenience the user opts into, but
+   * a calendar that lives in one `localStorage` is one "Clear site data" from
+   * gone, and Safari and Firefox can offer no live mirror to catch it — so on
+   * those the nudge is the only warning there is, and a data-safety prompt
+   * defaulting to off is one nobody ever meets. The mirror suppresses it where
+   * a rolling copy is already being written, so it only ever speaks to the
+   * browsers with no other answer.
+   */
+  backupNudge: boolean;
+  /** Days without a `.json` backup before the nudge appears, from
+   *  `BACKUP_INTERVALS`. `sane()` pins a stray value to one the panel offers. */
+  backupInterval: number;
   /**
    * What a new event is worth before anybody says otherwise: the length ⌘N
    * opens with, and the length quick-add gives a line that named a time and
@@ -437,6 +463,14 @@ export const DEFAULT_SETTINGS: Settings = {
   // Ten minutes. Long enough to walk somewhere, short enough that the thing
   // is still the next thing when it lands.
   remindLead: 10,
+  // On. This is the one interruption in the app that defends against losing
+  // everything rather than missing one thing, and the browsers it is aimed at
+  // have no other warning — so unlike `remind` it earns the aggressive default.
+  backupNudge: true,
+  // Thirty days. A month is long enough that a working calendar has changed
+  // enough to be worth saving again, short enough that a lost month is a loss
+  // and not a catastrophe.
+  backupInterval: 30,
   // An hour, which is what `DEFAULT_DURATION` has always been and what a
   // VEVENT with no DTEND is read as. This setting exists to be *changed* — a
   // day of thirty-minute meetings is a real working life — not to have a new
@@ -654,6 +688,11 @@ function sane(settings: Settings): Settings {
     remindLead: REMIND_LEADS.includes(settings.remindLead)
       ? settings.remindLead
       : DEFAULT_SETTINGS.remindLead,
+    // An interval off the list is a nudge on a schedule nothing on screen
+    // names — the same fault a stale ambient delay is, and pinned the same way.
+    backupInterval: (BACKUP_INTERVALS as readonly number[]).includes(settings.backupInterval)
+      ? settings.backupInterval
+      : DEFAULT_SETTINGS.backupInterval,
     // Clamped rather than dropped: a duration is a number the user typed, so
     // a value out of range is a slip rather than a corrupt record. The floor
     // is the editor's own minimum and the ceiling is a day — past that a
@@ -1370,6 +1409,13 @@ export const store = {
     commit({ ...base, settings: sane({ ...base.settings, remindLead }) }, false);
   },
 
+  /** Days without a `.json` backup before the main-screen nudge appears;
+   *  `sane()` pins a stray value to one `BACKUP_INTERVALS` offers. */
+  setBackupInterval(backupInterval: number) {
+    const base = fresh();
+    commit({ ...base, settings: sane({ ...base.settings, backupInterval }) }, false);
+  },
+
   /** How long ⌘N and a quick-add line with no length make an event. Sanitised
    *  because it comes from a field somebody types into. */
   setDefaultDuration(defaultDuration: number) {
@@ -1794,4 +1840,93 @@ export function setIntroSeen(seen: boolean) {
   } catch {
     // Nothing to say and nothing lost: the worst case is one more sweep.
   }
+}
+
+/* ------------------------------- backup clock ----------------------------- */
+
+/**
+ * When this browser last wrote a `.json` backup, epoch ms — the state the
+ * main-screen nudge reads to know whether one is overdue.
+ *
+ * On its own key rather than in `settings`, for a reason `circal.intro`'s is
+ * one half of: it is not a preference nobody chose it. But the deciding half
+ * is `exportBackup`, which serialises `settings` into the very file it writes.
+ * A backup time living in `settings` would be stamped into every backup and
+ * read back on restore, so a `.json` carried to a second browser would tell
+ * that browser it had backed up when it never has — silencing the one warning
+ * those browsers get — and a year-old file restored later would reset the
+ * clock to a lie. The fact is about *this* device's copy on disk, so it stays
+ * with the device and never rides along in the data.
+ *
+ * Reactive, unlike `introSeen`: the nudge has to vanish the instant a backup
+ * is taken, so a write here notifies the same listeners `useStore` runs on.
+ */
+const BACKUP_KEY = "circal.backup";
+
+let lastBackup = 0;
+let lastBackupRead = false;
+
+/**
+ * A stored time in the future is incoherent — a clock the device once had set
+ * wrong, most likely — and would read as "backed up" forever, so it is clamped
+ * to now on the way in, the same job `sane()` does for the settings that can be
+ * stored wrong rather than merely absent.
+ */
+function readLastBackup(): number {
+  try {
+    const raw = disk()?.getItem(BACKUP_KEY);
+    const at = raw ? Number(raw) : 0;
+    return Number.isFinite(at) && at > 0 ? Math.min(at, Date.now()) : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/** The current value, read once from disk and kept warm after. */
+function backupSnapshot(): number {
+  if (!lastBackupRead) {
+    lastBackupRead = true;
+    lastBackup = readLastBackup();
+  }
+  return lastBackup;
+}
+
+/**
+ * Move the backup clock to `at`, in memory and on disk, and tell the nudge.
+ * The one write path behind both events that reset the interval — a real
+ * backup and a dismiss — so they cannot drift on how the value is stored.
+ */
+function stampBackup(at: number) {
+  lastBackup = at;
+  lastBackupRead = true;
+  try {
+    disk()?.setItem(BACKUP_KEY, String(at));
+  } catch {
+    // No disk means no persisted clock, but the in-memory value still hides
+    // the nudge for this session — the same graceful degradation `write` takes.
+  }
+  emit();
+}
+
+/** Record that a `.json` backup was just written. Only `exportBackup` calls
+ *  this, and only when a file actually landed — a cancelled save panel is not
+ *  a backup and must not quiet the nudge. */
+export function markBackedUp(at: number = Date.now()) {
+  stampBackup(at);
+}
+
+/**
+ * Dismiss the nudge: restart the interval without claiming a backup. "Not now"
+ * is not "never" — the setting is where never lives — so this pushes the clock
+ * forward by one interval rather than turning the feature off. It advances the
+ * same timestamp a backup does because that is the only new state this feature
+ * has: the value means "when the nudge's countdown last started", and both a
+ * backup and a not-now start it.
+ */
+export function dismissBackupNudge() {
+  stampBackup(Date.now());
+}
+
+export function useLastBackup(): number {
+  return useSyncExternalStore(subscribe, backupSnapshot, () => 0);
 }

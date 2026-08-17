@@ -821,6 +821,28 @@ describe("sane() via parsing a stored blob", () => {
     expect(s.store.snapshot().settings.ambientAfter).toBe(want);
   });
 
+  // The backup nudge's interval, pinned the same way: an interval off the list
+  // is a nudge on a schedule nothing on screen names.
+  it.each([
+    { name: "an interval the panel cannot offer", stored: 45, want: 30 },
+    { name: "a non-number", stored: "30", want: 30 },
+    { name: "an interval it can", stored: 14, want: 14 },
+  ])("backupInterval: $name → $want", async ({ stored, want }) => {
+    const storage = new MemoryStorage();
+    storage.setItem(
+      KEY,
+      JSON.stringify({
+        schema: 2,
+        events: [],
+        calendars: [],
+        feeds: {},
+        settings: { backupInterval: stored },
+      }),
+    );
+    const s = await freshStore(storage);
+    expect(s.store.snapshot().settings.backupInterval).toBe(want);
+  });
+
   // A blob written before the mode existed: the timer stays off, and the face
   // keeps the defaults rather than inheriting the working face's.
   it("a blob with no ambient keys gets the defaults, timer included", async () => {

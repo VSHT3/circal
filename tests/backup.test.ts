@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import "./helpers";
 import { MemoryStorage, calendar, event, ms } from "./helpers";
-import { readEvent, readSettings, readCalendar } from "@/lib/backup";
+import { readEvent, readSettings, readCalendar, backupDue } from "@/lib/backup";
 import { DEFAULT_SETTINGS } from "@/lib/store";
 import { ICON_MAX, NEVER, type CalEvent } from "@/lib/events";
 import { placeForZone } from "@/lib/places";
@@ -300,6 +300,7 @@ describe("readSettings", () => {
     "ambientDim",
     "ambientDaylight",
     "ambientMoonlight",
+    "backupNudge",
   ] as const)(
     "%s reads absent as on — a backup written before the switch existed came from a dial showing it",
     (field) => {
@@ -414,6 +415,47 @@ describe("readSettings", () => {
       expect.soft(readSettings({ [field]: "100" })[field]).toBe(DEFAULT_SETTINGS[field]);
     },
   );
+
+  // Types only, like `wakingFrom`/`to` — `sane()` is what pins an interval off
+  // `BACKUP_INTERVALS` to the default, so `readSettings` keeps any real number.
+  it("backupInterval reads absent as the default, a number as itself, a non-number as the default", () => {
+    expect.soft(readSettings({}).backupInterval).toBe(DEFAULT_SETTINGS.backupInterval);
+    expect.soft(readSettings({ backupInterval: 14 }).backupInterval).toBe(14);
+    expect.soft(readSettings({ backupInterval: 999 }).backupInterval).toBe(999);
+    expect
+      .soft(readSettings({ backupInterval: "30" }).backupInterval)
+      .toBe(DEFAULT_SETTINGS.backupInterval);
+  });
+});
+
+/* ----------------------------------- backupDue ---------------------------- */
+
+describe("backupDue", () => {
+  const DAY = 86_400_000;
+  const now = ms("2026-03-08 12:00");
+
+  it("is not due one hour short of the interval", () => {
+    expect(backupDue(now - (30 * DAY - 3_600_000), 30, now)).toBe(false);
+  });
+
+  it("is due exactly at the interval, and past it", () => {
+    expect.soft(backupDue(now - 30 * DAY, 30, now)).toBe(true);
+    expect.soft(backupDue(now - 31 * DAY, 30, now)).toBe(true);
+  });
+
+  it("a never-backed-up browser (0) is due at once — the max-risk case the feature exists for", () => {
+    expect(backupDue(0, 30, now)).toBe(true);
+  });
+
+  it("a backup this instant is not due", () => {
+    expect(backupDue(now, 30, now)).toBe(false);
+  });
+
+  it("reads the interval it is given, not a fixed one", () => {
+    const at = now - 10 * DAY;
+    expect.soft(backupDue(at, 7, now)).toBe(true);
+    expect.soft(backupDue(at, 14, now)).toBe(false);
+  });
 });
 
 /* --------------------------------- readCalendar ---------------------------- */

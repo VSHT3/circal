@@ -22,20 +22,22 @@ import {
 } from "@/lib/events";
 import {
   defaultCalendarId,
+  dismissBackupNudge,
   draftEvent,
   duplicateOf,
   introSeen,
   setIntroSeen,
   store,
   taskDraft,
+  useLastBackup,
   useStore,
 } from "@/lib/store";
-import { exportBackup, exportIcs, importFile, importIcs } from "@/lib/backup";
+import { backupDue, exportBackup, exportIcs, importFile, importIcs } from "@/lib/backup";
 import { cue } from "@/lib/feedback";
 import { placeForZone } from "@/lib/places";
 import { refreshFeed } from "@/lib/feeds";
 import { notify } from "@/lib/notify";
-import { startMirror } from "@/lib/mirrorLink";
+import { startMirror, useMirror } from "@/lib/mirrorLink";
 import { defaultStart } from "@/lib/quickadd";
 import {
   MINUTES_PER_DAY,
@@ -78,6 +80,7 @@ import type {
   ZoomFrame,
 } from "./types";
 import CalendarEditor from "./CalendarEditor";
+import { BackupNudge } from "./BackupNudge";
 import CommandPalette from "./CommandPalette";
 import Dial, { type DragPreview } from "./Dial";
 import LifeView from "./LifeView";
@@ -279,6 +282,9 @@ function Shell() {
    */
   const now = useNow(60_000);
   const reducedMotion = useReducedMotion();
+  /** The backup clock and the mirror's state, for the main-screen nudge. */
+  const lastBackup = useLastBackup();
+  const mirrorStatus = useMirror();
 
   const [location, setLocation] = useState<ViewLocation>(() => readLocation());
   const { day, view } = location;
@@ -663,6 +669,22 @@ function Shell() {
     inAmbient || shaded || view !== "day" ? 0 : settings.ambientAfter * 60_000,
     useCallback(() => setAmbient("auto"), []),
   );
+  /**
+   * Whether the backup nudge is on screen. On the day view only — it is the
+   * dial's stage the notice sits over, and the top edge is the one place there
+   * that clears the centre readout. Never while a modal, the palette, the
+   * editor, the drawer or ambient is up (`shaded`, `inAmbient`), so it never
+   * arrives over something that owns the screen. Silent while a mirror is live:
+   * a rolling copy is already being written on every change, and nagging for a
+   * backup somebody is continuously taking is the app not knowing what it does.
+   */
+  const showNudge =
+    settings.backupNudge &&
+    view === "day" &&
+    !shaded &&
+    !inAmbient &&
+    mirrorStatus.state !== "live" &&
+    backupDue(lastBackup, settings.backupInterval, now.getTime());
   useOnInput(
     ambient === "auto",
     useCallback(() => setAmbient("off"), []),
@@ -1532,6 +1554,17 @@ function Shell() {
                 />
               )}
             </motion.div>
+          </AnimatePresence>
+          {/* Over the stage, outside the panel transform so the zoom does not
+              carry it. Its own presence, so it animates away when a backup
+              clears it or a modal opens over it. */}
+          <AnimatePresence>
+            {showNudge && (
+              <BackupNudge
+                onBackup={() => void exportBackup(store.snapshot())}
+                onDismiss={dismissBackupNudge}
+              />
+            )}
           </AnimatePresence>
         </main>
       </div>
