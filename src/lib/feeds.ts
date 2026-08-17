@@ -89,6 +89,10 @@ export async function refreshFeed(calendar: Calendar): Promise<void> {
         // subscription that carries neither says `false` and `[]`.
         task: e.task,
         doneKeys: e.doneKeys,
+        // The whole of the `TRANSP` fix, seen from the side it matters on: a
+        // subscription is where an event marked free somewhere else arrives,
+        // and until this line it arrived booking the hour.
+        free: e.free,
       };
     });
     store.setFeedEvents(calendar.id, cached, name);

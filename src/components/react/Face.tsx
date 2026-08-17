@@ -39,6 +39,7 @@ import {
   type AnimationPlaybackControls,
 } from "motion/react";
 import {
+  ARC_HAIRLINE,
   ARC_LABEL_SIZE,
   DIAL,
   VIEW_BOX,
@@ -46,6 +47,7 @@ import {
   arcLabel,
   arcPath,
   capInset,
+  hollowPath,
   polar,
   seamTrim,
 } from "@/lib/dial";
@@ -1149,9 +1151,35 @@ function EventArc({
   const paintTo = closed || dot ? to : to - seamTrim(r, gap.after);
   const head = closed ? from : paintFrom + inset;
   const tail = closed ? to : paintTo - inset;
-  const d = dot ? arcPath(r, (from + to) / 2, (from + to) / 2 + 0.001) : arcPath(r, head, tail);
+  const mid = (from + to) / 2;
+  const d = dot ? arcPath(r, mid, mid + 0.001) : arcPath(r, head, tail);
   /** Where a task's pip sits: the same point the dot path is centred on. */
-  const taskPoint = polar(r, (from + to) / 2);
+  const taskPoint = polar(r, mid);
+  /**
+   * Free time is drawn as the outline of the arc a busy event fills, and the
+   * arc keeps every number it had: same lane, same radius, same painted
+   * length, same hit paths. `hollowPath` traces the silhouette `d` would
+   * paint at this width, `inset` and the closed-turn rule included, so
+   * nothing on the face moves and no radius is spent.
+   *
+   * A **task** is deliberately never asked. It is a moment rather than a
+   * span, so there is no width to leave on offer — it books nothing already,
+   * which is the whole of what free means — and its pip is filled while it
+   * stands and hollow once it is done. Reading `free` here would put a second
+   * meaning on that one shape.
+   */
+  const hollow = !occ.event.task && occ.event.free;
+  const grown = hovered || dragging;
+  /**
+   * Hover thickens the outline instead of widening the band.
+   *
+   * A filled arc answers a hover by growing three units, transitioned — but
+   * an outline's width is in its `d`, and a path swap is the one thing CSS
+   * cannot tween, so growing this one would snap. Weight is the channel that
+   * *can* transition, and a heavier line is the same "this one" the fill's
+   * growth is.
+   */
+  const hollowD = hollow ? hollowPath(r, dot ? mid : head, dot ? mid : tail) : "";
 
   // A label lives *inside* the stroke, so it costs no radius and reads the
   // same on every lane. It is mounted whenever the sweep can hold one and
@@ -1164,6 +1192,21 @@ function EventArc({
   // once. Off is now a state of the label rather than its absence.
   const label = dot ? null : arcLabel(r, paintFrom, paintTo, occ.event.title, mark);
   const labelShown = labels === "always" || (labels === "hover" && (hovered || dragging));
+  /**
+   * The label's ink, and the one part of a hollow arc that would otherwise
+   * ship broken. Inside a filled stroke the strongest pairing this face has
+   * is `inkOn(color)` — black on the event's own pastel, about 10:1 — but
+   * inside an outline the arc is mostly the black behind it, so black text
+   * there is not dim, it is absent.
+   *
+   * A free arc's label takes the event's own colour: every `PALETTE` entry is
+   * a high-value pastel and reads on true black at the same order of contrast
+   * the black-on-pastel it replaces did, and it is the colour of the line it
+   * sits in, so the pair reads as one object. A colour dark enough to fail
+   * here fails the outline itself in the same breath — label and arc cannot
+   * disagree about whether the event is legible.
+   */
+  const labelInk = hollow ? color : inkOn(color);
 
   /**
    * The grips own the *tips*, the body owns the middle — which is entirely a
@@ -1251,10 +1294,12 @@ function EventArc({
         />
       ) : (
         <path
-          d={d}
+          d={hollow ? hollowD : d}
           fill="none"
           stroke={color}
-          strokeWidth={hovered || dragging ? width + 3 : width}
+          strokeWidth={
+            hollow ? (grown ? ARC_HAIRLINE * 2 : ARC_HAIRLINE) : grown ? width + 3 : width
+          }
           strokeLinecap="round"
           opacity={dimmed && !hovered && !dragging ? 0.42 : 1}
           pointerEvents="none"
@@ -1282,12 +1327,12 @@ function EventArc({
             <g
               transform={`translate(${label.mark.x} ${label.mark.y}) rotate(${label.mark.rotate})`}
             >
-              <MarkGlyph icon={mark} color={inkOn(color)} size={label.mark.size} />
+              <MarkGlyph icon={mark} color={labelInk} size={label.mark.size} />
             </g>
           )}
           <text
             className="font-mono"
-            fill={inkOn(color)}
+            fill={labelInk}
             fontSize={ARC_LABEL_SIZE}
             fontWeight={600}
             letterSpacing="0.01em"

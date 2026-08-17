@@ -184,9 +184,9 @@ describe("round-trip", () => {
  * says it is lossy fails and has to be rewritten. That failure is the point:
  * it is the only way a fix announces itself here.
  *
- * The TZID case used to live here — see `AUDIT.md`, "Events have no
- * timezone" — and its failure is exactly how this fix announced itself. It
- * now lives in "TZID round-trip" below, keeping rather than losing. */
+ * Two cases have already left. The TZID one — see `AUDIT.md`, "Events have no
+ * timezone" — and `TRANSP`, whose loss this block pinned until busy/free
+ * became a field: both now live below, keeping rather than losing. */
 
 describe("what the round trip drops", () => {
   it("drops the collaboration and alarm properties on the way in", () => {
@@ -195,7 +195,6 @@ describe("what the round trip drops", () => {
       "DTSTART:20260615T090000Z",
       "DTEND:20260615T100000Z",
       "STATUS:TENTATIVE",
-      "TRANSP:TRANSPARENT",
       "CATEGORIES:Work,Design",
       "ORGANIZER;CN=Ada:mailto:ada@example.com",
       "ATTENDEE;PARTSTAT=ACCEPTED:mailto:grace@example.com",
@@ -207,10 +206,11 @@ describe("what the round trip drops", () => {
     const { events } = fromIcs(feed);
     expect(events).toHaveLength(1);
 
-    // What arrives is the event; who is coming, whether it is confirmed,
-    // whether it makes you busy and when it was going to nudge you do not.
+    // What arrives is the event; who is coming, whether it is confirmed and
+    // when it was going to nudge you do not. `TRANSP` used to be in this
+    // list — see "TRANSP round-trip" below.
     const kept = Object.keys(events[0]);
-    for (const absent of ["status", "transp", "categories", "organizer", "attendees", "alarms"]) {
+    for (const absent of ["status", "categories", "organizer", "attendees", "alarms"]) {
       expect.soft(kept).not.toContain(absent);
     }
     // The VALARM's own lines must not be mistaken for the event's, either:
@@ -234,6 +234,60 @@ describe("what the round trip drops", () => {
     expect.soft(out).toContain("X-CIRCAL-TASK:TRUE");
     expect.soft(out).not.toContain("DTEND");
     expect.soft(out).not.toContain("BEGIN:VTODO");
+  });
+});
+
+/* ---------------------------------- TRANSP ---------------------------------- *
+ * Busy and free, one line per VEVENT, and the reason the block above lost a
+ * row: `TRANSP` is the standard's own answer to "does this time block", so an
+ * event another calendar marked free used to arrive here booking the hour. */
+
+describe("TRANSP round-trip", () => {
+  it("reads TRANSPARENT as free", () => {
+    const { events } = fromIcs(
+      singleVevent([
+        "SUMMARY:Christina's birthday",
+        "DTSTART:20260615T090000Z",
+        "DTEND:20260615T100000Z",
+        "TRANSP:TRANSPARENT",
+      ]),
+    );
+    expect(events[0].free).toBe(true);
+  });
+
+  // §3.8.2.7's default, spelled and unspelled. Neither may become free, or a
+  // subscription's meetings stop counting against the day.
+  it.each([
+    { name: "an explicit OPAQUE", lines: ["TRANSP:OPAQUE"] },
+    { name: "no TRANSP at all", lines: [] },
+    { name: "a value the standard does not define", lines: ["TRANSP:MAYBE"] },
+  ])("reads $name as busy", ({ lines }) => {
+    const { events } = fromIcs(
+      singleVevent([
+        "SUMMARY:Review",
+        "DTSTART:20260615T090000Z",
+        "DTEND:20260615T100000Z",
+        ...lines,
+      ]),
+    );
+    expect(events[0].free).toBe(false);
+  });
+
+  it("writes TRANSPARENT for a free event and nothing at all for a busy one", () => {
+    const held = event({ title: "Hold", start: "2026-03-09 09:00", free: true });
+    const meeting = event({ title: "Review", start: "2026-03-09 09:00" });
+    // Busy is the RFC's own default, so a line saying so is a line saying
+    // nothing — and the reader treats its absence as busy either way.
+    expect.soft(toIcs([held], "Work")).toContain("TRANSP:TRANSPARENT");
+    expect.soft(toIcs([meeting], "Work")).not.toContain("TRANSP");
+  });
+
+  it("survives the whole trip out and back", () => {
+    const held = event({ title: "Placeholder", start: "2026-03-09 09:00", free: true });
+    const { events } = fromIcs(toIcs([held], "Work"));
+    expect.soft(events).toHaveLength(1);
+    expect.soft(events[0].free).toBe(true);
+    expect.soft(events[0].title).toBe("Placeholder");
   });
 });
 

@@ -121,6 +121,42 @@ describe("a feed event's id is stable across pulls", () => {
   });
 });
 
+/* -------------------------------- transp ---------------------------------- */
+
+describe("a subscription's busy/free travels with the mirror", () => {
+  // The side of the `TRANSP` fix that motivated it: a birthday published as
+  // free used to arrive here booking the hour, because the mirror dropped the
+  // field on the way from `fromIcs` into `CalEvent`.
+  it("mirrors TRANSP:TRANSPARENT onto the cached event", async () => {
+    serve(
+      ICS(
+        VEVENT([
+          "UID:free@example.com",
+          "DTSTART:20260308T090000",
+          "DTEND:20260308T100000",
+          "SUMMARY:Birthday",
+          "TRANSP:TRANSPARENT",
+        ]),
+        VEVENT([
+          "UID:busy@example.com",
+          "DTSTART:20260308T110000",
+          "DTEND:20260308T120000",
+          "SUMMARY:Standup",
+        ]),
+      ),
+    );
+    const { refreshFeed } = await import("@/lib/feeds");
+    const { store } = await import("@/lib/store");
+
+    const calendar = store.addFeed("https://example.com/cal.ics", "example.com");
+    await refreshFeed(calendar);
+
+    const cached = store.snapshot().feeds[calendar.id];
+    expect.soft(cached[0].free).toBe(true);
+    expect.soft(cached[1].free).toBe(false);
+  });
+});
+
 /* -------------------------------- errors ---------------------------------- */
 
 describe("a failing feed is recorded, not thrown", () => {

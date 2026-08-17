@@ -42,6 +42,7 @@ import {
   Kbd,
   MOD,
   NumberField,
+  Segmented,
   Select,
   TimeField,
   Toggle,
@@ -633,6 +634,30 @@ export default function EventEditor({
                   )}
                 </span>
               </Row>
+
+              {/* Two states, so a `Segmented` and not a switch: "Busy" and
+                  "Free" are both answers a user can mean, where a switch has
+                  one word and an off position that has to be guessed at.
+
+                  Only for a span. A task is a moment, so there is no width to
+                  leave on offer — it books nothing whatever this says — and a
+                  control with no effect is worse than one that is missing. It
+                  wraps like every other inline row: a 320px column is the
+                  narrowest this card is read in. */}
+              {!draft.task && (
+                <Row label="Shows as">
+                  <span className="flex flex-wrap items-center gap-2">
+                    <Segmented
+                      value={draft.free ? "free" : "busy"}
+                      onChange={(next) => patch({ free: next === "free" })}
+                      options={[
+                        { id: "busy", label: "Busy" },
+                        { id: "free", label: "Free" },
+                      ]}
+                    />
+                  </span>
+                </Row>
+              )}
 
               {/* The rule, one line per question, and only the questions the
                   chosen frequency actually raises. A monthly series does not

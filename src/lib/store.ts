@@ -98,10 +98,11 @@ const FEED_BUDGET = 2_000_000;
  * Still 2 through the `clock` default going to `24h`, too. A default is what a
  * blob says when it says nothing; every blob that already exists says `12h` or
  * `24h` out loud, and neither of those changed meaning.
- * Still 2 through `task`, `doneKeys`, `moon`, `remind` and `remindLead` as
- * well: five more fields, filled in on read, none of them a change to what
- * anything already stored means — `moon` arrives from a stored `moonPhase`
- * through `migrateSettings`, which is a shape changing rather than a meaning.
+ * Still 2 through `task`, `doneKeys`, `moon`, `remind`, `remindLead` and
+ * `free` as well: six more fields, filled in on read, none of them a change
+ * to what anything already stored means — `moon` arrives from a stored
+ * `moonPhase` through `migrateSettings`, which is a shape changing rather
+ * than a meaning.
  */
 const SCHEMA = 2;
 
@@ -577,6 +578,7 @@ function seed(): CalEvent[] {
     icon: "",
     task: false,
     doneKeys: [],
+    free: false,
     ...extra,
   });
 
@@ -803,6 +805,7 @@ function hydrateEvents(value: unknown): CalEvent[] {
       icon,
       task,
       doneKeys,
+      free,
       tzid,
     } = event;
     if (
@@ -825,6 +828,7 @@ function hydrateEvents(value: unknown): CalEvent[] {
       typeof icon === "string" &&
       typeof task === "boolean" &&
       Array.isArray(doneKeys) &&
+      typeof free === "boolean" &&
       typeof tzid === "string"
     ) {
       return event;
@@ -837,6 +841,12 @@ function hydrateEvents(value: unknown): CalEvent[] {
       icon: typeof icon === "string" ? icon : "",
       task: task === true,
       doneKeys: Array.isArray(doneKeys) ? doneKeys : [],
+      // Busy is what every event in a blob written before this field was
+      // already doing, so the absent value and the default say the same
+      // thing. It is in the shape question above as well as here: the fast
+      // path returns the event untouched, so a field left out of it is a
+      // field a stored blob never gains.
+      free: free === true,
       // A blob written before this field existed carries every event
       // floating, which is what those events already were — nothing zoned
       // an event but `fromIcs`'s own DTSTART reader.
@@ -1892,6 +1902,8 @@ export function draftEvent(
     icon: "",
     task: false,
     doneKeys: [],
+    // Busy: a gesture that named a time meant that time to be spoken for.
+    free: false,
   };
 }
 

@@ -183,6 +183,61 @@ export function seamTrim(r: number, gap: number): number {
   return Math.max(0, (seam - gap * DEG_PER_MINUTE) / 2);
 }
 
+/**
+ * Weight of the line that traces a free event's outline, in user units.
+ *
+ * Derived from the stroke it is hollowing out rather than picked: the same
+ * `<Face>` is drawn seven to a row at about a quarter of dial scale, so a
+ * number chosen against the dial's own pixels is a number that means
+ * something else on the strip. An eighth of `ARC_WIDTH` leaves ten units of
+ * black between the two edges — wider than the `SEAM` two arcs keep between
+ * them, so the hollow reads as a hole rather than as a thick line.
+ */
+export const ARC_HAIRLINE = DIAL.ARC_WIDTH / 8;
+
+/**
+ * The outline of a round-capped arc: what a *free* event is drawn as, in place
+ * of the filled stroke a busy one gets.
+ *
+ * Hollow rather than fainter or dashed, and neither of those is available
+ * here. Alpha is spoken for — a past arc is already drawn at 0.42, so "free"
+ * meaning "dimmer" would make a past meeting and a future placeholder the
+ * same picture — and a dashed stroke reads as tentative, a third meaning
+ * nobody asked for.
+ *
+ * Traced at `ARC_HAIRLINE / 2` *inside* the filled arc's own silhouette, so
+ * stroking the result at that weight paints exactly the same footprint: the
+ * two edges land on the filled arc's edges, and the ends land where its round
+ * caps do. That is what keeps `capInset`'s promise — a caller hands the same
+ * `from`/`to` it hands `arcPath`, and painted length is still duration.
+ *
+ * Three shapes out of one construction. A full turn is two concentric
+ * circles, closed and uncapped, for the reason `arcPath` closes one: an inset
+ * once the ends meet is a notch at midnight. A degenerate sweep is the two
+ * caps alone, which is a ring — the hollow of the dot the filled path
+ * collapses to. Anything between is the racetrack: out along the far edge,
+ * round the cap, back along the near one.
+ *
+ * `width` is the stroke being hollowed, so a hovered arc passes its grown one.
+ */
+export function hollowPath(r: number, from: number, to: number, width = DIAL.ARC_WIDTH): string {
+  const off = (width - ARC_HAIRLINE) / 2;
+  if (to - from >= 360) return `${arcPath(r + off, from, to)} ${arcPath(r - off, from, to)}`;
+  const outer = { head: polar(r + off, from), tail: polar(r + off, to) };
+  const inner = { head: polar(r - off, from), tail: polar(r - off, to) };
+  const large = to - from > 180 ? 1 : 0;
+  return [
+    `M ${outer.head.x} ${outer.head.y}`,
+    `A ${r + off} ${r + off} 0 ${large} 1 ${outer.tail.x} ${outer.tail.y}`,
+    // The cap: a semicircle of the arc's own half-width, centred on the
+    // instant the tip stands for, carried on in the direction of travel.
+    `A ${off} ${off} 0 0 1 ${inner.tail.x} ${inner.tail.y}`,
+    `A ${r - off} ${r - off} 0 ${large} 0 ${inner.head.x} ${inner.head.y}`,
+    `A ${off} ${off} 0 0 1 ${outer.head.x} ${outer.head.y}`,
+    "Z",
+  ].join(" ");
+}
+
 /* --------------------------------- labels ---------------------------------- */
 
 /**

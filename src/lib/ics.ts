@@ -71,6 +71,14 @@ export interface IcsEvent extends Recurrence {
    */
   task: boolean;
   doneKeys: string[];
+  /**
+   * `TRANSP` — the one property in this pair that is the standard's own.
+   * §3.8.2.7 defines exactly two values: `OPAQUE`, the default, is time that
+   * blocks; `TRANSPARENT` is time that does not. An absent property is
+   * `OPAQUE`, so `false` is both the default and what every producer that
+   * says nothing means.
+   */
+  free: boolean;
 }
 
 /* --------------------------------- text ----------------------------------- */
@@ -330,6 +338,10 @@ export function toIcs(events: CalEvent[], name: string): string {
     const seed = new Date(event.start);
     lines.push(...recurDateLines("EXDATE", event.exdates, seed, zone));
     lines.push(...recurDateLines("RDATE", event.rdates, seed, zone));
+    // Written only when it is not the default, which is what `OPAQUE` is:
+    // every other calendar reads an absent `TRANSP` as busy, so a line
+    // saying so is a line saying nothing.
+    if (event.free) lines.push("TRANSP:TRANSPARENT");
     // One comma list rather than a line each, which is what EXDATE's own
     // multi-value form does — and a done key contains no comma, so it needs
     // no escaping beyond that.
@@ -703,6 +715,11 @@ function buildEvent(block: Block): IcsEvent | null {
     doneKeys: (props["X-CIRCAL-DONE"]?.value ?? "")
       .split(",")
       .filter((k) => /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(k)),
+    // §3.8.2.7 defines two values and no others, so the test is for the one
+    // that means something: anything else — `OPAQUE`, a missing property, a
+    // value this standard does not have — is busy, which is the default the
+    // RFC itself names.
+    free: props.TRANSP?.value.trim().toUpperCase() === "TRANSPARENT",
     ...readRecurrence(block, dtstart.ms, dtstart.tzid),
   };
 }

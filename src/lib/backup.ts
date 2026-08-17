@@ -344,6 +344,10 @@ export function readEvent(value: unknown): CalEvent | null {
     // does not spell matches no occurrence, so it is a row of dead weight that
     // survives every future export.
     doneKeys: readDoneKeys(value.doneKeys),
+    // Anything other than a literal `true` is busy, which is what an event
+    // exported before this field existed was. A truthy string in a
+    // hand-edited blob must not quietly take a meeting off the day's total.
+    free: value.free === true,
   };
 }
 
@@ -468,6 +472,9 @@ export function importIcs(text: string, filename: string) {
         // would turn every other producer's instantaneous event into a to-do.
         task: e.task,
         doneKeys: e.doneKeys,
+        // `TRANSP`, which every calendar writes: an event another app marked
+        // free arrives free here rather than silently booking the hour.
+        free: e.free,
       };
     }),
   );

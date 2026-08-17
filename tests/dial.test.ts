@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 import "./helpers";
 import {
+  ARC_HAIRLINE,
   ARC_LABEL_SIZE,
   DIAL,
   angleAt,
   arcLabel,
   arcPath,
   capInset,
+  hollowPath,
   minutesAtPoint,
   polar,
   seamTrim,
@@ -116,6 +118,99 @@ describe("seamTrim", () => {
 
   it("floors at zero once the neighbouring gap already exceeds the seam", () => {
     expect(seamTrim(DIAL.TRACK, 1000)).toBe(0);
+  });
+});
+
+/* -------------------------------- hollowPath --------------------------------- */
+
+/** The arc commands of a path — `A rx ry 0 large-arc sweep x y` — as numbers.
+ *  Radius and direction are the whole of what a hollow arc claims. */
+function arcs(d: string) {
+  return [...d.matchAll(/A ([\d.]+) ([\d.]+) 0 (\d) (\d) (-?[\d.]+) (-?[\d.]+)/g)].map((m) => ({
+    r: Number(m[1]),
+    sweep: m[4],
+    x: Number(m[5]),
+    y: Number(m[6]),
+  }));
+}
+
+const HALF = DIAL.ARC_WIDTH / 2;
+/** Where the hairline's own centre line runs: half its weight inside the
+ *  silhouette it traces, at each of the four boundaries. */
+const OFF = HALF - ARC_HAIRLINE / 2;
+
+describe("hollowPath outlines the arc it replaces", () => {
+  const R = DIAL.LANE;
+  const d = hollowPath(R, 30, 90);
+  const parts = arcs(d);
+
+  // Two edges and two caps, in that order: out along the far edge, round the
+  // tail, back along the near one, round the head.
+  it("is four arcs: two edges and two caps", () => {
+    expect(parts).toHaveLength(4);
+  });
+
+  // The claim the whole encoding rests on — the outline occupies exactly the
+  // filled stroke's footprint, so switching an event to free moves nothing.
+  // Stroked at `ARC_HAIRLINE`, each edge's outside face lands on the filled
+  // arc's own.
+  it("paints the same band a filled arc of ARC_WIDTH does", () => {
+    expect.soft(parts[0].r + ARC_HAIRLINE / 2).toBeCloseTo(R + HALF, 9);
+    expect.soft(parts[2].r - ARC_HAIRLINE / 2).toBeCloseTo(R - HALF, 9);
+  });
+
+  // Same again at the ends: a cap of half the band, plus half the hairline,
+  // reaches exactly as far past the tip as a round cap does — which is what
+  // `capInset` shortened the sweep by, so painted length is still duration.
+  it("caps the ends at the same reach a round cap has", () => {
+    expect.soft(parts[1].r).toBeCloseTo(OFF, 9);
+    expect.soft(parts[3].r).toBeCloseTo(OFF, 9);
+    expect.soft(parts[1].r + ARC_HAIRLINE / 2).toBeCloseTo(HALF, 9);
+  });
+
+  it("centres each cap on the instant its tip stands for", () => {
+    const tail = polar(R, 90);
+    const gap = Math.hypot(parts[1].x - tail.x, parts[1].y - tail.y);
+    expect(gap).toBeCloseTo(OFF, 9);
+  });
+
+  // Out clockwise, back anticlockwise: the same path traced one way round
+  // would cross itself and the fill would be a bow tie.
+  it("traces the far edge forwards and the near edge back", () => {
+    expect.soft(parts[0].sweep).toBe("1");
+    expect.soft(parts[2].sweep).toBe("0");
+  });
+});
+
+describe("hollowPath's two degenerate turns", () => {
+  const R = DIAL.LANE;
+
+  // The same rule `arcPath` and `EventArc` already keep: once the ends meet
+  // there is nothing to cap, and a circle with a notch at midnight reads as a
+  // rendering fault rather than as an event.
+  it("draws a full turn as two closed rings and no cap at all", () => {
+    const parts = arcs(hollowPath(R, 0, 360));
+    // Two half-turns per ring, because a single arc whose ends coincide draws
+    // nothing — `arcPath`'s own branch, inherited.
+    expect.soft(parts).toHaveLength(4);
+    const radii = [...new Set(parts.map((p) => Math.round(p.r * 1e6) / 1e6))].sort();
+    expect.soft(radii).toEqual([R - OFF, R + OFF]);
+    expect.soft(radii).not.toContain(OFF);
+  });
+
+  // A sub-cap event collapses to its own round cap, so the hollow of that dot
+  // is a ring: the two caps alone, back to back.
+  it("hollows a dot into a ring centred on its minute", () => {
+    const parts = arcs(hollowPath(R, 45, 45));
+    const caps = parts.filter((p) => Math.abs(p.r - OFF) < 1e-9);
+    expect.soft(caps).toHaveLength(2);
+    const centre = polar(R, 45);
+    for (const cap of caps) {
+      expect.soft(Math.hypot(cap.x - centre.x, cap.y - centre.y)).toBeCloseTo(OFF, 9);
+    }
+    // Diametrically opposite each other, which is what makes the pair a circle
+    // rather than two arcs of one.
+    expect.soft(Math.hypot(caps[0].x - caps[1].x, caps[0].y - caps[1].y)).toBeCloseTo(2 * OFF, 9);
   });
 });
 

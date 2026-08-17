@@ -464,7 +464,7 @@ describe("dayAgenda: ordering", () => {
 /* -------------------------------- free time -------------------------------- */
 
 describe("freeGaps", () => {
-  type Spec = { start: string; end: string; allDay?: boolean };
+  type Spec = { start: string; end: string; allDay?: boolean; free?: boolean };
   const build = (specs: Spec[]) =>
     occurrencesOn(
       specs.map((s) => event(s)),
@@ -527,6 +527,28 @@ describe("freeGaps", () => {
       min: 30,
       expected: [{ start: DEFAULT_WAKING.from, end: DEFAULT_WAKING.to }],
     },
+    {
+      // The case the function exists for: a placeholder is exactly what you
+      // want to be offered room inside, so it books no block at all.
+      name: "a free event does not occupy a gap",
+      events: [{ start: "2026-03-08 09:00", end: "2026-03-08 17:00", free: true }],
+      min: 30,
+      expected: [{ start: DEFAULT_WAKING.from, end: DEFAULT_WAKING.to }],
+    },
+    {
+      // And it does not shorten one either: the busy event beside it is the
+      // only thing the gaps are measured against.
+      name: "a free event overlapping a busy one leaves the busy one's gaps alone",
+      events: [
+        { start: "2026-03-08 09:00", end: "2026-03-08 17:00", free: true },
+        { start: "2026-03-08 12:00", end: "2026-03-08 13:00" },
+      ],
+      min: 30,
+      expected: [
+        { start: DEFAULT_WAKING.from, end: 720 },
+        { start: 780, end: DEFAULT_WAKING.to },
+      ],
+    },
   ];
 
   it.each(rows)("$name", ({ events, min, expected }) => {
@@ -537,7 +559,7 @@ describe("freeGaps", () => {
 
 describe("dayLoad", () => {
   const load = (
-    specs: Array<{ start: string; end: string; allDay?: boolean }>,
+    specs: Array<{ start: string; end: string; allDay?: boolean; free?: boolean }>,
     waking: { from: number; to: number } = DEFAULT_WAKING,
   ) =>
     dayLoad(
@@ -607,6 +629,32 @@ describe("dayLoad", () => {
     })!;
     expect(outside.booked).toBe(60);
     expect(outside.free).toBe(60);
+  });
+
+  // The half of "free" that is not decoration: a placeholder is not time
+  // spent, so the number the totals line prints stops counting it.
+  it("leaves a free event out of the booked total", () => {
+    const held = load([{ start: "2026-03-08 09:00", end: "2026-03-08 11:00", free: true }])!;
+    expect(held.booked).toBe(0);
+    expect(held.free).toBe(DEFAULT_WAKING.to - DEFAULT_WAKING.from);
+  });
+
+  it("counts only the busy half of a day carrying both", () => {
+    const mixed = load([
+      { start: "2026-03-08 09:00", end: "2026-03-08 10:00" },
+      { start: "2026-03-08 14:00", end: "2026-03-08 15:30", free: true },
+    ])!;
+    expect(mixed.booked).toBe(60);
+    // The free window is untouched by the hold as well — it is time on offer.
+    expect(mixed.free).toBe(DEFAULT_WAKING.to - DEFAULT_WAKING.from - 60);
+  });
+
+  // Not the `null` case: something *is* on this day, and `0m booked` is the
+  // answer the line exists to give about a day whose only entry is a birthday.
+  it("still answers for a day whose only timed event is free", () => {
+    const only = load([{ start: "2026-03-08 09:00", end: "2026-03-08 10:00", free: true }]);
+    expect(only).not.toBeNull();
+    expect(only?.booked).toBe(0);
   });
 });
 

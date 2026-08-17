@@ -155,6 +155,8 @@ export function event(
     icon: "",
     task: false,
     doneKeys: [],
+    // Busy, which is what an event says when it says nothing.
+    free: false,
     ...NEVER,
     ...rest,
   };

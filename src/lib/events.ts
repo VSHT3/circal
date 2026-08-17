@@ -177,6 +177,29 @@ export interface CalEvent extends Recurrence {
    * these.
    */
   doneKeys: string[];
+  /**
+   * Whether this event leaves the time it covers on offer: a placeholder, a
+   * tentative hold, somebody's birthday. Busy is normal, so `false` is the
+   * default and the absent value both.
+   *
+   * Two halves, and the second is the one that matters. It is drawn hollow —
+   * the same arc, outlined rather than filled, which costs no radius — and it
+   * does **not** count as booked time: `freeGaps` books no block for it and
+   * `dayLoad` leaves it out of the total, so the numbers the centre panel
+   * prints and the slot the palette finds stop being lies about a day whose
+   * only "meeting" was a birthday.
+   *
+   * An explicit flag for the reason `task` is one: nothing about a span says
+   * how seriously it is meant, so inferring this from a title, a calendar or
+   * a zero-width end would be typing data by coincidence. It is iCalendar's
+   * `TRANSP` on the wire — `TRANSPARENT` is free, `OPAQUE` and an absent
+   * property are busy — and named for the word the editor prints rather than
+   * for the property, because the property is a spelling and not the idea.
+   *
+   * Meaningless on a task, which is why nothing consults both: a task has no
+   * width to offer or withhold, so it already books nothing at all.
+   */
+  free: boolean;
 }
 
 /** One concrete appearance of an event on one day, clipped to that day. */
@@ -418,8 +441,11 @@ export const DEFAULT_WAKING = { from: 8 * 60, to: 22 * 60 };
  * The holes in a day, at least `minMinutes` wide, inside `[from, to]`.
  *
  * The dial already makes gaps the most legible thing on the face; this only
- * makes them addressable. All-day events do not occupy a gap — an all-day
- * "Berlin" does not stop you booking lunch.
+ * makes them addressable. Two kinds of occurrence do not occupy a gap. An
+ * all-day event never did — an all-day "Berlin" does not stop you booking
+ * lunch — and a **free** one does not either: it is exactly the placeholder
+ * this function exists to find room around, and counting it made the palette
+ * refuse a slot that a birthday was the only thing in.
  */
 export function freeGaps(
   occurrences: Occurrence[],
@@ -428,7 +454,7 @@ export function freeGaps(
   to: number,
 ): Gap[] {
   const busy = occurrences
-    .filter((o) => !o.event.allDay)
+    .filter((o) => !o.event.allDay && !o.event.free)
     .map((o) => ({ start: Math.max(o.startMin, from), end: Math.min(o.endMin, to) }))
     .filter((b) => b.end > b.start)
     .sort((a, b) => a.start - b.start);
@@ -455,9 +481,16 @@ export function freeGaps(
  * free" is not an offer. They do not sum to anything and nobody adds them.
  *
  * Both come out of `freeGaps`, which already merges overlaps: two events on
- * the same hour are one hour booked, not two. `null` for a day with nothing
- * timed on it, which is how a caller tells "nothing booked" from "no answer" —
- * an all-day event is context, and it books no hours.
+ * the same hour are one hour booked, not two — and skips the occurrences that
+ * book nothing, so a **free** event is absent from the booked total for the
+ * same reason an all-day one is. That is the asymmetry above left exactly as
+ * it was: what counts as booked has changed, the window it is counted over
+ * has not.
+ *
+ * `null` for a day with nothing timed on it, which is how a caller tells
+ * "nothing booked" from "no answer" — an all-day event is context, and it
+ * books no hours. A day holding only free events is *not* that case: it has
+ * something on it, and `0m booked` is the answer the line exists to give.
  */
 export function dayLoad(
   occurrences: Occurrence[],

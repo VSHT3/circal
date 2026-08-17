@@ -310,6 +310,9 @@ export function buildEventRecord(
     icon: input.icon ?? "",
     task: span.task,
     doneKeys: [],
+    // Busy. There is no tool argument for this yet, and an agent asked to put
+    // an hour in the diary means the hour to be spoken for.
+    free: false,
   });
 }
 
@@ -347,6 +350,11 @@ export function applyPatchToEvent(
     icon: input.icon ?? base.icon,
     task: span.task,
     doneKeys: base.doneKeys,
+    // Carried, like every other field a patch does not name: `validate` reads
+    // the draft through `backup.readEvent`, which defaults an absent `free`
+    // to busy — so leaving it out would quietly rebook a free event the
+    // moment its title was edited.
+    free: base.free,
   });
 }
 

@@ -109,6 +109,17 @@ describe("readEvent — defaults", () => {
     },
   );
 
+  // The same rule for the same reason: a truthy string in a hand-edited or
+  // hostile backup must not quietly take an hour off the day's booked total.
+  it.each([
+    { input: true, expected: true },
+    { input: "TRANSPARENT", expected: false },
+    { input: 1, expected: false },
+    { input: undefined, expected: false },
+  ])("free $input reads as $expected — only a literal true means free", ({ input, expected }) => {
+    expect(readEvent({ ...baseEvent, free: input })?.free).toBe(expected);
+  });
+
   it("fills every recurrence field with NEVER's shape when none are given at all", () => {
     const result = readEvent({ ...baseEvent }) as CalEvent;
     const {

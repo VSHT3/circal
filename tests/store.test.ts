@@ -1222,6 +1222,24 @@ describe("hydrateEvents", () => {
     // already a string — untouched, not re-defaulted wrong
     expect.soft(hydrated.seriesId).toBe("");
     expect.soft(hydrated.tzid).toBe("");
+    // The blob predates busy/free entirely, and every event in one was busy:
+    // an absent boolean must not reach `freeGaps` as `undefined`.
+    expect.soft(hydrated.free).toBe(false);
+    expect.soft(hydrated.task).toBe(false);
+  });
+
+  // The fast path returns the stored event untouched when every field is
+  // already the right shape, so a field left out of that question is a field a
+  // stored blob never gains — and a free event would come back booked.
+  it("keeps a stored free event free across a reload", async () => {
+    const storage = new MemoryStorage();
+    const held = event({ title: "Hold", start: "2026-03-08 09:00", free: true });
+    storage.setItem(
+      KEY,
+      JSON.stringify({ schema: 2, events: [held], calendars: [], feeds: {}, settings: {} }),
+    );
+    const s = await freshStore(storage);
+    expect(s.store.snapshot().events[0].free).toBe(true);
   });
 });
 
@@ -1694,6 +1712,13 @@ describe("duplicateOf", () => {
     );
     expect.soft(copy.task).toBe(true);
     expect.soft(copy.doneKeys).toEqual([]);
+  });
+
+  // Part of "the whole event": a ⌘-drag on a placeholder gives back a
+  // placeholder, not an hour that now books the day.
+  it("carries busy/free across", () => {
+    expect.soft(duplicateOf(event({ start: "2026-03-08 09:00", free: true })).free).toBe(true);
+    expect.soft(duplicateOf(event({ start: "2026-03-08 09:00" })).free).toBe(false);
   });
 
   it("shifts both instants by the drag, keeping the duration", () => {
