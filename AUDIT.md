@@ -34,17 +34,18 @@ thing, not by reading it.
 code. Week start now defaults to the reader's own locale (Tier 5), closing that line outright. The
 lazy split (Tier 1) shipped and measured what it was actually worth: `Settings` and `EventEditor` off
 the critical path bought 4,186 gzipped bytes, **−1.7%**, because the thing genuinely worth splitting —
-`ui/marks.ts` + `ui/icons.tsx`, 118,108 raw bytes of it (this paragraph said _gzipped_, and it was
-wrong: gzipped the pair was ~44 KB all along, which is what the split later took off) — was the one
-nobody had touched, and nobody had yet decided how to touch it. The cheap win was cheap because it was
-small, not because it was wrong to take. On the way to measuring it, this file's own opening figure
-turned out to have drifted too — 514/174 had quietly become 535/180 before anyone remeasured it —
-which is round four's "the drift is in the prose" lesson, except the prose this time was this file's
-own. And the macOS shell (`mac/`, Tier 6) closed every item its own table named cheapest, plus a
-fourth nobody had written down: `<a download>` does nothing inside a `WKWebView` — measured, the
-click resolves and nothing lands on disk, the app's own Export button dead since the day it shipped —
-which is round five's lesson exactly repeating: a capability WebKit withholds that is invisible from
-reading the code and was only ever going to be found by running the app.
+`ui/marks.ts` + `ui/icons.tsx`, 118,143 gzipped bytes of it (a real gzip figure for the wrong thing:
+that was the whole `icons.*` chunk, `motion` and shared UI included, credited to the two modules whose
+name it happened to carry. The table's own share was ~44 KB, which is what the split then took off) —
+was the one nobody had touched, and nobody had yet decided how to touch it. The cheap win was cheap
+because it was small, not because it was wrong to take. On the way to measuring it, this file's own
+opening figure turned out to have drifted too — 514/174 had quietly become 535/180 before anyone
+remeasured it — which is round four's "the drift is in the prose" lesson, except the prose this time
+was this file's own. And the macOS shell (`mac/`, Tier 6) closed every item its own table named
+cheapest, plus a fourth nobody had written down: `<a download>` does nothing inside a `WKWebView` —
+measured, the click resolves and nothing lands on disk, the app's own Export button dead since the day
+it shipped — which is round five's lesson exactly repeating: a capability WebKit withholds that is
+invisible from reading the code and was only ever going to be found by running the app.
 
 A fourth commit the same night closed the rest of Tier 6's cheap table. Launch at login and menu-bar
 mode read their own state live rather than caching it, because a login item can be removed in System
