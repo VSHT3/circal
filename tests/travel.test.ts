@@ -1,14 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { event, ms } from "./helpers";
 import {
-  clearedZones,
-  countZoned,
+  clearedStamps,
+  countStamped,
   keptEvent,
   keptEvents,
   movedEvent,
   movedEvents,
   movedInstant,
   placeName,
+  stampedPlaces,
   travelNotice,
   travelShift,
 } from "@/lib/travel";
@@ -240,12 +241,38 @@ describe("the lists, and the way back", () => {
     expect.soft(kept[1]).toBe(events[1]);
   });
 
-  it("counts and clears the stamps, leaving untouched events as the same objects", () => {
-    const floating = event();
-    const events = [event({ tzid: BERLIN }), floating, event({ tzid: NEW_YORK })];
-    expect.soft(countZoned(events)).toBe(2);
-    const cleared = clearedZones(events);
-    expect.soft(countZoned(cleared)).toBe(0);
+  it("counts, names and clears only the stamps the app recorded applying", () => {
+    const floating = event({ title: "Mine" });
+    // The one this had to be scoped for: a colleague's weekly 09:00 New York
+    // standup, imported from an .ics, whose zone came out of the file. Flatten
+    // it and its rule is walked against the reader's own wall clock, which is
+    // the defect `startsBetweenIn` exists to prevent.
+    const imported = event({ title: "Standup", tzid: NEW_YORK, repeat: "weekly" });
+    const events = [event({ tzid: BERLIN }), floating, imported];
+
+    expect.soft(countStamped(events, [BERLIN])).toBe(1);
+    expect.soft(stampedPlaces(events, [BERLIN])).toEqual(["Berlin"]);
+
+    const cleared = clearedStamps(events, [BERLIN]);
+    expect.soft(cleared[0].tzid).toBe("");
+    // Untouched events are the same objects, imported one included.
     expect.soft(cleared[1]).toBe(floating);
+    expect.soft(cleared[2]).toBe(imported);
+    expect.soft(countStamped(cleared, [BERLIN])).toBe(0);
+  });
+
+  it("counts nothing, and clears nothing, when no zone was recorded", () => {
+    // Every browser that answered "move", and every one that never travelled:
+    // an event may still carry a zone, and none of it is this row's.
+    const events = [event({ tzid: NEW_YORK }), event({ tzid: BERLIN })];
+    expect.soft(countStamped(events, [])).toBe(0);
+    expect.soft(stampedPlaces(events, [])).toEqual([]);
+    expect.soft(clearedStamps(events, [])).toEqual(events);
+  });
+
+  it("names both places when two journeys were kept in a row", () => {
+    const events = [event({ tzid: BERLIN }), event({ tzid: NEW_YORK }), event()];
+    expect.soft(countStamped(events, [BERLIN, NEW_YORK])).toBe(2);
+    expect.soft(stampedPlaces(events, [BERLIN, NEW_YORK])).toEqual(["Berlin", "New York"]);
   });
 });

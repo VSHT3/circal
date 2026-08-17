@@ -50,7 +50,7 @@ import {
 import { applyRemove, applySplit, applyToggleDone, applyTruncate, applyUpdate } from "./mutate";
 import { DEFAULT_DURATION, MIN_DURATION } from "./quickadd";
 import { REMIND_LEADS } from "./remind";
-import { clearedZones, countZoned, keptEvents, movedEvents } from "./travel";
+import { clearedStamps, countStamped, keptEvents, movedEvents } from "./travel";
 import type { PickedPlace } from "./places";
 
 const KEY = "circal.v1";
@@ -176,6 +176,23 @@ export interface Settings {
    * compare, and therefore nothing to ask. See `lib/travel.ts`.
    */
   deviceZone: string;
+  /**
+   * The zones the travel notice's "keep them as they are" answer has stamped
+   * events with — what the settings row counts and what its Clear takes off,
+   * and nothing else.
+   *
+   * Remembered because `CalEvent.tzid` has a second writer: `ics.ts`'s
+   * DTSTART reader, whose events land in this same `events` list carrying
+   * real zones out of a file. Without this, "clear the stamps" would flatten
+   * a colleague's imported 09:00 New York standup to floating and walk its
+   * rule against the reader's clock.
+   *
+   * A list rather than one name: two journeys kept in a row stamp two
+   * different zones, and a single field would leave the first journey's
+   * stamps with no way back — which is the thing this exists to provide.
+   * Emptied by the Clear it serves, since by then nothing carries them.
+   */
+  stampedZones: string[];
   /** IANA zone for the dial's second ring. `""` = the ring is off. */
   secondZone: string;
   /** Whether that ring is captioned with the city, the offset, both, neither. */
@@ -397,6 +414,9 @@ export const DEFAULT_SETTINGS: Settings = {
   // browser with nothing stored has no "before", and the question this field
   // exists to ask is only ever about a change.
   deviceZone: "",
+  // Nothing stamped, which is every browser that has never travelled and
+  // every one that answered "move".
+  stampedZones: [],
   secondZone: "",
   showZoneName: true,
   showZoneOffset: true,
@@ -679,6 +699,17 @@ function sane(settings: Settings): Settings {
     // `backup.readEvent` puts a feed's TZID through, and `""` reads as a
     // first run — which is silent.
     deviceZone: isZone(settings.deviceZone) ? settings.deviceZone : "",
+    // Storable wrong the same way, and worse when it is: a garbage entry here
+    // scopes the Clear to nothing while the row still counts, so the verb
+    // would be offered and do nothing. Deduplicated because it is a set of
+    // zones written one journey at a time, and a repeat says nothing new.
+    stampedZones: Array.isArray(settings.stampedZones)
+      ? [
+          ...new Set(
+            settings.stampedZones.filter((zone) => typeof zone === "string" && isZone(zone)),
+          ),
+        ]
+      : [],
     birth: /^\d{4}-\d{2}-\d{2}$/.test(settings.birth) ? settings.birth : "",
     lifeExpectancy: Number.isFinite(years)
       ? Math.min(LIFE_EXPECTANCY_RANGE.max, Math.max(LIFE_EXPECTANCY_RANGE.min, years))
@@ -1486,9 +1517,13 @@ export const store = {
    * survivable: one ⌘Z puts every instant back. The device zone rides in the
    * same commit — two would be two undo presses for one decision, and the
    * state between them is a calendar that has been moved and is about to be
-   * asked about again. It is deliberately *not* `ownsSettings`: undoing the
-   * move must not wind the remembered zone back, or the prompt returns to ask
-   * a question the user has already answered.
+   * asked about again.
+   *
+   * It is deliberately *not* `ownsSettings`, and that is why undoing either
+   * answer restores the events without winding the remembered zone back: an
+   * undo that "fully" undid this would put the prompt straight back in front
+   * of somebody who has already answered it. A reader tidying that asymmetry
+   * away is reintroducing the loop — leave it.
    */
   moveEventsToZone(from: string, to: string): number {
     const base = fresh();
@@ -1501,23 +1536,60 @@ export const store = {
   /**
    * "Keep them as they are": instants untouched, and every floating event
    * stamped with the zone it was written in so the app can go on saying so.
-   * Same one recorded commit, for the same reason.
+   * Same one recorded commit, and the same deliberate lack of `ownsSettings`,
+   * for the reasons above.
+   *
+   * `from` is recorded in `stampedZones` in that same commit — it is the only
+   * record of which zones on these events this app put there rather than an
+   * `.ics` import, and the settings row's Clear is scoped to it.
    */
   keepEventsInZone(from: string, to: string): number {
     const base = fresh();
     const events = keptEvents(base.events, from, to);
     const stamped = events.reduce((n, e, i) => (e === base.events[i] ? n : n + 1), 0);
-    commit({ ...base, events, settings: { ...base.settings, deviceZone: to } });
+    // Only when something actually took the stamp: an answer that changed
+    // nothing must not leave a zone behind for the row to count against.
+    const zones = countStamped(events, [from]) > 0 ? [from] : [];
+    commit({
+      ...base,
+      events,
+      settings: {
+        ...base.settings,
+        deviceZone: to,
+        stampedZones: [...new Set([...base.settings.stampedZones, ...zones])],
+      },
+    });
     return stamped;
   },
 
-  /** The stamp taken back off every event carrying one, in one undoable step.
-   *  A decision made in a single click at an airport has to be revisable. */
+  /**
+   * The stamps this app applied, taken back off in one undoable step — and
+   * only those: an imported `.ics` event's zone came out of a file and is not
+   * this row's to flatten (see `travel.ts`'s `stampedBy`).
+   *
+   * The remembered zones are emptied in the same commit, since nothing carries
+   * them afterwards and a list left behind is a row offering to clear nothing.
+   *
+   * This is the one travel action that **does** own its settings, which is the
+   * opposite of the two answers above and for a different question: no prompt
+   * is at stake here, and an undo that brought the stamps back but not the
+   * list that names them would leave them on the events with no way to take
+   * them off again. It is `restore`'s trade, one row wide.
+   */
   clearEventZones(): number {
     const base = fresh();
-    const events = clearedZones(base.events);
-    const cleared = countZoned(base.events);
-    if (cleared > 0) commit({ ...base, events });
+    const zones = base.settings.stampedZones;
+    const cleared = countStamped(base.events, zones);
+    if (cleared === 0) return 0;
+    commit(
+      {
+        ...base,
+        events: clearedStamps(base.events, zones),
+        settings: { ...base.settings, stampedZones: [] },
+      },
+      true,
+      true,
+    );
     return cleared;
   },
 

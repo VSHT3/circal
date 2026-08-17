@@ -160,6 +160,12 @@ export function readSettings(value: unknown): Settings {
     // refuses a zone `Intl` cannot resolve; absent reads as a first run, which
     // asks nothing.
     deviceZone: typeof value.deviceZone === "string" ? value.deviceZone : "",
+    // The zones that browser's "keep" answer stamped, so the row that offers
+    // to take them off survives a restore with the events it is about. Strings
+    // only here; `sane()` is what refuses one `Intl` cannot resolve.
+    stampedZones: Array.isArray(value.stampedZones)
+      ? value.stampedZones.filter((zone): zone is string => typeof zone === "string")
+      : [],
     // The dial switches read absent-as-on: a backup written before they
     // existed came from a dial that was showing all of them.
     showZoneName: value.showZoneName !== false,

@@ -695,23 +695,67 @@ describe("the travel answers", () => {
     },
   );
 
-  it("clearEventZones takes every stamp off in one undoable step, and says how many", async () => {
+  it("keepEventsInZone records the zone it stamped with, so the Clear has a scope", async () => {
+    const { s } = await travelled();
+    s.store.keepEventsInZone("Europe/Berlin", "America/New_York");
+    expect(s.store.snapshot().settings.stampedZones).toEqual(["Europe/Berlin"]);
+  });
+
+  it("keepEventsInZone records nothing when nothing took a stamp", async () => {
+    const s = await freshStore();
+    s.store.setDeviceZone("Europe/Berlin");
+    // An all-day event is re-anchored rather than stamped, so this answer
+    // leaves no stamp — and must leave no zone behind for the row to count.
+    s.store.create({
+      ...draft(s),
+      allDay: true,
+      start: at("2026-10-05").getTime(),
+      end: at("2026-10-06").getTime(),
+    });
+    s.store.keepEventsInZone("Europe/Berlin", "America/New_York");
+    expect(s.store.snapshot().settings.stampedZones).toEqual([]);
+  });
+
+  it("clearEventZones takes the recorded stamps off in one undoable step, and says how many", async () => {
     const { s, created } = await travelled();
     s.store.keepEventsInZone("Europe/Berlin", "America/New_York");
     expect.soft(s.store.clearEventZones()).toBe(1);
     expect.soft(s.store.snapshot().events.find((e) => e.id === created.id)?.tzid).toBe("");
+    // The zones go with them: nothing carries them, and a list left behind is
+    // a row offering to clear nothing.
+    expect.soft(s.store.snapshot().settings.stampedZones).toEqual([]);
     expect.soft(s.store.undo()).toBe(true);
     expect
       .soft(s.store.snapshot().events.find((e) => e.id === created.id)?.tzid)
       .toBe("Europe/Berlin");
+    // This one action owns its settings, so the undo brings back the list that
+    // names those stamps — without it they would be unclearable.
+    expect.soft(s.store.snapshot().settings.stampedZones).toEqual(["Europe/Berlin"]);
   });
 
-  it("clearEventZones with nothing stamped writes no undo step at all", async () => {
+  it("clearEventZones leaves an imported event's own zone alone", async () => {
+    const { s } = await travelled();
+    // What an .ics import lands in this same list: a weekly 09:00 New York
+    // standup whose zone came out of the file, not out of an answer here.
+    const imported = s.store.create({ ...draft(s), tzid: "America/Chicago", repeat: "weekly" });
+    s.store.keepEventsInZone("Europe/Berlin", "America/New_York");
+    expect.soft(s.store.clearEventZones()).toBe(1);
+    expect
+      .soft(s.store.snapshot().events.find((e) => e.id === imported.id)?.tzid)
+      .toBe("America/Chicago");
+  });
+
+  it("clearEventZones with nothing recorded writes no undo step at all", async () => {
     const { s, created } = await travelled();
+    // A zone on an event, and no answer that put it there: not this row's.
+    s.store.update(created.id, { tzid: "America/Chicago" });
     expect.soft(s.store.clearEventZones()).toBe(0);
-    // The step undo reaches is the creation, not a commit this made.
+    expect
+      .soft(s.store.snapshot().events.find((e) => e.id === created.id)?.tzid)
+      .toBe("America/Chicago");
+    // The step undo reaches is that update, not a commit this made.
     expect.soft(s.store.undo()).toBe(true);
-    expect.soft(s.store.snapshot().events.find((e) => e.id === created.id)).toBeUndefined();
+    expect.soft(s.store.snapshot().events.find((e) => e.id === created.id)?.tzid).toBe("");
   });
 });
 
@@ -863,6 +907,43 @@ describe("sane() via parsing a stored blob", () => {
     );
     const s = await freshStore(storage);
     expect(s.store.snapshot().settings.deviceZone).toBe(want);
+  });
+
+  it.each([
+    { name: "the garbage among them", stored: ["Europe/Berlin", "Mars/Olympus_Mons", 7] },
+    { name: "the duplicates among them", stored: ["Europe/Berlin", "Europe/Berlin"] },
+  ])("stampedZones: drops $name", async ({ stored }) => {
+    // A garbage entry here scopes the Clear to nothing while the row still
+    // counts against it — a verb offered that does nothing.
+    const storage = new MemoryStorage();
+    storage.setItem(
+      KEY,
+      JSON.stringify({
+        schema: 2,
+        events: [],
+        calendars: [],
+        feeds: {},
+        settings: { stampedZones: stored },
+      }),
+    );
+    const s = await freshStore(storage);
+    expect(s.store.snapshot().settings.stampedZones).toEqual(["Europe/Berlin"]);
+  });
+
+  it("stampedZones: anything that is not a list becomes one", async () => {
+    const storage = new MemoryStorage();
+    storage.setItem(
+      KEY,
+      JSON.stringify({
+        schema: 2,
+        events: [],
+        calendars: [],
+        feeds: {},
+        settings: { stampedZones: "Europe/Berlin" },
+      }),
+    );
+    const s = await freshStore(storage);
+    expect(s.store.snapshot().settings.stampedZones).toEqual([]);
   });
 
   it("a place with a zone field survives", async () => {

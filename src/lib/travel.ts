@@ -170,16 +170,51 @@ export function keptEvents(events: CalEvent[], from: string, to: string): CalEve
 }
 
 /**
+ * Which of these events this feature stamped, scoped to the zones the app
+ * recorded stamping — never "every event with a zone on it".
+ *
+ * A non-empty `tzid` has a second writer: `ics.ts`'s DTSTART reader, and an
+ * imported `.ics` lands its events in the same `snapshot.events` this walks,
+ * carrying zones that came out of the file. A colleague's weekly 09:00 New
+ * York standup is exactly that, and flattening it to floating would walk its
+ * rule against the reader's own wall clock — the defect `startsBetweenIn`
+ * exists to prevent, reintroduced by a settings row.
+ *
+ * Not perfect, and the residue is named rather than papered over: an imported
+ * event that genuinely names one of those same cities is indistinguishable
+ * from a stamped one and is caught with them. Telling the two apart needs a
+ * provenance field on every event, recording which of two writers set its
+ * zone — a permanent addition to the model to serve one settings row, against
+ * a residue that is narrow and one undo step wide. The row's caption says so
+ * rather than claiming precision this does not have.
+ */
+function stampedBy(event: CalEvent, stamped: readonly string[]): boolean {
+  return event.tzid !== "" && stamped.includes(event.tzid);
+}
+
+/**
  * The stamp taken back off. A decision made in one click at an airport has to
  * be revisable, and there is no per-event zone picker to revise it in — so
  * the settings panel offers this instead, over the whole list at once.
  */
-export function clearedZones(events: CalEvent[]): CalEvent[] {
-  return events.map((event) => (event.tzid ? { ...event, tzid: "" } : event));
+export function clearedStamps(events: CalEvent[], stamped: readonly string[]): CalEvent[] {
+  return events.map((event) => (stampedBy(event, stamped) ? { ...event, tzid: "" } : event));
 }
 
-/** How many of them carry one — the number the settings row prints, and what
- *  tells it whether there is anything to offer clearing at all. */
-export function countZoned(events: CalEvent[]): number {
-  return events.reduce((n, event) => (event.tzid ? n + 1 : n), 0);
+/** How many carry one — the number the settings row prints, and what tells it
+ *  whether there is anything to offer clearing at all. */
+export function countStamped(events: CalEvent[], stamped: readonly string[]): number {
+  return events.reduce((n, event) => (stampedBy(event, stamped) ? n + 1 : n), 0);
+}
+
+/** The places those stamps name, in the order they are read, so the row can
+ *  say what is about to happen rather than printing a bare number. */
+export function stampedPlaces(events: CalEvent[], stamped: readonly string[]): string[] {
+  const places: string[] = [];
+  for (const event of events) {
+    if (!stampedBy(event, stamped)) continue;
+    const place = placeName(event.tzid);
+    if (!places.includes(place)) places.push(place);
+  }
+  return places;
 }

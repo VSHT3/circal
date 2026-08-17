@@ -46,7 +46,7 @@ import {
   store,
 } from "@/lib/store";
 import { PLACE_OPTIONS, placeForZone } from "@/lib/places";
-import { placeName } from "@/lib/travel";
+import { countStamped, stampedPlaces } from "@/lib/travel";
 import { sunTimes } from "@/lib/sun";
 import { MIN_DURATION } from "@/lib/quickadd";
 import {
@@ -172,6 +172,7 @@ export default function Settings({
 }: SettingsPanelProps) {
   const {
     clock,
+    stampedZones,
     secondZone,
     showZoneName,
     showZoneOffset,
@@ -237,17 +238,21 @@ export default function Settings({
   const span = birthDate ? lifeSpan(birthDate, lifeExpectancy) : null;
 
   /**
-   * The events carrying a timezone stamp, and the places they name. Both are
-   * the same one derivation the row prints: the count is the verb's, the
-   * cities are the sentence's, and a `Set` because ten events in one place is
-   * one clock, not ten.
+   * The stamps *this app* applied, and the places they name — scoped to
+   * `stampedZones`, never "every event with a zone on it". An imported `.ics`
+   * lands in the same list carrying zones out of a file, and a colleague's
+   * 09:00 New York standup is not this row's to flatten.
+   *
+   * Both derivations come from what the events actually carry rather than from
+   * the setting alone, so a remembered zone that has outlived its events
+   * counts nothing and shows no row.
    */
-  const zonedEvents = events.filter((e) => e.tzid);
-  const zonedPlaces = [...new Set(zonedEvents.map((e) => placeName(e.tzid)))].join(", ");
+  const stampCount = countStamped(events, stampedZones);
+  const stampPlaces = stampedPlaces(events, stampedZones);
 
   /** Undoable, and it says so: the stamp was a decision made in one click,
    *  and so is taking it off. */
-  function clearZones() {
+  function clearStamps() {
     const cleared = store.clearEventZones();
     if (cleared > 0) {
       notify(`${cleared} event${cleared === 1 ? "" : "s"} floating again · ${MOD}Z to undo`);
@@ -849,22 +854,31 @@ export default function Settings({
 
                 {/* Only when there is something to say: after the travel
                     notice was answered with "move", or on a browser that never
-                    travelled, no event carries a clock and a row offering to
+                    travelled, nothing carries a stamp and a row offering to
                     clear nothing is worse than no row. */}
-                {zonedEvents.length > 0 && (
+                {stampCount > 0 && (
                   <FieldRow label="Zones" align="top">
+                    {/* The place is in the verb, not only in the sentence:
+                        "Clear 24 Berlin stamps" says what is about to happen
+                        where a bare number does not. Two journeys kept in a
+                        row name two places, and then the number leads and the
+                        caption carries them. */}
                     <DataButton
                       icon={<RotateCcw size={13} strokeWidth={1.75} />}
-                      onClick={clearZones}
+                      onClick={clearStamps}
                     >
-                      Clear {zonedEvents.length} stamp{zonedEvents.length === 1 ? "" : "s"}
+                      Clear {stampCount} {stampPlaces.length === 1 ? `${stampPlaces[0]} ` : ""}
+                      stamp{stampCount === 1 ? "" : "s"}
                     </DataButton>
-                    {/* Names the places rather than counting them twice: the
-                        verb already carries the number, and which clock those
-                        hours belong to is the thing the stamp exists to say. */}
+                    {/* Says what the scope actually is, including the part it
+                        cannot tell apart: an imported .ics event naming one of
+                        these same cities is indistinguishable from a stamped
+                        one, and promising precision this does not have would
+                        be worse than naming the edge. */}
                     <span className="caption">
-                      Read against {zonedPlaces}. Clearing makes them floating again — drawn on
-                      whatever clock this browser is having
+                      Kept when this browser arrived from {stampPlaces.join(", ")}. Clearing makes
+                      them floating again, drawn on whatever clock this browser is having — an
+                      imported event naming the same place is cleared with them
                     </span>
                   </FieldRow>
                 )}
