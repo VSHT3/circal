@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import { at, calendar, day, event, ms } from "./helpers";
 import {
   ICON_MAX,
+  REMIND_INHERIT,
+  REMIND_LEAD_MAX,
+  REMIND_SILENT,
   PALETTE,
   DEFAULT_WAKING,
   colorOf,
@@ -13,6 +16,8 @@ import {
   inkOn,
   isIconName,
   markOf,
+  ownLead,
+  readRemindLead,
   occurrencesOn,
   scoreEvent,
   spanLabel,
@@ -779,6 +784,48 @@ describe("firstGrapheme keeps one glyph whole", () => {
     // whatever a future emoji sequence turns out to be.
     expect.soft(firstGrapheme("👩‍👩‍👧‍👦").length).toBeLessThanOrEqual(ICON_MAX);
     expect.soft(firstGrapheme("a".repeat(100)).length).toBeLessThanOrEqual(ICON_MAX);
+  });
+});
+
+/* ----------------------------- the reminder lead --------------------------- *
+ * The model half of the per-event reminder: what the field legally is, which
+ * is this file's business for the same reason `ICON_MAX` and `isIconName`
+ * are. Which lead an event actually gets — the precedence between its own
+ * and the setting's — is `leadOf`'s, and is tested in
+ * `tests/remind.test.ts`. */
+
+describe("ownLead: the lead an event names for itself", () => {
+  it.each([
+    { name: "a named lead", own: 30, expected: 30 },
+    { name: "zero is named", own: 0, expected: 0 },
+    { name: "inheriting names none", own: REMIND_INHERIT, expected: null },
+    // Silent names no *number*, which is what the exporter is asking: there
+    // is no VALARM to write for it.
+    { name: "silent names none", own: REMIND_SILENT, expected: null },
+  ])("$name", ({ own, expected }) => {
+    expect(ownLead(event({ remindLead: own }))).toBe(expected);
+  });
+});
+
+describe("readRemindLead: one validator, four readers", () => {
+  it.each([
+    { name: "a lead the panel offers", value: 15, expected: 15 },
+    { name: "zero", value: 0, expected: 0 },
+    { name: "a lead only an import could name", value: 7, expected: 7 },
+    { name: "silent", value: REMIND_SILENT, expected: REMIND_SILENT },
+    { name: "inherit", value: REMIND_INHERIT, expected: REMIND_INHERIT },
+    { name: "absent", value: undefined, expected: REMIND_INHERIT },
+    { name: "a string that looks like one", value: "15", expected: REMIND_INHERIT },
+    { name: "a negative that is neither state", value: -99, expected: REMIND_INHERIT },
+    { name: "half a minute", value: 1.5, expected: REMIND_INHERIT },
+    { name: "NaN", value: Number.NaN, expected: REMIND_INHERIT },
+    { name: "at the cap", value: REMIND_LEAD_MAX, expected: REMIND_LEAD_MAX },
+    // Past the cap it is dropped rather than clamped: a clamp would invent a
+    // four-week warning nobody asked for, where inheriting is what an event
+    // that said nothing readable already gets.
+    { name: "past the cap", value: REMIND_LEAD_MAX + 1, expected: REMIND_INHERIT },
+  ])("$name", ({ value, expected }) => {
+    expect.soft(readRemindLead(value)).toBe(expected);
   });
 });
 

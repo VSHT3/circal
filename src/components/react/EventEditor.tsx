@@ -9,6 +9,9 @@ import { useEffect, useRef, useState } from "react";
 import {
   NEVER,
   PALETTE,
+  REMIND_INHERIT,
+  REMIND_SILENT,
+  ownLead,
   colorOf,
   instantKey,
   REPEATS,
@@ -21,7 +24,7 @@ import {
 } from "@/lib/events";
 import { describeRule, isExpressible, nthLabel } from "@/lib/describe";
 import { DEFAULT_DURATION, MIN_DURATION, defaultStart } from "@/lib/quickadd";
-import { REMIND_INHERIT, REMIND_LEADS, REMIND_SILENT, ownLead, remindLabel } from "@/lib/remind";
+import { REMIND_LEADS, remindLabel } from "@/lib/remind";
 import {
   WEEKDAYS,
   addDays,

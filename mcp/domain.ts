@@ -15,6 +15,7 @@ import { describeRule } from "@/lib/describe";
 import {
   DEFAULT_WAKING,
   PALETTE,
+  REMIND_INHERIT,
   dayAgenda,
   dayLoad,
   freeGaps,
@@ -28,7 +29,6 @@ import {
 } from "@/lib/events";
 import { applyRemove, applySplit, applyToggleDone, applyTruncate, applyUpdate } from "@/lib/mutate";
 import { parseQuickAdd } from "@/lib/quickadd";
-import { REMIND_INHERIT } from "@/lib/remind";
 import { NEVER, instantKey, keyToInstant, readRecurrence, repeats, type Repeat } from "@/lib/recur";
 import {
   addDays,

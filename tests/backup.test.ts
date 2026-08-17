@@ -3,9 +3,8 @@ import "./helpers";
 import { MemoryStorage, calendar, event, ms } from "./helpers";
 import { readEvent, readSettings, readCalendar, backupDue } from "@/lib/backup";
 import { DEFAULT_SETTINGS } from "@/lib/store";
-import { ICON_MAX, NEVER, type CalEvent } from "@/lib/events";
+import { ICON_MAX, NEVER, REMIND_INHERIT, REMIND_SILENT, type CalEvent } from "@/lib/events";
 import { placeForZone } from "@/lib/places";
-import { REMIND_INHERIT, REMIND_SILENT } from "@/lib/remind";
 
 /* ---------------------------------------------------------------------- *
  * This module is the only place a backup file — hand-edited, corrupted,

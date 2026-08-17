@@ -1,7 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 import { at, calendar, ms, event, MemoryStorage } from "./helpers";
-import { instantKey, PALETTE, type CalEvent, type Repeat } from "@/lib/events";
-import { REMIND_INHERIT, REMIND_SILENT } from "@/lib/remind";
+import {
+  instantKey,
+  PALETTE,
+  REMIND_INHERIT,
+  REMIND_SILENT,
+  type CalEvent,
+  type Repeat,
+} from "@/lib/events";
 import { DEFAULT_SETTINGS, LIFE_EXPECTANCY_RANGE, duplicateOf } from "@/lib/store";
 import { MINUTES_PER_DAY, addDays, addMonths, dayKey, daysBetween, startOfDay } from "@/lib/time";
 import type * as StoreModule from "@/lib/store";

@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { byDay, day, event, ms } from "./helpers";
 import { fromIcs, toIcs, type IcsEvent } from "@/lib/ics";
-import { NEVER } from "@/lib/events";
-import { REMIND_INHERIT, REMIND_SILENT } from "@/lib/remind";
+import { NEVER, REMIND_INHERIT, REMIND_SILENT } from "@/lib/events";
 import { startsBetween } from "@/lib/recur";
 
 /* ------------------------------- fixtures ---------------------------------- *

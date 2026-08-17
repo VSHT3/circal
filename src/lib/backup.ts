@@ -23,10 +23,16 @@ import {
   type Snapshot,
 } from "./store";
 import { notify } from "./notify";
-import { readRemindLead } from "./remind";
 import { dayKey, isZone } from "./time";
 import { isRecord } from "./utils";
-import { ICON_MAX, readRecurrence, recurrenceOf, type CalEvent, type Calendar } from "./events";
+import {
+  ICON_MAX,
+  readRecurrence,
+  readRemindLead,
+  recurrenceOf,
+  type CalEvent,
+  type Calendar,
+} from "./events";
 
 const BACKUP_VERSION = 1;
 

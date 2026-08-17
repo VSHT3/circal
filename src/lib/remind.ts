@@ -7,7 +7,7 @@
  * module knows nothing of the DOM and never mutates its inputs.
  * ------------------------------------------------------------------ */
 
-import { type Calendar, type CalEvent, occurrencesOn } from "./events";
+import { REMIND_SILENT, ownLead, occurrencesOn, type Calendar, type CalEvent } from "./events";
 import { formatDuration, formatTimeShort, startOfDay, type Clock } from "./time";
 
 const MINUTE_MS = 60_000;
@@ -28,80 +28,24 @@ export function remindLabel(minutes: number): string {
 }
 
 /**
- * The three states of `CalEvent.remindLead`, which is an *override* of
- * `settings.remindLead` in exactly the sense `CalEvent.color` overrides its
- * calendar's: the default is to name nothing and follow the setting, so
- * changing the setting still moves every event that never asked for its own.
- *
- * They are negative because a lead is minutes *before* a start and can only
- * be counted one way — which leaves the whole negative half-line free for
- * saying something other than a number of minutes, and leaves `0` meaning
- * what it has always meant here: "tell me as it starts". A scheme where `0`
- * doubled as off or as absent would make the one lead time this app was
- * built around unsayable.
- *
- * Silent is not a convenience. Per-event control exists so a recurring thing
- * you already know about can be told to stop nudging you, and without a
- * third state the only way to silence one event is to turn reminders off for
- * every event.
- */
-export const REMIND_INHERIT = -1;
-export const REMIND_SILENT = -2;
-
-/**
- * The longest lead this app will store, in minutes — four weeks, which is the
- * longest any mainstream calendar UI offers. It bounds nothing the editor can
- * write (that Select offers `REMIND_LEADS`); it bounds what an imported
- * `VALARM` and a hand-edited backup may say, so a `TRIGGER` of `-P400D`
- * cannot make `dueReminders` scan a day four hundred days out every minute.
- */
-export const REMIND_LEAD_MAX = 40_320;
-
-/**
- * The lead this event names *for itself*, or `null` when it names none —
- * inheriting and silent are both "no number of its own".
- *
- * The exporter's question rather than the notifier's: an `.ics` may carry a
- * `VALARM` only for an event that named a lead, because materialising the
- * current setting into the file would turn a preference into data that comes
- * back as an override on the next import.
- */
-export function ownLead(event: Pick<CalEvent, "remindLead">): number | null {
-  return event.remindLead >= 0 ? event.remindLead : null;
-}
-
-/**
  * How much warning this event gets, given what the setting says — `null` for
  * an event that gets none.
  *
  * The single place the three states are read, the way `colorOf` is the single
  * place colour precedence lives: every other surface asks this and is handed
  * one answer, so "which state is it in" cannot come to mean two things in two
- * files. `fallback` is `settings.remindLead`; whether reminders are switched
- * on at all is the shell's own gate and deliberately not asked here — this
+ * files. It lives here rather than beside the vocabulary in `events.ts`
+ * because the fallback it takes is a *setting*, and what an event's field
+ * legally is has to be answerable without one — which is the same split the
+ * mark has, `events.ts` owning the format and this layer owning the use.
+ *
+ * `fallback` is `settings.remindLead`; whether reminders are switched on at
+ * all is the shell's own gate and deliberately not asked here — this
  * function answers about the event, not about the browser.
  */
 export function leadOf(event: Pick<CalEvent, "remindLead">, fallback: number): number | null {
   if (event.remindLead === REMIND_SILENT) return null;
   return ownLead(event) ?? fallback;
-}
-
-/**
- * A stored or imported value read as a lead. Unreadable is `REMIND_INHERIT`,
- * which is what every event written before this field existed already was.
- *
- * One validator, three readers, for the reason `readRecurrence` is one:
- * `backup.readEvent` (untrusted JSON), `store.hydrateEvents` (a blob that
- * predates the field) and the editor's own Select all have to agree about
- * what a legal lead is, and three copies of the bounds would be three
- * opinions. Whole minutes only — a `VALARM` of ninety seconds is not a lead
- * this app can count down in, and rounding it would be a guess.
- */
-export function readRemindLead(value: unknown): number {
-  if (value === REMIND_SILENT) return REMIND_SILENT;
-  if (typeof value !== "number" || !Number.isInteger(value)) return REMIND_INHERIT;
-  if (value < 0 || value > REMIND_LEAD_MAX) return REMIND_INHERIT;
-  return value;
 }
 
 export interface Reminder {

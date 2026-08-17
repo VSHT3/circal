@@ -12,8 +12,7 @@
  * ------------------------------------------------------------------ */
 
 import { expect } from "vitest";
-import { NEVER, type CalEvent, type Calendar, type Recurrence } from "@/lib/events";
-import { REMIND_INHERIT } from "@/lib/remind";
+import { NEVER, REMIND_INHERIT, type CalEvent, type Calendar, type Recurrence } from "@/lib/events";
 
 /* -------------------------------- parsing --------------------------------- */
 

@@ -41,15 +41,17 @@ import {
   NEVER,
   PALETTE,
   instantKey,
+  REMIND_INHERIT,
   keyToInstant,
   readRecurrence,
+  readRemindLead,
   type CalEvent,
   type Calendar,
   type Repeat,
 } from "./events";
 import { applyRemove, applySplit, applyToggleDone, applyTruncate, applyUpdate } from "./mutate";
 import { DEFAULT_DURATION, MIN_DURATION } from "./quickadd";
-import { REMIND_INHERIT, REMIND_LEADS, readRemindLead } from "./remind";
+import { REMIND_LEADS } from "./remind";
 import { clearedStamps, countStamped, keptEvents, movedEvents } from "./travel";
 import type { PickedPlace } from "./places";
 

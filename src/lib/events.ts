@@ -87,6 +87,76 @@ export function firstGrapheme(value: string): string {
   return [...text][0]?.slice(0, ICON_MAX) ?? "";
 }
 
+/**
+ * The three states of `CalEvent.remindLead`, which is an *override* of
+ * `settings.remindLead` in exactly the sense `CalEvent.color` overrides its
+ * calendar's: the default is to name nothing and follow the setting, so
+ * changing the setting still moves every event that never asked for its own.
+ *
+ * Here rather than in `remind.ts` for the reason `ICON_MAX` and `isIconName`
+ * are here: this file owns what a `CalEvent` field legally *is*, and the
+ * layer that fires reminders owns what one is *for*. Reading a `VALARM` is a
+ * question about the field, and `ics.ts` sits below `remind.ts` in this
+ * directory's one-way dependency order — putting the vocabulary up there
+ * would have made the exporter import upwards, or spell the three states
+ * itself.
+ *
+ * They are negative because a lead is minutes *before* a start and can only
+ * be counted one way — which leaves the whole negative half-line free for
+ * saying something other than a number of minutes, and leaves `0` meaning
+ * what it has always meant here: "tell me as it starts". A scheme where `0`
+ * doubled as off or as absent would make the one lead time this app was
+ * built around unsayable.
+ *
+ * Silent is not a convenience. Per-event control exists so a recurring thing
+ * you already know about can be told to stop nudging you, and without a
+ * third state the only way to silence one event is to turn reminders off for
+ * every event.
+ */
+export const REMIND_INHERIT = -1;
+export const REMIND_SILENT = -2;
+
+/**
+ * The longest lead this app will store, in minutes — four weeks, which is the
+ * longest any mainstream calendar UI offers. It bounds nothing the editor can
+ * write (that Select offers `REMIND_LEADS`); it bounds what an imported
+ * `VALARM` and a hand-edited backup may say, so a `TRIGGER` of `-P400D`
+ * cannot make `dueReminders` scan a day four hundred days out every minute.
+ */
+export const REMIND_LEAD_MAX = 40_320;
+
+/**
+ * The lead this event names *for itself*, or `null` when it names none —
+ * inheriting and silent are both "no number of its own".
+ *
+ * The exporter's question rather than the notifier's: an `.ics` may carry a
+ * `VALARM` only for an event that named a lead, because materialising the
+ * current setting into the file would turn a preference into data that comes
+ * back as an override on the next import.
+ */
+export function ownLead(event: Pick<CalEvent, "remindLead">): number | null {
+  return event.remindLead >= 0 ? event.remindLead : null;
+}
+
+/**
+ * A stored or imported value read as a lead. Unreadable is `REMIND_INHERIT`,
+ * which is what every event written before this field existed already was.
+ *
+ * One validator, four readers, for the reason `readRecurrence` is one:
+ * `backup.readEvent` (untrusted JSON), `store.hydrateEvents` (a blob that
+ * predates the field), `ics.ts`'s `VALARM` reader (a `TRIGGER` off somebody
+ * else's feed) and the editor's own Select all have to agree about what a
+ * legal lead is, and a copy of the bounds in each would be four opinions.
+ * Whole minutes only — a `VALARM` of ninety seconds is not a lead this app
+ * can count down in, and rounding it would be a guess.
+ */
+export function readRemindLead(value: unknown): number {
+  if (value === REMIND_SILENT) return REMIND_SILENT;
+  if (typeof value !== "number" || !Number.isInteger(value)) return REMIND_INHERIT;
+  if (value < 0 || value > REMIND_LEAD_MAX) return REMIND_INHERIT;
+  return value;
+}
+
 export interface Feed {
   url: string;
   /** Epoch ms of the last successful pull. `0` = never pulled. */

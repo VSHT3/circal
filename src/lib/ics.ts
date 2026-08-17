@@ -24,17 +24,14 @@ import {
 import {
   FREQUENCIES,
   NEVER,
+  REMIND_INHERIT,
+  ownLead,
+  readRemindLead,
   type CalEvent,
   type Recurrence,
   type Repeat,
   type WeekdayRule,
 } from "./events";
-// Upward, in the layer sense — `remind.ts` sits a tier later in this
-// directory's one-way dependency order and imports nothing from here, so the
-// graph stays acyclic. It is imported rather than copied because a `VALARM`
-// is written only for an event that names its own lead, and which of the
-// three states an event is in is a question exactly one function may answer.
-import { REMIND_INHERIT, REMIND_LEAD_MAX, ownLead } from "./remind";
 
 /** A VEVENT reduced to what circal models. `uid` is kept so a re-import of
  *  the same feed replaces rather than duplicates. */
@@ -544,8 +541,13 @@ function readAlarmLead(alarms: Record<string, PropEntry>[]): number {
     // gives `-0`, which stores and compares as a different number from the
     // `0` every other reader of this field writes.
     const minutes = Math.abs(ms) / 60_000;
-    if (!Number.isInteger(minutes) || minutes > REMIND_LEAD_MAX) continue;
-    return minutes;
+    // Whether that is a lead at all is `events.ts`'s question, not this
+    // file's: a whole number of minutes inside the cap. `minutes` is never
+    // negative here, so the inheriting answer can only mean "not one this
+    // app can model" — read as ignore, and the next alarm gets its turn.
+    const lead = readRemindLead(minutes);
+    if (lead === REMIND_INHERIT) continue;
+    return lead;
   }
   return REMIND_INHERIT;
 }
