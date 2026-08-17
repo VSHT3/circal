@@ -58,9 +58,39 @@ const VIEW_BOX = "0 0 256 256";
 /* ----------------------------- the path cache ----------------------------- */
 
 /**
- * name → path string, for the marks this browser has actually seen. Seeded
- * synchronously from `localStorage` below, so a mark the user picked before
- * draws on the first frame without the lazy table being fetched at all.
+ * The eager core: the paths the seed itself names, inlined so a brand-new
+ * visitor draws them on the very first frame. A cleared-cache boot has no
+ * `circal.marks` to read, and the seed gives three default calendars
+ * (`house`, `briefcase`, `users`) and two sample events (`person-simple-run`,
+ * `suitcase-rolling`) a mark each — so without this, every first impression
+ * the app makes is dots turning into glyphs, which is the one frame this whole
+ * design exists to protect.
+ *
+ * This is the other half of the shape `AGENTS.md` prescribes — a lazy chunk
+ * plus an eager core. It is deliberately *only* the seed's own marks and must
+ * stay that: it mirrors `DEFAULT_CALENDARS` and `seed()` in `store.ts`, and it
+ * is not a place for a creeping "popular icons" set that would grow back into
+ * the 118 KB problem. The user's own chosen marks ride the `localStorage`
+ * cache below; these five exist for the run before that cache is written.
+ */
+const SEED_MARKS: Record<string, string> = {
+  house:
+    "M222.14,105.85l-80-80a20,20,0,0,0-28.28,0l-80,80A19.86,19.86,0,0,0,28,120v96a12,12,0,0,0,12,12h64a12,12,0,0,0,12-12V164h24v52a12,12,0,0,0,12,12h64a12,12,0,0,0,12-12V120A19.86,19.86,0,0,0,222.14,105.85ZM204,204H164V152a12,12,0,0,0-12-12H104a12,12,0,0,0-12,12v52H52V121.65l76-76,76,76Z",
+  briefcase:
+    "M100,100a12,12,0,0,1,12-12h32a12,12,0,0,1,0,24H112A12,12,0,0,1,100,100ZM236,68V196a20,20,0,0,1-20,20H40a20,20,0,0,1-20-20V68A20,20,0,0,1,40,48H76V40a28,28,0,0,1,28-28h48a28,28,0,0,1,28,28v8h36A20,20,0,0,1,236,68ZM100,48h56V40a4,4,0,0,0-4-4H104a4,4,0,0,0-4,4ZM44,72v35.23A180.06,180.06,0,0,0,128,128a180,180,0,0,0,84-20.78V72ZM212,192V133.94A204.27,204.27,0,0,1,128,152a204.21,204.21,0,0,1-84-18.06V192Z",
+  users:
+    "M125.18,156.94a64,64,0,1,0-82.36,0,100.23,100.23,0,0,0-39.49,32,12,12,0,0,0,19.35,14.2,76,76,0,0,1,122.64,0,12,12,0,0,0,19.36-14.2A100.33,100.33,0,0,0,125.18,156.94ZM44,108a40,40,0,1,1,40,40A40,40,0,0,1,44,108Zm206.1,97.67a12,12,0,0,1-16.78-2.57A76.31,76.31,0,0,0,172,172a12,12,0,0,1,0-24,40,40,0,1,0-10.3-78.67,12,12,0,1,1-6.16-23.19,64,64,0,0,1,57.64,110.8,100.23,100.23,0,0,1,39.49,32A12,12,0,0,1,250.1,205.67Z",
+  "person-simple-run":
+    "M152,92a36,36,0,1,0-36-36A36,36,0,0,0,152,92Zm0-48a12,12,0,1,1-12,12A12,12,0,0,1,152,44Zm76,93.4a12,12,0,0,1-7,10.91,66,66,0,0,1-21.47,3.78c-14,0-34.25-3.82-59.77-19a177,177,0,0,1-10.27,21C153.12,162.83,188,183.8,188,232a12,12,0,0,1-24,0c0-18.69-6.95-33.06-21.26-43.94-9.16-7-19.55-11-27.43-13.34-.81,1-1.64,2-2.5,2.95-20,22.87-44.82,34.76-72.25,34.76a97.33,97.33,0,0,1-9.75-.49,12,12,0,1,1,2.39-23.88c52.3,5.22,77.48-45.92,85.79-67.75C84.8,102.46,63.74,118.78,63.51,119a12,12,0,0,1-15-18.72C50.08,99,88,69.44,142.75,106.62c43.1,29.31,68.1,19.92,68.5,19.76a12,12,0,0,1,16.75,11Z",
+  "suitcase-rolling":
+    "M116,96v80a12,12,0,0,1-24,0V96a12,12,0,0,1,24,0Zm24,0v80a12,12,0,0,0,24,0V96a12,12,0,0,0-24,0Zm72-32V208a20,20,0,0,1-20,20H180v12a12,12,0,0,1-24,0V228H100v12a12,12,0,0,1-24,0V228H64a20,20,0,0,1-20-20V64A20,20,0,0,1,64,44H84V28A28,28,0,0,1,112,0h32a28,28,0,0,1,28,28V44h20A20,20,0,0,1,212,64ZM108,44h40V28a4,4,0,0,0-4-4H112a4,4,0,0,0-4,4Zm80,24H68V204H188Z",
+};
+
+/**
+ * name → path string, for the marks this browser can draw without the lazy
+ * table. Seeded from the eager core (`SEED_MARKS`, always present) and then
+ * from `localStorage` below, so both the seed's own marks and the ones the
+ * user has since chosen draw on the first frame without a chunk fetched.
  */
 const cache = new Map<string, string>();
 
@@ -75,8 +105,11 @@ function disk(): Storage | null {
  *  render-time cache, not part of the user's data and never exported. */
 const CACHE_KEY = "circal.marks";
 
-// Synchronous seed at module load. A corrupt payload is a cache miss the lazy
-// table refills, so it stays silent — same reasoning as `store.readFeeds`.
+// The eager core first — always present, even on a fresh browser with nothing
+// stored — then the persisted cache on top, which may add or refresh entries.
+for (const [name, path] of Object.entries(SEED_MARKS)) cache.set(name, path);
+// A corrupt payload is a cache miss the lazy table refills, so it stays silent
+// — same reasoning as `store.readFeeds`. The eager core survives it either way.
 try {
   const raw = disk()?.getItem(CACHE_KEY);
   if (raw) {
@@ -86,7 +119,7 @@ try {
     }
   }
 } catch {
-  cache.clear();
+  // Keep the eager core; only the persisted layer is suspect.
 }
 
 function persist() {
