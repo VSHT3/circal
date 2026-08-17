@@ -10,6 +10,9 @@ settings cleanup
 remove emojis, people can just type them in the event name
 improve all day drag (can be started from anywehre, not just 00:00)
 week event drag visualization
+ended events vanish from today's DOM, unreachable by keyboard — add onFocus beside onMouseEnter; face wants aria-hidden; headline row lacks a clock time
+typical-weekday ghost: past instances of the viewed weekday drawn faint behind the real arcs, same lanes so it costs no radius
+quick-add should name the event it collides with, since ⌘P can create one without ever showing the dial
 
 Recurrence is real, the interior answers the day, arcs carry their own names, the dial has an
 ambient mode, ⌘P writes an event in one line and ranks what it finds, the year is a revolution and
