@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { at, calendar, ms, event, MemoryStorage } from "./helpers";
 import { instantKey, PALETTE, type CalEvent, type Repeat } from "@/lib/events";
+import { REMIND_INHERIT, REMIND_SILENT } from "@/lib/remind";
 import { DEFAULT_SETTINGS, LIFE_EXPECTANCY_RANGE, duplicateOf } from "@/lib/store";
 import { MINUTES_PER_DAY, addDays, addMonths, dayKey, daysBetween, startOfDay } from "@/lib/time";
 import type * as StoreModule from "@/lib/store";
@@ -1226,6 +1227,11 @@ describe("hydrateEvents", () => {
     // an absent boolean must not reach `freeGaps` as `undefined`.
     expect.soft(hydrated.free).toBe(false);
     expect.soft(hydrated.task).toBe(false);
+    // The same blob predates per-event reminder leads, and an absent one must
+    // reach `leadOf` as the inheriting state rather than as `undefined`,
+    // which is none of the three and would silently stop matching any of
+    // them.
+    expect.soft(hydrated.remindLead).toBe(REMIND_INHERIT);
   });
 
   // The fast path returns the stored event untouched when every field is
@@ -1240,6 +1246,41 @@ describe("hydrateEvents", () => {
     );
     const s = await freshStore(storage);
     expect(s.store.snapshot().events[0].free).toBe(true);
+  });
+
+  // The same fast path, and the state it costs most: an event the user
+  // silenced would come back inheriting — which is to say speaking again —
+  // if `remindLead` were left out of the shape question.
+  it("keeps a stored silent event silent across a reload", async () => {
+    const storage = new MemoryStorage();
+    const quiet = event({
+      title: "Standup",
+      start: "2026-03-08 09:00",
+      remindLead: REMIND_SILENT,
+    });
+    const own = event({ title: "Dentist", start: "2026-03-08 11:00", remindLead: 60 });
+    storage.setItem(
+      KEY,
+      JSON.stringify({ schema: 2, events: [quiet, own], calendars: [], feeds: {}, settings: {} }),
+    );
+    const s = await freshStore(storage);
+    expect.soft(s.store.snapshot().events[0].remindLead).toBe(REMIND_SILENT);
+    expect.soft(s.store.snapshot().events[1].remindLead).toBe(60);
+  });
+
+  // A stored value that is not one of the three states is a hand-edited or
+  // corrupt blob, and `readRemindLead` is the one thing that decides: it
+  // comes back inheriting rather than as a negative lead that `dueReminders`
+  // would read as a reminder *after* the event started.
+  it("reads a nonsense stored lead as inheriting", async () => {
+    const storage = new MemoryStorage();
+    const broken = { ...event({ start: "2026-03-08 09:00" }), remindLead: -99 };
+    storage.setItem(
+      KEY,
+      JSON.stringify({ schema: 2, events: [broken], calendars: [], feeds: {}, settings: {} }),
+    );
+    const s = await freshStore(storage);
+    expect(s.store.snapshot().events[0].remindLead).toBe(REMIND_INHERIT);
   });
 });
 
@@ -1719,6 +1760,19 @@ describe("duplicateOf", () => {
   it("carries busy/free across", () => {
     expect.soft(duplicateOf(event({ start: "2026-03-08 09:00", free: true })).free).toBe(true);
     expect.soft(duplicateOf(event({ start: "2026-03-08 09:00" })).free).toBe(false);
+  });
+
+  // The same argument for the reminder: a ⌘-drag on the standup you silenced
+  // gives back a silent standup, and one you gave an hour's warning keeps the
+  // hour. Both states, because carrying only the number would let silence
+  // come back as inheritance.
+  it("carries the reminder lead across, silence included", () => {
+    const silent = duplicateOf(event({ start: "2026-03-08 09:00", remindLead: REMIND_SILENT }));
+    expect.soft(silent.remindLead).toBe(REMIND_SILENT);
+    expect
+      .soft(duplicateOf(event({ start: "2026-03-08 09:00", remindLead: 60 })).remindLead)
+      .toBe(60);
+    expect.soft(duplicateOf(event({ start: "2026-03-08 09:00" })).remindLead).toBe(REMIND_INHERIT);
   });
 
   it("shifts both instants by the drag, keeping the duration", () => {

@@ -1686,7 +1686,7 @@ function Shell() {
         <Suspense fallback={null}>
           <EventEditor
             target={editor}
-            clock={settings.clock}
+            settings={settings}
             calendars={calendars}
             onSave={saveEvent}
             onDelete={deleteEvent}

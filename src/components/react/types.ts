@@ -196,7 +196,14 @@ export interface SidebarProps {
 
 export interface EventEditorProps {
   target: EditorTarget;
-  clock: Clock;
+  /**
+   * Whole, not field by field. It was `clock` alone until the reminder row
+   * needed two more of them — the lead the row inherits and whether
+   * reminders are on at all — and this is the panel rule the rest of the app
+   * already follows: one prop, nothing for the shell to forward, and the
+   * body destructures on its first line so every reader below is unchanged.
+   */
+  settings: Settings;
   calendars: Calendar[];
   /** `scope` is `"all"` for anything that does not repeat: there is nothing
    *  else it could mean, and the editor does not ask. */

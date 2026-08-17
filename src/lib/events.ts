@@ -200,6 +200,21 @@ export interface CalEvent extends Recurrence {
    * width to offer or withhold, so it already books nothing at all.
    */
   free: boolean;
+  /**
+   * How much warning this event gets, overriding `settings.remindLead` — the
+   * same kind of field as `color`, and with the same default: name nothing
+   * and follow what the app was told once, so changing that setting still
+   * moves every event that never asked for its own.
+   *
+   * Three states in one number, and the vocabulary lives beside the lead
+   * times in `remind.ts`: `REMIND_INHERIT` (the default), `REMIND_SILENT`
+   * (never, whatever the setting says) and any whole count of minutes from
+   * `0` up. Only `leadOf` reads which of the three it is — this is an
+   * override rather than the lead, exactly as `CalEvent.color` is an
+   * override rather than the colour, and one resolver is what keeps that
+   * precedence in one place.
+   */
+  remindLead: number;
 }
 
 /** One concrete appearance of an event on one day, clipped to that day. */

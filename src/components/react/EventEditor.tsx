@@ -21,6 +21,7 @@ import {
 } from "@/lib/events";
 import { describeRule, isExpressible, nthLabel } from "@/lib/describe";
 import { DEFAULT_DURATION, MIN_DURATION, defaultStart } from "@/lib/quickadd";
+import { REMIND_INHERIT, REMIND_LEADS, REMIND_SILENT, ownLead, remindLabel } from "@/lib/remind";
 import {
   WEEKDAYS,
   addDays,
@@ -143,13 +144,16 @@ function parseDay(value: string): Date | null {
 
 export default function EventEditor({
   target,
-  clock,
+  settings,
   calendars,
   onSave,
   onDelete,
   onClose,
   onDraftChange,
 }: EventEditorProps) {
+  // Destructured on the body's first line, so every reader below reads
+  // exactly as it did when these arrived as props of their own.
+  const { clock, remind, remindLead } = settings;
   const [draft, setDraft] = useState<Omit<CalEvent, "id">>(target.draft);
   const reducedMotion = useReducedMotion();
   /** A subscribed feed's event: shown in full, editable in no part. */
@@ -440,6 +444,29 @@ export default function EventEditor({
     { value: "-1", label: nthLabel(-1, seed.getDay()) },
   ];
 
+  /* ------------------------------- reminder ------------------------------- */
+
+  /**
+   * Inherit, the offered leads, and never — plus this event's own lead when
+   * it is not one this app offers, which is how a `VALARM` of seven minutes
+   * from another calendar stays visible and editable instead of vanishing
+   * out of a `Select` that has no option for it. `ownLead` is asked rather
+   * than the number compared, because which of the three states an event is
+   * in is a question with exactly one answerer.
+   */
+  const own = ownLead(draft);
+  const remindOptions = [
+    {
+      value: String(REMIND_INHERIT),
+      label: `Follow settings · ${remind ? remindLabel(remindLead) : "off"}`,
+    },
+    ...REMIND_LEADS.map((minutes) => ({ value: String(minutes), label: remindLabel(minutes) })),
+    ...(own !== null && !REMIND_LEADS.includes(own)
+      ? [{ value: String(own), label: remindLabel(own) }]
+      : []),
+    { value: String(REMIND_SILENT), label: "Never" },
+  ];
+
   return (
     <AnimatePresence>
       <div className="fixed inset-0 z-50 grid place-items-center">
@@ -656,6 +683,47 @@ export default function EventEditor({
                       ]}
                     />
                   </span>
+                </Row>
+              )}
+
+              {/* One row, three states, and the default one reads as
+                  inheritance rather than as a number — somebody who changes
+                  the global lead later should not find events quietly holding
+                  the old one, and a row printing "10m before" as its default
+                  is exactly that trap. The current setting rides along after
+                  the word so the inheritance is legible, not a promise.
+
+                  Shown while reminders are switched off, with the reason said
+                  out loud underneath. Hiding it is the tidier answer and the
+                  wrong one: an imported event's own alarm is data this row is
+                  the only view of, and a field that becomes invisible when a
+                  preference is off is a field the user cannot find out they
+                  have. Off, the inherited option says `off` rather than a
+                  duration, because that is what following the setting
+                  currently gets you.
+
+                  Not on an all-day event: `dueReminders` never fires one —
+                  there is no minute to count down to — so a lead here would
+                  be a control with no effect, the same reason "Shows as" is
+                  absent from a task. Whatever an import put on the draft is
+                  left alone rather than reset; it is the sender's statement,
+                  and it travels back out. */}
+              {!draft.allDay && (
+                <Row label="Remind" align="top">
+                  <span className="flex flex-wrap items-center gap-2">
+                    <Select
+                      value={String(draft.remindLead)}
+                      onChange={(next) => patch({ remindLead: Number(next) })}
+                      options={remindOptions}
+                      label="How much warning"
+                    />
+                  </span>
+                  {!remind && (
+                    <span className="caption">
+                      Reminders are off in settings, so nothing fires for any event until they are
+                      on
+                    </span>
+                  )}
                 </Row>
               )}
 

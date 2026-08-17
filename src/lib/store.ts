@@ -49,7 +49,7 @@ import {
 } from "./events";
 import { applyRemove, applySplit, applyToggleDone, applyTruncate, applyUpdate } from "./mutate";
 import { DEFAULT_DURATION, MIN_DURATION } from "./quickadd";
-import { REMIND_LEADS } from "./remind";
+import { REMIND_INHERIT, REMIND_LEADS, readRemindLead } from "./remind";
 import { clearedStamps, countStamped, keptEvents, movedEvents } from "./travel";
 import type { PickedPlace } from "./places";
 
@@ -102,7 +102,10 @@ const FEED_BUDGET = 2_000_000;
  * `free` as well: six more fields, filled in on read, none of them a change
  * to what anything already stored means — `moon` arrives from a stored
  * `moonPhase` through `migrateSettings`, which is a shape changing rather
- * than a meaning.
+ * than a meaning. And still 2 through the per-event `remindLead` override:
+ * an event without one inherits, which is exactly what every event in every
+ * blob written before it was already doing, so nothing stored says anything
+ * new — and a bump here would throw away the setting the override overrides.
  */
 const SCHEMA = 2;
 
@@ -579,6 +582,7 @@ function seed(): CalEvent[] {
     task: false,
     doneKeys: [],
     free: false,
+    remindLead: REMIND_INHERIT,
     ...extra,
   });
 
@@ -806,6 +810,7 @@ function hydrateEvents(value: unknown): CalEvent[] {
       task,
       doneKeys,
       free,
+      remindLead,
       tzid,
     } = event;
     if (
@@ -829,6 +834,13 @@ function hydrateEvents(value: unknown): CalEvent[] {
       typeof task === "boolean" &&
       Array.isArray(doneKeys) &&
       typeof free === "boolean" &&
+      // The one field asked about validity rather than only shape, and the
+      // only one where the two differ: every neighbour here is a boolean, a
+      // string or an array, where being the right type *is* being legal, but
+      // a lead has a range. A stored `4000000` is a number, and left alone it
+      // makes `dueReminders` scan a day seven years out, every minute, for
+      // ever. Two integer comparisons in the common case is what that costs.
+      remindLead === readRemindLead(remindLead) &&
       typeof tzid === "string"
     ) {
       return event;
@@ -847,6 +859,12 @@ function hydrateEvents(value: unknown): CalEvent[] {
       // path returns the event untouched, so a field left out of it is a
       // field a stored blob never gains.
       free: free === true,
+      // In the shape question above for the same reason `free` is: a field
+      // left out of the fast path is a field a stored blob never gains, so
+      // an event written before this one existed would keep arriving without
+      // it and reach `leadOf` as `undefined` — neither of the three states,
+      // and silently not the inheriting one.
+      remindLead: readRemindLead(remindLead),
       // A blob written before this field existed carries every event
       // floating, which is what those events already were — nothing zoned
       // an event but `fromIcs`'s own DTSTART reader.
@@ -1904,6 +1922,9 @@ export function draftEvent(
     doneKeys: [],
     // Busy: a gesture that named a time meant that time to be spoken for.
     free: false,
+    // Inheriting, which is the only answer a gesture gives: the drag named a
+    // time, not how much warning it wants about it.
+    remindLead: REMIND_INHERIT,
   };
 }
 

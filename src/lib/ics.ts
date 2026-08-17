@@ -29,6 +29,12 @@ import {
   type Repeat,
   type WeekdayRule,
 } from "./events";
+// Upward, in the layer sense — `remind.ts` sits a tier later in this
+// directory's one-way dependency order and imports nothing from here, so the
+// graph stays acyclic. It is imported rather than copied because a `VALARM`
+// is written only for an event that names its own lead, and which of the
+// three states an event is in is a question exactly one function may answer.
+import { REMIND_INHERIT, REMIND_LEAD_MAX, ownLead } from "./remind";
 
 /** A VEVENT reduced to what circal models. `uid` is kept so a re-import of
  *  the same feed replaces rather than duplicates. */
@@ -79,6 +85,16 @@ export interface IcsEvent extends Recurrence {
    * says nothing means.
    */
   free: boolean;
+  /**
+   * The lead from the first `VALARM` this reader could model, in
+   * `CalEvent.remindLead`'s own three-state vocabulary — `REMIND_INHERIT`
+   * for a VEVENT that carried no alarm, or none this app can count down in.
+   *
+   * Never `REMIND_SILENT`: a file that says nothing about alarms is not the
+   * same statement as an event asking for silence, and reading an absence
+   * as a refusal would import a calendar that never speaks.
+   */
+  remindLead: number;
 }
 
 /* --------------------------------- text ----------------------------------- */
@@ -347,6 +363,34 @@ export function toIcs(events: CalEvent[], name: string): string {
     // no escaping beyond that.
     if (event.task) lines.push("X-CIRCAL-TASK:TRUE");
     if (event.doneKeys.length > 0) lines.push(`X-CIRCAL-DONE:${event.doneKeys.join(",")}`);
+    // A `VALARM` only for an event that named a lead of its own. An event
+    // inheriting the setting has no per-event alarm to export, and writing
+    // the current setting into the file would turn a preference into data:
+    // it would come back on the next import as an override nobody set, and
+    // then stop following the setting it was a copy of. A silent event
+    // exports no alarm either — that is the honest answer rather than a
+    // clever one, because iCalendar has no way to spell "and do not apply
+    // your own default here": the absence of a VALARM is the only thing a
+    // file can say, and it is exactly what circal will read back as
+    // "inherit". Silence is the one state that does not survive an export,
+    // and inventing an `X-` line for it would make it survive only into
+    // circal, which is the app that already has the value.
+    const lead = ownLead(event);
+    if (lead !== null) {
+      lines.push("BEGIN:VALARM");
+      // §3.6.6 requires ACTION and TRIGGER, and DESCRIPTION as well once the
+      // action is DISPLAY — an alarm with nothing to display is rejected by
+      // strict readers rather than shown blank.
+      lines.push("ACTION:DISPLAY");
+      lines.push(`DESCRIPTION:${escapeText(event.title || "Reminder")}`);
+      // Whole minutes, the only unit this app counts leads in, and negative
+      // because a lead is time *before* the start. Zero is the exception and
+      // takes the unsigned form every mainstream producer writes for "at the
+      // time of the event": a negative zero duration is legal ABNF and reads
+      // as a typo.
+      lines.push(lead === 0 ? "TRIGGER:PT0S" : `TRIGGER:-PT${lead}M`);
+      lines.push("END:VALARM");
+    }
     lines.push("END:VEVENT");
   }
   lines.push("END:VCALENDAR");
@@ -452,11 +496,58 @@ function parseDateProp(
  * same component, and a flat map would keep only the last of each — which
  * is a series quietly gaining back every occurrence it was told to skip, or
  * losing every extra date it was given.
+ *
+ * `alarms` is apart for a different reason: a VALARM is a *component*, not a
+ * property, and a VEVENT may carry several. Its lines must never land in
+ * `props` — an alarm has its own DESCRIPTION and its own DURATION, and both
+ * mean something else there.
  */
 interface Block {
   props: Record<string, PropEntry>;
   exdates: PropEntry[];
   rdates: PropEntry[];
+  alarms: Record<string, PropEntry>[];
+}
+
+/**
+ * The lead the first modelable `VALARM` asks for, in minutes, or
+ * `REMIND_INHERIT` when there is none.
+ *
+ * Only one shape is read, and everything else is ignored rather than guessed
+ * at: a `TRIGGER` that is a duration relative to the start (which is
+ * `RELATED=START`, the RFC's own default) and lands at or before it. What
+ * that leaves out is deliberate — an absolute `VALUE=DATE-TIME` trigger is a
+ * wall-clock alarm rather than a lead and would have to be recomputed for
+ * every occurrence of a series; `RELATED=END` counts from an end this app
+ * does not count down to; a positive duration fires *after* the start, which
+ * is not a warning; `REPEAT`/`DURATION` are an alarm that nags, and circal
+ * notifies once; and `ACTION` is not read at all, because an EMAIL alarm's
+ * lead is still the lead the sender wanted. A trigger that is not a whole
+ * number of minutes is dropped too: the tick is minute-grained, and rounding
+ * ninety seconds to one minute or to two would be inventing an answer.
+ *
+ * The *first* such alarm, not the shortest or the longest. Several is a
+ * calendar that nags in stages, which circal does not model, and taking the
+ * one the sender wrote first is the only choice that does not silently
+ * re-rank somebody else's intent.
+ */
+function readAlarmLead(alarms: Record<string, PropEntry>[]): number {
+  for (const alarm of alarms) {
+    const trigger = alarm.TRIGGER;
+    if (!trigger) continue;
+    if (trigger.params.VALUE?.toUpperCase().trim() === "DATE-TIME") continue;
+    const related = trigger.params.RELATED?.toUpperCase().trim();
+    if (related && related !== "START") continue;
+    const ms = parseDuration(trigger.value.trim());
+    if (ms === null || ms > 0) continue;
+    // `Math.abs`, not a negation: `ms` is zero or below, and negating a zero
+    // gives `-0`, which stores and compares as a different number from the
+    // `0` every other reader of this field writes.
+    const minutes = Math.abs(ms) / 60_000;
+    if (!Number.isInteger(minutes) || minutes > REMIND_LEAD_MAX) continue;
+    return minutes;
+  }
+  return REMIND_INHERIT;
 }
 
 /** `FREQ=WEEKLY;BYDAY=TU,TH` → a lookup. */
@@ -720,6 +811,7 @@ function buildEvent(block: Block): IcsEvent | null {
     // value this standard does not have — is busy, which is the default the
     // RFC itself names.
     free: props.TRANSP?.value.trim().toUpperCase() === "TRANSPARENT",
+    remindLead: readAlarmLead(block.alarms),
     ...readRecurrence(block, dtstart.ms, dtstart.tzid),
   };
 }
@@ -844,9 +936,12 @@ export function fromIcs(text: string): { name: string; events: IcsEvent[] } {
   // Block nesting, tracked generically: a property belongs to the open
   // VEVENT only while VEVENT is the innermost block, so a VALARM (or
   // anything else) nested inside one can't leak its own properties in or
-  // prematurely close it.
+  // prematurely close it. The alarm is collected on its own for that exact
+  // reason — it is the one nested block circal reads, and reading it is not
+  // the same as letting it in.
   const stack: string[] = [];
   let current: Block | null = null;
+  let alarm: Record<string, PropEntry> | null = null;
 
   for (const raw of lines) {
     const parsed = splitLine(raw);
@@ -855,12 +950,21 @@ export function fromIcs(text: string): { name: string; events: IcsEvent[] } {
 
     if (propName === "BEGIN") {
       const block = value.toUpperCase();
+      const inVevent = stack[stack.length - 1] === "VEVENT";
       stack.push(block);
-      if (block === "VEVENT" && current === null) current = { props: {}, exdates: [], rdates: [] };
+      if (block === "VEVENT" && current === null)
+        current = { props: {}, exdates: [], rdates: [], alarms: [] };
+      // Only an alarm directly inside the open VEVENT. Anything deeper is a
+      // component this reader has no opinion about.
+      else if (block === "VALARM" && current !== null && inVevent) alarm = {};
       continue;
     }
     if (propName === "END") {
       const opened = stack.pop();
+      if (opened === "VALARM" && alarm !== null && current !== null) {
+        current.alarms.push(alarm);
+        alarm = null;
+      }
       if (opened === "VEVENT" && value.toUpperCase() === "VEVENT" && current !== null) {
         const event = buildEvent(current);
         if (event) {
@@ -872,11 +976,16 @@ export function fromIcs(text: string): { name: string; events: IcsEvent[] } {
           });
         }
         current = null;
+        // A file that opens a VALARM and never closes it must not hand that
+        // alarm to the next VEVENT.
+        alarm = null;
       }
       continue;
     }
 
-    if (current !== null && stack[stack.length - 1] === "VEVENT") {
+    if (alarm !== null && stack[stack.length - 1] === "VALARM") {
+      alarm[propName] = { params, value };
+    } else if (current !== null && stack[stack.length - 1] === "VEVENT") {
       if (propName === "EXDATE") current.exdates.push({ params, value });
       else if (propName === "RDATE") current.rdates.push({ params, value });
       else current.props[propName] = { params, value };

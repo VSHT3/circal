@@ -13,6 +13,7 @@
 
 import { expect } from "vitest";
 import { NEVER, type CalEvent, type Calendar, type Recurrence } from "@/lib/events";
+import { REMIND_INHERIT } from "@/lib/remind";
 
 /* -------------------------------- parsing --------------------------------- */
 
@@ -157,6 +158,9 @@ export function event(
     doneKeys: [],
     // Busy, which is what an event says when it says nothing.
     free: false,
+    // Following the setting, which is the same kind of nothing: this event
+    // has no opinion about how much warning it wants.
+    remindLead: REMIND_INHERIT,
     ...NEVER,
     ...rest,
   };

@@ -23,6 +23,7 @@ import {
   type Snapshot,
 } from "./store";
 import { notify } from "./notify";
+import { readRemindLead } from "./remind";
 import { dayKey, isZone } from "./time";
 import { isRecord } from "./utils";
 import { ICON_MAX, readRecurrence, recurrenceOf, type CalEvent, type Calendar } from "./events";
@@ -348,6 +349,10 @@ export function readEvent(value: unknown): CalEvent | null {
     // exported before this field existed was. A truthy string in a
     // hand-edited blob must not quietly take a meeting off the day's total.
     free: value.free === true,
+    // What a legal lead is lives in `remind.ts`, beside the three states it
+    // has to distinguish: an unreadable one comes back inheriting, which is
+    // what an event exported before this field existed already did.
+    remindLead: readRemindLead(value.remindLead),
   };
 }
 
@@ -475,6 +480,10 @@ export function importIcs(text: string, filename: string) {
         // `TRANSP`, which every calendar writes: an event another app marked
         // free arrives free here rather than silently booking the hour.
         free: e.free,
+        // The first `VALARM` this reader could model, or inheriting when the
+        // VEVENT carried none — a sender's alarm is a fact about that event
+        // and travels with it, the same way `TRANSP` does.
+        remindLead: e.remindLead,
       };
     }),
   );

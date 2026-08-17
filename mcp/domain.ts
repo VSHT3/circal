@@ -28,6 +28,7 @@ import {
 } from "@/lib/events";
 import { applyRemove, applySplit, applyToggleDone, applyTruncate, applyUpdate } from "@/lib/mutate";
 import { parseQuickAdd } from "@/lib/quickadd";
+import { REMIND_INHERIT } from "@/lib/remind";
 import { NEVER, instantKey, keyToInstant, readRecurrence, repeats, type Repeat } from "@/lib/recur";
 import {
   addDays,
@@ -313,6 +314,10 @@ export function buildEventRecord(
     // Busy. There is no tool argument for this yet, and an agent asked to put
     // an hour in the diary means the hour to be spoken for.
     free: false,
+    // Inheriting, for the same reason: no tool argument names a lead, and an
+    // event created with one of its own would be an agent quietly deciding
+    // how much warning its user wants.
+    remindLead: REMIND_INHERIT,
   });
 }
 
@@ -355,6 +360,11 @@ export function applyPatchToEvent(
     // to busy — so leaving it out would quietly rebook a free event the
     // moment its title was edited.
     free: base.free,
+    // Carried for exactly the reason above, and this is the field where it
+    // costs most: an event the user silenced would start speaking again the
+    // moment an assistant fixed a typo in its title, because `readEvent`
+    // reads an absent lead as inheriting.
+    remindLead: base.remindLead,
   });
 }
 

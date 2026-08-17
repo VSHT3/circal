@@ -1,8 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { at, byDay, calendar, event } from "./helpers";
+import { instantKey } from "@/lib/events";
 import {
+  REMIND_INHERIT,
   REMIND_LEADS,
+  REMIND_LEAD_MAX,
+  REMIND_SILENT,
   dueReminders,
+  leadOf,
+  ownLead,
+  readRemindLead,
+  remindLabel,
   reminderText,
   titleCountdown,
   type Reminder,
@@ -13,6 +21,80 @@ const cal = calendar();
 describe("REMIND_LEADS", () => {
   it("is the fixed set the settings panel offers", () => {
     expect(REMIND_LEADS).toEqual([0, 5, 10, 15, 30, 60]);
+  });
+});
+
+/* ------------------------------ the three states ------------------------------ *
+ * `leadOf` is to a reminder what `colorOf` is to a colour: the one place that
+ * knows an event's field is an *override* rather than the answer. Everything
+ * below is about the precedence, and about `0` being a lead like any other. */
+
+describe("leadOf: inherit, its own, or silent", () => {
+  const rows = [
+    { name: "inheriting takes the setting's lead", own: REMIND_INHERIT, expected: 10 },
+    { name: "its own lead beats the setting", own: 60, expected: 60 },
+    { name: "silent is no reminder at all", own: REMIND_SILENT, expected: null },
+    // The whole reason the two absences are negative: "tell me as it starts"
+    // is a lead somebody means, and a scheme where `0` doubled as off or as
+    // absent would make it unsayable.
+    { name: "0 is a lead, not an absence", own: 0, expected: 0 },
+  ];
+
+  it.each(rows)("$name", ({ own, expected }) => {
+    expect(leadOf(event({ remindLead: own }), 10)).toBe(expected);
+  });
+
+  it("answers about the event, never about whether reminders are switched on", () => {
+    // The shell's own gate, deliberately not asked here — a resolver that
+    // consulted it could not be used by the exporter, which must know what
+    // the event says whatever this browser is set to.
+    expect(leadOf(event({ remindLead: 15 }), 10)).toBe(15);
+  });
+});
+
+describe("ownLead: the lead an event names for itself", () => {
+  it.each([
+    { name: "a named lead", own: 30, expected: 30 },
+    { name: "zero is named", own: 0, expected: 0 },
+    { name: "inheriting names none", own: REMIND_INHERIT, expected: null },
+    // Silent names no *number*, which is what the exporter is asking: there
+    // is no VALARM to write for it.
+    { name: "silent names none", own: REMIND_SILENT, expected: null },
+  ])("$name", ({ own, expected }) => {
+    expect(ownLead(event({ remindLead: own }))).toBe(expected);
+  });
+});
+
+describe("readRemindLead: one validator, three readers", () => {
+  it.each([
+    { name: "a lead the panel offers", value: 15, expected: 15 },
+    { name: "zero", value: 0, expected: 0 },
+    { name: "a lead only an import could name", value: 7, expected: 7 },
+    { name: "silent", value: REMIND_SILENT, expected: REMIND_SILENT },
+    { name: "inherit", value: REMIND_INHERIT, expected: REMIND_INHERIT },
+    { name: "absent", value: undefined, expected: REMIND_INHERIT },
+    { name: "a string that looks like one", value: "15", expected: REMIND_INHERIT },
+    { name: "a negative that is neither state", value: -99, expected: REMIND_INHERIT },
+    { name: "half a minute", value: 1.5, expected: REMIND_INHERIT },
+    { name: "NaN", value: Number.NaN, expected: REMIND_INHERIT },
+    { name: "at the cap", value: REMIND_LEAD_MAX, expected: REMIND_LEAD_MAX },
+    // Past the cap it is dropped rather than clamped: a clamp would invent a
+    // four-week warning nobody asked for, where inheriting is what an event
+    // that said nothing readable already gets.
+    { name: "past the cap", value: REMIND_LEAD_MAX + 1, expected: REMIND_INHERIT },
+  ])("$name", ({ value, expected }) => {
+    expect.soft(readRemindLead(value)).toBe(expected);
+  });
+});
+
+describe("remindLabel", () => {
+  it.each([
+    { minutes: 0, label: "As it starts" },
+    { minutes: 5, label: "5m before" },
+    { minutes: 60, label: "1h before" },
+    { minutes: 1440, label: "24h before" },
+  ])("prints $minutes as $label", ({ minutes, label }) => {
+    expect.soft(remindLabel(minutes)).toBe(label);
   });
 });
 
@@ -82,6 +164,109 @@ describe("dueReminders: a target that crosses midnight into tomorrow", () => {
     const e = event({ start: "2026-03-09 00:15" });
     const reminders = dueReminders([e], [cal], at("2026-03-08 23:14"), 60, new Set());
     expect.soft(reminders).toHaveLength(0);
+  });
+});
+
+/* ------------------------------ the per-event lead ------------------------------ *
+ * The setting is now the *fallback*. An event may name its own lead or ask
+ * for none at all, and the same one-minute window is measured from whichever
+ * of the three it turns out to be. */
+
+describe("dueReminders: an event's own lead overrides the setting's", () => {
+  // The setting says five minutes; the dentist wants an hour.
+  const dentist = () => event({ title: "Dentist", start: "2026-03-09 09:00", remindLead: 60 });
+
+  it("fires an hour ahead, where the setting would have waited", () => {
+    const reminders = dueReminders([dentist()], [cal], at("2026-03-09 08:00"), 5, new Set());
+    expect.soft(reminders).toHaveLength(1);
+    // The resolved lead, which is what the notification then prints.
+    expect.soft(reminders[0]?.lead).toBe(60);
+    expect.soft(reminderText(reminders[0], "24h").body).toBe("in 1h · 09:00");
+  });
+
+  it("says nothing at the setting's own minute", () => {
+    const reminders = dueReminders([dentist()], [cal], at("2026-03-09 08:55"), 5, new Set());
+    expect.soft(reminders).toHaveLength(0);
+  });
+
+  // Zero has to be a lead the event can *name*, not a way of spelling one of
+  // the two absences: this is the case that fails if it ever doubles as one.
+  it("a named lead of 0 fires as the occurrence starts, not an hour before it", () => {
+    const standup = event({ title: "Standup", start: "2026-03-09 09:00", remindLead: 0 });
+    expect
+      .soft(dueReminders([standup], [cal], at("2026-03-09 08:00"), 60, new Set()))
+      .toHaveLength(0);
+    const atStart = dueReminders([standup], [cal], at("2026-03-09 09:00"), 60, new Set());
+    expect.soft(atStart).toHaveLength(1);
+    expect.soft(atStart[0]?.lead).toBe(0);
+  });
+
+  // Two events in one minute, two different leads, and the day scan is driven
+  // off the leads in use rather than off one number — a scan that only looked
+  // where the setting pointed would find one of these and not the other.
+  it("resolves each occurrence separately in the same tick", () => {
+    const soon = event({ title: "Soon", start: "2026-03-09 09:05", remindLead: 5 });
+    const later = event({ title: "Later", start: "2026-03-09 10:00", remindLead: 60 });
+    const reminders = dueReminders([soon, later], [cal], at("2026-03-09 09:00"), 15, new Set());
+    expect.soft(reminders.map((r) => r.event.title)).toEqual(["Soon", "Later"]);
+    expect.soft(reminders.map((r) => r.lead)).toEqual([5, 60]);
+  });
+
+  it("finds an event whose own lead is the one that crosses midnight", () => {
+    const e = event({ start: "2026-03-09 00:15", remindLead: 60 });
+    // The setting is 0, so nothing but this event's own lead can look into
+    // tomorrow at all.
+    const reminders = dueReminders([e], [cal], at("2026-03-08 23:15"), 0, new Set());
+    expect.soft(reminders).toHaveLength(1);
+    expect.soft(reminders[0]?.start).toBeSameInstantAs("2026-03-09 00:15");
+  });
+});
+
+describe("dueReminders: a silent event, and only it, stays quiet", () => {
+  // The point of the third state: one event you already know about goes
+  // quiet without the whole feature going quiet with it.
+  const quiet = () =>
+    event({ title: "Standup", start: "2026-03-09 09:00", remindLead: REMIND_SILENT });
+  const other = () => event({ title: "Review", start: "2026-03-09 09:00" });
+
+  it("raises nothing for the silenced event while its neighbour fires", () => {
+    const reminders = dueReminders([quiet(), other()], [cal], at("2026-03-09 09:00"), 0, new Set());
+    expect.soft(reminders.map((r) => r.event.title)).toEqual(["Review"]);
+  });
+
+  it("stays quiet at every lead the setting could be on", () => {
+    for (const lead of REMIND_LEADS) {
+      const now = at("2026-03-09 09:00");
+      now.setMinutes(now.getMinutes() - lead);
+      expect.soft(dueReminders([quiet()], [cal], now, lead, new Set())).toHaveLength(0);
+    }
+  });
+
+  // The reason the whole event list is passed to every day query rather than
+  // partitioned by lead: an override suppresses the instant it replaces, and
+  // a series scanned without its silent override in the list would generate
+  // the very occurrence the user silenced.
+  it("a silenced override keeps its series quiet on that day alone", () => {
+    const series = event({
+      id: "series",
+      title: "Standup",
+      start: "2026-03-02 09:00",
+      end: "2026-03-02 09:15",
+      repeat: "weekly",
+    });
+    const silenced = event({
+      id: "series-quiet",
+      title: "Standup",
+      seriesId: "series",
+      seriesKey: instantKey(at("2026-03-09 09:00")),
+      start: "2026-03-09 09:00",
+      end: "2026-03-09 09:15",
+      remindLead: REMIND_SILENT,
+    });
+    const events = [series, silenced];
+    expect.soft(dueReminders(events, [cal], at("2026-03-09 09:00"), 0, new Set())).toHaveLength(0);
+    // The Monday after is the series' own occurrence again, and it speaks.
+    expect.soft(dueReminders(events, [cal], at("2026-03-16 09:00"), 0, new Set())).toHaveLength(1);
   });
 });
 

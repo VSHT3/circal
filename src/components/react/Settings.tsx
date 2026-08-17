@@ -35,7 +35,7 @@ import { canVibrate } from "@/lib/feedback";
 import { formatCount, formatLifeDate, lifeSpan } from "@/lib/life";
 import { notify } from "@/lib/notify";
 import { mirror, mirrorSupported, useMirror } from "@/lib/mirrorLink";
-import { REMIND_LEADS } from "@/lib/remind";
+import { REMIND_LEADS, remindLabel } from "@/lib/remind";
 import {
   AMBIENT_DELAYS,
   BACKUP_INTERVALS,
@@ -117,11 +117,12 @@ const TOTALS_LABELS = [
 ];
 const TOTALS_OPTIONS = TOTALS_POSITIONS.map((value, i) => ({ value, label: TOTALS_LABELS[i] }));
 
-/** The lead times, as the row prints them. `0` is the only one that is not a
- *  duration, and it is the one that says what the whole feature is for. */
+/** The lead times, as the row prints them — in `remindLabel`'s voice, which
+ *  is the event editor's too: one number said one way, on both surfaces that
+ *  offer it. */
 const REMIND_OPTIONS = REMIND_LEADS.map((minutes) => ({
   value: String(minutes),
-  label: minutes === 0 ? "As it starts" : `${minutes} min before`,
+  label: remindLabel(minutes),
 }));
 
 /** The backup intervals, as the row prints them. */

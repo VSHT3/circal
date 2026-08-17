@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { byDay, day, event, ms } from "./helpers";
 import { fromIcs, toIcs, type IcsEvent } from "@/lib/ics";
 import { NEVER } from "@/lib/events";
+import { REMIND_INHERIT, REMIND_SILENT } from "@/lib/remind";
 import { startsBetween } from "@/lib/recur";
 
 /* ------------------------------- fixtures ---------------------------------- *
@@ -184,12 +185,13 @@ describe("round-trip", () => {
  * says it is lossy fails and has to be rewritten. That failure is the point:
  * it is the only way a fix announces itself here.
  *
- * Two cases have already left. The TZID one — see `AUDIT.md`, "Events have no
- * timezone" — and `TRANSP`, whose loss this block pinned until busy/free
- * became a field: both now live below, keeping rather than losing. */
+ * Three cases have already left. The TZID one — see `AUDIT.md`, "Events have
+ * no timezone" — `TRANSP`, whose loss this block pinned until busy/free
+ * became a field, and now `VALARM`: all three live below, keeping rather
+ * than losing. */
 
 describe("what the round trip drops", () => {
-  it("drops the collaboration and alarm properties on the way in", () => {
+  it("drops the collaboration properties on the way in", () => {
     const feed = singleVevent([
       "SUMMARY:Review",
       "DTSTART:20260615T090000Z",
@@ -198,23 +200,17 @@ describe("what the round trip drops", () => {
       "CATEGORIES:Work,Design",
       "ORGANIZER;CN=Ada:mailto:ada@example.com",
       "ATTENDEE;PARTSTAT=ACCEPTED:mailto:grace@example.com",
-      "BEGIN:VALARM",
-      "ACTION:DISPLAY",
-      "TRIGGER:-PT15M",
-      "END:VALARM",
     ]);
     const { events } = fromIcs(feed);
     expect(events).toHaveLength(1);
 
-    // What arrives is the event; who is coming, whether it is confirmed and
-    // when it was going to nudge you do not. `TRANSP` used to be in this
-    // list — see "TRANSP round-trip" below.
+    // What arrives is the event; who is coming and whether it is confirmed do
+    // not. `TRANSP` used to be in this list, and so did the alarm — see
+    // "TRANSP round-trip" and "VALARM round-trip" below.
     const kept = Object.keys(events[0]);
-    for (const absent of ["status", "categories", "organizer", "attendees", "alarms"]) {
+    for (const absent of ["status", "categories", "organizer", "attendees"]) {
       expect.soft(kept).not.toContain(absent);
     }
-    // The VALARM's own lines must not be mistaken for the event's, either:
-    // an alarm carries an ACTION and a TRIGGER and nothing that belongs here.
     expect.soft(events[0].title).toBe("Review");
     expect.soft(events[0].end).toBeSameInstantAs(Date.UTC(2026, 5, 15, 10, 0, 0));
   });
@@ -288,6 +284,173 @@ describe("TRANSP round-trip", () => {
     expect.soft(events).toHaveLength(1);
     expect.soft(events[0].free).toBe(true);
     expect.soft(events[0].title).toBe("Placeholder");
+  });
+});
+
+/* ---------------------------------- VALARM ---------------------------------- *
+ * The per-event reminder on the wire, and the second row to leave the block
+ * above: a `TRIGGER` is how every other calendar says "warn me this far
+ * ahead", and until `CalEvent.remindLead` existed there was nowhere on the
+ * model to put one. Only an event that names a lead of its own writes one —
+ * an inherited lead is a preference, not this event's data. */
+
+describe("VALARM round-trip", () => {
+  const veventWithAlarm = (...alarm: string[]) =>
+    singleVevent([
+      "SUMMARY:Review",
+      "DTSTART:20260615T090000Z",
+      "DTEND:20260615T100000Z",
+      "BEGIN:VALARM",
+      "ACTION:DISPLAY",
+      "DESCRIPTION:Review",
+      ...alarm,
+      "END:VALARM",
+    ]);
+
+  it.each([
+    { name: "a plain negative minute trigger", trigger: "TRIGGER:-PT15M", lead: 15 },
+    { name: "hours and minutes together", trigger: "TRIGGER:-PT1H30M", lead: 90 },
+    { name: "a whole day", trigger: "TRIGGER:-P1D", lead: 1440 },
+    // The unsigned zero every mainstream producer writes for "at the time of
+    // the event", and the signed one circal would never write but must read.
+    { name: "PT0S — as it starts", trigger: "TRIGGER:PT0S", lead: 0 },
+    { name: "-PT0M — the same thing, signed", trigger: "TRIGGER:-PT0M", lead: 0 },
+    // RELATED=START is the RFC's own default, so saying it changes nothing.
+    { name: "an explicit RELATED=START", trigger: "TRIGGER;RELATED=START:-PT10M", lead: 10 },
+  ])("reads $name as a lead of $lead", ({ trigger, lead }) => {
+    const { events } = fromIcs(veventWithAlarm(trigger));
+    expect(events[0].remindLead).toBe(lead);
+  });
+
+  // Ignored rather than guessed at, and every one of these comes back
+  // inheriting — which is what an event that said nothing readable gets.
+  it.each([
+    {
+      name: "an alarm counted from the end, which this app never counts down to",
+      trigger: "TRIGGER;RELATED=END:-PT15M",
+    },
+    {
+      name: "an absolute trigger, which is a wall-clock alarm and not a lead",
+      trigger: "TRIGGER;VALUE=DATE-TIME:20260615T084500Z",
+    },
+    { name: "a positive duration, which fires after the start", trigger: "TRIGGER:PT15M" },
+    { name: "ninety seconds, which is not a whole minute", trigger: "TRIGGER:-PT90S" },
+    { name: "a year, which is past the cap", trigger: "TRIGGER:-P400D" },
+    { name: "a duration this reader cannot parse", trigger: "TRIGGER:-P2W" },
+    { name: "no trigger at all", trigger: "X-WHATEVER:1" },
+  ])("ignores $name", ({ trigger }) => {
+    const { events } = fromIcs(veventWithAlarm(trigger));
+    expect(events[0].remindLead).toBe(REMIND_INHERIT);
+  });
+
+  it("reads a VEVENT with no VALARM as inheriting, never as silent", () => {
+    const { events } = fromIcs(
+      singleVevent(["SUMMARY:Review", "DTSTART:20260615T090000Z", "DTEND:20260615T100000Z"]),
+    );
+    expect(events[0].remindLead).toBe(REMIND_INHERIT);
+  });
+
+  // A calendar that nags in stages is not a thing circal models, and taking
+  // the first is the only choice that does not re-rank somebody else's
+  // intent — the shortest or the longest would both be an opinion.
+  it("takes the first modelable alarm when a VEVENT carries several", () => {
+    const { events } = fromIcs(
+      singleVevent([
+        "SUMMARY:Review",
+        "DTSTART:20260615T090000Z",
+        "DTEND:20260615T100000Z",
+        "BEGIN:VALARM",
+        "ACTION:AUDIO",
+        "TRIGGER;RELATED=END:-PT5M",
+        "END:VALARM",
+        "BEGIN:VALARM",
+        "ACTION:DISPLAY",
+        "DESCRIPTION:Review",
+        "TRIGGER:-PT30M",
+        "END:VALARM",
+        "BEGIN:VALARM",
+        "ACTION:DISPLAY",
+        "DESCRIPTION:Review",
+        "TRIGGER:-PT60M",
+        "END:VALARM",
+      ]),
+    );
+    expect(events[0].remindLead).toBe(30);
+  });
+
+  // The nesting rule the parser already had, now that something inside a
+  // VALARM is actually read: an alarm's own DESCRIPTION is its banner text
+  // and must never become the event's notes, and its DURATION is a repeat
+  // interval rather than the event's length.
+  it("keeps an alarm's own properties out of the event", () => {
+    const { events } = fromIcs(
+      singleVevent([
+        "SUMMARY:Review",
+        "DTSTART:20260615T090000Z",
+        "DTEND:20260615T100000Z",
+        "DESCRIPTION:Bring the deck",
+        "BEGIN:VALARM",
+        "ACTION:DISPLAY",
+        "DESCRIPTION:Review starts soon",
+        "TRIGGER:-PT15M",
+        "DURATION:PT5M",
+        "REPEAT:3",
+        "END:VALARM",
+      ]),
+    );
+    expect.soft(events[0].notes).toBe("Bring the deck");
+    expect.soft(events[0].remindLead).toBe(15);
+    expect.soft(events[0].end).toBeSameInstantAs(Date.UTC(2026, 5, 15, 10, 0, 0));
+  });
+
+  it("writes an alarm only for an event that named a lead of its own", () => {
+    const named = event({ title: "Dentist", start: "2026-03-09 09:00", remindLead: 60 });
+    const inheriting = event({ title: "Review", start: "2026-03-09 09:00" });
+    const silenced = event({
+      title: "Standup",
+      start: "2026-03-09 09:00",
+      remindLead: REMIND_SILENT,
+    });
+    const out = toIcs([named], "Work");
+    expect.soft(out).toContain("BEGIN:VALARM");
+    expect.soft(out).toContain("TRIGGER:-PT60M");
+    // §3.6.6 requires both of these once the action is DISPLAY.
+    expect.soft(out).toContain("ACTION:DISPLAY");
+    expect.soft(out).toContain("DESCRIPTION:Dentist");
+    // Materialising the setting here would turn a preference into data: it
+    // would come back on the next import as an override nobody set.
+    expect.soft(toIcs([inheriting], "Work")).not.toContain("VALARM");
+    // And silence has no spelling in iCalendar — no VALARM is the only thing
+    // the format can say, which is exactly what circal reads back as
+    // inheriting.
+    expect.soft(toIcs([silenced], "Work")).not.toContain("VALARM");
+  });
+
+  it("writes a named lead of 0 as the unsigned form, and reads it back as 0", () => {
+    const punctual = event({ title: "Standup", start: "2026-03-09 09:00", remindLead: 0 });
+    const out = toIcs([punctual], "Work");
+    expect.soft(out).toContain("TRIGGER:PT0S");
+    expect.soft(fromIcs(out).events[0].remindLead).toBe(0);
+  });
+
+  it("survives the whole trip out and back", () => {
+    const dentist = event({ title: "Dentist", start: "2026-03-09 09:00", remindLead: 60 });
+    const { events } = fromIcs(toIcs([dentist], "Work"));
+    expect.soft(events).toHaveLength(1);
+    expect.soft(events[0].remindLead).toBe(60);
+    expect.soft(events[0].title).toBe("Dentist");
+  });
+
+  // Silence is the one state an export cannot carry, and it is worth pinning
+  // that it degrades to inheritance rather than to something worse.
+  it("brings a silenced event back inheriting", () => {
+    const silenced = event({
+      title: "Standup",
+      start: "2026-03-09 09:00",
+      remindLead: REMIND_SILENT,
+    });
+    const { events } = fromIcs(toIcs([silenced], "Work"));
+    expect(events[0].remindLead).toBe(REMIND_INHERIT);
   });
 });
 

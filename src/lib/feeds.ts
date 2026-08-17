@@ -93,6 +93,11 @@ export async function refreshFeed(calendar: Calendar): Promise<void> {
         // subscription is where an event marked free somewhere else arrives,
         // and until this line it arrived booking the hour.
         free: e.free,
+        // A subscription's own alarm, mirrored like everything else here: a
+        // shared calendar that asks for an hour's warning gets one, and one
+        // that asks for nothing falls back to the setting rather than to
+        // silence.
+        remindLead: e.remindLead,
       };
     });
     store.setFeedEvents(calendar.id, cached, name);

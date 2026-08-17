@@ -5,6 +5,7 @@ import { readEvent, readSettings, readCalendar, backupDue } from "@/lib/backup";
 import { DEFAULT_SETTINGS } from "@/lib/store";
 import { ICON_MAX, NEVER, type CalEvent } from "@/lib/events";
 import { placeForZone } from "@/lib/places";
+import { REMIND_INHERIT, REMIND_SILENT } from "@/lib/remind";
 
 /* ---------------------------------------------------------------------- *
  * This module is the only place a backup file — hand-edited, corrupted,
@@ -118,6 +119,23 @@ describe("readEvent — defaults", () => {
     { input: undefined, expected: false },
   ])("free $input reads as $expected — only a literal true means free", ({ input, expected }) => {
     expect(readEvent({ ...baseEvent, free: input })?.free).toBe(expected);
+  });
+
+  // Not a boolean but a number with a range, so the hostile cases are the
+  // ones in between: every unreadable value comes back inheriting, which is
+  // what an event exported before this field existed already was. What the
+  // legal ones are lives in `remind.ts` and is pinned there — this asserts
+  // that this reader asks it rather than deciding for itself.
+  it.each([
+    { name: "a lead the panel offers", input: 15, expected: 15 },
+    { name: "silence", input: REMIND_SILENT, expected: REMIND_SILENT },
+    { name: "as it starts", input: 0, expected: 0 },
+    { name: "absent", input: undefined, expected: REMIND_INHERIT },
+    { name: "a string", input: "15", expected: REMIND_INHERIT },
+    { name: "a negative that is neither state", input: -7, expected: REMIND_INHERIT },
+    { name: "a lead a decade long", input: 5_000_000, expected: REMIND_INHERIT },
+  ])("remindLead: $name", ({ input, expected }) => {
+    expect(readEvent({ ...baseEvent, remindLead: input })?.remindLead).toBe(expected);
   });
 
   it("fills every recurrence field with NEVER's shape when none are given at all", () => {
