@@ -670,17 +670,21 @@ function Shell() {
     useCallback(() => setAmbient("auto"), []),
   );
   /**
-   * Whether the backup nudge is on screen. On the day view only — it is the
-   * dial's stage the notice sits over, and the top edge is the one place there
-   * that clears the centre readout. Never while a modal, the palette, the
-   * editor, the drawer or ambient is up (`shaded`, `inAmbient`), so it never
-   * arrives over something that owns the screen. Silent while a mirror is live:
-   * a rolling copy is already being written on every change, and nagging for a
-   * backup somebody is continuously taking is the app not knowing what it does.
+   * Whether the backup nudge is on screen. On every view, not the dial alone:
+   * this is the one message in the app that must not be missable — it is the
+   * whole feature — and a person who lives on the week strip or the year ring
+   * would never meet it if it were day-only. It sits at the top edge, above
+   * where any view puts its own readout (the dial's and the ring's are centred,
+   * the strip's is under its faces, the grid's meta strip is a caption row it
+   * clears), so it collides with none of them. Never while a modal, the
+   * palette, the editor, the drawer or ambient is up (`shaded`, `inAmbient`),
+   * so it never arrives over something that owns the screen. Silent while a
+   * mirror is live: a rolling copy is already being written on every change,
+   * and nagging for a backup somebody is continuously taking is the app not
+   * knowing what it does.
    */
   const showNudge =
     settings.backupNudge &&
-    view === "day" &&
     !shaded &&
     !inAmbient &&
     mirrorStatus.state !== "live" &&

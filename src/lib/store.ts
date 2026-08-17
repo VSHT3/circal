@@ -1867,26 +1867,55 @@ let lastBackup = 0;
 let lastBackupRead = false;
 
 /**
- * A stored time in the future is incoherent — a clock the device once had set
- * wrong, most likely — and would read as "backed up" forever, so it is clamped
- * to now on the way in, the same job `sane()` does for the settings that can be
- * stored wrong rather than merely absent.
+ * The stored backup time, and whether the key was there at all. A time in the
+ * future is incoherent — a clock the device once had set wrong, most likely —
+ * and would read as "backed up" forever, so it is clamped to now on the way in,
+ * the same job `sane()` does for the settings that can be stored wrong rather
+ * than merely absent. `present` is false only when the key does not exist,
+ * which is a browser that has never opened circal since the nudge shipped.
  */
-function readLastBackup(): number {
+function readLastBackup(): { at: number; present: boolean } {
   try {
     const raw = disk()?.getItem(BACKUP_KEY);
-    const at = raw ? Number(raw) : 0;
-    return Number.isFinite(at) && at > 0 ? Math.min(at, Date.now()) : 0;
+    if (raw === null || raw === undefined) return { at: 0, present: false };
+    const at = Number(raw);
+    return { at: Number.isFinite(at) && at > 0 ? Math.min(at, Date.now()) : 0, present: true };
   } catch {
-    return 0;
+    // Storage refused the read; treat it as present-but-unknown so we do not
+    // stamp a first-run time this reload will not be able to persist anyway.
+    return { at: 0, present: true };
   }
 }
 
-/** The current value, read once from disk and kept warm after. */
+/**
+ * The backup clock, read once and kept warm. On the very first read of a
+ * browser that has no key yet, the clock is started at now rather than left at
+ * zero: "never backed up" measured from the epoch is due the instant the app
+ * opens, which hands a chore to somebody who has not made a single event.
+ * There is no honest earlier anchor to use instead — an event's `start` is when
+ * it happens, not when it was written, and the seed events a fresh install
+ * carries are not the user's work — so first run is the earliest moment there
+ * could be anything to lose, and that is where the interval begins.
+ *
+ * Stamped silently, without `emit()`: this runs inside the snapshot getter
+ * `useSyncExternalStore` calls during render, and notifying listeners from
+ * there would loop. The value is cached, so every later getter call is stable.
+ */
 function backupSnapshot(): number {
   if (!lastBackupRead) {
     lastBackupRead = true;
-    lastBackup = readLastBackup();
+    const stored = readLastBackup();
+    if (stored.present) {
+      lastBackup = stored.at;
+    } else {
+      lastBackup = Date.now();
+      try {
+        disk()?.setItem(BACKUP_KEY, String(lastBackup));
+      } catch {
+        // No disk: the in-memory value still starts the interval for this
+        // session, and a browser that cannot persist has nothing to lose.
+      }
+    }
   }
   return lastBackup;
 }

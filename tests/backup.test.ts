@@ -443,7 +443,7 @@ describe("backupDue", () => {
     expect.soft(backupDue(now - 31 * DAY, 30, now)).toBe(true);
   });
 
-  it("a never-backed-up browser (0) is due at once — the max-risk case the feature exists for", () => {
+  it("a zero clock (garbage/unknown, never a fresh install) is due at once", () => {
     expect(backupDue(0, 30, now)).toBe(true);
   });
 

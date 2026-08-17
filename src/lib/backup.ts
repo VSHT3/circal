@@ -127,11 +127,11 @@ const DAY_MS = 86_400_000;
  * Whether the main screen should say a `.json` backup is overdue: `now` is at
  * least `intervalDays` past `lastBackup`.
  *
- * A `lastBackup` of `0` — this browser has never written one — is due at once
- * rather than after the interval: a calendar with no backup at all is exactly
- * the maximum-risk case the whole feature exists for, and "you have never
- * backed up" is a truer thing to say than nothing. Dismissing restarts the
- * interval, so it does not nag past the first no.
+ * A `lastBackup` of `0` is due at once. The store anchors first run at now, so
+ * a fresh browser never reaches this with `0`; it happens only for a stored
+ * value that was garbage — a corrupt clock is a calendar whose backup age is
+ * unknown, and unknown is worth the same warning as overdue. Dismissing
+ * restarts the interval, so it does not nag past the first no.
  *
  * Pure and clockless by argument: the caller passes `now`, so the predicate
  * says the same thing in every zone and can be pinned in a test without a
