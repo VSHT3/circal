@@ -1,9 +1,9 @@
 # audit
 
 What is left to upgrade, improve, change or add. First explored 2026-08-12 against `8b8e8d5`; every
-claim is grounded in the code or in a measurement, with the line. Eight rounds have been worked
+claim is grounded in the code or in a measurement, with the line. Nine rounds have been worked
 through since — the Tier 0 four; the mechanical bucket; the round that needed one call each; and the
-five below. **Everything finished has been deleted from this file rather than crossed out**: what a
+six below. **Everything finished has been deleted from this file rather than crossed out**: what a
 decision was and why it went the way it did belongs in `AGENTS.md`, next to the code it constrains,
 and a list of solved problems is a list nobody reads twice.
 
@@ -91,6 +91,26 @@ fix records that narrowly, a list of the zones this app stamped with, rather tha
 field to every event to serve one settings row. The residue it leaves is stated in the caption where
 the user can see it, which is the same trade the export's own lossiness is pinned by.
 
+**Round nine, for the record.** Busy and free, one commit, and the interesting thing is how little of
+it was new. `CalEvent.free` is `task`'s argument repeated — an explicit flag rather than one inferred
+from a title or a zero-width end — and it walked the same checklist `task` walked, hydrator fast path
+through `readEvent`, `duplicateOf`, `importIcs`, `feeds.ts` and `mcp/domain.ts`, where an omission
+would have handed back a rebooked event whenever an assistant edited a free one's title. The drawing
+argued itself out of the two cheaper encodings: alpha is already "past" at 0.42 and a dash already
+reads as tentative, so free is the outline of the arc it would have filled, traced half a hairline
+inside the filled silhouette so `capInset`'s promise about painted length survives untouched. Two
+things are worth having in this file rather than only in `AGENTS.md`. The label would have shipped
+broken and was caught by argument rather than by eye — `inkOn(color)` is black, and inside an outline
+there is no pastel for black to sit on — which is the rare case of this project's own prose catching a
+defect before a browser did. And the week-strip question was answered by measuring instead of by
+adding a fallback: 0.625 css px of hairline against 3.75 of black at a desktop strip, 0.252 against
+1.515 at `WEEK_MIN_FACE`, so the edges never merge at a size the strip will draw, and no small-face
+encoding was written. **One encoding that degrades gracefully beat two that could disagree about what
+the same event is** — the same instinct as one `weekStart` setting instead of three, arrived at from
+pixels this time. The `.ics` side is the quieter reward: `TRANSP` round-trips, so Tier 2's export
+bullet is one item shorter and the characterisation test that pinned the loss now pins the fix, which
+is exactly what that bullet said would happen to it.
+
 ---
 
 ## Tier 0 — actually broken, or will bite
@@ -161,11 +181,14 @@ argue about, so the tier is closed rather than kept open at a smaller scale.
   `ORGANIZER`, `ATTENDEE`, accept or decline — none of those strings appear in `src/lib`. The most
   common inbound calendar action there is. The reply half needs a channel this product has refused;
   **reading** an invite and showing who is coming does not.
-- **Export fidelity, minus the zone.** `VALARM`, `ATTENDEE`, `STATUS` and `CATEGORIES` are still
-  dropped, and a task still leaves as a zero-length VEVENT with `X-CIRCAL-` lines, so another app
-  shows an instantaneous event and no ticks. `tests/ics.test.ts`'s `what the round trip drops` block
-  pins each loss as a characterisation test: the day one is fixed, the test that says it is lossy
-  fails, and that failure is how the fix announces itself.
+- **Export fidelity, minus the zone and now minus busy/free.** `VALARM`, `ATTENDEE`, `ORGANIZER`,
+  `STATUS` and `CATEGORIES` are still dropped, and a task still leaves as a zero-length VEVENT with
+  `X-CIRCAL-` lines, so another app shows an instantaneous event and no ticks. `TRANSP` has left that
+  list: busy/free is a field now, it is read and written, and the case that used to assert the loss
+  asserts the round trip instead — which is the first time this bullet's own mechanism has fired.
+  `tests/ics.test.ts`'s `what the round trip drops` block pins each remaining loss the same way: the
+  day one is fixed, the test that says it is lossy fails, and that failure is how the fix announces
+  itself.
 
 ---
 
