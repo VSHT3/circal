@@ -374,7 +374,7 @@ export default function Settings({
                         options={TOTALS_OPTIONS}
                         label="Where the totals sit"
                       />
-                      <span className="label text-ink-3">Where it sits on the face</span>
+                      <span className="label text-ink-2">Where it sits on the face</span>
                     </div>
                   )}
                   {/* Its own line: three segments will not sit beside the face
@@ -394,7 +394,7 @@ export default function Settings({
                     {/* Two words: "Names on arcs" wraps at this column width,
                       and a caption on two lines beside a control on one reads
                       as a row that has come apart. */}
-                    <span className="label text-ink-3">Arc names</span>
+                    <span className="label text-ink-2">Arc names</span>
                   </div>
                 </FieldRow>
 
@@ -506,7 +506,7 @@ export default function Settings({
                       label="Start ambient after"
                       options={AMBIENT_OPTIONS}
                     />
-                    <span className="label text-ink-3">Start on its own</span>
+                    <span className="label text-ink-2">Start on its own</span>
                   </div>
                   {/* Every one of these annotates something that has to exist
                     first, so with a bare dial the row is not empty — it is
@@ -559,7 +559,7 @@ export default function Settings({
                         { id: "off" as const, label: "Off" },
                       ]}
                     />
-                    <span className="label text-ink-3">Arc names</span>
+                    <span className="label text-ink-2">Arc names</span>
                   </div>
                   <span className="caption">
                     Chrome away, dial to the window — <Kbd>F</Kbd>, or <Kbd>⇧F</Kbd> for the whole

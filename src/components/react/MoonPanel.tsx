@@ -73,7 +73,7 @@ export default function MoonPanel({ day }: { day: Date }) {
 
   return (
     <section className="flex w-full shrink-0 flex-col gap-2">
-      <span className="label text-ink-3">Moon</span>
+      <span className="label text-ink-2">Moon</span>
       <div className="flex items-center gap-3">
         <svg viewBox="0 0 100 100" className="h-[62px] w-[62px]" role="presentation">
           <Disc phase={phase} />

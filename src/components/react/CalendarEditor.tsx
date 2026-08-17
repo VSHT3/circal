@@ -154,7 +154,7 @@ export default function CalendarEditor({
 
           {confirming && removal ? (
             <div className="border-t border-hairline px-3.5 py-3">
-              <span className="label text-ink-3">
+              <span className="label text-ink-2">
                 {feed ? "Remove this subscription" : "Delete this calendar"}
               </span>
               <p className="mt-1 text-[13px] text-ink-2">

@@ -127,6 +127,28 @@ function DayChip({
   );
 }
 
+/**
+ * The chips a verb's shortcut is advertised with, and the one thing in the
+ * footer that goes when the card is a single column.
+ *
+ * Four verbs, two of them carrying two chips each, measure about 397px against
+ * the 306px a 330px card leaves — which is what wrapped "Share link" onto two
+ * lines and clipped Save's own chips off the right edge. Something had to go,
+ * and the chips are the honest choice: ⌘↵ and ⌘⌫ still work, all four verbs
+ * keep their words, and a card that narrow is most often on a phone, where a
+ * chip advertises a key the reader does not have. Hidden rather than dropped,
+ * so this is one footer that is wider on a desktop and not two footers.
+ */
+function Chord({ keys }: { keys: string[] }) {
+  return (
+    <span className="hidden items-center gap-1.5 md:flex">
+      {keys.map((key) => (
+        <Kbd key={key}>{key}</Kbd>
+      ))}
+    </span>
+  );
+}
+
 /** The last instant of `day`, which is what `until` bounds a series with —
  *  an occurrence starting that afternoon is inside the day it names. */
 function endOfDay(day: Date): number {
@@ -596,10 +618,15 @@ export default function EventEditor({
     <button
       type="button"
       onClick={() => onShare(named())}
-      className="flex items-center gap-1.5 rounded-[8px] px-2 py-1 text-[14px] text-ink-2 transition-colors hover:bg-white/6 hover:text-ink"
+      // Icon only in a single column, where the words are the difference
+      // between a footer that fits and one that wraps. The label is the same
+      // string either way, so the button says the same thing to a screen
+      // reader at both widths.
+      aria-label="Share link"
+      className="flex shrink-0 items-center gap-1.5 rounded-[8px] px-2 py-1 text-[14px] whitespace-nowrap text-ink-2 transition-colors hover:bg-white/6 hover:text-ink"
     >
       <Link2 size={14} strokeWidth={1.75} />
-      Share link
+      <span className="hidden md:inline">Share link</span>
     </button>
   ) : null;
 
@@ -621,7 +648,7 @@ export default function EventEditor({
           aria-label={
             readOnly ? "Event" : `${target.id ? "Edit" : "New"} ${draft.task ? "task" : "event"}`
           }
-          className="relative flex max-h-[86vh] w-[330px] flex-col overflow-hidden rounded-[14px] border border-hairline bg-surface shadow-[0_32px_80px_-20px_rgba(0,0,0,0.9)]"
+          className="relative flex max-h-[86vh] w-[330px] flex-col overflow-hidden rounded-[14px] border border-hairline bg-surface shadow-[0_32px_80px_-20px_rgba(0,0,0,0.9)] md:w-[672px]"
           initial={reducedMotion ? false : { opacity: 0, scale: 0.97 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: reducedMotion ? 0 : 0.18, ease: [0.32, 0.72, 0, 1] }}
@@ -649,63 +676,95 @@ export default function EventEditor({
 
           {/* A `disabled` fieldset is the whole read-only implementation: it
               cascades to every control under it, including the ones nested two
-              components deep, which no prop-threading would reach. */}
-          <fieldset
-            disabled={readOnly}
-            className={cn(
-              "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden",
-              readOnly && "opacity-75",
-            )}
-          >
-            <div className="no-scrollbar flex-1 overflow-y-auto">
-              {/* Two dates, the way the Time row is two times — the second one
+              components deep, which no prop-threading would reach.
+
+              The scroll container is a plain `div` *around* it, and that is a
+              browser fact rather than a preference: a `<fieldset>` lays its
+              children out in an anonymous box that sizes to content and
+              ignores the height flexbox handed the fieldset, so a fieldset
+              asked to be the scroll parent silently is not one. Measured at
+              390×844, where the notes band ran a hundred pixels past the card
+              and the footer painted over it. Height is constrained on a real
+              box; the fieldset sits inside as a block, only ever as tall as
+              what it holds. */}
+          <div className="no-scrollbar min-h-0 min-w-0 flex-1 overflow-y-auto">
+            <fieldset disabled={readOnly} className={cn("min-w-0", readOnly && "opacity-75")}>
+              {/* Two columns on anything wider than a phone, along a seam the
+                card already had: the event itself — when it is, where, who,
+                how it behaves in time — and then how it is filed and
+                described. Stacked at 330px it is exactly the card it was, in
+                exactly the order it was.
+
+                Width is what earned it, twice over. Thirteen rows in one 330px
+                column scrolls on every laptop, so the fields were behind a
+                fold on the one surface whose whole point is seeing the draft
+                while you edit it; and the footer's four verbs never fitted
+                across 306px either. Two columns of 335 answers both and keeps
+                every inline row above the 320px floor those rows are written
+                to wrap at.
+
+                Both halves scroll as one, which is the point of the container
+                being outside them: two independently scrolling halves of one
+                form is two scrollbars and a Save button that can be in two
+                places. */}
+              <div className="md:grid md:grid-cols-2">
+                {/* The event itself. `URL` sits under `Where` because the two are
+                  one question — a room or a link — and it is where a join link
+                  was always going to be looked for.
+
+                  `[&>*:last-child]:border-b-0`, on both columns, drops the
+                  hairline a run of rows would otherwise leave hanging: under
+                  the notes band in two columns, and under the next column's
+                  own top border in one. */}
+                <div className="min-w-0 [&>*:last-child]:border-b-0">
+                  {/* Two dates, the way the Time row is two times — the second one
                   is the last day the event covers, and it is the only control
                   in the app that can make an event span several. Both are
                   always shown: on a single-day event they simply name the same
                   day, and hiding the one that reaches the state is worse than
                   printing it twice. */}
-              <Row label="Date">
-                <CalendarIcon size={14} className="shrink-0 text-ink-2" />
-                <DayField
-                  label="First day"
-                  value={new Date(draft.start)}
-                  onChange={handleDateChange}
-                />
-                {/* A task has one day, so it has one date field. The second
+                  <Row label="Date">
+                    <CalendarIcon size={14} className="shrink-0 text-ink-2" />
+                    <DayField
+                      label="First day"
+                      value={new Date(draft.start)}
+                      onChange={handleDateChange}
+                    />
+                    {/* A task has one day, so it has one date field. The second
                     one names the last day a span covers, and a moment does not
                     have one to name. */}
-                {!draft.task && (
-                  <>
-                    <span className="text-ink-3">–</span>
-                    <DayField label="Last day" value={lastDay} onChange={handleEndDateChange} />
-                  </>
-                )}
-              </Row>
+                    {!draft.task && (
+                      <>
+                        <span className="text-ink-3">–</span>
+                        <DayField label="Last day" value={lastDay} onChange={handleEndDateChange} />
+                      </>
+                    )}
+                  </Row>
 
-              <Row label={draft.task ? "Due" : "Time"} disabled={draft.allDay}>
-                <ClockIcon size={14} className="shrink-0 text-ink-2" />
-                <TimeField
-                  label={draft.task ? "Due time" : "Start time"}
-                  clock={clock}
-                  value={new Date(draft.start)}
-                  disabled={draft.allDay}
-                  onCommit={handleStartTime}
-                />
-                {!draft.task && (
-                  <>
-                    <span className="text-ink-3">–</span>
+                  <Row label={draft.task ? "Due" : "Time"} disabled={draft.allDay}>
+                    <ClockIcon size={14} className="shrink-0 text-ink-2" />
                     <TimeField
-                      label="End time"
+                      label={draft.task ? "Due time" : "Start time"}
                       clock={clock}
-                      value={new Date(draft.end)}
+                      value={new Date(draft.start)}
                       disabled={draft.allDay}
-                      onCommit={handleEndTime}
+                      onCommit={handleStartTime}
                     />
-                  </>
-                )}
-              </Row>
+                    {!draft.task && (
+                      <>
+                        <span className="text-ink-3">–</span>
+                        <TimeField
+                          label="End time"
+                          clock={clock}
+                          value={new Date(draft.end)}
+                          disabled={draft.allDay}
+                          onCommit={handleEndTime}
+                        />
+                      </>
+                    )}
+                  </Row>
 
-              {/* Hours read against another clock, and an event that does not
+                  {/* Hours read against another clock, and an event that does not
                   say so is a wrong answer that looks right. Every zoned event,
                   not only a subscription's: a floating event stamped by the
                   travel notice is one the user chose to leave on the clock it
@@ -713,76 +772,46 @@ export default function EventEditor({
                   afterwards. Still print-only — there is no picker, because a
                   zone arrives on an event from a feed's own TZID or from that
                   one answer, and never from a field. */}
-              {draft.tzid && (
-                <p className="caption -mt-1 px-3.5 pb-2">Times in {placeName(draft.tzid)}</p>
-              )}
+                  {draft.tzid && (
+                    <p className="caption -mt-1 px-3.5 pb-2">Times in {placeName(draft.tzid)}</p>
+                  )}
 
-              <Row label="Where">
-                <input
-                  value={draft.location}
-                  onChange={(e) => patch({ location: e.target.value })}
-                  placeholder="Add location"
-                  aria-label="Location"
-                  className="w-full min-w-0 border-none bg-transparent text-ink outline-none placeholder:text-ink-3"
-                />
-              </Row>
+                  <Row label="Where">
+                    <input
+                      value={draft.location}
+                      onChange={(e) => patch({ location: e.target.value })}
+                      placeholder="Add location"
+                      aria-label="Location"
+                      className="w-full min-w-0 border-none bg-transparent text-ink outline-none placeholder:text-ink-3"
+                    />
+                  </Row>
 
-              {/* Where, then who — and then every control, uninterrupted. This
-                  block is the one thing in the card that cannot be edited, so
-                  it sits at the end of the run of facts (day, time, zone,
-                  place) rather than among the pickers below, where a row that
-                  does nothing when pressed would read as one that is broken.
-                  It is absent entirely on everything the user wrote, since
-                  nothing here mints a guest list. */}
-              <Guests
-                organizer={draft.organizer}
-                attendees={draft.attendees}
-                attendeeCount={draft.attendeeCount}
-              />
+                  <Row label="URL">
+                    <input
+                      type="url"
+                      value={draft.url}
+                      onChange={(e) => patch({ url: e.target.value })}
+                      placeholder="Add URL"
+                      aria-label="URL"
+                      className="w-full min-w-0 border-none bg-transparent text-ink outline-none placeholder:text-ink-3"
+                    />
+                  </Row>
 
-              <Row label="Calendar">
-                <CalendarMark
-                  icon={calendar?.icon ?? ""}
-                  color={calendar?.color ?? PALETTE[0]}
-                  size={14}
-                />
-                <Select
-                  value={draft.calendarId}
-                  onChange={(next) => patch({ calendarId: next })}
-                  options={calendars.map((c) => ({ value: c.id, label: c.name }))}
-                  label="Calendar"
-                  className="flex-1"
-                />
-              </Row>
+                  {/* Where, then the link, then who — and then every control,
+                  uninterrupted. This block is the one thing in the card that
+                  cannot be edited, so it sits at the end of the run of facts
+                  (day, time, zone, place, link) rather than among the pickers
+                  beside it, where a row that does nothing when pressed would
+                  read as one that is broken. It is absent entirely on
+                  everything the user wrote, since nothing here mints a guest
+                  list. */}
+                  <Guests
+                    organizer={draft.organizer}
+                    attendees={draft.attendees}
+                    attendeeCount={draft.attendeeCount}
+                  />
 
-              <Row label="Color">
-                <ColorPicker
-                  value={draft.color}
-                  fallback={calendar?.color ?? PALETTE[0]}
-                  onChange={(color) => patch({ color })}
-                />
-              </Row>
-
-              {/* Under Color because it is the same kind of answer about the
-                  same event, and `""` means the same thing in both: follow the
-                  calendar. The two are read apart, though — `markOf` and
-                  `colorOf` — so an event may borrow one and override the
-                  other, and the mark only inherits at all when the setting
-                  says so. */}
-              <Row label="Mark" align="top">
-                <MarkPicker
-                  icon={draft.icon}
-                  color={colorOf(draft, calendars)}
-                  noneLabel="Follow the calendar"
-                  onChange={(icon) => patch({ icon })}
-                  query={markQuery}
-                  onQuery={setMarkQuery}
-                  browsing={browsing}
-                  onBrowse={setBrowsing}
-                />
-              </Row>
-
-              {/* One row, three switches, and the first two are exclusive by
+                  {/* One row, three switches, and the first two are exclusive by
                   construction: "all day" and "one minute" are two answers to
                   the same question about width, so each turns the other off
                   rather than sitting beside it greyed out.
@@ -791,27 +820,31 @@ export default function EventEditor({
                   modal: those get their word from the row's own label, and a
                   row with three switches in it has one label and three
                   meanings. */}
-              <Row label="Kind" align="top">
-                <span className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                  {!draft.task && (
-                    <Toggle label="All-day" checked={draft.allDay} onChange={handleAllDayToggle} />
-                  )}
-                  <Toggle
-                    label="Task"
-                    name="A moment rather than a span"
-                    checked={draft.task}
-                    onChange={handleTaskToggle}
-                  />
-                  {/* Only for an event that exists. A draft has no occurrence
+                  <Row label="Type" align="top">
+                    <span className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                      {!draft.task && (
+                        <Toggle
+                          label="All-day"
+                          checked={draft.allDay}
+                          onChange={handleAllDayToggle}
+                        />
+                      )}
+                      <Toggle
+                        label="Task"
+                        name="A moment rather than a span"
+                        checked={draft.task}
+                        onChange={handleTaskToggle}
+                      />
+                      {/* Only for an event that exists. A draft has no occurrence
                       to tick — it is not on any day yet — and a switch whose
                       state is discarded on Cancel is a switch that lied. */}
-                  {draft.task && target.id !== null && (
-                    <Toggle label="Done" checked={done} onChange={handleDoneToggle} />
-                  )}
-                </span>
-              </Row>
+                      {draft.task && target.id !== null && (
+                        <Toggle label="Done" checked={done} onChange={handleDoneToggle} />
+                      )}
+                    </span>
+                  </Row>
 
-              {/* Two states, so a `Segmented` and not a switch: "Busy" and
+                  {/* Two states, so a `Segmented` and not a switch: "Busy" and
                   "Free" are both answers a user can mean, where a switch has
                   one word and an off position that has to be guessed at.
 
@@ -820,36 +853,38 @@ export default function EventEditor({
                   control with no effect is worse than one that is missing. It
                   wraps like every other inline row: a 320px column is the
                   narrowest this card is read in. */}
-              {!draft.task && (
-                <Row label="Shows as">
-                  <span className="flex flex-wrap items-center gap-2">
-                    <Segmented
-                      value={draft.free ? "free" : "busy"}
-                      onChange={(next) => patch({ free: next === "free" })}
-                      options={[
-                        { id: "busy", label: "Busy" },
-                        { id: "free", label: "Free" },
-                      ]}
-                    />
-                  </span>
-                </Row>
-              )}
+                  {!draft.task && (
+                    <Row label="Shows as">
+                      <span className="flex flex-wrap items-center gap-2">
+                        <Segmented
+                          value={draft.free ? "free" : "busy"}
+                          onChange={(next) => patch({ free: next === "free" })}
+                          options={[
+                            { id: "busy", label: "Busy" },
+                            { id: "free", label: "Free" },
+                          ]}
+                        />
+                      </span>
+                    </Row>
+                  )}
 
-              {/* One row, three states, and the default one reads as
+                  {/* One row, three states, and the default one reads as
                   inheritance rather than as a number — somebody who changes
                   the global lead later should not find events quietly holding
                   the old one, and a row printing "10m before" as its default
                   is exactly that trap. The current setting rides along after
-                  the word so the inheritance is legible, not a promise.
+                  the word, so with reminders switched off the inherited option
+                  reads `Follow settings · off` and the row states the fact
+                  itself. That is where it belongs: the paragraph that used to
+                  sit under the control said what one option already said, and
+                  three lines of prose in a column this narrow is the loudest
+                  thing in the card for the least it could be telling you.
 
-                  Shown while reminders are switched off, with the reason said
-                  out loud underneath. Hiding it is the tidier answer and the
-                  wrong one: an imported event's own alarm is data this row is
-                  the only view of, and a field that becomes invisible when a
-                  preference is off is a field the user cannot find out they
-                  have. Off, the inherited option says `off` rather than a
-                  duration, because that is what following the setting
-                  currently gets you.
+                  Shown while reminders are switched off. Hiding it is the
+                  tidier answer and the wrong one: an imported event's own
+                  alarm is data this row is the only view of, and a field that
+                  becomes invisible when a preference is off is a field the
+                  user cannot find out they have.
 
                   Not on an all-day event: `dueReminders` never fires one —
                   there is no minute to count down to — so a lead here would
@@ -857,132 +892,166 @@ export default function EventEditor({
                   absent from a task. Whatever an import put on the draft is
                   left alone rather than reset; it is the sender's statement,
                   and it travels back out. */}
-              {!draft.allDay && (
-                <Row label="Remind" align="top">
-                  <span className="flex flex-wrap items-center gap-2">
-                    <Select
-                      value={String(draft.remindLead)}
-                      onChange={(next) => patch({ remindLead: Number(next) })}
-                      options={remindOptions}
-                      label="How much warning"
-                    />
-                  </span>
-                  {!remind && (
-                    <span className="caption">
-                      Reminders are off in settings, so nothing fires for any event until they are
-                      on
-                    </span>
+                  {!draft.allDay && (
+                    <Row label="Remind">
+                      <Select
+                        value={String(draft.remindLead)}
+                        onChange={(next) => patch({ remindLead: Number(next) })}
+                        options={remindOptions}
+                        label="How much warning"
+                      />
+                    </Row>
                   )}
-                </Row>
-              )}
 
-              {/* The rule, one line per question, and only the questions the
+                  {/* The rule, one line per question, and only the questions the
                   chosen frequency actually raises. A monthly series does not
                   get asked which weekdays; a one-off is asked nothing. */}
-              <Row label="Repeat" align={repeating ? "top" : "center"}>
-                {!expressible ? (
-                  <span>{describeRule(draft)}</span>
-                ) : (
-                  <>
-                    <Select
-                      value={draft.repeat}
-                      onChange={handleRepeatChange}
-                      options={REPEATS.map((r) => ({ value: r, label: REPEAT_LABELS[r] }))}
-                      label="Repeat"
-                    />
-
-                    {repeating && (
-                      <span className="flex items-center gap-2">
-                        <span className="label text-ink-3">Every</span>
-                        <NumberField
-                          value={draft.interval}
-                          onChange={(interval) => patch({ interval })}
-                          label="Repeat interval"
-                          suffix={repeatUnit(draft.repeat, draft.interval)}
-                          min={1}
-                          max={99}
-                        />
-                      </span>
-                    )}
-
-                    {draft.repeat === "weekly" && (
-                      <span className="flex items-center gap-1">
-                        {WEEK_ORDER.map((day) => (
-                          <DayChip
-                            key={day}
-                            day={day}
-                            active={activeDays.includes(day)}
-                            onToggle={() => toggleWeekday(day)}
-                          />
-                        ))}
-                      </span>
-                    )}
-
-                    {draft.repeat === "monthly" && (
-                      <span className="flex items-center gap-2">
-                        <span className="label text-ink-3">On</span>
+                  <Row label="Repeat" align={repeating ? "top" : "center"}>
+                    {!expressible ? (
+                      <span>{describeRule(draft)}</span>
+                    ) : (
+                      <>
                         <Select
-                          value={monthlyValue}
-                          onChange={handleMonthlyMode}
-                          options={monthlyModes}
-                          label="Monthly on"
+                          value={draft.repeat}
+                          onChange={handleRepeatChange}
+                          options={REPEATS.map((r) => ({ value: r, label: REPEAT_LABELS[r] }))}
+                          label="Repeat"
                         />
-                      </span>
-                    )}
 
-                    {repeating && (
-                      <span className="flex items-center gap-2">
-                        <span className="label text-ink-3">Ends</span>
-                        <Select
-                          value={draft.until > 0 ? "on" : "never"}
-                          onChange={handleEndsChange}
-                          options={[
-                            { value: "never", label: "Never" },
-                            { value: "on", label: "On" },
-                          ]}
-                          label="Repeat ends"
-                        />
-                        {draft.until > 0 && (
-                          <DateField
-                            value={dayKey(new Date(draft.until))}
-                            onChange={(next) =>
-                              next && patch({ until: endOfDay(fromDayKey(next)) })
-                            }
-                            label="Repeat until"
-                            min={dayKey(seed)}
-                          />
+                        {repeating && (
+                          <span className="flex items-center gap-2">
+                            <span className="label text-ink-2">Every</span>
+                            <NumberField
+                              value={draft.interval}
+                              onChange={(interval) => patch({ interval })}
+                              label="Repeat interval"
+                              suffix={repeatUnit(draft.repeat, draft.interval)}
+                              min={1}
+                              max={99}
+                            />
+                          </span>
                         )}
-                      </span>
+
+                        {draft.repeat === "weekly" && (
+                          <span className="flex items-center gap-1">
+                            {WEEK_ORDER.map((day) => (
+                              <DayChip
+                                key={day}
+                                day={day}
+                                active={activeDays.includes(day)}
+                                onToggle={() => toggleWeekday(day)}
+                              />
+                            ))}
+                          </span>
+                        )}
+
+                        {draft.repeat === "monthly" && (
+                          <span className="flex items-center gap-2">
+                            <span className="label text-ink-2">On</span>
+                            <Select
+                              value={monthlyValue}
+                              onChange={handleMonthlyMode}
+                              options={monthlyModes}
+                              label="Monthly on"
+                            />
+                          </span>
+                        )}
+
+                        {repeating && (
+                          <span className="flex items-center gap-2">
+                            <span className="label text-ink-2">Ends</span>
+                            <Select
+                              value={draft.until > 0 ? "on" : "never"}
+                              onChange={handleEndsChange}
+                              options={[
+                                { value: "never", label: "Never" },
+                                { value: "on", label: "On" },
+                              ]}
+                              label="Repeat ends"
+                            />
+                            {draft.until > 0 && (
+                              <DateField
+                                value={dayKey(new Date(draft.until))}
+                                onChange={(next) =>
+                                  next && patch({ until: endOfDay(fromDayKey(next)) })
+                                }
+                                label="Repeat until"
+                                min={dayKey(seed)}
+                              />
+                            )}
+                          </span>
+                        )}
+                      </>
                     )}
-                  </>
-                )}
-              </Row>
+                  </Row>
+                </div>
 
-              <Row label="URL" last>
-                <input
-                  type="url"
-                  value={draft.url}
-                  onChange={(e) => patch({ url: e.target.value })}
-                  placeholder="Add URL"
-                  aria-label="URL"
-                  className="w-full min-w-0 border-none bg-transparent text-ink outline-none placeholder:text-ink-3"
+                {/* Which calendar it is filed under, and what it looks like on
+                  the face. `colorOf` and `markOf` are already one family of
+                  answers about the same event and the calendar is what they
+                  both inherit from, so the three of them are the column. */}
+                <div className="min-w-0 border-t border-hairline md:flex md:flex-col md:border-t-0 md:border-l [&>*:last-child]:border-b-0">
+                  <Row label="Calendar">
+                    <CalendarMark
+                      icon={calendar?.icon ?? ""}
+                      color={calendar?.color ?? PALETTE[0]}
+                      size={14}
+                    />
+                    <Select
+                      value={draft.calendarId}
+                      onChange={(next) => patch({ calendarId: next })}
+                      options={calendars.map((c) => ({ value: c.id, label: c.name }))}
+                      label="Calendar"
+                      className="flex-1"
+                    />
+                  </Row>
+
+                  <Row label="Color">
+                    <ColorPicker
+                      value={draft.color}
+                      fallback={calendar?.color ?? PALETTE[0]}
+                      onChange={(color) => patch({ color })}
+                    />
+                  </Row>
+
+                  {/* Under Color because it is the same kind of answer about the
+                  same event, and `""` means the same thing in both: follow the
+                  calendar. The two are read apart, though — `markOf` and
+                  `colorOf` — so an event may borrow one and override the
+                  other, and the mark only inherits at all when the setting
+                  says so. */}
+                  <Row label="Mark" fill>
+                    <MarkPicker
+                      icon={draft.icon}
+                      color={colorOf(draft, calendars)}
+                      noneLabel="Follow the calendar"
+                      onChange={(icon) => patch({ icon })}
+                      query={markQuery}
+                      onQuery={setMarkQuery}
+                      browsing={browsing}
+                      onBrowse={setBrowsing}
+                    />
+                  </Row>
+                </div>
+              </div>
+              {/* Notes span both columns, and are the one thing in the card that
+                gains by it: prose in a 335px column wraps every five words, and
+                a paragraph is the only field here that is read rather than
+                scanned. It is also what balances the two, since a textarea on
+                one side is 130px the other side has nothing to answer with. */}
+              <div className="border-t border-hairline px-3.5 py-3">
+                <span className="label text-ink-2">Notes</span>
+                <textarea
+                  rows={4}
+                  value={draft.notes}
+                  onChange={(e) => patch({ notes: e.target.value })}
+                  placeholder="Add notes"
+                  aria-label="Notes"
+                  className="mt-1.5 [field-sizing:content] min-h-[68px] w-full resize-none border-none bg-transparent text-[13.5px] text-ink outline-none placeholder:text-ink-3"
                 />
-              </Row>
-            </div>
-
-            {/* notes */}
-            <div className="border-t border-hairline px-3.5 py-3">
-              <span className="label text-ink-3">Notes</span>
-              <textarea
-                rows={4}
-                value={draft.notes}
-                onChange={(e) => patch({ notes: e.target.value })}
-                placeholder="Add notes"
-                aria-label="Notes"
-                className="mt-1.5 [field-sizing:content] min-h-[68px] w-full resize-none border-none bg-transparent text-[13.5px] text-ink outline-none placeholder:text-ink-3"
-              />
-            </div>
-          </fieldset>
+              </div>
+            </fieldset>
+          </div>
 
           {/* The footer is one of two things: the ordinary row of verbs, or the
               question a repeating event has to answer before anything is
@@ -1001,7 +1070,7 @@ export default function EventEditor({
             <div className="flex items-center gap-2 border-t border-hairline px-3 py-2.5">
               {readOnly ? (
                 <>
-                  <span className="label text-ink-4">
+                  <span className="label min-w-0 truncate text-ink-4">
                     {calendar?.name ?? "Subscription"} · read only
                   </span>
                   {shareRow}
@@ -1009,7 +1078,7 @@ export default function EventEditor({
                     autoFocus
                     type="button"
                     onClick={onClose}
-                    className="ml-auto flex h-8 items-center gap-1.5 rounded-[9px] border border-hairline bg-surface-2 px-3 text-[14px] text-ink transition-colors hover:bg-white/10"
+                    className="ml-auto flex h-8 shrink-0 items-center gap-1.5 rounded-[9px] border border-hairline bg-surface-2 px-3 text-[14px] text-ink transition-colors hover:bg-white/10"
                   >
                     Close
                     <Kbd>esc</Kbd>
@@ -1021,15 +1090,14 @@ export default function EventEditor({
                     <button
                       type="button"
                       onClick={askOrDelete}
-                      className="flex items-center gap-1.5 rounded-[8px] px-2 py-1 text-[14px] text-danger transition-colors hover:bg-white/6"
+                      className="flex shrink-0 items-center gap-1.5 rounded-[8px] px-2 py-1 text-[14px] text-danger transition-colors hover:bg-white/6"
                     >
                       Delete
-                      <Kbd>{MOD}</Kbd>
-                      <Kbd>⌫</Kbd>
+                      <Chord keys={[MOD, "⌫"]} />
                     </button>
                   )}
                   {shareRow}
-                  <div className="ml-auto flex items-center gap-3">
+                  <div className="ml-auto flex shrink-0 items-center gap-3">
                     <button
                       type="button"
                       onClick={onClose}
@@ -1043,8 +1111,7 @@ export default function EventEditor({
                       className="flex h-8 items-center gap-1.5 rounded-[9px] border border-hairline bg-surface-2 px-3 text-[14px] text-ink transition-colors hover:bg-white/10"
                     >
                       Save
-                      <Kbd>{MOD}</Kbd>
-                      <Kbd>↵</Kbd>
+                      <Chord keys={[MOD, "↵"]} />
                     </button>
                   </div>
                 </>

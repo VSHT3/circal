@@ -33,8 +33,12 @@ const SCOPES: { scope: EditScope; label: string }[] = [
 export function ScopeChoices({ heading, danger, onPick, onCancel }: ScopeChoicesProps) {
   return (
     <div className="px-3.5 py-3">
-      <span className="label text-ink-3">{heading}</span>
-      <div className="mt-2 flex flex-col gap-1">
+      <span className="label text-ink-2">{heading}</span>
+      {/* Capped rather than stretched. The dial's own card is 300px wide, so
+          this is a no-op there and it is the editor's footer that needs it:
+          that card is two columns of fields on a desktop, and three answers
+          drawn 645px wide read as a settings page rather than as a question. */}
+      <div className="mt-2 flex max-w-[300px] flex-col gap-1">
         {SCOPES.map(({ scope, label }, i) => (
           <button
             key={scope}

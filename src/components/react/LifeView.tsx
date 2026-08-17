@@ -1603,7 +1603,7 @@ function BirthPrompt({ now, birth, expectancy }: { now: Date; birth: string; exp
             a label wrapping a component cannot be tied to it. */}
         <div className="mt-4 flex flex-col gap-2">
           <div className="flex items-center justify-between gap-3">
-            <span className="label text-ink-3">Born</span>
+            <span className="label text-ink-2">Born</span>
             <DateField
               label="Date of birth"
               value={date}
@@ -1618,7 +1618,7 @@ function BirthPrompt({ now, birth, expectancy }: { now: Date; birth: string; exp
             </DateField>
           </div>
           <div className="flex items-center justify-between gap-3">
-            <span className="label text-ink-3">Expect</span>
+            <span className="label text-ink-2">Expect</span>
             <NumberField
               label="Life expectancy in years"
               value={years}

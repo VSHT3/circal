@@ -53,6 +53,14 @@ export function Kbd({ children }: { children: ReactNode }) {
  * One `label / value` line inside a modal card. Shared by the event editor
  * and the settings panel, which is the whole reason it lives here: two modals
  * with two row grids is two products.
+ *
+ * **38px is a step, not a minimum.** The editor's two columns hold different
+ * rows, so a row taller than one step has to be a whole multiple of it or its
+ * rule lands beside the rule of the column next to it rather than on it — and
+ * a rule one pixel out reads as a rendering fault, where an obviously
+ * different height reads as a different row. `min-h-[38px]` is a border-box
+ * figure and the `border-b` is inside it, so a row of two steps has 75px of
+ * *content*, not 76. `ColorPicker` is the one control sized against that.
  */
 export function FieldRow({
   label,
@@ -60,6 +68,7 @@ export function FieldRow({
   last,
   disabled,
   align,
+  fill,
 }: {
   label: string;
   children: ReactNode;
@@ -67,6 +76,14 @@ export function FieldRow({
   disabled?: boolean;
   /** `top` for a row whose value is a stack rather than a single control. */
   align?: "center" | "top";
+  /**
+   * Take whatever height the column has left over. For a row whose value is a
+   * scrolling list rather than a control: the editor's two columns are
+   * stretched to the taller one, so without this the shorter column ends in a
+   * hole that looks like it belongs to its last row. Inert unless the parent
+   * is a flex column, which is how the same row stays `auto` on one column.
+   */
+  fill?: boolean;
 }) {
   return (
     <div
@@ -74,16 +91,28 @@ export function FieldRow({
         // The label column is a variable so a card with a long label can widen
         // it — `LIGHTCYCLE` overruns 76px — without moving every other card.
         "grid min-h-[38px] grid-cols-[var(--field-label,76px)_1fr] gap-2.5 px-3.5",
-        align === "top" ? "items-start py-2.5" : "items-center",
+        fill
+          ? "min-h-0 flex-1 items-stretch py-2.5"
+          : align === "top"
+            ? "items-start py-2.5"
+            : "items-center",
         !last && "border-b border-hairline",
         disabled && "pointer-events-none opacity-40",
       )}
     >
-      <span className={cn("label text-ink-3", align === "top" && "pt-1.5")}>{label}</span>
+      {/* `ink-2`, not `ink-3`. A row label names the control beside it, and
+          `ink-3` is what an *empty* field prints its placeholder in — at the
+          same grey the two read as one kind of thing, so a card of unfilled
+          rows was a wall of identical grey with the labels no louder than the
+          words standing in for missing values. A name is not an absence.
+          Every inline `.label` that names a control inside a row moves with
+          it, or the row comes apart at the two voices. */}
+      <span className={cn("label text-ink-2", (align === "top" || fill) && "pt-1.5")}>{label}</span>
       <div
         className={cn(
           "relative flex min-w-0 text-[14px] text-ink",
-          align === "top" ? "flex-col items-stretch gap-2" : "items-center gap-2",
+          align === "top" || fill ? "flex-col items-stretch gap-2" : "items-center gap-2",
+          fill && "min-h-0",
         )}
       >
         {children}
@@ -480,7 +509,7 @@ export function NumberField({
         onBlur={(e) => onChange(Math.min(max, Math.max(min, Math.round(Number(e.target.value)))))}
         className="w-[3.5ch] [appearance:textfield] tabular-nums [&::-webkit-inner-spin-button]:appearance-none"
       />
-      {suffix && <span className="label text-ink-3">{suffix}</span>}
+      {suffix && <span className="label text-ink-2">{suffix}</span>}
     </span>
   );
 }
@@ -580,12 +609,13 @@ function Swatch({
 }) {
   return (
     <span
-      className={cn(
-        // Eleven of these wrap inside a 320px column, so a full 44 would spend
-        // three rows on a palette. 30 is two, and twice the dot it was.
-        "relative grid size-[22px] place-items-center rounded-full transition-shadow pointer-coarse:size-[34px]",
-        selected && "ring-2 ring-ink/70 ring-offset-2 ring-offset-[var(--surface)]",
-      )}
+      // 26 on a mouse and 38 on a finger, and neither is chosen: the ring is on
+      // the dot with a 2px offset, so `dot + 2 × (offset + width)` is exactly
+      // the cell — 18 + 8 and 30 + 8. On the wrapper instead it drew 4px
+      // *outside* the cell, which put the selected swatch's left edge 4px
+      // clear of every other row's content in the same column, and 26 is the
+      // rhythm the mark row's own cells and 26px fields already sit on.
+      className="relative grid size-[26px] place-items-center rounded-full pointer-coarse:size-[38px]"
     >
       <button
         type="button"
@@ -593,7 +623,10 @@ function Swatch({
         aria-pressed={selected}
         title={label}
         onClick={onSelect}
-        className="size-[18px] rounded-full pointer-coarse:size-[30px]"
+        className={cn(
+          "size-[18px] rounded-full transition-shadow pointer-coarse:size-[30px]",
+          selected && "ring-2 ring-ink/70 ring-offset-2 ring-offset-[var(--surface)]",
+        )}
         style={{ background: color }}
       />
       {children}
@@ -602,13 +635,15 @@ function Swatch({
 }
 
 /**
- * The ten presets and an any-colour picker.
+ * The ten presets, the calendar's own colour, and an any-colour picker.
  *
  * `fallback` is the inheritance case and it is optional, because only an event
  * inherits: `""` means "follow the calendar" and the extra swatch stands for
- * it. A calendar's own colour has nothing above it to fall back to, so the
- * swatch and its divider are simply absent there rather than present and
- * meaningless.
+ * it. A calendar's own colour has nothing above it to fall back to, so that
+ * swatch is simply absent there rather than present and meaningless — which is
+ * why the two not-a-colour swatches share one column and one divider instead
+ * of taking a cell each in the grid: the column is eleven or twelve cells
+ * wide by turns and the block of ten beside it never changes shape.
  */
 export function ColorPicker({
   value,
@@ -621,42 +656,73 @@ export function ColorPicker({
 }) {
   const custom = value !== "" && !PALETTE.includes(value as (typeof PALETTE)[number]);
   return (
-    <div className="flex flex-wrap items-center gap-2 py-2">
-      {fallback !== undefined && (
-        <>
+    // `py-[7.5px]`, and the half pixel is the point. Two rows of 26 with an
+    // 8px gap is 60, and a `FieldRow` of two 38px steps has 75px of content
+    // (the `border-b` lives inside the 76), so 2 × 7.5 is what is left. At
+    // `py-2` the row came out 77 and its rule sat one pixel below the rule of
+    // the column beside it — near enough to read as a fault rather than as a
+    // taller row. Change the cell size or the gap and this number moves with
+    // them: it is `(2 × 38 − 1 − block) / 2`.
+    <div className="flex w-full flex-wrap items-stretch gap-2 py-[7.5px]">
+      {/* The two swatches that are not a colour, in a column of their own
+          beside the ten that are — and a column rather than a row because it
+          is then exactly as tall as the block next to it, which is what makes
+          the whole control a rectangle. Wrapped rather than laid out, so on a
+          finger — where 38px cells leave no room for a column beside a
+          five-wide block — `w-full` drops them onto their own line and the
+          divider goes with them: the line break is the separation the divider
+          was drawing. At 26 the cell puts this divider on the same x as the
+          mark row's, which is the whole of "the column is aligned". */}
+      <div className="flex flex-col justify-center gap-2 pointer-coarse:w-full pointer-coarse:flex-row pointer-coarse:justify-start">
+        {fallback !== undefined && (
           <Swatch
             color={fallback}
             selected={value === ""}
             label="Use the calendar's colour"
             onSelect={() => onChange("")}
           />
-          {/* A divider, so "inherit the calendar" reads as a different kind of
-              choice from the ten literal colours next to it. */}
-          <span aria-hidden className="h-4 w-px bg-white/15" />
-        </>
-      )}
-      {PALETTE.map((preset) => (
+        )}
         <Swatch
-          key={preset}
-          color={preset}
-          selected={value === preset}
-          label={preset}
-          onSelect={() => onChange(preset)}
-        />
-      ))}
-      <Swatch
-        color={custom ? value : "conic-gradient(#ff9fb4,#ffdf8c,#8bf0b8,#8ecbff,#c79bff,#ff9fb4)"}
-        selected={custom}
-        label="Custom colour"
-      >
-        <input
-          type="color"
-          aria-label="Custom colour"
-          value={custom ? value : (fallback ?? PALETTE[0])}
-          onChange={(e) => onChange(e.target.value)}
-          className="absolute inset-0 cursor-pointer opacity-0"
-        />
-      </Swatch>
+          color={custom ? value : "conic-gradient(#ff9fb4,#ffdf8c,#8bf0b8,#8ecbff,#c79bff,#ff9fb4)"}
+          selected={custom}
+          label="Custom colour"
+        >
+          <input
+            type="color"
+            aria-label="Custom colour"
+            value={custom ? value : (fallback ?? PALETTE[0])}
+            onChange={(e) => onChange(e.target.value)}
+            className="absolute inset-0 cursor-pointer opacity-0"
+          />
+        </Swatch>
+      </div>
+      {/* A divider, so "inherit the calendar" and "any colour at all" read as
+          a different kind of choice from the ten literal colours. */}
+      <span aria-hidden className="w-px self-stretch bg-white/15 pointer-coarse:hidden" />
+      {/* Five and five, and the five is not arbitrary: `PALETTE` is one walk
+          round the hue wheel (aqua 174° through to mint 150°), so ten in two
+          rows of five is that walk read the way text is read, with the wheel
+          closing where the second row ends and the first begins. An explicit
+          grid rather than a wrap, because a wrap divides eleven or twelve cells
+          by whatever the column happens to be and lands on six and five.
+
+          `flex-1` with centred cells, so the block ends where the value column
+          does. Left tight it stopped 39px short of the mark grid directly under
+          it — two blocks in one column with two different right edges, which is
+          the ragged edge you actually see rather than the one you can measure.
+          The tracks then carry a little more air than the 8px row gap; a pixel
+          and a half between circles is invisible where a 39px step is not. */}
+      <div className="grid flex-1 grid-cols-5 place-items-center gap-2">
+        {PALETTE.map((preset) => (
+          <Swatch
+            key={preset}
+            color={preset}
+            selected={value === preset}
+            label={preset}
+            onSelect={() => onChange(preset)}
+          />
+        ))}
+      </div>
     </div>
   );
 }

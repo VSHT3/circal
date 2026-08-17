@@ -36,7 +36,6 @@ import { createPortal } from "react-dom";
 import { motion, useReducedMotion } from "motion/react";
 import { Maximize2, X } from "lucide-react";
 
-import { ICON_MAX, firstGrapheme, isIconName } from "@/lib/events";
 import { cn } from "@/lib/utils";
 import { useFocusTrap } from "@/components/react/hooks";
 import { IconButton } from "@/components/react/ui/primitives";
@@ -83,10 +82,23 @@ interface MarkFieldsProps {
 }
 
 /**
- * "Nothing", "an emoji" and "which word" — one row, identical on both
- * surfaces. The fullscreen one deliberately does not grow these: it is the
- * grid that was too small, and a picker whose fields change size between its
- * two sizes is two controls.
+ * "Nothing" and "which word" — one row, identical on both surfaces. The
+ * fullscreen one deliberately does not grow these: it is the grid that was too
+ * small, and a picker whose fields change size between its two sizes is two
+ * controls.
+ *
+ * There was a third field, an emoji box, and it is gone. An emoji belongs in
+ * the event's own title, where it is searchable, travels through `.ics` and
+ * costs the mark vocabulary nothing — a second way to say the same thing, in a
+ * field 72px wide, is not worth the row. The *format* is untouched:
+ * `CalendarMark` still renders an emoji `icon`, and `isIconName` still tells
+ * the two apart, so a value that arrived in a backup or from an older build
+ * keeps drawing. Only the way to type a new one is withdrawn.
+ *
+ * The 26px cell is this column's rhythm, and `ColorPicker`'s swatch is the
+ * same 26 for exactly that reason: the two rows sit one above the other in the
+ * card's right-hand column, so their dividers land on the same x or the column
+ * reads as ragged.
  */
 function MarkFields({
   icon,
@@ -97,7 +109,6 @@ function MarkFields({
   onChange,
   autoFocus,
 }: MarkFieldsProps & { autoFocus?: boolean }) {
-  const emoji = icon !== "" && !isIconName(icon);
   return (
     <div className="flex min-w-0 flex-1 items-center gap-2">
       <button
@@ -113,20 +124,9 @@ function MarkFields({
       >
         <CalendarMark icon="" color={color} size={14} />
       </button>
-      {/* A divider, so "nothing" and "an emoji" read as two different kinds
-          of answer from the grid of glyphs under them. */}
+      {/* A divider, so "nothing" reads as a different kind of answer from the
+          grid of glyphs under it. */}
       <span aria-hidden className="h-4 w-px bg-white/15" />
-      <input
-        value={emoji ? icon : ""}
-        onChange={(e) => onChange(firstGrapheme(e.target.value))}
-        placeholder="Emoji"
-        aria-label="Emoji mark"
-        maxLength={ICON_MAX}
-        className={cn(
-          "h-[26px] w-[72px] min-w-0 shrink-0 rounded-[7px] bg-surface-2 px-2 text-[13px] text-ink outline-none placeholder:text-ink-3",
-          emoji && "ring-1 ring-ink/40",
-        )}
-      />
       <input
         autoFocus={autoFocus}
         value={query}
@@ -179,12 +179,11 @@ function MarkCell({
   );
 }
 
-/** What the grid says when the query names nothing. The emoji field is beside
- *  it and covers the long tail, so it is the thing to point at. */
+/** What the grid says when the query names nothing. It points at the set
+ *  rather than at a field: the emoji box that used to be the long tail's
+ *  answer is gone, and the honest advice is now a different word. */
 function NoMatch({ className }: { className: string }) {
-  return (
-    <span className={cn("label text-ink-4", className)}>No mark called that — try an emoji</span>
-  );
+  return <span className={cn("label text-ink-4", className)}>No mark called that</span>;
 }
 
 /** The bubble's own metrics. `.label` is 11px mono at 0.18em tracking, so a
@@ -396,7 +395,7 @@ function MarkBrowser({
         transition={{ duration: reducedMotion ? 0 : 0.18, ease: [0.32, 0.72, 0, 1] }}
       >
         <div className="flex flex-wrap items-center gap-2 border-b border-hairline px-3.5 py-3">
-          <span className="label shrink-0 text-ink-3">Mark</span>
+          <span className="label shrink-0 text-ink-2">Mark</span>
           <MarkFields autoFocus {...fields} />
           {/* The count is the one thing this surface knows that the row does
               not: with a query it says how much of the set is left. */}
@@ -464,7 +463,7 @@ export function MarkPicker({
   const peeked = usePeek();
 
   return (
-    <div className="flex w-full min-w-0 flex-col gap-2 py-1.5">
+    <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col gap-2 py-1.5">
       <div className="flex items-center gap-2">
         <MarkFields {...fields} />
         {/* Hand-rolled at the row's own 26px rather than an `IconButton`,
@@ -485,9 +484,23 @@ export function MarkPicker({
           <Maximize2 size={14} strokeWidth={1.75} />
         </button>
       </div>
+      {/* Cells fill their own track (`w-full aspect-square`) rather than being
+          a fixed 26: eight fixed cells plus seven gaps is 236px against the
+          220 this column has, so every track was 24 with a 26px cell spilling
+          out of it and the last column's right edge sat 2px past the card's.
+          A track-sized cell puts the grid's edges exactly on the column's,
+          which is what lets the swatches above it share the same two edges.
+
+          `basis-[108px]` and it grows: four rows is the porthole this is meant
+          to be, and it is what the grid gets wherever nothing imposes a height
+          — one column, and the fullscreen card. In the editor's two columns
+          the shorter one is stretched to the taller, and the leftover used to
+          sit under this row as a hole that looked like the mark section's own.
+          It is the one thing in that column with something to do with the
+          room, so it takes it and shows more of the set. */}
       <div
         {...peeked.handlers}
-        className="no-scrollbar grid max-h-[108px] grid-cols-8 gap-1 overflow-y-auto"
+        className="no-scrollbar grid min-h-0 shrink grow basis-[108px] grid-cols-8 gap-1 overflow-y-auto"
       >
         {all && shown.length === 0 ? (
           <NoMatch className="col-span-8 py-2" />
@@ -499,7 +512,7 @@ export function MarkPicker({
               color={fields.color}
               selected={fields.icon === name}
               size={15}
-              className="size-[26px]"
+              className="aspect-square w-full"
               onPick={() => fields.onChange(name)}
             />
           ))

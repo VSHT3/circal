@@ -116,14 +116,22 @@
 
 @layer components {
   /* Uppercase letterspaced mono — the app's label voice. Used by the date
-     header, every form label and every meta string. */
+     header, every form label and every meta string.
+
+     The class carries no colour, and the two it is written in are a hierarchy
+     rather than a choice: `ink-2` names something (a row label, a group
+     heading, an inline word naming the control beside it), `ink-3` and `ink-4`
+     annotate one (a tag, a count, a time under a title). `ink-3` is also what
+     a placeholder prints in, which is why a name may not use it — a label and
+     the words standing in for a missing value would be the same grey, and a
+     card of unfilled rows reads as a wall. */
   .label {
     @apply font-mono text-[11px] font-medium tracking-[0.18em] uppercase;
   }
 
   /* Prose. `.label` is a *label* voice: at 11px mono, uppercase and 0.18em it
-     is legible as three words and hostile as a sentence, and `ink-3` is
-     ~3.1:1 on black. Anything that reads as a sentence uses this instead. */
+     is legible as three words and hostile as a sentence. Anything that reads
+     as a sentence uses this instead. */
   .caption {
     @apply text-[12px] leading-[1.45] text-ink-2;
   }

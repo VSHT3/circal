@@ -148,7 +148,7 @@ export default function Sidebar({
 
       <section className="flex w-full shrink-0 flex-col gap-1">
         <div className="flex items-center justify-between">
-          <span className="label text-ink-3">Calendars</span>
+          <span className="label text-ink-2">Calendars</span>
           <IconButton label="New calendar" onClick={actions.newCalendar} className="size-6">
             <Plus size={13} strokeWidth={1.75} />
           </IconButton>
