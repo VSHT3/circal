@@ -15,24 +15,29 @@
  * calendar.
  *
  * **Why the path table is a lazy chunk, and how a mark still draws on
- * the first frame.** All 247 `bold` paths are 118 KB raw / 43 gzipped —
- * a quarter of the whole bundle, and it used to ride the critical path
- * because `Dial`, `Face` and `Sidebar` each draw a calendar's mark on
- * the very first painted frame. Loading the whole table lazily and
- * letting a mark pop in half a second late reads as a rendering fault,
- * so instead this module keeps a small path cache in `localStorage`
- * (`circal.marks`, its own key, the way `circal.intro` and
- * `circal.feed.<id>` sit outside the main blob). The cache is read
+ * the first frame.** The emitted table is 120,676 raw / 44,496 gzipped
+ * — the single heaviest module in this build, about a fifth of
+ * everything a cold load used to fetch — and it used to ride the
+ * critical path because `Dial`, `Face` and `Sidebar` each draw a
+ * calendar's mark on the very first painted frame. Loading the whole
+ * table lazily and letting a mark pop in half a second late reads as a
+ * rendering fault, so instead this module keeps a small path cache in
+ * `localStorage` (`circal.marks`, its own key, the way `circal.intro`
+ * and `circal.feed.<id>` sit outside the main blob). The cache is read
  * **synchronously at module load**, so a mark the user has already
  * chosen draws correctly on the first frame with no chunk fetched at
- * all — a handful of path strings is a few kilobytes against 118 KB.
+ * all — a handful of path strings is a kilobyte or two against 44 KB.
  * The full `marks.ts` table is imported lazily only when a mark's path
  * is not cached, which in practice is the picker opening or a backup
- * restored into a fresh browser.
+ * restored into a fresh browser. Splitting it took the critical path
+ * from 236,732 to 193,796 gzipped, −18.1% — not the larger number this
+ * comment used to quote, which was the whole `icons.*` chunk with
+ * `motion` inside it, credited to the two modules whose name Rollup
+ * happened to give it.
  *
  * **Why not every Phosphor icon.** Measured, not assumed: all 1,512
  * bold paths are 621 KB raw and 206 KB gzipped — more than the entire
- * rest of the application, for a picker. These 247 are 118 KB and 43,
+ * rest of the application, for a picker. These 247 are 44 KB gzipped,
  * they are the fifth of the library a calendar ever wants, and the
  * emoji field covers the long tail at zero bytes and in colour.
  *
@@ -41,7 +46,7 @@
  * six weights inline, so even a curated set costs four times its own
  * weight in `dist/`. Bold only, as data, is the whole library's worth
  * of choice at none of the price — and as its own module, because it is
- * a quarter of the bundle and the only thing that must load lazily.
+ * the heaviest thing here and the only one that must load lazily.
  *
  * Two icon vocabularies in one repo is not two conventions: lucide is
  * the *chrome's* voice at 14–15px and stroke 1.75, and nothing here may

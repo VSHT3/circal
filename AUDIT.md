@@ -1,9 +1,9 @@
 # audit
 
 What is left to upgrade, improve, change or add. First explored 2026-08-12 against `8b8e8d5`; every
-claim is grounded in the code or in a measurement, with the line. Seven rounds have been worked
+claim is grounded in the code or in a measurement, with the line. Eight rounds have been worked
 through since — the Tier 0 four; the mechanical bucket; the round that needed one call each; and the
-four below. **Everything finished has been deleted from this file rather than crossed out**: what a
+five below. **Everything finished has been deleted from this file rather than crossed out**: what a
 decision was and why it went the way it did belongs in `AGENTS.md`, next to the code it constrains,
 and a list of solved problems is a list nobody reads twice.
 
@@ -73,25 +73,42 @@ the same throttle is the only proof the eager core works, since at full speed th
 render identically. Round five's rule holds with one word changed: a rule that lives only in a
 browser's timing is a rule with no test.
 
+**Round eight, for the record.** The travel notice landed, which closes the oldest item in this file —
+Tier 0's own first sub-bullet, opened the day the audit was written and top of "if it were three
+things" for four rounds — and empties Tier 5 for the first time since the file existed. The feature
+itself argued out the way it should: cities rather than IANA keys, a worked example on the reader's
+own clock instead of a description, two legitimate answers and no dismiss, because a dismiss would
+leave the app knowing the device had moved and drawing the day as though it had not. The lesson is in
+the follow-up commit, and it is a new one. `CalEvent.tzid` had exactly one writer for as long as it
+has existed, `ics.ts`'s DTSTART reader; the travel notice made it two, and a settings row that walked
+every event carrying a zone therefore reached into an imported `.ics` and flattened a colleague's
+09:00 New York standup to floating — reintroducing, from the chrome, the precise defect
+`startsBetweenIn` was built to prevent. Every rule in `AGENTS.md` about that field was correct and
+none of them was violated: what changed was the number of writers, and nothing in the type system
+says how many a field has. So this round's rule is about fields rather than prose or browsers: **a
+field with two writers needs to record which one wrote it, or every consumer is guessing** — and the
+fix records that narrowly, a list of the zones this app stamped with, rather than adding a provenance
+field to every event to serve one settings row. The residue it leaves is stated in the caption where
+the user can see it, which is the same trade the export's own lossiness is pinned by.
+
 ---
 
 ## Tier 0 — actually broken, or will bite
 
-### 1. Timezones: the model has one, the user cannot set one
+### 1. Timezones: the floor under the model, not the model
 
 `CalEvent.tzid` exists now. A feed's `DTSTART;TZID=America/New_York` is kept, its rule is walked
 over New York's own wall clock (`startsBetweenIn` in `recur.ts`, pivoting through `wallClockIn` /
 `instantOfWall`), and `toIcs` writes the zone back out instead of flattening it to UTC. A weekly
 09:00 New York standup read from Berlin now sits at 09:00 New York in every week of the year,
-including the three where the two zones' transition dates disagree.
+including the three where the two zones' transition dates disagree. The travel case is closed too: a
+device that has moved asks once, in cities, and both answers are recorded — moving the events with
+the traveller or stamping them with the zone they were written in (`AGENTS.md`, "Travel: the device
+that moved"). What is left here is not about the model any more; it is about the platform underneath
+it.
 
-Three things are deliberately still open, in descending order of how much they matter:
+Two things are deliberately still open, in descending order of how much they matter:
 
-- **The travel case.** A user's own event is floating (`tzid: ""`) and is read against whatever
-  midnight the browser is having, so a laptop that moves re-reads every instant. That is the right
-  default — an event dragged onto this dial means the hours it was dragged onto — and the honest fix
-  is not a zone picker on every event but Tier 5's **notice that the device zone changed**, which is
-  now much cheaper than it was: the field to write is already there.
 - **A wall time inside the _viewer's_ own DST gap shifts by an hour.** `wallClockIn` goes through
   the local `Date` constructor, which normalises a nonexistent local time forward. A zoned event at
   02:30 on the morning the _reader's_ zone springs forward reads as 03:30 for that one instance.
@@ -172,15 +189,6 @@ that writes no DOM. Not worth it until the view is open for another reason.
 
 ---
 
-## Tier 5 — additions worth arguing for
-
-- **Timezone travel as a moment, not a corruption.** Notice the device zone changed since last
-  launch and ask, once, in a `BirthPrompt`-shaped screen. Cheap now that `tzid` exists, honest, and
-  it turns a silent wrong answer into a decision somebody made. The best-value thing left in this
-  file.
-
----
-
 ## Tier 6 — the macOS app, now that there is one
 
 `mac/` shipped (see `APP.md` for what it is and what was measured). It closed the six-shortcut
@@ -220,16 +228,18 @@ want it, not on a certificate that was never going to arrive.
 
 ## If it were three things
 
-1. Ask the timezone question the model can now hold — the travel notice (Tier 5, and Tier 0.1's own
-   first sub-bullet). Two rounds have now gone past it while cheaper things were taken, and it is
-   still the only item here that turns a silent wrong answer into a decision somebody made.
-2. Read an inbound invite (Tier 2). It is the most common calendar action this app cannot perform,
-   the reply half is refused on purpose so the scope is bounded, and `ics.ts` already parses
-   everything an invite carries except the four strings that say what it is.
-3. Answer the phone's two hover-and-dwell interactions (Tier 3). The structural work is long done and
-   this is the only tier left whose open item is a design question rather than a size — which is also
-   why it keeps being deferred, and the deferral is now the oldest one in the file.
+1. Read an inbound invite (Tier 2). The most common calendar action this app cannot perform, the reply
+   half refused on purpose so the scope stays bounded, and `ics.ts` already parses everything an
+   invite carries except the four strings that say what it is.
+2. Answer the phone's two hover-and-dwell interactions (Tier 3). The structural work is long done and
+   this is the only tier left whose open item is a design question rather than a size — which is why
+   it keeps being deferred, and the deferral is now the oldest one in the file.
+3. Close the proxy's no-`Origin` hole and the partial CSP (Tier 0.2). It is the only thing in Tier 0
+   that is a hole rather than a floor, and it has been left alone because it is the first item here
+   that would put state in the Worker — which is an argument to have, not a reason to keep not
+   having it.
 
-What changed about this list is what is not on it: the two size items are measured and closed, and
-data safety has an answer on every browser this app runs in. Everything above finishes something
-already started. Nothing needs a new screen except onboarding, which was already known.
+Everything above finishes something already started, and the list is now shorter than the file's
+ambitions rather than longer: the two size items are measured and closed, data safety has an answer on
+every browser this app runs in, and the timezone question is asked. Nothing needs a new screen except
+onboarding, which was already known.
