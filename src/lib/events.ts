@@ -157,6 +157,180 @@ export function readRemindLead(value: unknown): number {
   return value;
 }
 
+/* --------------------------------- guests --------------------------------- */
+
+/**
+ * The four replies circal is willing to print, in `PARTSTAT`'s own vocabulary
+ * (RFC 5545 §3.2.12) minus the one it would have to lie about.
+ *
+ * `DELEGATED` is the omission, and it is not laziness. It says "I have handed
+ * this to somebody else", which is neither yes nor no: printing `Declined`
+ * claims a refusal the person never made, and `Accepted` claims they will be
+ * there. The delegate arrives as an ATTENDEE line of its own carrying its own
+ * `PARTSTAT`, so the fact that somebody *is* coming is already on the list —
+ * what is left unsayable is only the relationship between the two, and circal
+ * has no row for it. So a `PARTSTAT` this app does not model reads as
+ * `needs-action`, which is also what an absent one means per the RFC: the
+ * weakest of the four claims, and the only one that says nothing about intent.
+ * Hence the label — `Invited` rather than `No reply`, because "invited" is
+ * true of a delegation and of a silent guest alike, where "has not replied"
+ * is a claim about the person and would be false for the first.
+ *
+ * `ROLE` and `RSVP` are read by nothing on purpose. `ROLE` splits required
+ * from optional, which changes nothing this surface says and nothing the
+ * arithmetic does — the organiser is the only person here who has a different
+ * job, and it has its own field. `RSVP=TRUE` is the sender asking for an
+ * answer, and circal has no channel to give one: printing the request would
+ * put a demand on screen next to no way to meet it, which is exactly the
+ * actionable look this whole feature refuses.
+ */
+export const PARTSTATS = ["needs-action", "accepted", "declined", "tentative"] as const;
+
+export type Partstat = (typeof PARTSTATS)[number];
+
+/** What each reply is called on screen. Here beside the vocabulary rather than
+ *  in the editor for the reason `REPEAT_LABELS` is beside `REPEATS`: the word
+ *  and the value are one decision, and a second surface printing its own
+ *  synonyms is two apps. */
+export const PARTSTAT_LABELS: Record<Partstat, string> = {
+  "needs-action": "Invited",
+  accepted: "Accepted",
+  declined: "Declined",
+  tentative: "Tentative",
+};
+
+/**
+ * One `CAL-ADDRESS` as circal keeps it: what to call them, and where the
+ * invitation went. `address` is the mailbox with the `mailto:` scheme taken
+ * off — every mainstream producer writes one and it is noise on screen — and
+ * any other URI scheme verbatim, because a `CAL-ADDRESS` is not required to be
+ * mail and rewriting one would be inventing an address.
+ *
+ * `name` is `CN` and is legitimately empty: plenty of senders write the
+ * mailbox and nothing else, and the surface falls back to the address rather
+ * than printing a blank row.
+ */
+export interface Person {
+  name: string;
+  address: string;
+}
+
+/** A `Person` plus their answer. Nothing else off the line survives — see
+ *  `PARTSTATS` for why `ROLE` and `RSVP` are dropped. */
+export interface Attendee extends Person {
+  status: Partstat;
+}
+
+/**
+ * How many attendees one event may keep.
+ *
+ * An attendee list is the only field on this model that arrives from a
+ * stranger and has no natural length: a mailing-list invitation carries
+ * thousands of ATTENDEE lines, and `localStorage` is one ~5MB quota shared by
+ * the whole origin — the same quota `FEED_BUDGET` already carves 2M characters
+ * out of for subscriptions. That budget bounds a feed in *total* by dropping
+ * whole events; it cannot see a single event that is itself megabytes of
+ * addresses, which is what this bounds.
+ *
+ * 32 because it is above every guest list a person actually reads down — a
+ * room, a standup, a class — and below the size where a list stops being names
+ * and starts being a distribution list, which is announced rather than
+ * answered. Losing the rest costs nothing the reader was going to read, and it
+ * is not lost silently: `attendeeCount` keeps the real total so the surface can
+ * say how many it is not showing.
+ */
+export const ATTENDEE_MAX = 32;
+
+/** Longest `CN` kept. Longer than any human name with a team in brackets after
+ *  it, and far longer than the 320px column can print — so this bounds a
+ *  pasted paragraph in a display name, nothing a sender meant. */
+export const GUEST_NAME_MAX = 64;
+
+/** Longest address kept — RFC 5321 §4.5.3.1.3's own ceiling for a forward
+ *  path, which makes it derived rather than chosen: nothing longer can be a
+ *  mailbox, so nothing longer is an address being truncated. */
+export const GUEST_ADDRESS_MAX = 254;
+
+/**
+ * Ceiling on the *printed* total. `attendeeCount` is only ever a number in a
+ * sentence, so a hand-edited blob claiming a billion guests costs nothing but
+ * a line nobody can read; past four digits the honest statement is already
+ * "this went to a mailing list" and the exact figure has stopped being a fact
+ * about a meeting.
+ */
+const ATTENDEE_COUNT_MAX = 9999;
+
+function readText(value: unknown, max: number): string {
+  return typeof value === "string" ? value.trim().slice(0, max) : "";
+}
+
+/**
+ * A stored or imported reply, read as one of the four. Anything else — a
+ * `DELEGATED`, a value no standard has, an absent property — is `needs-action`
+ * for the reason `PARTSTATS` gives.
+ */
+export function readPartstat(value: unknown): Partstat {
+  if (typeof value !== "string") return "needs-action";
+  const lower = value.trim().toLowerCase();
+  return (PARTSTATS as readonly string[]).includes(lower) ? (lower as Partstat) : "needs-action";
+}
+
+/**
+ * One person, or `null` when there is nobody there. An address is the whole
+ * requirement: a `CAL-ADDRESS` property with no value is a malformed line, and
+ * a name with no mailbox behind it is a row the surface cannot explain.
+ */
+export function readPerson(value: unknown): Person | null {
+  if (value === null || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const address = readText(record.address, GUEST_ADDRESS_MAX);
+  if (!address) return null;
+  return { name: readText(record.name, GUEST_NAME_MAX), address };
+}
+
+/**
+ * The guest list and the number of people it stands for.
+ *
+ * One validator, three readers, for the reason `readRemindLead` is one:
+ * `ics.ts` (ATTENDEE lines off somebody else's file), `backup.readEvent`
+ * (untrusted JSON) and `store.hydrateEvents` (a blob that predates the field)
+ * all have to agree about what a legal guest list is, and three copies of the
+ * caps would be three opinions about when a calendar is too big to keep.
+ *
+ * Two rules beyond the caps. Duplicates are collapsed on the address, because
+ * a merged reply legitimately restates a line and one person twice is a list
+ * lying about its own size. And `attendeeCount` is never allowed to be smaller
+ * than the list it labels — the count exists to say what the cap dropped, so a
+ * hand-edited blob understating it must not be able to print "and -3 others".
+ */
+export function readGuests(
+  list: unknown,
+  count: unknown,
+): { attendees: Attendee[]; attendeeCount: number } {
+  const seen = new Set<string>();
+  const people: Attendee[] = [];
+  if (Array.isArray(list)) {
+    for (const entry of list) {
+      const person = readPerson(entry);
+      if (!person) continue;
+      const key = person.address.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      people.push({
+        ...person,
+        status: readPartstat((entry as Record<string, unknown>).status),
+      });
+    }
+  }
+  const attendees = people.slice(0, ATTENDEE_MAX);
+  const claimed =
+    typeof count === "number" && Number.isInteger(count) && count > 0 ? count : people.length;
+  return {
+    attendees,
+    attendeeCount: Math.min(Math.max(claimed, people.length), ATTENDEE_COUNT_MAX),
+  };
+}
+
 export interface Feed {
   url: string;
   /** Epoch ms of the last successful pull. `0` = never pulled. */
@@ -285,6 +459,44 @@ export interface CalEvent extends Recurrence {
    * precedence in one place.
    */
   remindLead: number;
+  /**
+   * Who asked, off `ORGANIZER` — `null` on every event that arrived without
+   * one, which is every event the user wrote here.
+   *
+   * Read and printed, never composed. Circal has no account, no server and no
+   * outbound channel, so it cannot send an invitation and will not offer to:
+   * an editable organiser field would be a claim about a message this app
+   * cannot post. What the field is *for* is the other half of the same fact —
+   * an `.ics` that arrives by mail carries the one name that answers "who is
+   * asking", and dropping it left the reader looking at a meeting with no
+   * sender.
+   */
+  organizer: Person | null;
+  /**
+   * Who was invited and what each of them said, off the `ATTENDEE` lines.
+   *
+   * Display only, for the reason above and one more: accepting or declining is
+   * a message, so there is no control here to add, remove or answer for
+   * anybody. An empty guest-list editor on an event you wrote yourself would
+   * be a promise the app cannot keep.
+   *
+   * Capped at `ATTENDEE_MAX` — the one field on this model that arrives from a
+   * stranger with no natural length. `attendeeCount` is what keeps that cap
+   * honest.
+   */
+  attendees: Attendee[];
+  /**
+   * How many people the invitation actually named, which is `attendees.length`
+   * except when the cap dropped some.
+   *
+   * Stored rather than derived because it is the one fact truncation destroys,
+   * and a truncation the reader cannot see is the failure mode this exists to
+   * prevent: the surface prints "and 40 others" off the difference, so the
+   * number it prints is the number that arrived rather than the number that
+   * fitted. `0` on an event with no guest list at all, so absent and empty
+   * say the same thing.
+   */
+  attendeeCount: number;
 }
 
 /** One concrete appearance of an event on one day, clipped to that day. */

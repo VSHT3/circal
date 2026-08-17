@@ -12,7 +12,15 @@
  * ------------------------------------------------------------------ */
 
 import { expect } from "vitest";
-import { NEVER, REMIND_INHERIT, type CalEvent, type Calendar, type Recurrence } from "@/lib/events";
+import {
+  NEVER,
+  REMIND_INHERIT,
+  type Attendee,
+  type CalEvent,
+  type Calendar,
+  type Partstat,
+  type Recurrence,
+} from "@/lib/events";
 
 /* -------------------------------- parsing --------------------------------- */
 
@@ -160,6 +168,11 @@ export function event(
     // Following the setting, which is the same kind of nothing: this event
     // has no opinion about how much warning it wants.
     remindLead: REMIND_INHERIT,
+    // Nobody asked and nobody answered, which is every event that did not
+    // arrive as an invitation.
+    organizer: null,
+    attendees: [],
+    attendeeCount: 0,
     ...NEVER,
     ...rest,
   };
@@ -168,6 +181,15 @@ export function event(
 /** A recurrence rule with everything not stated left unstated. */
 export function rule(overrides: Partial<Recurrence> = {}): Recurrence {
   return { ...NEVER, ...overrides };
+}
+
+/**
+ * One guest. `"ada@example.com"` alone is somebody who has not answered — the
+ * commonest row and the RFC's own default — and the name is optional because a
+ * sender that writes only the mailbox is normal rather than broken.
+ */
+export function attendee(address: string, status: Partstat = "needs-action", name = ""): Attendee {
+  return { address, status, name };
 }
 
 /** `byDay` from `"MO,TU,-1SU"`, the way an RRULE spells it. */

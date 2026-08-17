@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { at, calendar, day, event, ms } from "./helpers";
+import { at, attendee, calendar, day, event, ms } from "./helpers";
 import {
+  ATTENDEE_MAX,
+  GUEST_ADDRESS_MAX,
+  GUEST_NAME_MAX,
   ICON_MAX,
   REMIND_INHERIT,
   REMIND_LEAD_MAX,
@@ -17,6 +20,9 @@ import {
   isIconName,
   markOf,
   ownLead,
+  readGuests,
+  readPartstat,
+  readPerson,
   readRemindLead,
   occurrencesOn,
   scoreEvent,
@@ -953,5 +959,124 @@ describe("occurrencesOn: a zoned event lands on the day its own zone says", () =
     });
     expect.soft(occurrencesOn([e], [cal], day("2026-01-06"))).toHaveLength(1); // Tue, Berlin
     expect.soft(occurrencesOn([e], [cal], day("2026-01-05"))).toHaveLength(0); // Mon, Berlin
+  });
+});
+
+/* ------------------------------- guest lists ------------------------------- *
+ * `readGuests` and `readPerson` are the one validator behind three readers —
+ * `ics.ts`'s ATTENDEE lines, `backup.readEvent`'s untrusted JSON and
+ * `store.hydrateEvents`' older blob — so the caps and the counting rules are
+ * pinned here rather than three times over. */
+
+describe("readPartstat", () => {
+  it.each([
+    { name: "ACCEPTED", value: "ACCEPTED", expected: "accepted" },
+    { name: "already the stored spelling", value: "needs-action", expected: "needs-action" },
+    { name: "padded and mixed case", value: " Tentative ", expected: "tentative" },
+    // The one the model refuses on purpose: a delegation is neither yes nor no,
+    // and the delegate is a line of its own. See `PARTSTATS`.
+    { name: "DELEGATED", value: "DELEGATED", expected: "needs-action" },
+    { name: "a value no standard defines", value: "SOON", expected: "needs-action" },
+    { name: "not a string at all", value: 3, expected: "needs-action" },
+    { name: "absent", value: undefined, expected: "needs-action" },
+  ])("reads $name as $expected", ({ value, expected }) => {
+    expect(readPartstat(value)).toBe(expected);
+  });
+});
+
+describe("readPerson", () => {
+  it("keeps a name and an address, trimmed", () => {
+    expect(readPerson({ name: " Ada ", address: " ada@example.com " })).toEqual({
+      name: "Ada",
+      address: "ada@example.com",
+    });
+  });
+
+  it.each([
+    { name: "no address", value: { name: "Ada" } },
+    { name: "an empty address", value: { name: "Ada", address: "   " } },
+    { name: "an address that is not a string", value: { address: 42 } },
+    { name: "null", value: null },
+    { name: "a string instead of a record", value: "ada@example.com" },
+  ])("refuses $name — a row the surface could not explain", ({ value }) => {
+    expect(readPerson(value)).toBeNull();
+  });
+
+  it("truncates rather than refusing, since the row is only ever printed", () => {
+    const person = readPerson({
+      name: "N".repeat(GUEST_NAME_MAX + 20),
+      address: "a".repeat(GUEST_ADDRESS_MAX + 20),
+    });
+    expect.soft(person?.name).toHaveLength(GUEST_NAME_MAX);
+    expect.soft(person?.address).toHaveLength(GUEST_ADDRESS_MAX);
+  });
+});
+
+describe("readGuests", () => {
+  const list = (n: number, from = 0) =>
+    Array.from({ length: n }, (_, i) => ({ name: "", address: `g${i + from}@example.com` }));
+
+  it("keeps a legal list whole and counts it", () => {
+    const { attendees, attendeeCount } = readGuests(
+      [{ name: "Grace", address: "grace@example.com", status: "ACCEPTED" }],
+      undefined,
+    );
+    expect.soft(attendees).toEqual([attendee("grace@example.com", "accepted", "Grace")]);
+    expect.soft(attendeeCount).toBe(1);
+  });
+
+  it("caps the list at ATTENDEE_MAX and remembers how many there were", () => {
+    const { attendees, attendeeCount } = readGuests(list(ATTENDEE_MAX + 40), undefined);
+    expect.soft(attendees).toHaveLength(ATTENDEE_MAX);
+    expect.soft(attendeeCount).toBe(ATTENDEE_MAX + 40);
+  });
+
+  // The count exists to say what the cap dropped, so it can never be smaller
+  // than the list it labels — otherwise the surface prints a negative
+  // remainder, which is a truncation announcing itself backwards.
+  it("clamps a count that understates its own list", () => {
+    expect(readGuests(list(3), 1).attendeeCount).toBe(3);
+    expect(readGuests(list(3), -9).attendeeCount).toBe(3);
+    expect(readGuests(list(3), "many").attendeeCount).toBe(3);
+  });
+
+  it("keeps a count that overstates the list, because that is what a cap does", () => {
+    expect(readGuests(list(3), 400).attendeeCount).toBe(400);
+  });
+
+  it("refuses to print an unreadable number of guests", () => {
+    // Only ever a figure in a sentence, so a blob claiming a billion costs a
+    // line nobody can read rather than anything worse.
+    expect(readGuests(list(2), 1e9).attendeeCount).toBe(9999);
+    expect(readGuests(list(2), Number.NaN).attendeeCount).toBe(2);
+  });
+
+  it("drops the rows that name nobody without dropping the list", () => {
+    const { attendees, attendeeCount } = readGuests(
+      [{ name: "Ghost" }, null, "grace@example.com", { address: "grace@example.com" }],
+      undefined,
+    );
+    expect.soft(attendees).toEqual([attendee("grace@example.com")]);
+    expect.soft(attendeeCount).toBe(1);
+  });
+
+  it("collapses one person listed twice, keeping the first line", () => {
+    const { attendees, attendeeCount } = readGuests(
+      [
+        { name: "Grace", address: "grace@example.com", status: "ACCEPTED" },
+        { name: "G", address: "GRACE@example.com", status: "DECLINED" },
+      ],
+      undefined,
+    );
+    expect.soft(attendees).toEqual([attendee("grace@example.com", "accepted", "Grace")]);
+    expect.soft(attendeeCount).toBe(1);
+  });
+
+  it.each([
+    { name: "not an array", value: "grace@example.com" },
+    { name: "absent", value: undefined },
+    { name: "empty", value: [] },
+  ])("reads $name as nobody at all", ({ value }) => {
+    expect(readGuests(value, undefined)).toEqual({ attendees: [], attendeeCount: 0 });
   });
 });

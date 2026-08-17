@@ -318,6 +318,12 @@ export function buildEventRecord(
     // event created with one of its own would be an agent quietly deciding
     // how much warning its user wants.
     remindLead: REMIND_INHERIT,
+    // Nobody, for the reason there is no tool argument and never will be: an
+    // agent has no channel to invite anyone on either, so a guest list it
+    // assembled would be a list of people who were never asked.
+    organizer: null,
+    attendees: [],
+    attendeeCount: 0,
   });
 }
 
@@ -365,6 +371,14 @@ export function applyPatchToEvent(
     // moment an assistant fixed a typo in its title, because `readEvent`
     // reads an absent lead as inheriting.
     remindLead: base.remindLead,
+    // Carried, and this is the field where dropping it would be least
+    // recoverable: the guest list is a record of a message somebody else sent,
+    // and `readEvent` reads an absent one as no invitation at all — so an
+    // assistant fixing a typo in the title would erase the only copy of who
+    // had asked and who was coming.
+    organizer: base.organizer,
+    attendees: base.attendees,
+    attendeeCount: base.attendeeCount,
   });
 }
 

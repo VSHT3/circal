@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { at, calendar, ms, event, MemoryStorage } from "./helpers";
+import { at, attendee, calendar, ms, event, MemoryStorage } from "./helpers";
 import {
   instantKey,
   PALETTE,
@@ -1238,6 +1238,12 @@ describe("hydrateEvents", () => {
     // which is none of the three and would silently stop matching any of
     // them.
     expect.soft(hydrated.remindLead).toBe(REMIND_INHERIT);
+    // And it predates the invite path: `attendees` reaching the editor as
+    // `undefined` is a crash rather than an empty list, and nobody had asked
+    // any of those events anywhere.
+    expect.soft(hydrated.organizer).toBeNull();
+    expect.soft(hydrated.attendees).toEqual([]);
+    expect.soft(hydrated.attendeeCount).toBe(0);
   });
 
   // The fast path returns the stored event untouched when every field is
@@ -1252,6 +1258,47 @@ describe("hydrateEvents", () => {
     );
     const s = await freshStore(storage);
     expect(s.store.snapshot().events[0].free).toBe(true);
+  });
+
+  // The same fast path again, and the reason the guest list is in the shape
+  // question: an imported invitation would come back with nobody on it, which
+  // is the record of who asked being lost on a reload rather than on an import.
+  it("keeps a stored guest list across a reload", async () => {
+    const storage = new MemoryStorage();
+    const invite = event({
+      title: "Design review",
+      start: "2026-03-08 09:00",
+      organizer: { name: "Ada", address: "ada@example.com" },
+      attendees: [attendee("grace@example.com", "accepted", "Grace")],
+      attendeeCount: 41,
+    });
+    storage.setItem(
+      KEY,
+      JSON.stringify({ schema: 2, events: [invite], calendars: [], feeds: {}, settings: {} }),
+    );
+    const s = await freshStore(storage);
+    const stored = s.store.snapshot().events[0];
+    expect.soft(stored.organizer).toEqual({ name: "Ada", address: "ada@example.com" });
+    expect.soft(stored.attendees).toEqual([attendee("grace@example.com", "accepted", "Grace")]);
+    // The count a truncating import wrote survives too, or the surface stops
+    // being able to say how many guests it is not showing.
+    expect.soft(stored.attendeeCount).toBe(41);
+  });
+
+  // A stored count below the list it labels is a hand-edited blob, and it is
+  // the one guest field asked about validity rather than only shape.
+  it("repairs a stored count that cannot be true", async () => {
+    const storage = new MemoryStorage();
+    const broken = {
+      ...event({ start: "2026-03-08 09:00", attendees: [attendee("a@x.com")] }),
+      attendeeCount: Number.NaN,
+    };
+    storage.setItem(
+      KEY,
+      JSON.stringify({ schema: 2, events: [broken], calendars: [], feeds: {}, settings: {} }),
+    );
+    const s = await freshStore(storage);
+    expect(s.store.snapshot().events[0].attendeeCount).toBe(1);
   });
 
   // The same fast path, and the state it costs most: an event the user
@@ -1779,6 +1826,25 @@ describe("duplicateOf", () => {
       .soft(duplicateOf(event({ start: "2026-03-08 09:00", remindLead: 60 })).remindLead)
       .toBe(60);
     expect.soft(duplicateOf(event({ start: "2026-03-08 09:00" })).remindLead).toBe(REMIND_INHERIT);
+  });
+
+  // The guest list deliberately does *not* travel, and it is the sharpest case
+  // of `doneKeys`' argument: a copy the user just made is not the invitation
+  // somebody else sent, so a duplicate showing "Grace is coming" would be the
+  // app inventing an RSVP to a meeting with no organiser and no channel to have
+  // been sent on.
+  it("arrives with nobody on it, however many guests the original had", () => {
+    const copy = duplicateOf(
+      event({
+        start: "2026-03-08 09:00",
+        organizer: { name: "Ada", address: "ada@example.com" },
+        attendees: [attendee("grace@example.com", "accepted", "Grace")],
+        attendeeCount: 12,
+      }),
+    );
+    expect.soft(copy.organizer).toBeNull();
+    expect.soft(copy.attendees).toEqual([]);
+    expect.soft(copy.attendeeCount).toBe(0);
   });
 
   it("shifts both instants by the drag, keeping the duration", () => {

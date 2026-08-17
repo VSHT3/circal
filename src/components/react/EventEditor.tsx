@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   NEVER,
   PALETTE,
+  PARTSTAT_LABELS,
   REMIND_INHERIT,
   REMIND_SILENT,
   ownLead,
@@ -143,6 +144,97 @@ function parseDay(value: string): Date | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
   const picked = fromDayKey(value);
   return Number.isNaN(picked.getTime()) ? null : picked;
+}
+
+/**
+ * How many guests are shown before the list starts scrolling. Five rows is
+ * about a hundred pixels inside a card whose whole body is already bounded by
+ * `86vh` — enough that most invitations show whole, and short enough that a
+ * forty-person meeting cannot walk the Save button off the bottom of the
+ * screen. The fade is applied only past this count, because a fade over a list
+ * that already fits dims its own last row and reads as a rendering fault.
+ */
+const GUEST_ROWS = 5;
+
+/** One row's height: 14px of text on this card's own leading plus the `gap-1`
+ *  under it. Multiplied rather than written as a `max-h-[105px]` class so the
+ *  height and the fade's threshold cannot come to disagree about where the
+ *  list stops. */
+const GUEST_ROW_H = 21;
+
+/**
+ * Who asked, and who is coming — the read half of an invitation, and nothing
+ * else.
+ *
+ * Display only, on purpose and permanently. Accepting or declining is a
+ * message, and circal has no account, no server and no way to post one, so
+ * there is no verb here, no button, and no control to add a guest: an empty
+ * guest-list editor on an event you wrote yourself would be a promise the app
+ * cannot keep. It renders only when a file actually named somebody, which is
+ * why nothing above it has to reason about an empty state.
+ *
+ * A `<ul>` because that is what it is, and because a list of names read out as
+ * a list is the one accessible affordance this block can honestly offer.
+ *
+ * The organiser sits outside the scrolling list rather than at the top of it:
+ * it is the one name that answers "who is asking", so it must not be the row
+ * that scrolls away. It is told apart by a `.label` tag beside it and by
+ * keeping full `ink` where the guests are `ink-2` — greyscale both, since
+ * colour on this face belongs to events.
+ *
+ * The count is the honest half. `attendeeCount` is what the file named, so the
+ * remainder printed here is measured against the invitation rather than against
+ * the truncated list that survived the cap.
+ */
+function Guests({
+  organizer,
+  attendees,
+  attendeeCount,
+}: Pick<CalEvent, "organizer" | "attendees" | "attendeeCount">) {
+  if (!organizer && attendees.length === 0) return null;
+  const hidden = Math.max(attendeeCount - attendees.length, 0);
+  return (
+    <Row label="Guests" align="top">
+      {organizer && (
+        <span className="flex min-w-0 items-baseline justify-between gap-2">
+          {/* The name when there is one, the mailbox when there is not — never
+              both, because a 320px column has room for one of them and the
+              name is the answer to "who". The address stays reachable as the
+              row's own title, since it is the only copy of it on screen. */}
+          <span className="truncate" title={organizer.address}>
+            {organizer.name || organizer.address}
+          </span>
+          <span className="label shrink-0 text-ink-3">Organiser</span>
+        </span>
+      )}
+      {attendees.length > 0 && (
+        <ul
+          className={cn(
+            "no-scrollbar flex min-w-0 flex-col gap-1 overflow-y-auto",
+            attendees.length > GUEST_ROWS && "fade-y",
+          )}
+          style={{ maxHeight: `${GUEST_ROWS * GUEST_ROW_H}px` }}
+        >
+          {attendees.map((guest) => (
+            <li key={guest.address} className="flex items-baseline justify-between gap-2">
+              <span className="truncate text-ink-2" title={guest.address}>
+                {guest.name || guest.address}
+              </span>
+              {/* A tag, so `.label`: three words of vocabulary at a label's
+                  weight, not a sentence. It says what they answered and
+                  nothing about what you could answer. */}
+              <span className="label shrink-0 text-ink-3">{PARTSTAT_LABELS[guest.status]}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {hidden > 0 && (
+        <span className="caption tabular-nums">
+          and {hidden} {hidden === 1 ? "other" : "others"}
+        </span>
+      )}
+    </Row>
+  );
 }
 
 export default function EventEditor({
@@ -593,6 +685,19 @@ export default function EventEditor({
                   className="w-full min-w-0 border-none bg-transparent text-ink outline-none placeholder:text-ink-3"
                 />
               </Row>
+
+              {/* Where, then who — and then every control, uninterrupted. This
+                  block is the one thing in the card that cannot be edited, so
+                  it sits at the end of the run of facts (day, time, zone,
+                  place) rather than among the pickers below, where a row that
+                  does nothing when pressed would read as one that is broken.
+                  It is absent entirely on everything the user wrote, since
+                  nothing here mints a guest list. */}
+              <Guests
+                organizer={draft.organizer}
+                attendees={draft.attendees}
+                attendeeCount={draft.attendeeCount}
+              />
 
               <Row label="Calendar">
                 <CalendarMark

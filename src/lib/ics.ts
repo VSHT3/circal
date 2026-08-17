@@ -8,6 +8,22 @@
  * an unreadable VEVENT is skipped rather than thrown on, and the handful
  * of date forms other producers actually use (UTC, TZID, floating,
  * VALUE=DATE, DURATION-instead-of-DTEND) all get a fallback.
+ *
+ * `METHOD` is deliberately not read, and that is a decision rather than an
+ * omission. It is the calendar-level property that separates an invitation
+ * (`REQUEST`) from a published feed (`PUBLISH`), and from a `REPLY` or a
+ * `CANCEL` about an event you already hold — but every one of those readings
+ * only pays off in the half of the protocol circal has refused. `REQUEST`
+ * would want an Accept button; `REPLY` would have to patch a `PARTSTAT` on an
+ * event already on the dial; `CANCEL` would have to delete somebody else's
+ * event on their say-so. Circal imports every `.ics` the same way — into a new
+ * calendar of its own, one undo step away — and the one fact the surface
+ * prints, that a named person organised this and these people were asked, is
+ * already spelled by ORGANIZER and ATTENDEE on the VEVENT itself. So reading
+ * `METHOD` would change nothing and would leave a field inviting exactly the
+ * branch this scope excludes. `toIcs` writes none either: an export carrying
+ * `METHOD:REQUEST` is this app claiming to be the organiser of a meeting it
+ * only read, which is how a consumer is told to start sending replies.
  * ------------------------------------------------------------------ */
 
 import { dayKey, isZone, wallClockIn, zonedToUtc } from "./time";
@@ -26,8 +42,12 @@ import {
   NEVER,
   REMIND_INHERIT,
   ownLead,
+  readGuests,
+  readPerson,
   readRemindLead,
+  type Attendee,
   type CalEvent,
+  type Person,
   type Recurrence,
   type Repeat,
   type WeekdayRule,
@@ -92,6 +112,18 @@ export interface IcsEvent extends Recurrence {
    * as a refusal would import a calendar that never speaks.
    */
   remindLead: number;
+  /**
+   * `ORGANIZER`, or `null` when the VEVENT named nobody — a published calendar
+   * usually does not, an invitation always does.
+   */
+  organizer: Person | null;
+  /**
+   * `ATTENDEE`, one entry per line, capped and de-duplicated by `readGuests`.
+   * `attendeeCount` is how many the file named before the cap, which is the
+   * only way the surface can say what it is not showing.
+   */
+  attendees: Attendee[];
+  attendeeCount: number;
 }
 
 /* --------------------------------- text ----------------------------------- */
@@ -129,6 +161,36 @@ function unescapeText(value: string): string {
     }
   }
   return out;
+}
+
+/**
+ * One `ORGANIZER`/`ATTENDEE` line: `NAME;CN="…"<extra>:mailto:someone@host`.
+ *
+ * Two rules, both about the fact that a param value is *not* escaped the way a
+ * property value is — §3.1 gives it quoting instead, so `escapeText` here
+ * would write literal backslashes into somebody else's address book. A `CN` is
+ * always quoted (a real display name carries commas and colons: `"Lovelace,
+ * Ada (Analytical Engine)"`), and the two characters a QSAFE-CHAR may not be —
+ * a double quote and a control character — are dropped rather than escaped:
+ * RFC 6868's `^"` encoding exists but is younger than most consumers, and a
+ * name that loses one quote mark still names the person, where a param a
+ * reader chokes on loses the whole line.
+ *
+ * The value keeps whatever scheme it arrived with. `mailto:` is put back
+ * because that is what was taken off on the way in, and an address that
+ * already carries a scheme of its own (`urn:`, `sip:` — a `CAL-ADDRESS` is any
+ * URI) is written through untouched rather than mailed to.
+ */
+function calAddressLine(property: string, person: Person, extra: string): string {
+  // Filtered by code point rather than by a regex: a class holding the C0
+  // range is a `no-control-regex` error, and spelling those bytes as an escape
+  // in source is the kind of line a later reader deletes as a typo.
+  const cn = [...person.name]
+    .filter((c) => c !== '"' && c >= " " && c !== "\u007f")
+    .join("")
+    .trim();
+  const address = person.address.includes(":") ? person.address : `mailto:${person.address}`;
+  return `${property}${cn ? `;CN="${cn}"` : ""}${extra}:${address}`;
 }
 
 /** Folds one logical property line at 75 octets, as RFC 5545 §3.1 requires.
@@ -355,6 +417,23 @@ export function toIcs(events: CalEvent[], name: string): string {
     // every other calendar reads an absent `TRANSP` as busy, so a line
     // saying so is a line saying nothing.
     if (event.free) lines.push("TRANSP:TRANSPARENT");
+    // `ORGANIZER` and `ATTENDEE`, the two properties that make a VEVENT an
+    // invitation rather than a notice. Written back because they came in: a
+    // file whose guest list survives one import and is gone from the next
+    // export is a file that quietly loses the only record of who was asked.
+    // Nothing here says the export *is* an invitation — no `METHOD`, no
+    // `RSVP`, no `SEQUENCE` — see this file's own header.
+    if (event.organizer) lines.push(calAddressLine("ORGANIZER", event.organizer, ""));
+    for (const attendee of event.attendees) {
+      // `PARTSTAT` only when it is not the RFC's own default, exactly as
+      // `TRANSP` is written only when it is not `OPAQUE`: `NEEDS-ACTION` is
+      // what an absent param already means, so the line would say nothing.
+      // The stored value is the RFC token in lower case, so upper-casing it
+      // is the whole conversion rather than a table that could disagree.
+      const partstat =
+        attendee.status === "needs-action" ? "" : `;PARTSTAT=${attendee.status.toUpperCase()}`;
+      lines.push(calAddressLine("ATTENDEE", attendee, partstat));
+    }
     // One comma list rather than a line each, which is what EXDATE's own
     // multi-value form does — and a done key contains no comma, so it needs
     // no escaping beyond that.
@@ -488,11 +567,12 @@ function parseDateProp(
 }
 
 /**
- * One VEVENT's properties. EXDATE and RDATE are kept apart because they are
- * the two properties here that legitimately appear on several lines of the
- * same component, and a flat map would keep only the last of each — which
- * is a series quietly gaining back every occurrence it was told to skip, or
- * losing every extra date it was given.
+ * One VEVENT's properties. EXDATE, RDATE and ATTENDEE are kept apart because
+ * they are the properties here that legitimately appear on several lines of
+ * the same component, and a flat map would keep only the last of each — which
+ * is a series quietly gaining back every occurrence it was told to skip, or a
+ * meeting of forty people arriving with one guest, the last one the sender
+ * happened to list.
  *
  * `alarms` is apart for a different reason: a VALARM is a *component*, not a
  * property, and a VEVENT may carry several. Its lines must never land in
@@ -503,7 +583,36 @@ interface Block {
   props: Record<string, PropEntry>;
   exdates: PropEntry[];
   rdates: PropEntry[];
+  attendees: PropEntry[];
   alarms: Record<string, PropEntry>[];
+}
+
+/**
+ * One `CAL-ADDRESS` property — `ORGANIZER`, `ATTENDEE` — as the pair circal
+ * prints, or `null` when the line named nobody and is therefore malformed.
+ *
+ * The value is a URI and is normally `mailto:`, which is stripped: the scheme
+ * is a spelling of "this is an address" and printing it spends a third of a
+ * 320px row saying so. Case-insensitively, because §3.3.3 says a scheme is,
+ * and Outlook writes `MAILTO:`. Anything else keeps its scheme, since a
+ * `CAL-ADDRESS` may legitimately be another kind of URI and guessing it is
+ * mail would be inventing an address.
+ *
+ * `CN` is the display name and is genuinely optional — a file that names only
+ * the mailbox is normal, not broken, so the caller prints the address instead.
+ * The other params are read by nothing: `readGuests` takes `PARTSTAT` off the
+ * `status` field this hands it, and `ROLE`/`RSVP` are dropped for the reasons
+ * `PARTSTATS` gives.
+ */
+function readCalAddress(prop: PropEntry | undefined): (Person & { status: string }) | null {
+  if (!prop) return null;
+  const raw = prop.value.trim();
+  const address = /^mailto:/i.test(raw) ? raw.slice(7).trim() : raw;
+  if (!address) return null;
+  // A param value is quoted rather than escaped, and `splitLine` has already
+  // taken the quotes off — so `unescapeText` here would eat backslashes that
+  // are part of somebody's name.
+  return { name: (prop.params.CN ?? "").trim(), address, status: prop.params.PARTSTAT ?? "" };
 }
 
 /**
@@ -814,6 +923,19 @@ function buildEvent(block: Block): IcsEvent | null {
     // RFC itself names.
     free: props.TRANSP?.value.trim().toUpperCase() === "TRANSPARENT",
     remindLead: readAlarmLead(block.alarms),
+    // Who asked, and who was asked. `readGuests` and `readPerson` own the
+    // caps and the de-duplication, because a hand-edited backup and a
+    // stranger's feed have to arrive at the same idea of a legal guest list —
+    // one validator, three readers, exactly as `readRecurrence` is one. A line
+    // naming nobody drops out here rather than becoming a blank row.
+    //
+    // No count is handed over: the file's own line total would count a
+    // malformed line and count a merged reply's restated attendee twice, so
+    // "and 40 others" would be measured against a number the sender did not
+    // mean. The readable, de-duplicated total is the honest one, and
+    // `readGuests` computes it from the list it just read.
+    organizer: readPerson(readCalAddress(props.ORGANIZER)),
+    ...readGuests(block.attendees.map(readCalAddress), undefined),
     ...readRecurrence(block, dtstart.ms, dtstart.tzid),
   };
 }
@@ -955,7 +1077,7 @@ export function fromIcs(text: string): { name: string; events: IcsEvent[] } {
       const inVevent = stack[stack.length - 1] === "VEVENT";
       stack.push(block);
       if (block === "VEVENT" && current === null)
-        current = { props: {}, exdates: [], rdates: [], alarms: [] };
+        current = { props: {}, exdates: [], rdates: [], attendees: [], alarms: [] };
       // Only an alarm directly inside the open VEVENT. Anything deeper is a
       // component this reader has no opinion about.
       else if (block === "VALARM" && current !== null && inVevent) alarm = {};
@@ -990,6 +1112,10 @@ export function fromIcs(text: string): { name: string; events: IcsEvent[] } {
     } else if (current !== null && stack[stack.length - 1] === "VEVENT") {
       if (propName === "EXDATE") current.exdates.push({ params, value });
       else if (propName === "RDATE") current.rdates.push({ params, value });
+      // One line per guest, so this is the third property collected as a list
+      // rather than kept in the flat map — a forty-person meeting arriving with
+      // its last attendee is the same bug an EXDATE list flattened into one.
+      else if (propName === "ATTENDEE") current.attendees.push({ params, value });
       else current.props[propName] = { params, value };
     } else if (current === null && propName === "X-WR-CALNAME") {
       name = unescapeText(value);

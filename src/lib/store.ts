@@ -43,6 +43,8 @@ import {
   instantKey,
   REMIND_INHERIT,
   keyToInstant,
+  readGuests,
+  readPerson,
   readRecurrence,
   readRemindLead,
   type CalEvent,
@@ -585,6 +587,9 @@ function seed(): CalEvent[] {
     doneKeys: [],
     free: false,
     remindLead: REMIND_INHERIT,
+    organizer: null,
+    attendees: [],
+    attendeeCount: 0,
     ...extra,
   });
 
@@ -813,6 +818,9 @@ function hydrateEvents(value: unknown): CalEvent[] {
       doneKeys,
       free,
       remindLead,
+      organizer,
+      attendees,
+      attendeeCount,
       tzid,
     } = event;
     if (
@@ -843,6 +851,16 @@ function hydrateEvents(value: unknown): CalEvent[] {
       // makes `dueReminders` scan a day seven years out, every minute, for
       // ever. Two integer comparisons in the common case is what that costs.
       remindLead === readRemindLead(remindLead) &&
+      // Shape, like every neighbour but the lead: a stored guest list was
+      // written by this app off `readGuests`, so being an array *is* being
+      // legal here, and the boundaries that face a stranger — an `.ics` and a
+      // backup's JSON — are the ones that re-read every row. `organizer` is
+      // asked for null-or-object because `null` is its ordinary value and the
+      // fast path has to recognise it; the count is asked about validity for
+      // one cheap reason, that a stored `NaN` would print "and NaN others".
+      (organizer === null || typeof organizer === "object") &&
+      Array.isArray(attendees) &&
+      Number.isInteger(attendeeCount) &&
       typeof tzid === "string"
     ) {
       return event;
@@ -867,6 +885,13 @@ function hydrateEvents(value: unknown): CalEvent[] {
       // it and reach `leadOf` as `undefined` — neither of the three states,
       // and silently not the inheriting one.
       remindLead: readRemindLead(remindLead),
+      // A blob written before the invite path existed carries no guests at
+      // all, which is what those events had: nobody asked them. In the shape
+      // question above for `free`'s reason — a field left out of the fast path
+      // is a field a stored blob never gains, and `attendees` reaching the
+      // editor as `undefined` is a crash rather than an empty list.
+      organizer: readPerson(organizer),
+      ...readGuests(attendees, attendeeCount),
       // A blob written before this field existed carries every event
       // floating, which is what those events already were — nothing zoned
       // an event but `fromIcs`'s own DTSTART reader.
@@ -1927,6 +1952,13 @@ export function draftEvent(
     // Inheriting, which is the only answer a gesture gives: the drag named a
     // time, not how much warning it wants about it.
     remindLead: REMIND_INHERIT,
+    // Nobody, and no way to make it anybody: circal has no channel to send an
+    // invitation on, so a draft has no guest list and the editor offers no
+    // control that would make one. These fields only ever arrive from a file
+    // somebody else wrote.
+    organizer: null,
+    attendees: [],
+    attendeeCount: 0,
   };
 }
 
@@ -1954,13 +1986,21 @@ export function taskDraft(day: Date, startMin: number, calendarId: string): Omit
  * It is also why a duplicate asks no `EditScope` question: nothing existing is
  * being edited, so there is no occurrence for the question to be about.
  *
- * Three fields deliberately do not come across. `seriesId`/`seriesKey` name a
+ * Six fields deliberately do not come across. `seriesId`/`seriesKey` name a
  * relationship to *another* event, and two events cannot both claim one
  * occurrence — so a copy of an override is an ordinary event on the day it
  * used to replace. And `doneKeys` are ticks against work that was done once; a
  * duplicate arriving pre-ticked is a to-do list that lies. The overrides *of*
  * a series are not copied either, for the first reason: an override is its own
  * event, and a duplicate is one event.
+ *
+ * The guest list is the fourth kind of the same argument, and the sharpest.
+ * `organizer`/`attendees`/`attendeeCount` are a record of an invitation
+ * somebody else sent, and a copy the user just made is not that invitation:
+ * nothing was asked of anybody, so a duplicate showing "Ada is coming" is the
+ * app inventing an RSVP to a meeting that has no organiser and no channel to
+ * have been sent on. Exactly the promise the editor refuses to offer a control
+ * for, arriving through the back door instead.
  *
  * `exdates`/`rdates` travel *with* the shift rather than beside it. Both name
  * instants, so a series moved an hour later and handed its old keys is a copy
@@ -1988,6 +2028,9 @@ export function duplicateOf(event: CalEvent, shiftMs = 0): Omit<CalEvent, "id"> 
     seriesId: "",
     seriesKey: "",
     doneKeys: [],
+    organizer: null,
+    attendees: [],
+    attendeeCount: 0,
   };
 }
 

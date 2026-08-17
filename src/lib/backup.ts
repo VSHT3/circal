@@ -27,6 +27,8 @@ import { dayKey, isZone } from "./time";
 import { isRecord } from "./utils";
 import {
   ICON_MAX,
+  readGuests,
+  readPerson,
   readRecurrence,
   readRemindLead,
   recurrenceOf,
@@ -359,6 +361,16 @@ export function readEvent(value: unknown): CalEvent | null {
     // has to distinguish: an unreadable one comes back inheriting, which is
     // what an event exported before this field existed already did.
     remindLead: readRemindLead(value.remindLead),
+    // The one field on this model that arrives from a stranger with no natural
+    // length, so this is where the caps are enforced rather than where they are
+    // chosen: `readGuests` in `events.ts` owns the numbers, because a
+    // subscription's ATTENDEE lines never pass through this file and the two
+    // paths must not disagree about how big a guest list may be. The count
+    // comes through so a restore prints the same "and 40 others" the import
+    // did — clamped up to the list it labels, since a blob understating it
+    // would print a negative remainder.
+    organizer: readPerson(value.organizer),
+    ...readGuests(value.attendees, value.attendeeCount),
   };
 }
 
@@ -490,6 +502,13 @@ export function importIcs(text: string, filename: string) {
         // VEVENT carried none — a sender's alarm is a fact about that event
         // and travels with it, the same way `TRANSP` does.
         remindLead: e.remindLead,
+        // The whole of the invite path, and the reason it is a read: an `.ics`
+        // that arrives by mail is the one file that carries these, and until
+        // now the import threw away the only record of who had asked and who
+        // was coming. Already capped and counted by `fromIcs`.
+        organizer: e.organizer,
+        attendees: e.attendees,
+        attendeeCount: e.attendeeCount,
       };
     }),
   );

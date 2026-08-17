@@ -1,9 +1,18 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import "./helpers";
-import { MemoryStorage, calendar, event, ms } from "./helpers";
+import { MemoryStorage, attendee, calendar, event, ms } from "./helpers";
 import { readEvent, readSettings, readCalendar, backupDue } from "@/lib/backup";
 import { DEFAULT_SETTINGS } from "@/lib/store";
-import { ICON_MAX, NEVER, REMIND_INHERIT, REMIND_SILENT, type CalEvent } from "@/lib/events";
+import {
+  ATTENDEE_MAX,
+  GUEST_ADDRESS_MAX,
+  GUEST_NAME_MAX,
+  ICON_MAX,
+  NEVER,
+  REMIND_INHERIT,
+  REMIND_SILENT,
+  type CalEvent,
+} from "@/lib/events";
 import { placeForZone } from "@/lib/places";
 
 /* ---------------------------------------------------------------------- *
@@ -135,6 +144,72 @@ describe("readEvent — defaults", () => {
     { name: "a lead a decade long", input: 5_000_000, expected: REMIND_INHERIT },
   ])("remindLead: $name", ({ input, expected }) => {
     expect(readEvent({ ...baseEvent, remindLead: input })?.remindLead).toBe(expected);
+  });
+
+  // The guest list is the one field on this model that arrives from a stranger
+  // and has no natural length, so this reader is where the caps are enforced.
+  // What the numbers are lives in `events.ts` and is pinned in
+  // `tests/events.test.ts` — these assert that this boundary asks it.
+  it("reads an organiser and a guest list a backup actually carried", () => {
+    const read = readEvent({
+      ...baseEvent,
+      organizer: { name: "Ada", address: "ada@example.com" },
+      attendees: [{ name: "Grace", address: "grace@example.com", status: "accepted" }],
+      attendeeCount: 1,
+    });
+    expect.soft(read?.organizer).toEqual({ name: "Ada", address: "ada@example.com" });
+    expect.soft(read?.attendees).toEqual([attendee("grace@example.com", "accepted", "Grace")]);
+    expect.soft(read?.attendeeCount).toBe(1);
+  });
+
+  it.each([
+    { name: "a string", value: "ada@example.com" },
+    { name: "a record with no address", value: { name: "Ada" } },
+    { name: "absent", value: undefined },
+  ])("organizer $name reads as nobody rather than a blank row", ({ value }) => {
+    expect(readEvent({ ...baseEvent, organizer: value })?.organizer).toBeNull();
+  });
+
+  it("drops the guest rows that name nobody and keeps the event", () => {
+    const read = readEvent({
+      ...baseEvent,
+      attendees: [{ name: "Ghost" }, 7, null, { address: "grace@example.com" }],
+    });
+    expect.soft(read).not.toBeNull();
+    expect.soft(read?.attendees).toEqual([attendee("grace@example.com")]);
+    expect.soft(read?.attendeeCount).toBe(1);
+  });
+
+  it("caps a hostile guest list rather than refusing the event", () => {
+    // A mailing-list invitation is thousands of addresses inside one shared
+    // `localStorage` quota. Losing the calendar entry over the length of its
+    // guest list would be the wrong trade, and the count keeps the loss visible.
+    const read = readEvent({
+      ...baseEvent,
+      // Distinct in the *prefix*, because de-duplication is on the address as
+      // it will be stored: two addresses that differ only past the cap are one
+      // stored row, and RFC 5321 says no real mailbox is that long anyway.
+      attendees: Array.from({ length: 5000 }, (_, i) => ({
+        name: "N".repeat(500),
+        address: `${i}${"a".repeat(500)}@example.com`,
+      })),
+    });
+    expect.soft(read?.attendees).toHaveLength(ATTENDEE_MAX);
+    expect.soft(read?.attendeeCount).toBe(5000);
+    for (const guest of read?.attendees ?? []) {
+      expect.soft(guest.name.length).toBeLessThanOrEqual(GUEST_NAME_MAX);
+      expect.soft(guest.address.length).toBeLessThanOrEqual(GUEST_ADDRESS_MAX);
+    }
+  });
+
+  it("never lets the stored count understate the list it labels", () => {
+    // "and −2 others" is a truncation announcing itself backwards.
+    const read = readEvent({
+      ...baseEvent,
+      attendees: [{ address: "a@x.com" }, { address: "b@x.com" }, { address: "c@x.com" }],
+      attendeeCount: 1,
+    });
+    expect(read?.attendeeCount).toBe(3);
   });
 
   it("fills every recurrence field with NEVER's shape when none are given at all", () => {

@@ -98,6 +98,13 @@ export async function refreshFeed(calendar: Calendar): Promise<void> {
         // that asks for nothing falls back to the setting rather than to
         // silence.
         remindLead: e.remindLead,
+        // A shared calendar names its guests too, and a subscription is the
+        // one place they arrive without anybody importing a file. Read-only
+        // like everything else here — which this feature already is on every
+        // path, since there is nothing to answer with.
+        organizer: e.organizer,
+        attendees: e.attendees,
+        attendeeCount: e.attendeeCount,
       };
     });
     store.setFeedEvents(calendar.id, cached, name);

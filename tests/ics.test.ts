@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { byDay, day, event, ms } from "./helpers";
+import { attendee, byDay, day, event, ms } from "./helpers";
 import { fromIcs, toIcs, type IcsEvent } from "@/lib/ics";
-import { NEVER, REMIND_INHERIT, REMIND_SILENT } from "@/lib/events";
+import {
+  ATTENDEE_MAX,
+  GUEST_ADDRESS_MAX,
+  GUEST_NAME_MAX,
+  NEVER,
+  REMIND_INHERIT,
+  REMIND_SILENT,
+} from "@/lib/events";
 import { startsBetween } from "@/lib/recur";
 
 /* ------------------------------- fixtures ---------------------------------- *
@@ -184,30 +191,30 @@ describe("round-trip", () => {
  * says it is lossy fails and has to be rewritten. That failure is the point:
  * it is the only way a fix announces itself here.
  *
- * Three cases have already left. The TZID one — see `AUDIT.md`, "Events have
+ * Five cases have already left. The TZID one — see `AUDIT.md`, "Events have
  * no timezone" — `TRANSP`, whose loss this block pinned until busy/free
- * became a field, and now `VALARM`: all three live below, keeping rather
- * than losing. */
+ * became a field, `VALARM`, and now `ORGANIZER` and `ATTENDEE`: all of them
+ * live below, keeping rather than losing. */
 
 describe("what the round trip drops", () => {
-  it("drops the collaboration properties on the way in", () => {
+  it("drops STATUS and CATEGORIES on the way in", () => {
     const feed = singleVevent([
       "SUMMARY:Review",
       "DTSTART:20260615T090000Z",
       "DTEND:20260615T100000Z",
       "STATUS:TENTATIVE",
       "CATEGORIES:Work,Design",
-      "ORGANIZER;CN=Ada:mailto:ada@example.com",
-      "ATTENDEE;PARTSTAT=ACCEPTED:mailto:grace@example.com",
     ]);
     const { events } = fromIcs(feed);
     expect(events).toHaveLength(1);
 
-    // What arrives is the event; who is coming and whether it is confirmed do
-    // not. `TRANSP` used to be in this list, and so did the alarm — see
-    // "TRANSP round-trip" and "VALARM round-trip" below.
+    // What arrives is the event; whether it is confirmed and what it is filed
+    // under do not. `TRANSP` used to be in this list, and so did the alarm —
+    // and so did `organizer`/`attendees`, until reading an invitation became a
+    // feature: see "ORGANIZER and ATTENDEE" below, which is where the two rows
+    // this case used to carry now live as round trips.
     const kept = Object.keys(events[0]);
-    for (const absent of ["status", "categories", "organizer", "attendees"]) {
+    for (const absent of ["status", "categories"]) {
       expect.soft(kept).not.toContain(absent);
     }
     expect.soft(events[0].title).toBe("Review");
@@ -450,6 +457,215 @@ describe("VALARM round-trip", () => {
     });
     const { events } = fromIcs(toIcs([silenced], "Work"));
     expect(events[0].remindLead).toBe(REMIND_INHERIT);
+  });
+});
+
+/* --------------------------- ORGANIZER / ATTENDEE --------------------------- *
+ * The read half of an invitation, and the fourth and fifth rows to leave the
+ * "what it drops" block. Somebody mails an `.ics`; until these two properties
+ * were read, the one thing it carried that a published feed does not — who is
+ * asking, and who else was asked — was thrown away on the way in.
+ *
+ * Nothing here tests a reply, because there is none: circal has no channel to
+ * send one on, so `PARTSTAT` is read and printed and never written by this app
+ * about its own user. */
+
+describe("ORGANIZER and ATTENDEE", () => {
+  const invite = (...extra: string[]) =>
+    singleVevent([
+      "SUMMARY:Design review",
+      "DTSTART:20260615T090000Z",
+      "DTEND:20260615T100000Z",
+      ...extra,
+    ]);
+
+  it("reads the organiser's name and address, with the mailto: scheme off", () => {
+    const { events } = fromIcs(invite('ORGANIZER;CN="Lovelace, Ada":mailto:ada@example.com'));
+    expect.soft(events[0].organizer).toEqual({ name: "Lovelace, Ada", address: "ada@example.com" });
+  });
+
+  // Plenty of senders write the mailbox and nothing else. The address is then
+  // the only thing there is to print, so it must survive as the address rather
+  // than being promoted into the name.
+  it("reads an ORGANIZER with no CN", () => {
+    const { events } = fromIcs(invite("ORGANIZER:mailto:ada@example.com"));
+    expect.soft(events[0].organizer).toEqual({ name: "", address: "ada@example.com" });
+  });
+
+  // §3.3.3: a URI scheme is case-insensitive, and Outlook writes MAILTO:.
+  it("strips the scheme case-insensitively and keeps any other scheme whole", () => {
+    const { events } = fromIcs(
+      invite("ORGANIZER:MAILTO:ada@example.com", "ATTENDEE:urn:uuid:9f1b-cccc"),
+    );
+    expect.soft(events[0].organizer?.address).toBe("ada@example.com");
+    expect.soft(events[0].attendees[0].address).toBe("urn:uuid:9f1b-cccc");
+  });
+
+  it("reads every ATTENDEE line, not just the last", () => {
+    const { events } = fromIcs(
+      invite(
+        "ATTENDEE;CN=Grace;PARTSTAT=ACCEPTED:mailto:grace@example.com",
+        "ATTENDEE;CN=Alan;PARTSTAT=DECLINED:mailto:alan@example.com",
+        "ATTENDEE;CN=Katherine;PARTSTAT=TENTATIVE:mailto:katherine@example.com",
+        "ATTENDEE;CN=Edsger:mailto:edsger@example.com",
+      ),
+    );
+    expect.soft(events[0].attendees).toEqual([
+      attendee("grace@example.com", "accepted", "Grace"),
+      attendee("alan@example.com", "declined", "Alan"),
+      attendee("katherine@example.com", "tentative", "Katherine"),
+      // No PARTSTAT is NEEDS-ACTION, the RFC's own default.
+      attendee("edsger@example.com", "needs-action", "Edsger"),
+    ]);
+    expect.soft(events[0].attendeeCount).toBe(4);
+  });
+
+  // DELEGATED is real and circal models none of it: the delegate is its own
+  // ATTENDEE line, so what is unsayable is only the relationship. Reading it as
+  // declined would claim a refusal nobody made.
+  it.each([
+    { name: "DELEGATED", value: "DELEGATED" },
+    { name: "a PARTSTAT no standard defines", value: "PROBABLY" },
+    { name: "an empty PARTSTAT", value: "" },
+  ])("reads $name as needs-action rather than mapping it onto a reply", ({ value }) => {
+    const { events } = fromIcs(invite(`ATTENDEE;PARTSTAT=${value}:mailto:grace@example.com`));
+    expect.soft(events[0].attendees).toEqual([attendee("grace@example.com")]);
+  });
+
+  it("reads a lower-case PARTSTAT, which is a param value and therefore caseless", () => {
+    const { events } = fromIcs(invite("ATTENDEE;PARTSTAT=accepted:mailto:grace@example.com"));
+    expect.soft(events[0].attendees[0].status).toBe("accepted");
+  });
+
+  // The file's posture: a malformed line is skipped, never thrown on, and never
+  // takes the event down with it.
+  it("skips a malformed ATTENDEE line and keeps the event and the good guests", () => {
+    const { events } = fromIcs(
+      invite(
+        "ATTENDEE;CN=Nobody", // no colon at all: not a property line
+        "ATTENDEE:", // a property with no value: nobody named
+        "ATTENDEE:mailto:", // a scheme and nothing behind it
+        "ATTENDEE;CN=Grace:mailto:grace@example.com",
+      ),
+    );
+    expect(events).toHaveLength(1);
+    expect.soft(events[0].title).toBe("Design review");
+    expect
+      .soft(events[0].attendees)
+      .toEqual([attendee("grace@example.com", "needs-action", "Grace")]);
+    // The dropped lines named nobody, so they are not people the surface is
+    // hiding — the count must not offer to show them.
+    expect.soft(events[0].attendeeCount).toBe(1);
+  });
+
+  // A merged REPLY legitimately restates a line. One person twice is a list
+  // lying about its own size, in both directions: the rows and the count.
+  it("collapses a repeated address, case-insensitively", () => {
+    const { events } = fromIcs(
+      invite(
+        "ATTENDEE;CN=Grace;PARTSTAT=ACCEPTED:mailto:grace@example.com",
+        "ATTENDEE;CN=Grace Hopper;PARTSTAT=DECLINED:mailto:GRACE@example.com",
+      ),
+    );
+    expect.soft(events[0].attendees).toEqual([attendee("grace@example.com", "accepted", "Grace")]);
+    expect.soft(events[0].attendeeCount).toBe(1);
+  });
+
+  it("caps the guest list and keeps the real total, so the surface can say what it is hiding", () => {
+    const many = Array.from(
+      { length: ATTENDEE_MAX + 40 },
+      (_, i) => `ATTENDEE:mailto:guest${i}@example.com`,
+    );
+    const { events } = fromIcs(invite(...many));
+    expect.soft(events[0].attendees).toHaveLength(ATTENDEE_MAX);
+    expect.soft(events[0].attendeeCount).toBe(ATTENDEE_MAX + 40);
+    // Truncating beats refusing: the event itself is never lost over the length
+    // of its guest list.
+    expect.soft(events[0].title).toBe("Design review");
+  });
+
+  it("truncates a name and an address past their caps rather than dropping the guest", () => {
+    const longName = "N".repeat(GUEST_NAME_MAX + 50);
+    const longAddress = `${"a".repeat(GUEST_ADDRESS_MAX + 50)}@example.com`;
+    const { events } = fromIcs(
+      invite(
+        `ATTENDEE;CN=${longName}:mailto:${longAddress}`,
+        `ORGANIZER;CN=${longName}:mailto:x@y`,
+      ),
+    );
+    expect.soft(events[0].attendees[0].name).toHaveLength(GUEST_NAME_MAX);
+    expect.soft(events[0].attendees[0].address).toHaveLength(GUEST_ADDRESS_MAX);
+    expect.soft(events[0].organizer?.name).toHaveLength(GUEST_NAME_MAX);
+  });
+
+  it("writes both properties back out and round-trips the people", () => {
+    const ev = event({
+      title: "Design review",
+      start: "2026-03-09 09:00",
+      organizer: { name: "Ada Lovelace", address: "ada@example.com" },
+      attendees: [
+        attendee("grace@example.com", "accepted", "Grace Hopper"),
+        attendee("alan@example.com", "declined"),
+        attendee("edsger@example.com"),
+      ],
+      attendeeCount: 3,
+    });
+    const text = toIcs([ev], "Work");
+    expect.soft(text).toContain('ORGANIZER;CN="Ada Lovelace":mailto:ada@example.com');
+    expect.soft(text).toContain('ATTENDEE;CN="Grace Hopper";PARTSTAT=ACCEPTED:mailto:grace@');
+    // NEEDS-ACTION is what an absent PARTSTAT already means, so the param is
+    // written only when it says something — `TRANSP`'s own rule.
+    expect.soft(text).toContain("ATTENDEE:mailto:edsger@example.com");
+    expect.soft(text).not.toContain("PARTSTAT=NEEDS-ACTION");
+
+    const { events } = fromIcs(text);
+    expect.soft(events[0].organizer).toEqual(ev.organizer);
+    expect.soft(events[0].attendees).toEqual(ev.attendees);
+    expect.soft(events[0].attendeeCount).toBe(3);
+  });
+
+  // An event with nobody on it must not gain either line: an empty ORGANIZER
+  // would make every export look like an invitation from nobody.
+  it("writes neither property for an event with no guests", () => {
+    const text = toIcs([event({ title: "Gym" })], "Work");
+    expect.soft(text).not.toContain("ORGANIZER");
+    expect.soft(text).not.toContain("ATTENDEE");
+  });
+
+  // The export is a calendar handed to another app, not an invitation sent on
+  // this user's behalf — and `METHOD:REQUEST` is exactly what tells a consumer
+  // to start posting replies to the organiser.
+  it("never writes METHOD, and reading one changes nothing", () => {
+    const withGuests = event({
+      title: "Design review",
+      organizer: { name: "Ada", address: "ada@example.com" },
+      attendees: [attendee("grace@example.com", "accepted")],
+      attendeeCount: 1,
+    });
+    expect.soft(toIcs([withGuests], "Work")).not.toContain("METHOD");
+
+    // A REQUEST and a CANCEL read identically: one event, kept, with its people
+    // on it. Nothing here acts on somebody else's statement about this
+    // calendar, which is the write half this feature does not have.
+    for (const method of ["METHOD:REQUEST", "METHOD:CANCEL", "METHOD:REPLY"]) {
+      const text = [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//test//test//EN",
+        method,
+        "BEGIN:VEVENT",
+        "UID:invite@example.com",
+        "SUMMARY:Design review",
+        "DTSTART:20260615T090000Z",
+        "DTEND:20260615T100000Z",
+        "ATTENDEE;PARTSTAT=ACCEPTED:mailto:grace@example.com",
+        "END:VEVENT",
+        "END:VCALENDAR",
+      ].join("\r\n");
+      const { events } = fromIcs(text);
+      expect.soft(events).toHaveLength(1);
+      expect.soft(events[0].attendees).toHaveLength(1);
+    }
   });
 });
 
