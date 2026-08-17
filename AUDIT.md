@@ -1,9 +1,9 @@
 # audit
 
 What is left to upgrade, improve, change or add. First explored 2026-08-12 against `8b8e8d5`; every
-claim is grounded in the code or in a measurement, with the line. Ten rounds have been worked
+claim is grounded in the code or in a measurement, with the line. Eleven rounds have been worked
 through since — the Tier 0 four; the mechanical bucket; the round that needed one call each; and the
-seven below. **Everything finished has been deleted from this file rather than crossed out**: what a
+eight below. **Everything finished has been deleted from this file rather than crossed out**: what a
 decision was and why it went the way it did belongs in `AGENTS.md`, next to the code it constrains,
 and a list of solved problems is a list nobody reads twice.
 
@@ -127,6 +127,23 @@ field with two writers must record which one wrote it; this one is its neighbour
 _graph_ rather than about a field — and both are failures no test in this repo could have expressed,
 which is worth noticing twice.
 
+**Round eleven, for the record.** Invitation reading, and what it demonstrates is that a refusal
+written down early is worth more than a feature. This file said in its first pass that the reply half
+"needs a channel this product has refused" while reading one does not — and that sentence, not a
+design session, is what the commit implements: three fields kept, four `PARTSTAT` states printed, and
+no verb anywhere in the surface. The interesting decisions are all about declining to interpret.
+`ROLE` and `RSVP` are read by nothing, because `RSVP=TRUE` on screen is a demand beside no way to meet
+it. `DELEGATED` reads as the RFC's own default rather than as a yes or a no, since the delegate is
+already on the list under their own name and only the relationship is unsayable — so the label is
+"Invited", which is true of a delegation and a silent guest alike where "no reply" would be false of
+the first. And `METHOD` is neither read nor written, because every reading of it pays off only in the
+half that does not exist. Two smaller things worth keeping. The caps are the first time this app has
+had to defend itself against a _stranger's_ field with no natural length, and `trimFeed` was no help:
+it bounds a subscription by dropping whole events and cannot see one event that is itself megabytes of
+addresses — a budget is not a bound. And `attendeeCount` is the shape of every honest truncation in
+this codebase: keep the number that arrived, print the remainder against it, and the cap stops being a
+silent edit of somebody else's data.
+
 ---
 
 ## Tier 0 — actually broken, or will bite
@@ -193,18 +210,21 @@ argue about, so the tier is closed rather than kept open at a smaller scale.
 
 ## Tier 2 — is this an actual calendar
 
-- **No invite path.** Someone emails an `.ics`; today it becomes a whole new calendar. No `METHOD`,
-  `ORGANIZER`, `ATTENDEE`, accept or decline — none of those strings appear in `src/lib`. The most
-  common inbound calendar action there is. The reply half needs a channel this product has refused;
-  **reading** an invite and showing who is coming does not.
-- **Export fidelity, and the list is emptying.** `ATTENDEE`, `ORGANIZER`, `STATUS` and `CATEGORIES`
-  are still dropped, and a task still leaves as a zero-length VEVENT with `X-CIRCAL-` lines, so
-  another app shows an instantaneous event and no ticks. Three things have left that list in a week —
-  `TZID` when zones landed, `TRANSP` when busy and free became a field, `VALARM` when a lead did — and
-  each time the characterisation test that pinned the loss became the test that pins the fix.
-  `tests/ics.test.ts`'s `what the round trip drops` block holds the remainder on the same terms: the
-  day one is fixed, the test that says it is lossy fails, and that failure is how the fix announces
-  itself. That is now a mechanism with a track record rather than a good intention.
+- **The reply half, and it is refused rather than unbuilt.** Reading an invitation is done: an emailed
+  `.ics` keeps its organiser and its guests with whatever each of them answered, the editor shows them,
+  and they go back out on export (`AGENTS.md`, "Invitations: read, never answered"). What is not here
+  is accepting and declining, and that is a decision with nothing left to reconsider unless the
+  product's own refusal changes: a reply is a message, and there is no account, no server and no
+  outbound channel to send one down. `METHOD` is therefore neither read nor written — every reading of
+  it only pays off in that missing half, and writing `REQUEST` would have this app claim to organise a
+  meeting it merely read. Nothing to do here; kept because somebody will otherwise propose an Accept
+  button and deserve the argument rather than a shrug.
+- **Export fidelity, and what is left of it.** `STATUS` and `CATEGORIES` are still dropped, and a task
+  still leaves as a zero-length VEVENT with `X-CIRCAL-` lines, so another app shows an instantaneous
+  event and no ticks. Five properties have left that list in a week — `TZID`, `TRANSP`, `VALARM`,
+  `ORGANIZER`, `ATTENDEE` — and every one of them left the same way, by the characterisation test that
+  pinned the loss becoming the test that pins the fix. `tests/ics.test.ts`'s `what the round trip
+drops` block now holds two rows on those terms, and the mechanism needs no further defending.
 
 ---
 
@@ -267,18 +287,17 @@ want it, not on a certificate that was never going to arrive.
 
 ## If it were three things
 
-1. Read an inbound invite (Tier 2). The most common calendar action this app cannot perform, the reply
-   half refused on purpose so the scope stays bounded, and `ics.ts` already parses everything an
-   invite carries except the four strings that say what it is.
-2. Answer the phone's two hover-and-dwell interactions (Tier 3). The structural work is long done and
+1. Answer the phone's two hover-and-dwell interactions (Tier 3). The structural work is long done and
    this is the only tier left whose open item is a design question rather than a size — which is why
-   it keeps being deferred, and the deferral is now the oldest one in the file.
-3. Close the proxy's no-`Origin` hole and the partial CSP (Tier 0.2). It is the only thing in Tier 0
-   that is a hole rather than a floor, and it has been left alone because it is the first item here
-   that would put state in the Worker — which is an argument to have, not a reason to keep not
-   having it.
+   it keeps being deferred, and the deferral is now much the oldest in the file.
+2. Close the proxy's no-`Origin` hole and the partial CSP (Tier 0.2). The only thing in Tier 0 that is
+   a hole rather than a floor, left alone because it is the first item here that would put state in the
+   Worker — an argument to have, not a reason to keep not having it.
+3. Finish the export's last two properties (Tier 2). `STATUS` and `CATEGORIES` are all that remain of
+   a list that has lost five entries in a week, and a task still leaves as a zero-length VEVENT that
+   another app draws as an instant — the smallest item on this list and the only one with a test
+   already written to announce its own completion.
 
-Everything above finishes something already started, and the list is now shorter than the file's
-ambitions rather than longer: the two size items are measured and closed, data safety has an answer on
-every browser this app runs in, and the timezone question is asked. Nothing needs a new screen except
-onboarding, which was already known.
+What is left is a design question, a security argument and a short errand, which is a different file
+from the one that opened with a broken timezone model. Everything above finishes something already
+started; nothing needs a new screen except onboarding, which was always known.
