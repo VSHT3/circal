@@ -5,6 +5,9 @@ google map?
 browser notifications?
 pomodoro/timer?
 pinning some icons
+moon settings
+settings cleanup
+faint past events (AI: ask user)
 
 Recurrence is real, the interior answers the day, arcs carry their own names, the dial has an
 ambient mode, ⌘P writes an event in one line and ranks what it finds, the year is a revolution and
