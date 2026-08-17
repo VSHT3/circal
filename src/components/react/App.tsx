@@ -8,7 +8,7 @@
  * state is persisted, and deliberately so: it belongs to the tab, not to you.
  * ------------------------------------------------------------------ */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import type { Clock } from "@/lib/time";
 import {
@@ -80,9 +80,7 @@ import type {
 import CalendarEditor from "./CalendarEditor";
 import CommandPalette from "./CommandPalette";
 import Dial, { type DragPreview } from "./Dial";
-import EventEditor from "./EventEditor";
 import LifeView from "./LifeView";
-import Settings from "./Settings";
 import Sidebar, { SIDEBAR_W } from "./Sidebar";
 import { ScopeDialog } from "./ScopePrompt";
 import Toast from "./Toast";
@@ -90,6 +88,14 @@ import TopBar from "./TopBar";
 import YearView from "./YearView";
 import WeekView from "./WeekView";
 import { PANEL } from "./transitions";
+
+// Behind their overlays rather than a view key, so `lazy` is safe to reach
+// for without touching the transition geometry `LifeView` / `YearView` /
+// `WeekView` hand each other mid-flight (see AUDIT.md Tier 1). Declared at
+// module scope: `lazy`'s factory must stay referentially stable across
+// renders, or React resuspends the panel on every re-render of `Shell`.
+const EventEditor = lazy(() => import("./EventEditor"));
+const Settings = lazy(() => import("./Settings"));
 
 /* --------------------------------- measures -------------------------------- */
 
@@ -1003,6 +1009,25 @@ function Shell() {
   }, [settingsOpen]);
 
   /**
+   * `EventEditor` is conditionally mounted — {@link editor} is `null` until
+   * ⌘N or an arc is pressed — so unlike `Settings` (always in the tree,
+   * hence already warmed the moment `Shell` first commits) nothing starts
+   * its chunk download until the user asks to open it. That is the one
+   * first-open latency this split can introduce, so it is warmed here
+   * instead, once the shell is idle rather than competing with the dial's
+   * own first paint. `requestIdleCallback` is absent in Safari; `setTimeout`
+   * is the fallback every polyfill for it uses.
+   */
+  useEffect(() => {
+    if (typeof requestIdleCallback === "function") {
+      const id = requestIdleCallback(() => void import("./EventEditor"));
+      return () => cancelIdleCallback(id);
+    }
+    const id = setTimeout(() => void import("./EventEditor"), 1);
+    return () => clearTimeout(id);
+  }, []);
+
+  /**
    * A save, with the scope the editor asked for — one occurrence, this one and
    * everything after it, or the series entire. Only a repeating event is ever
    * asked; everything else arrives as `"all"`, which is the only thing it can
@@ -1495,24 +1520,28 @@ function Shell() {
       )}
 
       {editor && (
-        <EventEditor
-          target={editor}
-          clock={settings.clock}
-          calendars={calendars}
-          onSave={saveEvent}
-          onDelete={deleteEvent}
-          onDraftChange={trackDraft}
-          onClose={() => setEditor(null)}
-        />
+        <Suspense fallback={null}>
+          <EventEditor
+            target={editor}
+            clock={settings.clock}
+            calendars={calendars}
+            onSave={saveEvent}
+            onDelete={deleteEvent}
+            onDraftChange={trackDraft}
+            onClose={() => setEditor(null)}
+          />
+        </Suspense>
       )}
 
-      <Settings
-        open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-        settings={settings}
-        calendars={calendars}
-        actions={actions}
-      />
+      <Suspense fallback={null}>
+        <Settings
+          open={settingsOpen}
+          onClose={() => setSettingsOpen(false)}
+          settings={settings}
+          calendars={calendars}
+          actions={actions}
+        />
+      </Suspense>
 
       <CommandPalette
         open={paletteOpen}
