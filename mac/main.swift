@@ -38,6 +38,7 @@ import AppKit
 import Carbon.HIToolbox
 import Darwin
 import Foundation
+import ServiceManagement
 import UserNotifications
 import WebKit
 
@@ -524,6 +525,23 @@ final class MirrorFile {
     }
 }
 
+/* --------------------------- notification actions -------------------------- */
+
+/**
+ * The banner's two buttons and the category that carries them. `Open` does what
+ * a tap already does; `Snooze` re-shows the same banner in ten minutes and is
+ * the shell's alone — see `AppDelegate`'s handler for why the page is not
+ * involved. Registered once, and named on every reminder `post` writes.
+ */
+private let NOTE_CATEGORY = "circal.reminder"
+private let NOTE_OPEN = "circal.open"
+private let NOTE_SNOOZE = "circal.snooze"
+private let SNOOZE_SECONDS: TimeInterval = 600
+
+/** Menu-bar-only mode: the Dock tile gone, the status item kept. A choice, not
+ *  a discovery, so it is off by default and lives in `UserDefaults`. */
+private let MENU_BAR_ONLY = "menuBarOnly"
+
 /* ------------------------------- the bridge ------------------------------- */
 
 /**
@@ -690,6 +708,11 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
         content.body = body
         content.userInfo = ["tag": tag]
         content.sound = .default
+        // Snooze and Open ride on every reminder. The `byScript` path above
+        // never reaches here, and it is right that it does not: `display
+        // notification` carries neither actions nor a tag, so that build has no
+        // banner to attach them to.
+        content.categoryIdentifier = NOTE_CATEGORY
         // The tag as the identifier, which is what the web's own `tag` means:
         // the platform replaces a notification already showing rather than
         // stacking a second countdown for the same occurrence.
@@ -703,6 +726,31 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
                 self.postByScript(title: title, body: body)
             }
         }
+    }
+
+    /**
+     * Re-show a banner the user asked to see again, ten minutes on. This is the
+     * whole of Snooze, and it stays in the shell on purpose: the same content
+     * under the same identifier, so the platform replaces rather than stacks,
+     * with a time trigger instead of none.
+     *
+     * `remind.ts`'s rule — reminders never catch up, the window is one minute
+     * wide, a banner for a meeting an hour gone is worse than none — is not
+     * violated, because this is not the app deciding to remind again. It is the
+     * user asking for the banner back; if the meeting will have started by then
+     * the banner will say what it always said, and that is their call to make.
+     * A future reader who "fixes" this by routing it through the page has
+     * misread it.
+     */
+    func snooze(_ notification: UNNotification) {
+        let content = notification.request.content.mutableCopy() as! UNMutableNotificationContent
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: SNOOZE_SECONDS, repeats: false)
+        let request = UNNotificationRequest(
+            identifier: notification.request.identifier,
+            content: content,
+            trigger: trigger
+        )
+        UNUserNotificationCenter.current().add(request)
     }
 
     /**
@@ -859,7 +907,7 @@ private let BRIDGE_JS = """
 private weak var summoner: AppDelegate?
 
 final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, NSWindowDelegate,
-    UNUserNotificationCenterDelegate
+    UNUserNotificationCenterDelegate, NSMenuDelegate
 {
     private var window: NSWindow!
     private var webView: WKWebView!
@@ -869,9 +917,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     private var titleWatch: NSKeyValueObservation?
     private var hotKey: EventHotKeyRef?
     private var wakeObserver: NSObjectProtocol?
+    // Held so the status menu can reflect the real state each time it opens —
+    // the login item can be removed in System Settings, and the menu must not
+    // then lie about it.
+    private var loginItem: NSMenuItem!
+    private var dockItem: NSMenuItem!
     // A `.ics` the Dock hands over before the page is ready to receive it. The
     // page registers `__circalImportIcs` from an effect, so a drop that lands
-    // during launch has nowhere to go yet — hold it and flush on `didFinish`.
+    // during launch has nowhere to go yet — hold it and flush on `ready`.
     private var pendingIcs: [String] = []
     private var pageReady = false
 
@@ -880,6 +933,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         // the default disposition for that is to kill the process.
         signal(SIGPIPE, SIG_IGN)
         summoner = self
+
+        // Menu-bar-only, if that is what the user chose, applied before the
+        // window exists — switching policy after it is on screen is the case
+        // that needs re-activation, and launch is not that case.
+        if UserDefaults.standard.bool(forKey: MENU_BAR_ONLY) {
+            NSApp.setActivationPolicy(.accessory)
+        }
 
         buildMenu()
 
@@ -898,7 +958,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             return die("circal could not start its local server.")
         }
 
-        UNUserNotificationCenter.current().delegate = self
+        let center = UNUserNotificationCenter.current()
+        center.delegate = self
+        // The two-button banner. Registered once here rather than per post: a
+        // category is a shape the system remembers, not something a notification
+        // carries.
+        let open = UNNotificationAction(identifier: NOTE_OPEN, title: "Open", options: [.foreground])
+        let snooze = UNNotificationAction(identifier: NOTE_SNOOZE, title: "Snooze 10m", options: [])
+        center.setNotificationCategories([
+            UNNotificationCategory(
+                identifier: NOTE_CATEGORY,
+                actions: [snooze, open],
+                intentIdentifiers: [],
+                options: []
+            )
+        ])
         buildWindow()
         buildStatusItem()
         installHotKey()
@@ -1088,6 +1162,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         statusItem.button?.imagePosition = .imageLeading
 
         let menu = NSMenu()
+        menu.delegate = self
         menu.addItem(withTitle: "Open circal", action: #selector(show), keyEquivalent: "")
         let quick = menu.addItem(
             withTitle: "Quick add…",
@@ -1095,6 +1170,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             keyEquivalent: "c"
         )
         quick.keyEquivalentModifierMask = [.command, .option]
+        menu.addItem(.separator())
+        // The app's own preferences live here, not behind ⌘, — that key opens
+        // the page's settings, and a second surface would be two places to look.
+        loginItem = menu.addItem(
+            withTitle: "Open at Login",
+            action: #selector(toggleLoginAtLogin),
+            keyEquivalent: ""
+        )
+        dockItem = menu.addItem(
+            withTitle: "Show in Dock",
+            action: #selector(toggleDockTile),
+            keyEquivalent: ""
+        )
         menu.addItem(.separator())
         menu.addItem(withTitle: "Reload", action: #selector(reload), keyEquivalent: "")
         menu.addItem(
@@ -1220,6 +1308,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         webView.reload()
     }
 
+    /* --------------------------- status preferences --------------------------- */
+
+    /** The status menu's two checks read live, not a cached boolean: login items
+     *  can be removed in System Settings and the Dock policy is the running app's
+     *  own, so both are asked at the moment the menu opens. */
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        loginItem.state = SMAppService.mainApp.status == .enabled ? .on : .off
+        dockItem.state = NSApp.activationPolicy() == .regular ? .on : .off
+    }
+
+    /**
+     * Launch at login, through `SMAppService`. Off until asked — an app that
+     * adds itself to login items unbidden is hostile, and this is a calendar,
+     * not an agent. `register()` throws, so a failure is surfaced rather than
+     * left as a check that does not mean what it says.
+     */
+    @objc private func toggleLoginAtLogin() {
+        let service = SMAppService.mainApp
+        do {
+            if service.status == .enabled {
+                try service.unregister()
+            } else {
+                try service.register()
+            }
+        } catch {
+            bridge.note("circal could not change its login-item setting")
+        }
+    }
+
+    /**
+     * The Dock tile, on or off. In `.accessory` there is no tile, so
+     * `applicationShouldHandleReopen` never fires and a Dock drop cannot land —
+     * ⌥⌘C and the status item are then the only ways in, which is the honest
+     * cost of the mode. Switching while the window is up can leave it behind
+     * other apps, so re-activate and re-key after.
+     */
+    @objc private func toggleDockTile() {
+        let toMenuBar = NSApp.activationPolicy() == .regular
+        NSApp.setActivationPolicy(toMenuBar ? .accessory : .regular)
+        UserDefaults.standard.set(toMenuBar, forKey: MENU_BAR_ONLY)
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
+    }
+
     /* ------------------------------- menu ------------------------------- */
 
     /**
@@ -1340,13 +1472,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         completionHandler([.banner, .sound])
     }
 
-    /** Tapping the banner does what the web build's `note.onclick` does — focus
-     *  and open the event — by handing the tag back to the page that made it. */
+    /**
+     * The banner's buttons and a plain tap. `Snooze` re-shows the same banner in
+     * ten minutes and does nothing else — no focus, no page, the shell handling
+     * a banner it already has. Everything else (the `Open` button and a tap on
+     * the banner body) does what the web build's `note.onclick` does — focus and
+     * open the event — by handing the tag back to the page, through the one path
+     * a tap already used.
+     */
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
+        if response.actionIdentifier == NOTE_SNOOZE {
+            bridge.snooze(response.notification)
+            return completionHandler()
+        }
         show()
         let tag = response.notification.request.content.userInfo["tag"] as? String ?? ""
         webView.evaluateJavaScript("window.__circalNotificationClicked(\(jsLiteral(tag)))")
