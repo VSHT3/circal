@@ -41,6 +41,14 @@ function roots(home: string): string[] {
   ];
 }
 
+/** The macOS shell's own mirror, which it creates and adopts on first launch so
+ *  nobody has to pick a path (see `mac/main.swift`'s `MirrorFile`). It lives
+ *  inside `Library`, which the walk above skips, so it is named outright rather
+ *  than discovered. */
+function appDefault(home: string): string {
+  return join(home, "Library", "Application Support", "circal", "calendar.json");
+}
+
 /** A root's own `.json` files, plus one level of subdirectories' `.json`
  *  files. Depth-bounded on purpose: not a whole-disk walk, and a mirror file
  *  a user can find again by hand is one they didn't bury three folders deep. */
@@ -94,6 +102,9 @@ async function asMirror(path: string): Promise<Hit | null> {
 export async function runFind(home: string = homedir()): Promise<void> {
   const searchRoots = roots(home);
   const candidates = new Set<string>();
+  // The app's own default first: the whole point of it is that nobody has to
+  // know a path, and it is where a shell-created mirror lives.
+  candidates.add(appDefault(home));
   for (const root of searchRoots) {
     for (const path of await jsonFilesUnder(root)) candidates.add(path);
   }
@@ -107,6 +118,7 @@ export async function runFind(home: string = homedir()): Promise<void> {
   if (hits.length === 0) {
     console.log("No circal mirror file found.\n");
     console.log("Searched these locations (their own files, and one level of subdirectories):");
+    console.log(`  ${appDefault(home)}`);
     for (const root of searchRoots) console.log(`  ${root}`);
     console.log(
       "\nTurn the mirror on from circal's Settings panel to create a file, then run this again.",

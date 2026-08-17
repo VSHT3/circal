@@ -28,8 +28,27 @@ export function useNow(periodMs = 1000): Date {
       setNow(new Date());
       timer = window.setTimeout(tick, periodMs - (Date.now() % periodMs));
     };
+    const align = () => {
+      // A suspended machine, or a browser that throttled a backgrounded tab's
+      // timers, leaves this tick firing late — so the now-hand and every
+      // countdown are stale until the next boundary, up to a whole period. On
+      // return to the foreground, re-read the clock now and re-arm to the real
+      // boundary rather than waiting out the drift.
+      window.clearTimeout(timer);
+      setNow(new Date());
+      timer = window.setTimeout(tick, periodMs - (Date.now() % periodMs));
+    };
+    const onVisible = () => {
+      if (document.visibilityState === "visible") align();
+    };
     timer = window.setTimeout(tick, periodMs - (Date.now() % periodMs));
-    return () => window.clearTimeout(timer);
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", align);
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", align);
+    };
   }, [periodMs]);
 
   return now;

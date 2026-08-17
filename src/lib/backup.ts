@@ -31,7 +31,28 @@ interface Backup {
   settings: Settings;
 }
 
-function download(filename: string, mime: string, body: string) {
+/**
+ * The shell's own save, injected as `window.__circalSave` (see
+ * `mac/main.swift`). It exists because a WKWebView withholds the download an
+ * `<a download>` triggers — measured: the click resolves to nothing, so the
+ * app build saved no file at all while the web build was correct. The shim
+ * hands the shell a name and the bytes and lets an `NSSavePanel` place them;
+ * the shell writes what it is given and knows nothing about the contents.
+ */
+interface SaveWindow {
+  __circalSave?: (filename: string, body: string) => Promise<boolean>;
+}
+
+async function download(filename: string, mime: string, body: string): Promise<boolean> {
+  const shell = (window as unknown as SaveWindow).__circalSave;
+  if (shell) {
+    // The one place either path is chosen, so no call site learns there are
+    // two ways to save — the same bargain `mirrorLink.ts` strikes for the
+    // picker beside `showSaveFilePicker`. The boolean is whether a file was
+    // written: the shell's save panel can be cancelled, and a caller that
+    // toasts "Exported" over a cancel is lying.
+    return shell(filename, body);
+  }
   const url = URL.createObjectURL(new Blob([body], { type: `${mime};charset=utf-8` }));
   const link = document.createElement("a");
   link.href = url;
@@ -39,20 +60,29 @@ function download(filename: string, mime: string, body: string) {
   link.click();
   // Revoking synchronously cancels the download in Safari; one turn is enough.
   setTimeout(() => URL.revokeObjectURL(url), 0);
+  // A started browser download is the only answer this path has — there is no
+  // cancel to observe once the click lands — so it reports success.
+  return true;
 }
 
 /* --------------------------------- export --------------------------------- */
 
-export function exportIcs(snapshot: Snapshot) {
+export async function exportIcs(snapshot: Snapshot) {
   if (snapshot.events.length === 0) {
     notify("Nothing to export yet");
     return;
   }
-  download(`circal-${dayKey(new Date())}.ics`, "text/calendar", toIcs(snapshot.events, "circal"));
-  notify(`Exported ${snapshot.events.length} events`);
+  const saved = await download(
+    `circal-${dayKey(new Date())}.ics`,
+    "text/calendar",
+    toIcs(snapshot.events, "circal"),
+  );
+  // Nothing on a cancel: the user cancelled, they know, and a toast apologising
+  // for obeying is chrome.
+  if (saved) notify(`Exported ${snapshot.events.length} events`);
 }
 
-export function exportBackup(snapshot: Snapshot) {
+export async function exportBackup(snapshot: Snapshot) {
   const backup: Backup = {
     app: "circal",
     version: BACKUP_VERSION,
@@ -66,12 +96,12 @@ export function exportBackup(snapshot: Snapshot) {
     ),
     settings: snapshot.settings,
   };
-  download(
+  const saved = await download(
     `circal-${dayKey(new Date())}.json`,
     "application/json",
     JSON.stringify(backup, null, 2),
   );
-  notify("Backup saved");
+  if (saved) notify("Backup saved");
 }
 
 /* --------------------------------- import --------------------------------- */
@@ -334,7 +364,7 @@ export function importBackup(text: string) {
   notify(`Restored ${read.events.length} events — ⌘Z to undo`);
 }
 
-function importIcs(text: string, filename: string) {
+export function importIcs(text: string, filename: string) {
   const { name, events } = fromIcs(text);
   if (events.length === 0) {
     notify("No events found in that file", "error");

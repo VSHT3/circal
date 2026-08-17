@@ -30,7 +30,7 @@ import {
   taskDraft,
   useStore,
 } from "@/lib/store";
-import { exportBackup, exportIcs, importFile } from "@/lib/backup";
+import { exportBackup, exportIcs, importFile, importIcs } from "@/lib/backup";
 import { cue } from "@/lib/feedback";
 import { placeForZone } from "@/lib/places";
 import { refreshFeed } from "@/lib/feeds";
@@ -88,6 +88,24 @@ import TopBar from "./TopBar";
 import YearView from "./YearView";
 import WeekView from "./WeekView";
 import { PANEL } from "./transitions";
+
+/**
+ * The macOS shell drops a `.ics` file's text into `__circalImportIcs` when the
+ * Dock hands the app a calendar to open (see `mac/main.swift`). It is the
+ * settings panel's Import path exactly — same new calendar, same toast, same
+ * undo step — so a drop and a menu import cannot come to mean two different
+ * things.
+ *
+ * `__circalReady` is the shell's, called once the moment the import global is
+ * registered: a drop on a cold launch is queued shell-side until this fires,
+ * because a finished navigation is earlier than a mounted island.
+ */
+declare global {
+  interface Window {
+    __circalImportIcs?: (text: string) => void;
+    __circalReady?: () => void;
+  }
+}
 
 // Behind their overlays rather than a view key, so `lazy` is safe to reach
 // for without touching the transition geometry `LifeView` / `YearView` /
@@ -573,6 +591,20 @@ function Shell() {
   // driving `Settings`' Mirror section entirely on its own.
   useEffect(() => startMirror(), []);
 
+  // The Dock's calendar drop, routed through the one import the settings panel
+  // already runs. The name it lands under is `fromIcs`'s own, so a filename
+  // never reaches here — the shell has none to give once the file is text.
+  useEffect(() => {
+    window.__circalImportIcs = (text: string) => importIcs(text, "");
+    // Tell the shell the global is live, so a `.ics` dropped during a cold
+    // launch flushes now rather than being guessed ready by a navigation that
+    // finished before this effect ran.
+    window.__circalReady?.();
+    return () => {
+      delete window.__circalImportIcs;
+    };
+  }, []);
+
   /**
    * Ambient, and the fullscreen it does not take on its own.
    *
@@ -802,8 +834,8 @@ function Shell() {
       },
       undo: () => notify(store.undo() ? "Undone" : "Nothing to undo"),
       redo: () => notify(store.redo() ? "Redone" : "Nothing to redo"),
-      exportIcs: () => exportIcs(store.snapshot()),
-      exportBackup: () => exportBackup(store.snapshot()),
+      exportIcs: () => void exportIcs(store.snapshot()),
+      exportBackup: () => void exportBackup(store.snapshot()),
       importFile,
       refreshFeeds: () => {
         const subscriptions = calendars.filter((c) => c.feed);

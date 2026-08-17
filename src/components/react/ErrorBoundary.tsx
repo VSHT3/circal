@@ -58,7 +58,7 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, State> {
             <button
               type="button"
               className="flex-1 rounded-[9px] border border-hairline bg-surface-2 px-3 py-2 text-[12px] text-ink transition-colors hover:bg-white/10"
-              onClick={() => exportBackup(store.snapshot())}
+              onClick={() => void exportBackup(store.snapshot())}
             >
               Download backup
             </button>

@@ -16,15 +16,17 @@
  * That is why the menus below are so short: what is *missing* from
  * them is the feature.
  *
- * Three things it gives the page that no browser will, all of them
+ * Four things it gives the page that no browser will, all of them
  * measured absences rather than guesses — `Notification`
  * (`requestPermission()` answers `denied` in a WKWebView),
  * `navigator.vibrate` (undefined, so the dial's detents had no haptic
- * channel at all) and the File System Access API (undefined, which is
- * the mirror file the MCP server reads). Each is a shim in `BRIDGE_JS`
- * over one native capability, and none of them is logic: the page
- * still decides what a reminder says, when a detent taps and what a
- * mirror file contains.
+ * channel at all), the File System Access API (undefined, which is
+ * the mirror file the MCP server reads) and the download an
+ * `<a download>` triggers (resolves to nothing, so the app's Export
+ * button saved no file at all while the web build was correct). Each
+ * is a shim in `BRIDGE_JS` over one native capability, and none of
+ * them is logic: the page still decides what a reminder says, when a
+ * detent taps, what a mirror file contains and what an export holds.
  *
  * What it is not: a second product (the website is the product; this
  * serves its own build byte for byte) and a place for domain code. If
@@ -385,7 +387,25 @@ enum MirrorError: Error {
 final class MirrorFile {
     private let key = "mirror.bookmark"
     private let pathKey = "mirror.path"
+    // With a default in place, a bare `forget()` would only clear the bookmark,
+    // and the next `remembered()` would mint the default straight back — quietly
+    // reconnecting the file the user just disconnected. The flag is what makes
+    // "disconnect" stick, and `pick()` is the one deliberate gesture that clears
+    // it again.
+    private let declinedKey = "mirror.declined"
     private var url: URL?
+
+    /** Where the app keeps its own mirror when nobody has chosen one. It exists
+     *  so an assistant can read the calendar on first launch with no gesture:
+     *  the file is not how circal stores anything — events live in this origin's
+     *  `localStorage` exactly as on the web — it is only the copy an outside
+     *  process reads. The save panel stays for a file wanted in iCloud Drive or
+     *  a repo. */
+    private var defaultURL: URL {
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        return support.appendingPathComponent("circal", isDirectory: true)
+            .appendingPathComponent("calendar.json")
+    }
 
     /** The name to show, resolving the bookmark if this launch has not yet. */
     func remembered() -> String? {
@@ -416,7 +436,12 @@ final class MirrorFile {
             store(recovered)
             return recovered.lastPathComponent
         }
-        return nil
+        // Nothing is remembered. On the app's own path — the bookmark did not
+        // resolve and the fallback path does not exist — mint the default so an
+        // assistant connects on first launch with no gesture, unless the user
+        // disconnected on purpose, which the flag remembers.
+        if defaults.bool(forKey: declinedKey) { return nil }
+        return adopt(defaultURL)
     }
 
     /**
@@ -436,15 +461,30 @@ final class MirrorFile {
             + "circal keeps it in step."
         panel.prompt = "Use file"
         guard panel.runModal() == .OK, let picked = panel.url else { return nil }
-        // The panel creates nothing, and a file that does not exist yet cannot
-        // be bookmarked — so make it here, empty. An empty mirror is the one
-        // `poll()` reads as "nothing to adopt, the next write fills it".
-        if !FileManager.default.fileExists(atPath: picked.path) {
-            FileManager.default.createFile(atPath: picked.path, contents: nil)
+        // A deliberate choice of file clears the disconnect the flag remembers:
+        // the user is opting back in, wherever they point it.
+        UserDefaults.standard.removeObject(forKey: declinedKey)
+        return adopt(picked)
+    }
+
+    /** Take a file as the mirror: create it empty if it is not there yet — a
+     *  file that does not exist cannot be bookmarked, and an empty one is what
+     *  `poll()` reads as "nothing to adopt, the next write fills it" — then
+     *  bookmark it and hand back its name. Never writes content: the browser
+     *  owns the destructive direction, since adopting a file that already holds
+     *  a calendar cannot be undone once overwritten. */
+    private func adopt(_ target: URL) -> String? {
+        let manager = FileManager.default
+        if !manager.fileExists(atPath: target.path) {
+            try? manager.createDirectory(
+                at: target.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            manager.createFile(atPath: target.path, contents: nil)
         }
-        url = picked
-        store(picked)
-        return picked.lastPathComponent
+        url = target
+        store(target)
+        return target.lastPathComponent
     }
 
     func read() throws -> String {
@@ -472,6 +512,9 @@ final class MirrorFile {
         url = nil
         UserDefaults.standard.removeObject(forKey: key)
         UserDefaults.standard.removeObject(forKey: pathKey)
+        // Remember the disconnect, or `remembered()` mints the default straight
+        // back on the next launch and undoes what the user just did.
+        UserDefaults.standard.set(true, forKey: declinedKey)
     }
 
     private func store(_ target: URL) {
@@ -484,15 +527,19 @@ final class MirrorFile {
 /* ------------------------------- the bridge ------------------------------- */
 
 /**
- * The three capabilities the page cannot get from WebKit, and nothing else.
+ * The four capabilities the page cannot get from WebKit, and nothing else.
  *
  * `WKScriptMessageHandlerWithReply` rather than one-way `postMessage`, because
  * every one of these is a question: may I notify, what did the user pick, what
- * does the file say. A one-way channel would need a second one back and an id
- * scheme to match them up, which is a promise reimplemented by hand.
+ * does the file say, and where did the save go. A one-way channel would need a
+ * second one back and an id scheme to match them up, which is a promise
+ * reimplemented by hand.
  */
 final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
     private let mirror = MirrorFile()
+    /** Called when the page signals it can receive work — the shell flushes any
+     *  `.ics` the Dock handed over during launch. Set by the app delegate. */
+    var onReady: (() -> Void)?
 
     /**
      * Which of the two delivery paths this build got, remembered across launches.
@@ -593,6 +640,22 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
             mirror.forget()
             replyHandler(nil, nil)
 
+        case "ready":
+            onReady?()
+            replyHandler(nil, nil)
+
+        case "save":
+            let name = arg["filename"] as? String ?? "circal"
+            let body = arg["body"] as? String ?? ""
+            do {
+                // The boolean is whether a file was written: a dismissed panel
+                // is not an error, but the page must be able to tell it from a
+                // save, or an export toast fires over a cancel.
+                replyHandler(try save(filename: name, body: body), nil)
+            } catch {
+                replyHandler(nil, describe(error))
+            }
+
         default:
             replyHandler(nil, "unknown bridge op \(op)")
         }
@@ -658,6 +721,13 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
         try? task.run()
     }
 
+    /** A one-line notice the shell owns outright, for a failure the page cannot
+     *  report because the page is exactly what did not run. `display
+     *  notification` needs no permission and no page, which is the point here. */
+    func note(_ body: String) {
+        postByScript(title: "circal", body: body)
+    }
+
     /** An AppleScript string literal. Two escapes, and they are the only two the
      *  language has inside quotes. */
     private func appleScriptString(_ value: String) -> String {
@@ -665,6 +735,27 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
         return "\"\(escaped)\""
+    }
+
+    /**
+     * An export, placed where the user says. The save panel is the gesture a
+     * browser's download would skip, and worth it here: an app that puts files
+     * somewhere the user did not choose is worse than one that asks. A dismissed
+     * panel is not a failure — the same non-event as closing a Save dialog — so
+     * it writes nothing and answers `false`, and the page holds its toast rather
+     * than claiming an export the user cancelled.
+     */
+    private func save(filename: String, body: String) throws -> Bool {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = filename
+        panel.canCreateDirectories = true
+        guard panel.runModal() == .OK, let url = panel.url else { return false }
+        do {
+            try Data(body.utf8).write(to: url)
+            return true
+        } catch {
+            throw MirrorError.unreadable(error.localizedDescription)
+        }
     }
 
     private func describe(_ error: Error) -> String {
@@ -685,10 +776,11 @@ private func strike() {
  *
  * Every one of these is a *shim over an absence*, not a new API: `feedback.ts`
  * already calls `navigator.vibrate`, `hooks.ts` already constructs a
- * `Notification` and reads `Notification.permission`, and `mirrorLink.ts` looks
- * for `window.__circalMirror` beside the File System Access picker it prefers.
- * So the app is unchanged on the web and gains three things in the shell,
- * without a single `if (isApp)` in a component.
+ * `Notification` and reads `Notification.permission`, `mirrorLink.ts` looks
+ * for `window.__circalMirror` beside the File System Access picker it prefers,
+ * and `backup.ts` reaches for `window.__circalSave` beside the `<a download>`
+ * a WKWebView silently drops. So the app is unchanged on the web and gains
+ * four capabilities in the shell, without a single `if (isApp)` in a component.
  */
 private let BRIDGE_JS = """
 (() => {
@@ -746,6 +838,17 @@ private let BRIDGE_JS = """
     forget: () => post("mirror.forget"),
   };
 
+  // The page tells the shell the moment it can receive work — its import
+  // global is registered from an effect, and `didFinish` (navigation done) is
+  // earlier than that: the island's JS is still being fetched and run, and its
+  // lazy chunks later still. A `.ics` dropped on a cold launch would otherwise
+  // reach an undefined global and be lost with no word to the user.
+  window.__circalReady = () => post("ready");
+
+  // The shell's save, so an export lands in a file the user chose. `backup.ts`
+  // prefers this over the `<a download>` a WKWebView silently drops.
+  window.__circalSave = (filename, body) => post("save", { filename, body });
+
 })();
 """
 
@@ -765,6 +868,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     private var statusItem: NSStatusItem!
     private var titleWatch: NSKeyValueObservation?
     private var hotKey: EventHotKeyRef?
+    private var wakeObserver: NSObjectProtocol?
+    // A `.ics` the Dock hands over before the page is ready to receive it. The
+    // page registers `__circalImportIcs` from an effect, so a drop that lands
+    // during launch has nowhere to go yet — hold it and flush on `didFinish`.
+    private var pendingIcs: [String] = []
+    private var pageReady = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // A client that hangs up mid-response raises SIGPIPE on the write, and
@@ -793,6 +902,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         buildWindow()
         buildStatusItem()
         installHotKey()
+        observeWake()
+        bridge.onReady = { [weak self] in self?.flushPendingIcs() }
         webView.load(URLRequest(url: URL(string: "http://\(HOST):\(PORT)/")!))
         NSApp.activate(ignoringOtherApps: true)
     }
@@ -808,6 +919,75 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
         show()
         return true
+    }
+
+    /* ---------------------------- wake / drop ---------------------------- */
+
+    /**
+     * After the lid closes, the page's minute tick is suspended with the
+     * machine, so the now-hand and every countdown are stale until the next
+     * boundary — up to a minute wrong the moment the display comes back. The
+     * page corrects itself on `focus` and `visibilitychange` (see `useNow`);
+     * this nudges it awake by dispatching the same `focus` event the browser
+     * would on a real return to the foreground.
+     *
+     * A reload would fix the clock and throw away the scroll position, an open
+     * editor and any unsaved draft to do it — the wrong trade for a one-minute
+     * clock skew.
+     */
+    private func observeWake() {
+        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.webView.evaluateJavaScript("window.dispatchEvent(new Event('focus'))")
+        }
+    }
+
+    /**
+     * A `.ics` dropped on the Dock icon, or opened with the app. The shell does
+     * not parse a calendar — `src/lib/ics.ts`'s `fromIcs` is the only parser and
+     * it stays in the page — so this reads each file as text and hands it to the
+     * one import the settings panel already runs, `__circalImportIcs`.
+     *
+     * On a cold launch macOS delivers this *before* `applicationDidFinishLaunching`
+     * builds the window and webview, so nothing is touched here that launch has
+     * not made yet: the text is queued, and `applicationDidFinishLaunching`'s own
+     * `activate` shows the window while `ready` flushes the queue. Only an
+     * already-running app is brought to the front.
+     */
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls {
+            guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
+            if pageReady {
+                importIcs(text)
+            } else {
+                pendingIcs.append(text)
+            }
+        }
+        if window != nil { show() }
+    }
+
+    private func flushPendingIcs() {
+        pageReady = true
+        let queued = pendingIcs
+        pendingIcs.removeAll()
+        for text in queued { importIcs(text) }
+    }
+
+    /**
+     * Hand one calendar's text to the page, and do not swallow a failure: a
+     * dropped calendar that vanishes looks exactly like a file that held
+     * nothing, which is the one outcome this whole path exists to avoid. A JS
+     * error here means the global was not there or threw, so say so through the
+     * shell's own banner rather than the page's toast the page never got to run.
+     */
+    private func importIcs(_ text: String) {
+        webView.evaluateJavaScript("window.__circalImportIcs(\(jsLiteral(text)))") { [weak self] _, error in
+            guard error != nil else { return }
+            self?.bridge.note("circal could not import that calendar file")
+        }
     }
 
     /* ------------------------------ window ------------------------------ */
@@ -1200,6 +1380,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         bridge.permission { state in
             webView.evaluateJavaScript("window.__circalPermission(\(jsLiteral(state)))")
         }
+        // A finished navigation is the document loaded, not the island mounted
+        // and its import global registered — later still with `Settings` and
+        // `EventEditor` split into lazy chunks. So readiness is not assumed
+        // here: the page posts `ready` when the effect runs, and a reload drops
+        // the flag until it posts again, or a drop would be handed to a page
+        // that has not re-registered.
+        pageReady = false
     }
 
     private func die(_ message: String) {
