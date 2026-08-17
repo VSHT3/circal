@@ -45,16 +45,16 @@ nothing lands on disk, the app's own Export button dead since the day it shipped
 five's lesson exactly repeating: a capability WebKit withholds that is invisible from reading the
 code and was only ever going to be found by running the app.
 
-A fourth commit the same night closed the rest of Tier 6's cheap table. Login-at-login and menu-bar
-mode read their own state live rather than caching it, because a login item pulled from System
-Settings or a Dock policy changed some other way would otherwise leave the menu asserting something
-untrue; notification actions kept Snooze entirely inside the shell rather than letting it anywhere
-near `remind.ts`'s never-catch-up rule, which is exactly the rule a page-routed snooze would have
-broken. Menu-bar mode's own cost is stated where it is paid, not hidden: in `.accessory` there is no
-Dock tile, so the `.ics` drop this same round closed cannot land at all. And round five's lesson held
-a third time — Snooze was verified by snoozing a real banner at 07:23:08 and watching the identical
-one return, unprompted, ten minutes later, because what a `UNNotificationCategory` actually does is
-not something reading the Swift tells you.
+A fourth commit the same night closed the rest of Tier 6's cheap table. Launch at login and menu-bar
+mode read their own state live rather than caching it, because a login item can be removed in System
+Settings without circal knowing, and the Dock policy is simply the running app's own answer, asked
+fresh rather than assumed; notification actions kept Snooze entirely inside the shell rather than
+letting it anywhere near `remind.ts`'s never-catch-up rule, which is exactly the rule a page-routed
+snooze would have broken. Menu-bar mode's own cost is stated where it is paid, not hidden: in
+`.accessory` there is no Dock tile, so the `.ics` drop this same round closed cannot land at all. And
+round five's lesson held a third time — Snooze was verified by snoozing a real banner at 07:23:08 and
+watching the identical one return, unprompted, ten minutes later, because what a
+`UNNotificationCategory` actually does is not something reading the Swift tells you.
 
 ---
 
