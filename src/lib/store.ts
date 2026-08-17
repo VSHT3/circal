@@ -30,6 +30,7 @@ import {
   clamp,
   dayKey,
   startOfDay,
+  weekStartFor,
   type Clock,
   type WeekStart,
 } from "./time";
@@ -985,13 +986,27 @@ function hydrate(raw: string): Snapshot {
   return { ...base, feeds: readFeeds(base.calendars) };
 }
 
+/**
+ * The snapshot a browser with nothing stored starts from. The only place
+ * `weekStart` is defaulted to the reader's own locale rather than to Monday:
+ * a stored blob keeps whatever it already had, so this cannot overwrite a
+ * choice, and it is not a `SCHEMA` bump because where a default came from is
+ * not a change of meaning. Only reached with a real `Storage` in hand — SSR
+ * and the MCP server's Node return `EMPTY` a line above and never arrive
+ * here — so `navigator` exists; `globalThis` keeps it total anyway.
+ */
+function freshInstall(): Snapshot {
+  const weekStart = weekStartFor(globalThis.navigator?.language ?? "");
+  return { ...EMPTY, events: seed(), settings: { ...DEFAULT_SETTINGS, weekStart } };
+}
+
 function load(): Snapshot {
   const store = disk();
   if (!store) return EMPTY;
   try {
     const raw = store.getItem(KEY);
     lastRaw = raw;
-    return raw ? hydrate(raw) : { ...EMPTY, events: seed() };
+    return raw ? hydrate(raw) : freshInstall();
   } catch {
     // A corrupted blob must not brick the app; start clean rather than throw.
     // But an empty dial is what this app looks like on its first run, so

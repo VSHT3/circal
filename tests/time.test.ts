@@ -23,6 +23,7 @@ import {
   startOfDay,
   startOfWeek,
   weekOffset,
+  weekStartFor,
   zoneOffset,
   zonedToUtc,
 } from "@/lib/time";
@@ -169,6 +170,54 @@ describe("weekOffset / startOfWeek", () => {
     const out = startOfWeek(day("2026-03-29"), 0);
     expect(out).toBeSameInstantAs(day("2026-03-29"));
     expect(minutesOfDay(out)).toBe(0);
+  });
+});
+
+describe("weekStartFor", () => {
+  // Real locales, read through whichever of getWeekInfo()/weekInfo the engine
+  // running the suite implements. firstDay comes back ISO-numbered, so only
+  // 7->0, 1->1 and 6->6 land on a start the picker offers.
+  it.each([
+    { name: "US: Sunday-start locale", locale: "en-US", want: 0 },
+    { name: "GB: Monday-start locale", locale: "en-GB", want: 1 },
+    { name: "DE: Monday-start locale", locale: "de-DE", want: 1 },
+    { name: "EG: Saturday-start locale", locale: "ar-EG", want: 6 },
+    { name: "IR: Saturday-start locale", locale: "fa-IR", want: 6 },
+  ])("$name -> $want", ({ locale, want }) => {
+    expect.soft(weekStartFor(locale)).toBe(want);
+  });
+
+  // Total by contract: a malformed tag throws inside Intl.Locale and the empty
+  // string is rejected outright, and both must fall back to Monday rather than
+  // propagate. If the engine lacks the week-info API entirely these are the
+  // only cases that still run, and they still pin the fallback.
+  it.each([
+    { name: "malformed tag", locale: "x-@@" },
+    { name: "empty string", locale: "" },
+  ])("$name falls back to Monday", ({ locale }) => {
+    expect.soft(weekStartFor(locale)).toBe(1);
+  });
+
+  // The getWeekInfo() branch, exercised regardless of platform: an engine that
+  // reports firstDay 7 (Sunday) through the standard method must map it to 0,
+  // and one reporting a day the picker does not offer must fall back to Monday.
+  it("maps a stubbed getWeekInfo() and falls back on an unsupported firstDay", () => {
+    const mutable = Intl as { Locale: typeof Intl.Locale };
+    const Original = mutable.Locale;
+    let firstDay = 7;
+    class Stub {
+      getWeekInfo() {
+        return { firstDay };
+      }
+    }
+    mutable.Locale = Stub as unknown as typeof Intl.Locale;
+    try {
+      expect.soft(weekStartFor("xx")).toBe(0);
+      firstDay = 3; // Wednesday: a real firstDay no start here offers.
+      expect.soft(weekStartFor("xx")).toBe(1);
+    } finally {
+      mutable.Locale = Original;
+    }
   });
 });
 

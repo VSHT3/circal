@@ -95,6 +95,34 @@ export function startOfWeek(d: Date, weekStart: WeekStart): Date {
   return addDays(startOfDay(d), -weekOffset(d, weekStart));
 }
 
+/**
+ * The week start the reader's own locale uses, as a {@link WeekStart}.
+ *
+ * `getWeekInfo()` (and the older non-standard `weekInfo` property Safari
+ * shipped first) report `firstDay` ISO-numbered — 1 = Monday … 7 = Sunday —
+ * so only 7, 1 and 6 map onto a start the picker offers. Anything else, an
+ * absent API or a throw falls back to Monday: it is ISO 8601's own answer and
+ * what every blob written before this setting existed already drew, so a
+ * locale the platform cannot place gets the same week the app always had.
+ *
+ * Pure by design — the locale is an argument, not read from the environment —
+ * so the browser passes `navigator.language` and Node can test it directly.
+ */
+export function weekStartFor(locale: string): WeekStart {
+  try {
+    const info = new Intl.Locale(locale) as Intl.Locale & {
+      getWeekInfo?: () => { firstDay: number };
+      weekInfo?: { firstDay: number };
+    };
+    const firstDay = (info.getWeekInfo?.() ?? info.weekInfo)?.firstDay;
+    if (firstDay === 7) return 0;
+    if (firstDay === 6) return 6;
+    return 1;
+  } catch {
+    return 1;
+  }
+}
+
 export function addMonths(d: Date, n: number): Date {
   const out = new Date(d.getFullYear(), d.getMonth() + n, 1);
   out.setDate(Math.min(d.getDate(), daysInMonth(out.getFullYear(), out.getMonth())));
