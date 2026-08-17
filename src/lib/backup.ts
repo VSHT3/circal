@@ -153,6 +153,13 @@ export function readSettings(value: unknown): Settings {
     // version that has ever had the setting.
     clock: value.clock === "12h" || value.clock === "24h" ? value.clock : DEFAULT_SETTINGS.clock,
     secondZone: typeof value.secondZone === "string" ? value.secondZone : "",
+    // The zone the browser that wrote this backup was in. Carried rather than
+    // dropped, and deliberately not replaced with the reader's own: a Berlin
+    // calendar restored in New York is exactly the journey the travel notice
+    // exists to ask about, and the events in the file are floating. `sane()`
+    // refuses a zone `Intl` cannot resolve; absent reads as a first run, which
+    // asks nothing.
+    deviceZone: typeof value.deviceZone === "string" ? value.deviceZone : "",
     // The dial switches read absent-as-on: a backup written before they
     // existed came from a dial that was showing all of them.
     showZoneName: value.showZoneName !== false,

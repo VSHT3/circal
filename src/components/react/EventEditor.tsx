@@ -31,8 +31,8 @@ import {
   fromDayKey,
   minutesOfDay,
   startOfDay,
-  zoneCity,
 } from "@/lib/time";
+import { placeName } from "@/lib/travel";
 import { cn } from "@/lib/utils";
 import { useFocusTrap } from "@/components/react/hooks";
 import {
@@ -541,13 +541,16 @@ export default function EventEditor({
                 )}
               </Row>
 
-              {/* A subscription's hours are read against another clock, and
-                  an event that does not say so is a wrong answer that looks
-                  right. Read-only, and print-only — there is no picker here,
-                  and no way to earn one: a zone rides on the event only
-                  because a feed's own TZID put it there. */}
-              {readOnly && draft.tzid && (
-                <p className="caption -mt-1 px-3.5 pb-2">Times in {zoneCity(draft.tzid)}</p>
+              {/* Hours read against another clock, and an event that does not
+                  say so is a wrong answer that looks right. Every zoned event,
+                  not only a subscription's: a floating event stamped by the
+                  travel notice is one the user chose to leave on the clock it
+                  was written on, and this row is where that choice is legible
+                  afterwards. Still print-only — there is no picker, because a
+                  zone arrives on an event from a feed's own TZID or from that
+                  one answer, and never from a field. */}
+              {draft.tzid && (
+                <p className="caption -mt-1 px-3.5 pb-2">Times in {placeName(draft.tzid)}</p>
               )}
 
               <Row label="Where">

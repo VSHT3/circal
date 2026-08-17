@@ -424,6 +424,13 @@ export interface SettingsPanelProps {
   open: boolean;
   onClose: () => void;
   settings: Settings;
+  /**
+   * The user's own events, for the one row that is about them rather than
+   * about a preference: how many carry a timezone stamp, and the verb that
+   * takes it off. `events` and not `visible` — a subscription's zones come
+   * from its feed and are not the user's to clear.
+   */
+  events: CalEvent[];
   calendars: Calendar[];
   actions: ShellActions;
 }

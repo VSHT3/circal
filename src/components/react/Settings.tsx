@@ -46,6 +46,7 @@ import {
   store,
 } from "@/lib/store";
 import { PLACE_OPTIONS, placeForZone } from "@/lib/places";
+import { placeName } from "@/lib/travel";
 import { sunTimes } from "@/lib/sun";
 import { MIN_DURATION } from "@/lib/quickadd";
 import {
@@ -165,6 +166,7 @@ export default function Settings({
   open,
   onClose,
   settings,
+  events,
   calendars,
   actions,
 }: SettingsPanelProps) {
@@ -233,6 +235,24 @@ export default function Settings({
    *  derivation, not a memo: this card renders when it is opened. */
   const birthDate = /^\d{4}-\d{2}-\d{2}$/.test(birth) ? fromDayKey(birth) : null;
   const span = birthDate ? lifeSpan(birthDate, lifeExpectancy) : null;
+
+  /**
+   * The events carrying a timezone stamp, and the places they name. Both are
+   * the same one derivation the row prints: the count is the verb's, the
+   * cities are the sentence's, and a `Set` because ten events in one place is
+   * one clock, not ten.
+   */
+  const zonedEvents = events.filter((e) => e.tzid);
+  const zonedPlaces = [...new Set(zonedEvents.map((e) => placeName(e.tzid)))].join(", ");
+
+  /** Undoable, and it says so: the stamp was a decision made in one click,
+   *  and so is taking it off. */
+  function clearZones() {
+    const cleared = store.clearEventZones();
+    if (cleared > 0) {
+      notify(`${cleared} event${cleared === 1 ? "" : "s"} floating again · ${MOD}Z to undo`);
+    }
+  }
 
   function pickPlace(zone: string) {
     store.setPlace(zone ? placeForZone(zone) : null);
@@ -826,6 +846,28 @@ export default function Settings({
                     </button>
                   </div>
                 </FieldRow>
+
+                {/* Only when there is something to say: after the travel
+                    notice was answered with "move", or on a browser that never
+                    travelled, no event carries a clock and a row offering to
+                    clear nothing is worse than no row. */}
+                {zonedEvents.length > 0 && (
+                  <FieldRow label="Zones" align="top">
+                    <DataButton
+                      icon={<RotateCcw size={13} strokeWidth={1.75} />}
+                      onClick={clearZones}
+                    >
+                      Clear {zonedEvents.length} stamp{zonedEvents.length === 1 ? "" : "s"}
+                    </DataButton>
+                    {/* Names the places rather than counting them twice: the
+                        verb already carries the number, and which clock those
+                        hours belong to is the thing the stamp exists to say. */}
+                    <span className="caption">
+                      Read against {zonedPlaces}. Clearing makes them floating again — drawn on
+                      whatever clock this browser is having
+                    </span>
+                  </FieldRow>
+                )}
 
                 <FieldRow label="Backup" align="top">
                   <div className="flex flex-wrap items-center gap-2">

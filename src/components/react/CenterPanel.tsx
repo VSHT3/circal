@@ -32,6 +32,7 @@ import {
   type Clock,
 } from "@/lib/time";
 import { EASE, MODE_MS, MOOD_MS } from "@/lib/motion";
+import { placeName } from "@/lib/travel";
 import { cn } from "@/lib/utils";
 import type { TotalsPosition } from "@/lib/store";
 
@@ -159,6 +160,15 @@ export default function CenterPanel({
   /** And of those, the ones that are a moment rather than a span. A task has
    *  one instant, so `01:15 – 01:15 · 0m` is three ways of saying nothing. */
   const peekedTask = peeked?.event.task ? peeked : null;
+  /**
+   * The clock the arc under the pointer was written on, when it is not this
+   * one. Every printed time in this app is the viewer's own — a stamped event
+   * is drawn where its instants fall here — so the hours in the readout are a
+   * right answer that looks like a wrong one until something names the clock
+   * they were set against. Empty for the floating events, which is most of
+   * them, and never during a drag: a range being drawn has no event yet.
+   */
+  const peekedZone = !drag && peeked?.event.tzid ? placeName(peeked.event.tzid) : "";
 
   // The readout answers "where am I", and that is a different question while
   // dragging (the range being drawn), while pointing at an arc (that arc's
@@ -294,6 +304,19 @@ export default function CenterPanel({
               {suffix}
             </span>
           )}
+          {/* The clock, named where it costs nothing: the readout is one line
+              of its own with room either side, so a stamped event says which
+              place its hours were set in without a row anywhere giving up a
+              column for it. Only ever beside a span, which is the only mood
+              that is about one occurrence. */}
+          {peekedZone && (
+            <span
+              className="font-mono font-medium text-ink-3 uppercase"
+              style={{ fontSize: `${11 * u}px`, letterSpacing: "0.16em" }}
+            >
+              {peekedZone}
+            </span>
+          )}
         </div>
 
         {/* The card as a whole comes and goes too — a drag starting takes it
@@ -372,6 +395,24 @@ export default function CenterPanel({
                       // clock time from three days ago nor the word "now" is the
                       // thing you came to the interior to read.
                       const span = spanLabel(occ);
+                      /**
+                       * The clock this event was written on, when it is not
+                       * this one, and the slot it goes in.
+                       *
+                       * The trailing slot on a row that is neither the
+                       * headline nor running has always been empty, which is
+                       * what makes this the cheapest honest form: no row
+                       * gives up a column, and the measurement that took
+                       * `DAY 2/4` off the headline row still holds. One
+                       * question at a time and the urgent one first — a
+                       * running event's `ends in` outranks where it was set.
+                       */
+                      const zone = occ.event.tzid ? placeName(occ.event.tzid) : "";
+                      const trail = running
+                        ? `ends in ${formatDuration((occ.end.getTime() - now.getTime()) / 60000)}`
+                        : lead
+                          ? untilText(until)
+                          : zone;
 
                       return (
                         // The row's own height is the wrapper's, so one leaving
@@ -485,14 +526,13 @@ export default function CenterPanel({
                                   // The wait is the headline's whole point, so it is
                                   // not printed at the meta column's usual whisper.
                                   lead ? "text-ink-2" : "text-ink-3",
+                                  // A place is a tag rather than a sentence, and
+                                  // this slot's other two readings are prose.
+                                  trail === zone && "uppercase",
                                 )}
                                 style={{ fontSize: `${10 * u}px`, transition: `${MOOD} font-size` }}
                               >
-                                {running
-                                  ? `ends in ${formatDuration((occ.end.getTime() - now.getTime()) / 60000)}`
-                                  : lead
-                                    ? untilText(until)
-                                    : ""}
+                                {trail}
                               </span>
                             </button>
                             {occ.event.task && (

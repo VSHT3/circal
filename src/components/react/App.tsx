@@ -47,9 +47,11 @@ import {
   formatTime,
   fromDayKey,
   isSameDay,
+  localZone,
   startOfDay,
   weekOffset,
 } from "@/lib/time";
+import { placeName, travelNotice } from "@/lib/travel";
 import { LIFE_META_H, lifeDot, lifeStage, type LifeRun } from "@/lib/life";
 import { weekFaceCentre, weekStage, weekZoomScale } from "@/lib/week";
 import { EASE, INTRO_MS, MODE_MS } from "@/lib/motion";
@@ -81,6 +83,7 @@ import type {
 } from "./types";
 import CalendarEditor from "./CalendarEditor";
 import { BackupNudge } from "./BackupNudge";
+import { TravelPrompt } from "./TravelPrompt";
 import CommandPalette from "./CommandPalette";
 import Dial, { type DragPreview } from "./Dial";
 import LifeView from "./LifeView";
@@ -141,6 +144,18 @@ const TOP_BAR_H = 48;
  * as a pointer that moved — so the mode would arrive and leave in one frame.
  */
 const AUTO_AMBIENT_GRACE_MS = 500;
+
+/**
+ * The zone this browser is in, read once on load.
+ *
+ * Once, because the question it answers is "has the device moved *since the
+ * last launch*" — `settings.deviceZone` is the other half of that comparison,
+ * and a value re-read every minute would turn a laptop woken in another city
+ * into a prompt arriving over whatever the user was doing at the time.
+ * Constructing an `Intl.DateTimeFormat` is not cheap either, and the island is
+ * `client:only`, so module scope here is the browser.
+ */
+const DEVICE_ZONE = localZone();
 
 /* ---------------------------------- url ----------------------------------- */
 
@@ -648,6 +663,62 @@ function Shell() {
   }, [inAmbient]);
 
   /**
+   * The travel question, or `null` when there is nothing to ask: a first run,
+   * a device that has not moved, or a browser holding no events of the user's
+   * own. `events` rather than `visible` — a subscription's occurrences already
+   * carry real zones from their feeds and are not part of this at all.
+   */
+  const travel = useMemo(
+    () => travelNotice(settings.deviceZone, DEVICE_ZONE, events.length > 0),
+    [settings.deviceZone, events.length],
+  );
+
+  /**
+   * Every case that is *not* a question still records the zone, silently. A
+   * first run has no "before" to compare against; a browser with no events has
+   * nothing an answer could apply to. Leaving either unrecorded means the
+   * prompt arrives later — after the first event is written, about a journey
+   * that has nothing to do with it.
+   *
+   * It asks the store rather than trusting this render's `settings`, and that
+   * is load-bearing: the store hydrates lazily at its first `subscribe`, so
+   * the first commit's props are `EMPTY` — no events and no remembered zone —
+   * and an effect closing over those would read a genuine journey as a first
+   * run and write the question away before it could be asked. Measured by
+   * driving it: the stored zone was overwritten on load, every time.
+   */
+  useEffect(() => {
+    const stored = store.snapshot();
+    if (stored.settings.deviceZone === DEVICE_ZONE) return;
+    if (travelNotice(stored.settings.deviceZone, DEVICE_ZONE, stored.events.length > 0)) return;
+    store.setDeviceZone(DEVICE_ZONE);
+  }, [settings.deviceZone, events.length]);
+
+  /**
+   * One answer, one commit, one undo step — which is the whole safety net
+   * here: both answers rewrite events, and a person answering this at an
+   * airport has to be able to change their mind. The notice says which way it
+   * went and how much it touched, because "move" changes instants the user
+   * cannot see the old value of.
+   */
+  const answerTravel = useCallback(
+    (move: boolean) => {
+      if (!travel) return;
+      const place = placeName(move ? travel.to : travel.from);
+      const count = move
+        ? store.moveEventsToZone(travel.from, travel.to)
+        : store.keepEventsInZone(travel.from, travel.to);
+      const events = `${count} event${count === 1 ? "" : "s"}`;
+      notify(
+        move
+          ? `Moved ${events} to ${place} time · ${MOD}Z to undo`
+          : `${events} keep ${place} time · ${MOD}Z to undo`,
+      );
+    },
+    [travel],
+  );
+
+  /**
    * The mode arriving on its own, and leaving the same way.
    *
    * Armed only on the dial, with nothing open: a timer that swapped the view
@@ -655,8 +726,16 @@ function Shell() {
    * fired over a half-finished event would be a data loss dressed as a
    * screensaver. Both conditions read as "there is nothing here to interrupt".
    */
+  // The travel notice counts: it covers the stage and owns the screen until
+  // it is answered, so ← must not step the day behind it and ⌘Z must not undo
+  // into a calendar the user has not decided about yet.
   const busy =
-    paletteOpen || settingsOpen || editor !== null || ask !== null || calendarEditor !== null;
+    paletteOpen ||
+    settingsOpen ||
+    editor !== null ||
+    ask !== null ||
+    calendarEditor !== null ||
+    travel !== null;
   /**
    * `busy` plus the one panel that has no state on it but does cover the
    * face. The two questions are not the same: ← under an open editor would
@@ -1570,6 +1649,21 @@ function Shell() {
               />
             )}
           </AnimatePresence>
+          {/* Over the same stage, and over everything on it: until this is
+              answered the face is drawing hours on a clock the events were not
+              written on, so it is the screen rather than a notice beside one.
+              Inside `main` for the reason the nudge is — the panel transform
+              must not carry it — and it never coexists with the nudge, which
+              `shaded` already suppresses. */}
+          {travel && (
+            <TravelPrompt
+              notice={travel}
+              now={now}
+              clock={settings.clock}
+              onMove={() => answerTravel(true)}
+              onKeep={() => answerTravel(false)}
+            />
+          )}
         </main>
       </div>
 
@@ -1607,6 +1701,7 @@ function Shell() {
           open={settingsOpen}
           onClose={() => setSettingsOpen(false)}
           settings={settings}
+          events={events}
           calendars={calendars}
           actions={actions}
         />

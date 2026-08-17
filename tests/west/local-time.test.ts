@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { at, day, rule } from "../helpers";
+import { at, day, event, rule } from "../helpers";
 import {
   lifeFraction,
   lifeMilestones,
@@ -20,6 +20,7 @@ import {
   zonedToUtc,
 } from "@/lib/time";
 import { startsBetweenIn } from "@/lib/recur";
+import { keptEvents, movedEvent, travelShift } from "@/lib/travel";
 
 /* ------------------------------------------------------------------ *
  * Re-runs the zone-sensitive invariants from tests/time.test.ts under
@@ -234,5 +235,78 @@ describe("startsBetweenIn: a zoned rule expands the same from LA as from Berlin"
     const expected = sundays.map(([mo, d]) => zonedToUtc(2026, mo, d, 9, 0, "America/New_York"));
     const result = startsBetweenIn(rule({ repeat: "weekly" }), seed, from, to, "America/New_York");
     expect(result).toBeInstants(expected);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * The travel notice's arithmetic, west of UTC. Two halves, and both need
+ * this project: the timed shift must not depend on who is reading (the
+ * negative case above, one function over), while an all-day event is
+ * re-anchored to *local* midnight — the day-keyed half, which is exactly
+ * where `toISOString`-shaped thinking passes in Berlin and fails here.
+ * ------------------------------------------------------------------ */
+
+describe("travel: a timed event's shift is the same from LA as from Berlin", () => {
+  it("carries the wall clock of the zone it is moved into, whoever is reading", () => {
+    // `tests/travel.test.ts` asserts the same two shifts from Berlin: six
+    // hours in July, five in the three weeks the transition dates disagree.
+    const july = zonedToUtc(2026, 7, 15, 9, 0, "Europe/Berlin");
+    const march = zonedToUtc(2026, 3, 15, 9, 0, "Europe/Berlin");
+    expect.soft(travelShift(july, "Europe/Berlin", "America/New_York")).toBe(6 * 3_600_000);
+    expect.soft(travelShift(march, "Europe/Berlin", "America/New_York")).toBe(5 * 3_600_000);
+  });
+});
+
+describe("travel: an all-day event re-anchors to local midnight west of UTC", () => {
+  it("keeps the date and lands on this machine's own midnight, not five hours off it", () => {
+    // The case the shift would break: moved *into* the reader's own zone,
+    // which is what the real prompt always does, so `day()` and `dayKey()`
+    // are the local answers and a stray offset shows up as the 4th.
+    const moved = movedEvent(
+      event({
+        start: zonedToUtc(2026, 10, 5, 0, 0, "Europe/Berlin"),
+        end: zonedToUtc(2026, 10, 6, 0, 0, "Europe/Berlin"),
+        allDay: true,
+      }),
+      "Europe/Berlin",
+      "America/Los_Angeles",
+    );
+    expect.soft(moved.start).toBe(day("2026-10-05").getTime());
+    expect.soft(minutesOfDay(new Date(moved.start))).toBe(0);
+    expect.soft(dayKey(new Date(moved.end - 1))).toBe("2026-10-05");
+  });
+
+  it("keeps every day of a span across this zone's own transition", () => {
+    // Los Angeles goes back on 1 November 2026, so 31 October to 2 November
+    // inclusive is 73 hours here — and a span rebuilt as `n × 1440` minutes
+    // would end at 23:00 on the last evening, which an exclusive `end` then
+    // drops off the dial.
+    const moved = movedEvent(
+      event({
+        start: zonedToUtc(2026, 10, 31, 0, 0, "Europe/Berlin"),
+        end: zonedToUtc(2026, 11, 3, 0, 0, "Europe/Berlin"),
+        allDay: true,
+      }),
+      "Europe/Berlin",
+      "America/Los_Angeles",
+    );
+    expect.soft(moved.start).toBe(day("2026-10-31").getTime());
+    expect.soft(moved.end).toBe(day("2026-11-03").getTime());
+    expect.soft(moved.end - moved.start).toBe(73 * 3_600_000);
+    expect.soft(dayKey(new Date(moved.end - 1))).toBe("2026-11-02");
+  });
+
+  it("stamps a timed event and leaves an all-day one floating, west of UTC too", () => {
+    const timed = event({ start: zonedToUtc(2026, 7, 15, 9, 0, "Europe/Berlin") });
+    const allDay = event({
+      start: zonedToUtc(2026, 10, 5, 0, 0, "Europe/Berlin"),
+      end: zonedToUtc(2026, 10, 6, 0, 0, "Europe/Berlin"),
+      allDay: true,
+    });
+    const kept = keptEvents([timed, allDay], "Europe/Berlin", "America/Los_Angeles");
+    expect.soft(kept[0].tzid).toBe("Europe/Berlin");
+    expect.soft(kept[0].start).toBe(timed.start);
+    expect.soft(kept[1].tzid).toBe("");
+    expect.soft(kept[1].start).toBe(day("2026-10-05").getTime());
   });
 });

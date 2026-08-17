@@ -590,6 +590,7 @@ const SETTINGS_ACTIONS: { name: string; act: (s: StoreHandle) => void }[] = [
   { name: "setClock", act: (s) => s.store.setClock("24h") },
   { name: "setToggle", act: (s) => s.store.setToggle("moonlight", false) },
   { name: "setSecondZone", act: (s) => s.store.setSecondZone("Europe/Paris") },
+  { name: "setDeviceZone", act: (s) => s.store.setDeviceZone("Europe/Paris") },
   {
     name: "setPlace",
     act: (s) => s.store.setPlace({ lat: 48.85, lon: 2.35, label: "Paris", zone: "Europe/Paris" }),
@@ -626,6 +627,92 @@ describe("settings changes and feed pulls are not undoable", () => {
       expect.soft(s.store.snapshot().events.find((e) => e.id === created.id)).toBeUndefined();
     },
   );
+});
+
+/* -------------------------------- travel -------------------------------- */
+
+describe("the travel answers", () => {
+  /** A floating 09:00 event, and a browser that thinks it is still in Berlin. */
+  async function travelled(): Promise<{ s: StoreHandle; created: CalEvent }> {
+    const s = await freshStore();
+    s.store.setDeviceZone("Europe/Berlin");
+    const created = s.store.create({
+      ...draft(s),
+      start: ms("2026-07-15 09:00"),
+      end: ms("2026-07-15 10:00"),
+    });
+    return { s, created };
+  }
+
+  it("setDeviceZone records the zone and asks nothing of the events — the silent first run", async () => {
+    const s = await freshStore();
+    const created = s.store.create(draft(s));
+    s.store.setDeviceZone("Europe/Berlin");
+    expect.soft(s.store.snapshot().settings.deviceZone).toBe("Europe/Berlin");
+    expect.soft(s.store.snapshot().events.find((e) => e.id === created.id)).toEqual(created);
+  });
+
+  it("moveEventsToZone shifts the events and moves the remembered zone in one commit", async () => {
+    const { s, created } = await travelled();
+    expect.soft(s.store.moveEventsToZone("Europe/Berlin", "America/New_York")).toBe(1);
+    const moved = s.store.snapshot().events.find((e) => e.id === created.id)!;
+    expect.soft(moved.start - created.start).toBe(6 * 3_600_000);
+    expect.soft(moved.tzid).toBe("");
+    expect.soft(s.store.snapshot().settings.deviceZone).toBe("America/New_York");
+  });
+
+  it("keepEventsInZone stamps the events, touching no instant, and moves the zone too", async () => {
+    const { s, created } = await travelled();
+    expect.soft(s.store.keepEventsInZone("Europe/Berlin", "America/New_York")).toBe(1);
+    const kept = s.store.snapshot().events.find((e) => e.id === created.id)!;
+    expect.soft(kept.start).toBe(created.start);
+    expect.soft(kept.tzid).toBe("Europe/Berlin");
+    expect.soft(s.store.snapshot().settings.deviceZone).toBe("America/New_York");
+  });
+
+  it.each([
+    {
+      name: "move",
+      act: (s: StoreHandle) => s.store.moveEventsToZone("Europe/Berlin", "America/New_York"),
+    },
+    {
+      name: "keep",
+      act: (s: StoreHandle) => s.store.keepEventsInZone("Europe/Berlin", "America/New_York"),
+    },
+  ])(
+    "$name is one undo step: it restores every instant and leaves the zone recorded",
+    async ({ act }) => {
+      const { s, created } = await travelled();
+      act(s);
+      expect.soft(s.store.undo()).toBe(true);
+      expect.soft(s.store.snapshot().events.find((e) => e.id === created.id)).toEqual(created);
+      // Deliberately *not* wound back: the question has been answered, and a
+      // stored zone rolled back with the events would ask it again.
+      expect.soft(s.store.snapshot().settings.deviceZone).toBe("America/New_York");
+      // One step, so a second undo reaches past the answer to the creation.
+      expect.soft(s.store.undo()).toBe(true);
+      expect.soft(s.store.snapshot().events).toHaveLength(0);
+    },
+  );
+
+  it("clearEventZones takes every stamp off in one undoable step, and says how many", async () => {
+    const { s, created } = await travelled();
+    s.store.keepEventsInZone("Europe/Berlin", "America/New_York");
+    expect.soft(s.store.clearEventZones()).toBe(1);
+    expect.soft(s.store.snapshot().events.find((e) => e.id === created.id)?.tzid).toBe("");
+    expect.soft(s.store.undo()).toBe(true);
+    expect
+      .soft(s.store.snapshot().events.find((e) => e.id === created.id)?.tzid)
+      .toBe("Europe/Berlin");
+  });
+
+  it("clearEventZones with nothing stamped writes no undo step at all", async () => {
+    const { s, created } = await travelled();
+    expect.soft(s.store.clearEventZones()).toBe(0);
+    // The step undo reaches is the creation, not a commit this made.
+    expect.soft(s.store.undo()).toBe(true);
+    expect.soft(s.store.snapshot().events.find((e) => e.id === created.id)).toBeUndefined();
+  });
 });
 
 /* -------------------------------- fresh() ------------------------------- */
@@ -753,6 +840,29 @@ describe("sane() via parsing a stored blob", () => {
     );
     const s = await freshStore(storage);
     expect(s.store.snapshot().settings.place).toBeNull();
+  });
+
+  it.each([
+    { name: "a zone Intl cannot resolve", stored: "Mars/Olympus_Mons", want: "" },
+    { name: "a non-string", stored: 7, want: "" },
+    { name: "a zone it can", stored: "Europe/Berlin", want: "Europe/Berlin" },
+  ])("deviceZone: $name → '$want'", async ({ stored, want }) => {
+    // A remembered zone nothing resolves would have the travel notice naming
+    // a place that does not exist, or asking about a move nobody made; `""`
+    // is read as a first run, which is silent.
+    const storage = new MemoryStorage();
+    storage.setItem(
+      KEY,
+      JSON.stringify({
+        schema: 2,
+        events: [],
+        calendars: [],
+        feeds: {},
+        settings: { deviceZone: stored },
+      }),
+    );
+    const s = await freshStore(storage);
+    expect(s.store.snapshot().settings.deviceZone).toBe(want);
   });
 
   it("a place with a zone field survives", async () => {

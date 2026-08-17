@@ -29,6 +29,7 @@ import {
   addMonths,
   clamp,
   dayKey,
+  isZone,
   startOfDay,
   weekStartFor,
   type Clock,
@@ -49,6 +50,7 @@ import {
 import { applyRemove, applySplit, applyToggleDone, applyTruncate, applyUpdate } from "./mutate";
 import { DEFAULT_DURATION, MIN_DURATION } from "./quickadd";
 import { REMIND_LEADS } from "./remind";
+import { clearedZones, countZoned, keptEvents, movedEvents } from "./travel";
 import type { PickedPlace } from "./places";
 
 const KEY = "circal.v1";
@@ -166,6 +168,14 @@ export const WEEK_STARTS: readonly WeekStart[] = [1, 0, 6];
 export interface Settings {
   /** Which face the dial wears — see `lib/dial.ts`. */
   clock: Clock;
+  /**
+   * The zone this browser was last seen in, IANA. Remembered rather than
+   * chosen: it is the only "before" there is to compare against, and a
+   * device that has moved since the last launch is drawing every floating
+   * event on a clock it was not written on. `""` is a first run — nothing to
+   * compare, and therefore nothing to ask. See `lib/travel.ts`.
+   */
+  deviceZone: string;
   /** IANA zone for the dial's second ring. `""` = the ring is off. */
   secondZone: string;
   /** Whether that ring is captioned with the city, the offset, both, neither. */
@@ -383,6 +393,10 @@ export const DEFAULT_SETTINGS: Settings = {
   // a day here, not half of one, so an hour has exactly one place on it and
   // `13` is where `13` is. AM/PM is a preference, and it is one click away.
   clock: "24h",
+  // Unknown until the first launch writes it, and written silently there: a
+  // browser with nothing stored has no "before", and the question this field
+  // exists to ask is only ever about a change.
+  deviceZone: "",
   secondZone: "",
   showZoneName: true,
   showZoneOffset: true,
@@ -633,9 +647,10 @@ export const YEAR_QUOTE_MAX = 72;
 
 /**
  * The stored values that can be wrong rather than merely absent: a place with
- * no zone cannot be shown in its own picker, a life span has to be a date and
- * a number of years the grid can actually draw, and a position or a mode has
- * to be one the panel knows how to show.
+ * no zone cannot be shown in its own picker, a remembered device zone has to
+ * be one `Intl` still resolves, a life span has to be a date and a number of
+ * years the grid can actually draw, and a position or a mode has to be one
+ * the panel knows how to show.
  */
 function sane(settings: Settings): Settings {
   const years = Math.round(settings.lifeExpectancy);
@@ -658,6 +673,12 @@ function sane(settings: Settings): Settings {
   return {
     ...settings,
     place: settings.place?.zone ? settings.place : null,
+    // A zone nothing can resolve is worse here than none at all: the notice
+    // compares it against the live one and would name a place that does not
+    // exist, or ask about a move nobody made. `isZone` is the same probe
+    // `backup.readEvent` puts a feed's TZID through, and `""` reads as a
+    // first run — which is silent.
+    deviceZone: isZone(settings.deviceZone) ? settings.deviceZone : "",
     birth: /^\d{4}-\d{2}-\d{2}$/.test(settings.birth) ? settings.birth : "",
     lifeExpectancy: Number.isFinite(years)
       ? Math.min(LIFE_EXPECTANCY_RANGE.max, Math.max(LIFE_EXPECTANCY_RANGE.min, years))
@@ -1440,6 +1461,64 @@ export const store = {
   setSecondZone(secondZone: string) {
     const base = fresh();
     commit({ ...base, settings: { ...base.settings, secondZone } }, false);
+  },
+
+  /* --------------------------------- travel -------------------------------- */
+
+  /**
+   * Remember the zone this browser is in, having asked nothing. The first
+   * launch's silent write, and nothing else: every other path through here
+   * moves the zone *and* answers for the events in one commit, because the
+   * two must not be separable — a stamped zone with the old device zone
+   * still recorded would ask the same question again on the next launch.
+   */
+  setDeviceZone(deviceZone: string) {
+    const base = fresh();
+    commit({ ...base, settings: { ...base.settings, deviceZone } }, false);
+  },
+
+  /**
+   * "Move them with me": every floating event's wall clock survives the
+   * journey, so a 09:00 meeting is 09:00 where you now are. Returns how many
+   * events actually moved, for the notice.
+   *
+   * **One commit, recorded**, which is the safety net that makes either answer
+   * survivable: one ⌘Z puts every instant back. The device zone rides in the
+   * same commit — two would be two undo presses for one decision, and the
+   * state between them is a calendar that has been moved and is about to be
+   * asked about again. It is deliberately *not* `ownsSettings`: undoing the
+   * move must not wind the remembered zone back, or the prompt returns to ask
+   * a question the user has already answered.
+   */
+  moveEventsToZone(from: string, to: string): number {
+    const base = fresh();
+    const events = movedEvents(base.events, from, to);
+    const moved = events.reduce((n, e, i) => (e === base.events[i] ? n : n + 1), 0);
+    commit({ ...base, events, settings: { ...base.settings, deviceZone: to } });
+    return moved;
+  },
+
+  /**
+   * "Keep them as they are": instants untouched, and every floating event
+   * stamped with the zone it was written in so the app can go on saying so.
+   * Same one recorded commit, for the same reason.
+   */
+  keepEventsInZone(from: string, to: string): number {
+    const base = fresh();
+    const events = keptEvents(base.events, from, to);
+    const stamped = events.reduce((n, e, i) => (e === base.events[i] ? n : n + 1), 0);
+    commit({ ...base, events, settings: { ...base.settings, deviceZone: to } });
+    return stamped;
+  },
+
+  /** The stamp taken back off every event carrying one, in one undoable step.
+   *  A decision made in a single click at an airport has to be revisable. */
+  clearEventZones(): number {
+    const base = fresh();
+    const events = clearedZones(base.events);
+    const cleared = countZoned(base.events);
+    if (cleared > 0) commit({ ...base, events });
+    return cleared;
   },
 
   setPlace(place: PickedPlace | null) {
