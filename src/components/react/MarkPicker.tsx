@@ -40,7 +40,7 @@ import { ICON_MAX, firstGrapheme, isIconName } from "@/lib/events";
 import { cn } from "@/lib/utils";
 import { useFocusTrap } from "@/components/react/hooks";
 import { IconButton } from "@/components/react/ui/primitives";
-import { CALENDAR_ICONS, CalendarMark } from "@/components/react/ui/icons";
+import { CalendarMark, useAllMarks } from "@/components/react/ui/icons";
 
 /**
  * Search is a second way in, not a replacement for the grid: 247 names are
@@ -58,9 +58,9 @@ function bare(s: string): string {
   return s.replace(/[^a-z0-9]/gi, "").toLowerCase();
 }
 
-function matching(query: string): string[] {
+function matching(query: string, names: string[]): string[] {
   const wanted = bare(query);
-  return wanted === "" ? CALENDAR_ICONS : CALENDAR_ICONS.filter((n) => bare(n).includes(wanted));
+  return wanted === "" ? names : names.filter((n) => bare(n).includes(wanted));
 }
 
 /** The name, said rather than keyed. */
@@ -365,7 +365,10 @@ function MarkBrowser({
   );
   const dialog = useFocusTrap<HTMLDivElement>(true);
 
-  const shown = matching(fields.query);
+  // The whole table, lazily. `undefined` while the chunk is in flight — the
+  // grid renders empty (not "no match") until it arrives whole.
+  const all = useAllMarks();
+  const shown = matching(fields.query, all ? Object.keys(all) : []);
 
   const peeked = usePeek();
 
@@ -410,7 +413,7 @@ function MarkBrowser({
           {...peeked.handlers}
           className="no-scrollbar grid flex-1 grid-cols-[repeat(auto-fill,minmax(46px,1fr))] content-start gap-1 overflow-y-auto p-3"
         >
-          {shown.length === 0 ? (
+          {all && shown.length === 0 ? (
             <NoMatch className="col-span-full py-2" />
           ) : (
             shown.map((name) => (
@@ -453,7 +456,8 @@ export function MarkPicker({
   /** Read off the click rather than through a ref: the element is wanted only
    *  so focus can come back to it, and `currentTarget` already names it. */
   const opener = useRef<HTMLElement | null>(null);
-  const shown = matching(fields.query);
+  const all = useAllMarks();
+  const shown = matching(fields.query, all ? Object.keys(all) : []);
   /** The same bubble as the fullscreen grid's, at 26px: one behaviour at both
    *  sizes, and it is portalled, so the card's own clipped edge is not its
    *  problem. */
@@ -485,7 +489,7 @@ export function MarkPicker({
         {...peeked.handlers}
         className="no-scrollbar grid max-h-[108px] grid-cols-8 gap-1 overflow-y-auto"
       >
-        {shown.length === 0 ? (
+        {all && shown.length === 0 ? (
           <NoMatch className="col-span-8 py-2" />
         ) : (
           shown.map((name) => (
