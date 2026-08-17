@@ -1,9 +1,9 @@
 # audit
 
 What is left to upgrade, improve, change or add. First explored 2026-08-12 against `8b8e8d5`; every
-claim is grounded in the code or in a measurement, with the line. Eleven rounds have been worked
+claim is grounded in the code or in a measurement, with the line. Twelve rounds have been worked
 through since — the Tier 0 four; the mechanical bucket; the round that needed one call each; and the
-eight below. **Everything finished has been deleted from this file rather than crossed out**: what a
+nine below. **Everything finished has been deleted from this file rather than crossed out**: what a
 decision was and why it went the way it did belongs in `AGENTS.md`, next to the code it constrains,
 and a list of solved problems is a list nobody reads twice.
 
@@ -143,6 +143,31 @@ it bounds a subscription by dropping whole events and cannot see one event that 
 addresses — a budget is not a bound. And `attendeeCount` is the shape of every honest truncation in
 this codebase: keep the number that arrived, print the remainder against it, and the cap stops being a
 silent edit of somebody else's data.
+
+**Round twelve, and the run ends here.** Sharing one event as a link, the only feature of these nine
+rounds that had to invent a format rather than read somebody else's. Two things in it are worth
+carrying forward. The payload sits in the URL **fragment** because a fragment is never sent to a server
+while a query string is sent on every click and lands in a log — so that is not a preference but this
+product's one-route, no-server-state promise applied somewhere nobody had applied it yet, and the
+person it protects is the sender, who would never have known. And the four check digits are the round's
+best argument for driving what you build: without them a link cut short on a base64 boundary decodes
+into a _plausible_ event with its last field silently altered, which no amount of shape-checking
+catches, because the bytes are legal and the instants are fine. That is the fifth time in this file's
+history that running the thing found what reading it could not — and the first where the fault was in
+data the app had written itself.
+
+What travels and what does not turned out to be a rule this codebase already had three times over —
+`duplicateOf`'s dropped series links, a shared task's ticks, the guest list a link refuses — so it is
+stated once in `AGENTS.md` now rather than a fourth time here: a copy carries what the thing is, never
+what its relationships or somebody else's answers were.
+
+On the run as a whole: it opened with a broken timezone model and a Tier 1 that was a measurement
+nobody had taken, and it closes with Tier 1 shut, Tier 5 empty, data safety answered on every browser
+this app runs in, the timezone question asked, an invitation read, and five properties gone from the
+export's lossy list. What is left is a design question, a security argument and a short errand.
+Whoever picks this up next is not continuing a push — they are choosing one thing off a short list,
+which is a different job and should read differently here, so the next entry should start its own
+count rather than calling itself round thirteen.
 
 ---
 

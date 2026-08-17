@@ -17,11 +17,16 @@ dial's fifteen-minute grid clicks under the pointer, editing a repeating event a
 occurrences it means, ⌘⌫ deletes the arc you are pointing at, ⌘-dragging one copies it, a calendar
 can be made and named and marked and recoloured and deleted without losing what is in it, an event
 can wear a mark of its own along its arc, a dated task is a pip on the rim you can tick off, the
-app can tell you a thing is about to start, the sidebar carries the moon, the week is seven of the
-same face at one rotation, a year of the life grid comes up under the pointer at a size you can
-read, the app introduces itself in one revolution the first time you open it, the argument has a
-page of its own, and there is a test suite — 1,139 cases over the domain layer, `pnpm test`, in the
-gate.
+app can tell you a thing is about to start — at a lead the event may set for itself, or never —
+the sidebar carries the moon, the week is seven of the same face at one rotation, a year of the
+life grid comes up under the pointer at a size you can read, the app introduces itself in one
+revolution the first time you open it, the argument has a page of its own, there is a macOS app
+that mirrors the calendar to a file on disk, a device that has changed zone asks once what to do
+about the hours it was carrying, free time is drawn as the outline of the arc it would have filled
+and is not counted as booked, an invitation's organiser and guests are kept and shown and never
+answered, one event can be handed over as a link that no server ever sees, the browsers with no
+mirror are told when they last saved a backup, and there is a test suite — 1,575 cases over 27
+files of the domain layer, `pnpm test`, in the gate.
 
 Done work is not recorded here. The rationale that outlived it lives in `AGENTS.md`, next to the
 code it constrains.
