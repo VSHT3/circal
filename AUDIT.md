@@ -1,9 +1,9 @@
 # audit
 
 What is left to upgrade, improve, change or add. First explored 2026-08-12 against `8b8e8d5`; every
-claim is grounded in the code or in a measurement, with the line. Six rounds have been worked
+claim is grounded in the code or in a measurement, with the line. Seven rounds have been worked
 through since — the Tier 0 four; the mechanical bucket; the round that needed one call each; and the
-three below. **Everything finished has been deleted from this file rather than crossed out**: what a
+four below. **Everything finished has been deleted from this file rather than crossed out**: what a
 decision was and why it went the way it did belongs in `AGENTS.md`, next to the code it constrains,
 and a list of solved problems is a list nobody reads twice.
 
@@ -56,6 +56,21 @@ round five's lesson held a third time — Snooze was verified by snoozing a real
 watching the identical one return, unprompted, ten minutes later, because what a
 `UNNotificationCategory` actually does is not something reading the Swift tells you.
 
+**Round seven, for the record.** Four commits closed Tier 1 outright and answered Tier 2's
+data-safety bullet for the two browsers that had no answer, and the number worth writing down is the
+pair: last round's cheap, obvious win — both modals off the critical path — measured **1.7%**, and
+this round's expensive, deferred one — the 247-path icon table behind a `localStorage` path cache and
+a five-path eager core — measured **18.1%**, 42,936 gzipped bytes. This file has been wrong about
+which lever is which every time it has guessed, and in the same direction: it estimates by how
+awkward a change looks rather than by what the change moves, so the thing nobody wanted to touch was
+ten times the thing everybody agreed on. Measure first, and expect the ranking to be inverted. The
+other half is a lesson this file has now recorded four times, and it earns the fourth: the mark
+flicker that had kept the table on the critical path for months was neither found nor cleared by
+reading — it took clearing storage and throttling the chunk to three seconds to see it at all, and
+the same throttle is the only proof the eager core works, since at full speed the fault and the fix
+render identically. Round five's rule holds with one word changed: a rule that lives only in a
+browser's timing is a rule with no test.
+
 ---
 
 ## Tier 0 — actually broken, or will bite
@@ -99,34 +114,25 @@ not a header change.
 
 ---
 
-## Tier 1 — the manifesto's own argument, turned on the product
+## Tier 1 — closed
 
-The island's own chunk had drifted before anyone remeasured it: this file's opening figure of 514 KB
-raw / 174 KB gzipped for `App` alone had become 535,377 / 180,043 by the time Round six looked, not
-because anything grew but because nobody had checked. That number was never the build's total output
-— `client` and `react-dom` sit beside it on the same critical path, the three chunks `client:only`
-blocks first paint on — which together measured 727,799 raw / 240,807 gzipped, the figure the split
-below is measured against.
+The tier asked whether the manifesto's argument about weight survived being turned on the product,
+and it now has a number rather than an opinion. The critical path — the three chunks `client:only`
+blocks first paint on — measures **193,796 gzipped bytes**, down from 240,807 when this tier was
+opened: the two modals took 1.7% of it and the 247-path icon table took a further 18.1%, 42,936
+bytes, once `ui/marks.ts` became a lazy chunk with no static importer and the first frame was made
+safe by a `localStorage` path cache plus the seed's own five paths inlined (`AGENTS.md`, "Calendars
+and marks"). The first-frame question this tier held open — what a mark looks like before its glyph
+has arrived — is answered in the only way that was ever going to be acceptable: for a mark that has
+been drawn here before, or one the seed itself names, it looks exactly as it will look, because the
+path was already there.
 
-`Settings` and `EventEditor` are split now (`AGENTS.md`, "Shell, sidebar, top bar, focus"):
-`React.lazy` behind their overlays, `Suspense fallback={null}`, `Settings` warmed the moment `Shell`
-first commits and `EventEditor` warmed on an idle callback. `LifeView`, `YearView` and `WeekView`
-correctly did not follow — they hold both panels mounted and hand geometry between them mid-
-transition, so splitting them is a harder problem than the modals were, not the free lever this tier
-once hoped it might be. `App` itself is now 40,661 gzipped bytes, with the rest of what used to be
-inline with it extracted into shared chunks beside it — `ui/marks.ts` + `ui/icons.tsx` (118,108),
-`sun.ts` (14,154), `ScopePrompt` (2,934) — a consequence of the dynamic import boundary, not a
-decision anyone made about those modules. Measured on an isolated worktree at the split alone:
-critical path 240,807 → 236,621 gzipped, **−1.7%** (727,799 raw → 700,720, **−3.7%**); `Settings`
-(6,083) and `EventEditor` (4,794) moved off it entirely.
-
-That number is the honest headline, not a disappointment: `ui/marks.ts` + `ui/icons.tsx` are
-**118,108 gzipped bytes**, most of what is still on that path, eagerly required by `Dial`, `Face` and
-`Sidebar` so that a mark can render on a cold load. The question left is singular now, and it is the
-one the icons module's own comment already named — **what does the first frame draw**. That is a
-design decision, not a technical one: a dot that pops into an icon half a second later is worse than
-never having tried, and nobody has decided what a mark looks like before its own glyph has arrived.
-Left open.
+What is left on that path is React, `motion`, and this app's own shell and dial, plus `sun.ts` at
+14,154 for a rim the first frame draws. None of it is separable without changing what the first frame
+is: the three view panels hand geometry to each other mid-transition and were argued out of splitting
+on those grounds rather than on size, and dropping `motion` is a rewrite of every transition in the
+product for bytes that are no longer the biggest number on the page. There is nothing here left to
+argue about, so the tier is closed rather than kept open at a smaller scale.
 
 ---
 
@@ -136,15 +142,6 @@ Left open.
   `ORGANIZER`, `ATTENDEE`, accept or decline — none of those strings appear in `src/lib`. The most
   common inbound calendar action there is. The reply half needs a channel this product has refused;
   **reading** an invite and showing who is coming does not.
-- **Data safety is closed for macOS app users, still one wrong click from zero everywhere else.**
-  `localStorage` is the only copy and nothing ever prompts a backup. On the Mac the mirror answers it
-  outright: `MirrorFile` in `mac/main.swift` mints and adopts `~/Library/Application Support/circal/`
-  `calendar.json` on first launch with no gesture at all (`AGENTS.md`, "The mirror file, and the thing
-  that reads it"), so "I cleared site data" stops being fatal for an app user who did nothing to
-  arrange it. In a browser with the File System Access API the picker is still there but still
-  opt-in. In a browser without it at all (Safari, Firefox) there is still no answer: the nudge this
-  bullet originally asked for — a prompt when the last export was N days ago — has never been built,
-  and it is the one route left for exactly those two browsers.
 - **Export fidelity, minus the zone.** `VALARM`, `ATTENDEE`, `STATUS` and `CATEGORIES` are still
   dropped, and a task still leaves as a zero-length VEVENT with `X-CIRCAL-` lines, so another app
   shows an instantaneous event and no ticks. `tests/ics.test.ts`'s `what the round trip drops` block
@@ -221,13 +218,16 @@ want it, not on a certificate that was never going to arrive.
 
 ## If it were three things
 
-1. Ask the timezone question the model can now hold — the travel notice. Still the best-value thing
-   left in this file; nothing this round touched it.
-2. Answer what the first frame draws, then split `ui/marks.ts` + `ui/icons.tsx` behind it — the one
-   lever left on the critical path, and 118 KB gzipped of it.
-3. Build the export nudge for the two browsers with no other answer. Safari and Firefox have no File
-   System Access API and therefore no mirror; the Mac and the Chromium browsers both close "one wrong
-   click from zero" now, and these two still do not.
+1. Ask the timezone question the model can now hold — the travel notice (Tier 5, and Tier 0.1's own
+   first sub-bullet). Two rounds have now gone past it while cheaper things were taken, and it is
+   still the only item here that turns a silent wrong answer into a decision somebody made.
+2. Read an inbound invite (Tier 2). It is the most common calendar action this app cannot perform,
+   the reply half is refused on purpose so the scope is bounded, and `ics.ts` already parses
+   everything an invite carries except the four strings that say what it is.
+3. Answer the phone's two hover-and-dwell interactions (Tier 3). The structural work is long done and
+   this is the only tier left whose open item is a design question rather than a size — which is also
+   why it keeps being deferred, and the deferral is now the oldest one in the file.
 
-Everything above finishes something already started. Nothing needs a new screen except onboarding,
-which was already known.
+What changed about this list is what is not on it: the two size items are measured and closed, and
+data safety has an answer on every browser this app runs in. Everything above finishes something
+already started. Nothing needs a new screen except onboarding, which was already known.
