@@ -190,37 +190,32 @@ the way. What it opened:
 
 ### 1. Nobody but the author can install it
 
-The blocker is a certificate, not code. `build.sh` ad-hoc signs, and an ad-hoc bundle on another Mac
-is refused outright — macOS 15 removed the right-click-Open escape hatch, so the recipient sees
-"circal is damaged", which is indistinguishable from malware. The path is known and half-wired
-(`--universal` builds both slices, `CIRCAL_SIGN_ID` switches `codesign` to hardened runtime):
+Settled, not open: the owner has refused to buy an Apple Developer account, and the subject does not
+get raised again. `build.sh` ad-hoc signs, which is enough to launch a locally built app and nothing
+more — an ad-hoc bundle handed to another Mac is refused outright, and macOS 15 removed the
+right-click-Open escape hatch that used to survive it, so the recipient sees "circal is damaged",
+indistinguishable from malware. There is no fix for that inside this repo; the only fix is a
+certificate this project is not going to have.
 
-1. Apple Developer account, $99/year → `Developer ID Application` certificate. **This machine has no
-   signing identity at all** (`security find-identity -v -p codesigning` → 0 valid identities), so
-   this step cannot be done from the repo.
-2. `notarytool submit` + `stapler staple`, about two minutes per build.
-3. A `.dmg` or the stapled zip on GitHub Releases; a Homebrew cask on top is a formula, a URL and a
-   SHA.
-4. An updater only after all of that, and `brew upgrade` may be answer enough — a 1.3 MB download is
-   not worth Sparkle.
-
-Until step 1, the only honest distribution is `clone && pnpm mac`, which is developers only. Nothing
-in the repo should pretend otherwise.
+`clone && pnpm mac` is the distribution — not a stopgap on the way to a real one, the actual one, and
+this is a developers-only artefact by decision rather than by omission. `--universal` (both slices,
+one `lipo`) and `CIRCAL_SIGN_ID` (switches `codesign` to hardened runtime, which notarisation would
+need) stay wired anyway, not because signing is coming but so the decision is reversible by somebody
+else without being re-argued here — the code asks nothing of whoever changes their mind except a
+certificate. Nothing in the repo should pretend otherwise.
 
 ### 2. The list, cheapest first
 
-| thing                                                                                    | cost       | verdict                                                                                                                   |
-| ---------------------------------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------- |
-| **The dial drawn live on the dock icon**                                                 | ~60 lines  | a gimmick, and a good one                                                                                                 |
-| **`circal://` URL scheme** so Shortcuts or Raycast can quick-add through `parseQuickAdd` | ~40 lines  | only if the user lives in Shortcuts                                                                                       |
-| **Sparkle updater**                                                                      | half a day | after distribution exists, not before                                                                                     |
-| **WidgetKit widget**                                                                     | days       | no. A SwiftUI target, an app group and the dial re-derived natively — the rewrite `APP.md` argues against, for a 2×2 tile |
+| thing                                                                                    | cost      | verdict                                                                                                                   |
+| ---------------------------------------------------------------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------- |
+| **The dial drawn live on the dock icon**                                                 | ~60 lines | a gimmick, and a good one                                                                                                 |
+| **`circal://` URL scheme** so Shortcuts or Raycast can quick-add through `parseQuickAdd` | ~40 lines | only if the user lives in Shortcuts                                                                                       |
+| **WidgetKit widget**                                                                     | days      | no. A SwiftUI target, an app group and the dial re-derived natively — the rewrite `APP.md` argues against, for a 2×2 tile |
 
 There is no longer a clean "if it were one": the dock-icon dial is a gimmick worth doing but still a
-gimmick, the URL scheme is a yes only for somebody who lives in Shortcuts, Sparkle is blocked on
-distribution existing at all, and WidgetKit is a no. The table's cheap, uncontested work is spent —
-everything left here is either downstream of item 1's certificate or waiting on somebody deciding
-they want it.
+gimmick, the URL scheme is a yes only for somebody who lives in Shortcuts, and WidgetKit is a no. The
+table's cheap, uncontested work is spent — everything left here is waiting on somebody deciding they
+want it, not on a certificate that was never going to arrive.
 
 ---
 
@@ -235,4 +230,4 @@ they want it.
    click from zero" now, and these two still do not.
 
 Everything above finishes something already started. Nothing needs a new screen except onboarding,
-which was already known — and one certificate, which needs a credit card rather than a decision.
+which was already known.

@@ -214,27 +214,23 @@ would then land on `TopBar`'s left button group and three buttons under three bu
 can aim at. And `allowsBackForwardNavigationGestures` is off: the app steps days through
 `history.pushState`, so a two-finger swipe would be "yesterday", mid-drag on the dial.
 
-## handing it to somebody else
+## unsigned, by decision
 
-Right now `build.sh` ad-hoc signs, which is enough to launch a locally built app and nothing more. A
-build somebody else can double-click needs four things, in order:
+`build.sh` ad-hoc signs, which is enough to launch a locally built app and nothing more: handed to
+another Mac, the bundle is refused outright, and macOS 15 removed the right-click-Open escape hatch
+that used to survive it, so whoever received it would see "circal is damaged" — indistinguishable
+from malware. The fix is an Apple Developer account and a `Developer ID Application` certificate, and
+the owner has refused to buy one; the subject does not get raised again. `clone && pnpm mac` is the
+distribution, permanently, not a step toward a wider one.
 
-1. **Universal binary.** `bash mac/build.sh --universal` — two `swiftc` passes and a `lipo`. 1.6 MB.
-2. **Developer ID.** An Apple Developer account ($99/year) for a `Developer ID Application`
-   certificate. `CIRCAL_SIGN_ID="Developer ID Application: Name (TEAMID)" pnpm build:mac` switches
-   `codesign` to it, with `--timestamp --options runtime` (hardened runtime), which notarisation
-   requires.
-3. **Notarise and staple.** `ditto -c -k --keepParent mac/build/circal.app circal.zip`, then
-   `xcrun notarytool submit circal.zip --apple-id … --team-id … --password … --wait`, then
-   `xcrun stapler staple mac/build/circal.app`. Without this, Gatekeeper on another Mac refuses the
-   app outright — the right-click-Open escape hatch is gone as of macOS 15.
-4. **Ship the bytes.** A `.dmg` (`hdiutil create -srcfolder`) or the stapled zip on a URL. A Homebrew
-   cask is the cheapest distribution after that: a formula naming the URL and the SHA, `brew install
---cask circal`, and updates are `brew upgrade`. There is no updater in the app and no plan for
-   one; a 1.3 MB download is not a problem worth Sparkle.
-
-Unsigned is not a shortcut worth documenting for other people: the flash of "circal is damaged" is
-indistinguishable from malware to the person you sent it to.
+`--universal` (`bash mac/build.sh --universal`, two `swiftc` passes and a `lipo`, 1.6 MB) and
+`CIRCAL_SIGN_ID` (switches `codesign` to hardened runtime with `--timestamp --options runtime`, which
+notarisation would need) stay wired anyway — not because signing is coming, but so the choice stays
+somebody else's to make later without re-deriving the build script first. What the shell earns does
+not need an audience beyond the one it already has: six shortcuts a browser cannot give back,
+reminders that survive the window being put away, trackpad haptics no desktop browser has ever
+exposed, a mirror file an assistant can read before Settings has even been opened, and the three bugs
+above that only running the thing as an app ever surfaced.
 
 ## why swift and not tauri
 
@@ -262,7 +258,7 @@ platform to defend against an engine problem that exists on one:
 - **A quick-add panel of its own.** ⌥⌘C summons the window and opens the palette; a borderless
   `NSPanel` with its own webview would be the Spotlight-shaped version, and it needs a route in the
   app that renders the palette alone. Worth doing only if the window turns out to be in the way.
-- **Notarisation, an updater, a Windows build.**
+- **A Windows build.** Still unwritten and still wants Tauri, per "what ships" above.
 - **Tests, and by design.** `AGENTS.md`'s rule is a test file per `src/lib/` module; the suite is
   vitest with no DOM and cannot reach AppKit, and the shell holds no domain logic to pin. The one
   place it repeats the app rather than hosting it is the feed proxy's SSRF table, which is the
