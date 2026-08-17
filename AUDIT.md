@@ -1,9 +1,9 @@
 # audit
 
 What is left to upgrade, improve, change or add. First explored 2026-08-12 against `8b8e8d5`; every
-claim is grounded in the code or in a measurement, with the line. Nine rounds have been worked
+claim is grounded in the code or in a measurement, with the line. Ten rounds have been worked
 through since — the Tier 0 four; the mechanical bucket; the round that needed one call each; and the
-six below. **Everything finished has been deleted from this file rather than crossed out**: what a
+seven below. **Everything finished has been deleted from this file rather than crossed out**: what a
 decision was and why it went the way it did belongs in `AGENTS.md`, next to the code it constrains,
 and a list of solved problems is a list nobody reads twice.
 
@@ -111,6 +111,22 @@ pixels this time. The `.ics` side is the quieter reward: `TRANSP` round-trips, s
 bullet is one item shorter and the characterisation test that pinned the loss now pins the fix, which
 is exactly what that bullet said would happen to it.
 
+**Round ten, for the record.** Per-event reminder leads, and the lesson is not in the feature — the
+feature is `colorOf`'s precedence rule applied to a number, with three states packed into one integer
+because a lead only counts one way and `0` had to keep meaning "as it starts". The lesson is in the
+commit that came after it. The first version had `ics.ts` importing `remind.ts`, which runs **up** a
+tier of the dependency order `AGENTS.md` states: acyclic, so nothing failed, no lint fired, and no
+test could have caught it, because a tier is not a type. It was first read as a stale document and it
+was the exact opposite — the document was right and the code had drifted under it. That distinction is
+the whole point: **a documented layering constraint is not a description of the imports, it is what
+keeps the graph legible**, so the honest options on finding a violation are to move the code or to
+change the constraint, and never to note the discrepancy in passing. This one moved, along the split
+marks already use: `events.ts` says what a field legally is, the tier above says what it does, and
+`leadOf` stays above precisely because its fallback is a setting. Two rounds ago the rule was that a
+field with two writers must record which one wrote it; this one is its neighbour — a rule about a
+_graph_ rather than about a field — and both are failures no test in this repo could have expressed,
+which is worth noticing twice.
+
 ---
 
 ## Tier 0 — actually broken, or will bite
@@ -181,14 +197,14 @@ argue about, so the tier is closed rather than kept open at a smaller scale.
   `ORGANIZER`, `ATTENDEE`, accept or decline — none of those strings appear in `src/lib`. The most
   common inbound calendar action there is. The reply half needs a channel this product has refused;
   **reading** an invite and showing who is coming does not.
-- **Export fidelity, minus the zone and now minus busy/free.** `VALARM`, `ATTENDEE`, `ORGANIZER`,
-  `STATUS` and `CATEGORIES` are still dropped, and a task still leaves as a zero-length VEVENT with
-  `X-CIRCAL-` lines, so another app shows an instantaneous event and no ticks. `TRANSP` has left that
-  list: busy/free is a field now, it is read and written, and the case that used to assert the loss
-  asserts the round trip instead — which is the first time this bullet's own mechanism has fired.
-  `tests/ics.test.ts`'s `what the round trip drops` block pins each remaining loss the same way: the
+- **Export fidelity, and the list is emptying.** `ATTENDEE`, `ORGANIZER`, `STATUS` and `CATEGORIES`
+  are still dropped, and a task still leaves as a zero-length VEVENT with `X-CIRCAL-` lines, so
+  another app shows an instantaneous event and no ticks. Three things have left that list in a week —
+  `TZID` when zones landed, `TRANSP` when busy and free became a field, `VALARM` when a lead did — and
+  each time the characterisation test that pinned the loss became the test that pins the fix.
+  `tests/ics.test.ts`'s `what the round trip drops` block holds the remainder on the same terms: the
   day one is fixed, the test that says it is lossy fails, and that failure is how the fix announces
-  itself.
+  itself. That is now a mechanism with a track record rather than a good intention.
 
 ---
 
