@@ -1,9 +1,10 @@
 # circal-mcp
 
 A stdio [MCP](https://modelcontextprotocol.io) server that reads and writes
-circal's own mirror file — the `.json` a browser tab keeps in sync on disk
-through the File System Access API (see `src/lib/mirror.ts` and
-`src/lib/mirrorLink.ts`). It imports circal's own domain layer
+circal's own mirror file — the `.json` a browser tab or the macOS app keeps
+in sync on disk, through the File System Access API on the web and the
+shell's own bridge in the app (see `src/lib/mirror.ts`, `src/lib/mirrorLink.ts`
+and `mac/main.swift`'s `MirrorFile`). It imports circal's own domain layer
 (`src/lib/events.ts`, `recur.ts`, `quickadd.ts`, `mutate.ts`, `backup.ts`, …),
 so an agent and the app can never disagree about what a legal event, an
 occurrence, or a recurrence rule is.
@@ -18,10 +19,11 @@ again, the same as any second writer would.
 
 ## Quick start
 
-A `FileSystemFileHandle` (what the browser hands circal when the mirror is
-turned on) never exposes the full path it came from: that is deliberate
-browser privacy design, so circal cannot print it for you. `--find` searches
-the places a mirror file usually lands and does that work instead.
+A `FileSystemFileHandle` (what a browser hands circal when the mirror is turned on there) never
+exposes the full path it came from: that is deliberate browser privacy design, so circal cannot print
+it for you. The macOS app does not have this problem — it mints and adopts a mirror at a fixed path
+on first launch, no gesture required — so `--find` checks that path first, by name, then falls back
+to the browser case and searches the places a mirror file usually lands.
 
 ```sh
 npx -y circal-mcp --find
@@ -81,9 +83,9 @@ Add to `.cursor/mcp.json` (project) or `~/.cursor/mcp.json` (global):
 }
 ```
 
-No mirror file yet: turn it on from circal's Settings panel, then run
-`--find` again. Run `npx -y circal-mcp --help` for the full flag and
-environment variable list.
+No mirror file yet: on the Mac app there is almost always one already (`--find` should have caught
+it); in a browser, turn the mirror on from circal's Settings panel, then run `--find` again. Run
+`npx -y circal-mcp --help` for the full flag and environment variable list.
 
 ## From source (contributors)
 

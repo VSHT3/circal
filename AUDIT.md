@@ -1,9 +1,9 @@
 # audit
 
 What is left to upgrade, improve, change or add. First explored 2026-08-12 against `8b8e8d5`; every
-claim is grounded in the code or in a measurement, with the line. Four rounds have been worked
+claim is grounded in the code or in a measurement, with the line. Six rounds have been worked
 through since — the Tier 0 four; the mechanical bucket; the round that needed one call each; and the
-round below. **Everything finished has been deleted from this file rather than crossed out**: what a
+three below. **Everything finished has been deleted from this file rather than crossed out**: what a
 decision was and why it went the way it did belongs in `AGENTS.md`, next to the code it constrains,
 and a list of solved problems is a list nobody reads twice.
 
@@ -29,6 +29,32 @@ File System Access picker does not exist), which is why the shell has three brid
 lesson this time is narrower than round four's and worth as much: **a rule that lives only in CSS or
 only in a browser API is a rule with no test**, and every one of these was caught by running the
 thing, not by reading it.
+
+**Round six, for the record.** Four commits, and the better lessons are about the numbers, not the
+code. Week start now defaults to the reader's own locale (Tier 5), closing that line outright. The
+lazy split (Tier 1) shipped and measured what it was actually worth: `Settings` and `EventEditor` off
+the critical path bought 4,186 gzipped bytes, **−1.7%**, because the thing genuinely worth splitting —
+`ui/marks.ts` + `ui/icons.tsx`, 118,108 gzipped bytes of it — is the one nobody touched, and it is
+still the one nobody has decided how to touch. The cheap win was cheap because it was small, not
+because it was wrong to take. On the way to measuring it, this file's own opening figure turned out to
+have drifted too — 514/174 had quietly become 535/180 before anyone remeasured it — which is round
+four's "the drift is in the prose" lesson, except the prose this time was this file's own. And the
+macOS shell (`mac/`, Tier 6) closed every item its own table named cheapest, plus a fourth nobody had
+written down: `<a download>` does nothing inside a `WKWebView` — measured, the click resolves and
+nothing lands on disk, the app's own Export button dead since the day it shipped — which is round
+five's lesson exactly repeating: a capability WebKit withholds that is invisible from reading the
+code and was only ever going to be found by running the app.
+
+A fourth commit the same night closed the rest of Tier 6's cheap table. Login-at-login and menu-bar
+mode read their own state live rather than caching it, because a login item pulled from System
+Settings or a Dock policy changed some other way would otherwise leave the menu asserting something
+untrue; notification actions kept Snooze entirely inside the shell rather than letting it anywhere
+near `remind.ts`'s never-catch-up rule, which is exactly the rule a page-routed snooze would have
+broken. Menu-bar mode's own cost is stated where it is paid, not hidden: in `.accessory` there is no
+Dock tile, so the `.ics` drop this same round closed cannot land at all. And round five's lesson held
+a third time — Snooze was verified by snoozing a real banner at 07:23:08 and watching the identical
+one return, unprompted, ten minutes later, because what a `UNNotificationCategory` actually does is
+not something reading the Swift tells you.
 
 ---
 
@@ -75,21 +101,32 @@ not a header change.
 
 ## Tier 1 — the manifesto's own argument, turned on the product
 
-One chunk: **514 KB raw / 174 KB gzipped**, plus 57 KB gzipped of React, no code splitting.
-`client:only` means the screen stays black until all of it has downloaded _and_ parsed, to draw a
-dial. Two splits, and both have a real design question in front of them, which is exactly why they
-are still here:
+The island's own chunk had drifted before anyone remeasured it: this file's opening figure of 514 KB
+raw / 174 KB gzipped for `App` alone had become 535,377 / 180,043 by the time Round six looked, not
+because anything grew but because nobody had checked. That number was never the build's total output
+— `client` and `react-dom` sit beside it on the same critical path, the three chunks `client:only`
+blocks first paint on — which together measured 727,799 raw / 240,807 gzipped, the figure the split
+below is measured against.
 
-- **`icons.tsx` behind the mark picker.** Its own comment prescribes "a lazy chunk _plus_ an eager
-  core", and the 247-path table is now its own module (`ui/marks.ts`), which was the prerequisite.
-  What it still needs is the answer to **what the first frame draws**: a mark has to render on a cold
-  load, and a dot that pops into an icon half a second later is the failure that comment already
-  rejects.
-- **`LifeView` / `YearView` / `WeekView` behind their view keys.** Not naive: the day ⇄ life zoom,
-  the day ⇄ week zoom and the year ⇄ life unroll all hold both panels mounted and hand geometry
-  between them, so a view arriving one frame late arrives _during_ a transition that has already
-  started. `Settings` and `EventEditor` behind their overlays have no such problem and are the
-  cheapest first move.
+`Settings` and `EventEditor` are split now (`AGENTS.md`, "Shell, sidebar, top bar, focus"):
+`React.lazy` behind their overlays, `Suspense fallback={null}`, `Settings` warmed the moment `Shell`
+first commits and `EventEditor` warmed on an idle callback. `LifeView`, `YearView` and `WeekView`
+correctly did not follow — they hold both panels mounted and hand geometry between them mid-
+transition, so splitting them is a harder problem than the modals were, not the free lever this tier
+once hoped it might be. `App` itself is now 40,661 gzipped bytes, with the rest of what used to be
+inline with it extracted into shared chunks beside it — `ui/marks.ts` + `ui/icons.tsx` (118,108),
+`sun.ts` (14,154), `ScopePrompt` (2,934) — a consequence of the dynamic import boundary, not a
+decision anyone made about those modules. Measured on an isolated worktree at the split alone:
+critical path 240,807 → 236,621 gzipped, **−1.7%** (727,799 raw → 700,720, **−3.7%**); `Settings`
+(6,083) and `EventEditor` (4,794) moved off it entirely.
+
+That number is the honest headline, not a disappointment: `ui/marks.ts` + `ui/icons.tsx` are
+**118,108 gzipped bytes**, most of what is still on that path, eagerly required by `Dial`, `Face` and
+`Sidebar` so that a mark can render on a cold load. The question left is singular now, and it is the
+one the icons module's own comment already named — **what does the first frame draw**. That is a
+design decision, not a technical one: a dot that pops into an icon half a second later is worse than
+never having tried, and nobody has decided what a mark looks like before its own glyph has arrived.
+Left open.
 
 ---
 
@@ -99,13 +136,15 @@ are still here:
   `ORGANIZER`, `ATTENDEE`, accept or decline — none of those strings appear in `src/lib`. The most
   common inbound calendar action there is. The reply half needs a channel this product has refused;
   **reading** an invite and showing who is coming does not.
-- **Data safety is one wrong click from zero.** `localStorage` is the only copy and nothing ever
-  prompts a backup. Two cheap, on-thesis fixes: a nudge when the last export was N days ago, and the
-  File System Access API keeping a rolling `.json` in a folder the user picks. No server, no account,
-  and "I cleared site data" stops being fatal. **Half-answered**: the mirror is that rolling file, and
-  it works in the macOS app now that the shell provides the picker WKWebView lacks — but it is
-  opt-in and the app makes the user choose a path for no reason, which is Tier 6 item 2. In a browser
-  without the API (Safari, Firefox) the nudge is still the only available answer.
+- **Data safety is closed for macOS app users, still one wrong click from zero everywhere else.**
+  `localStorage` is the only copy and nothing ever prompts a backup. On the Mac the mirror answers it
+  outright: `MirrorFile` in `mac/main.swift` mints and adopts `~/Library/Application Support/circal/`
+  `calendar.json` on first launch with no gesture at all (`AGENTS.md`, "The mirror file, and the thing
+  that reads it"), so "I cleared site data" stops being fatal for an app user who did nothing to
+  arrange it. In a browser with the File System Access API the picker is still there but still
+  opt-in. In a browser without it at all (Safari, Firefox) there is still no answer: the nudge this
+  bullet originally asked for — a prompt when the last export was N days ago — has never been built,
+  and it is the one route left for exactly those two browsers.
 - **Export fidelity, minus the zone.** `VALARM`, `ATTENDEE`, `STATUS` and `CATEGORIES` are still
   dropped, and a task still leaves as a zero-length VEVENT with `X-CIRCAL-` lines, so another app
   shows an instantaneous event and no ticks. `tests/ics.test.ts`'s `what the round trip drops` block
@@ -140,18 +179,14 @@ that writes no DOM. Not worth it until the view is open for another reason.
   launch and ask, once, in a `BirthPrompt`-shaped screen. Cheap now that `tzid` exists, honest, and
   it turns a silent wrong answer into a decision somebody made. The best-value thing left in this
   file.
-- **A week start the platform already knows.** `Intl.Locale.prototype.getWeekInfo` gives the
-  reader's own first day; the setting could default to it rather than to Monday. One line, one
-  feature-detection branch, and a stored value must still win — which is the whole reason it is not
-  done blind.
 
 ---
 
 ## Tier 6 — the macOS app, now that there is one
 
 `mac/` shipped (see `APP.md` for what it is and what was measured). It closed the six-shortcut
-argument, gave the app reminders, trackpad haptics and the mirror file, and found two app bugs on the
-way. What it opened:
+argument, gave the app reminders, trackpad haptics and the mirror file, and found three app bugs on
+the way. What it opened:
 
 ### 1. Nobody but the author can install it
 
@@ -172,45 +207,32 @@ is refused outright — macOS 15 removed the right-click-Open escape hatch, so t
 Until step 1, the only honest distribution is `clone && pnpm mac`, which is developers only. Nothing
 in the repo should pretend otherwise.
 
-### 2. The mirror asks the app user to pick a file, which is ceremony
+### 2. The list, cheapest first
 
-The mirror is **not** how the app stores anything — events live in this origin's `localStorage`
-exactly as on the web — and it is only ever needed by an outside process, which today means the MCP
-server. In a browser the picker is unavoidable: a page may not choose a path. A shell may, and
-`AGENTS.md`'s standing complaint that "circal cannot tell a user where their own mirror file lives"
-stops being true the moment the shell owns it.
+| thing                                                                                    | cost       | verdict                                                                                                                   |
+| ---------------------------------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------- |
+| **The dial drawn live on the dock icon**                                                 | ~60 lines  | a gimmick, and a good one                                                                                                 |
+| **`circal://` URL scheme** so Shortcuts or Raycast can quick-add through `parseQuickAdd` | ~40 lines  | only if the user lives in Shortcuts                                                                                       |
+| **Sparkle updater**                                                                      | half a day | after distribution exists, not before                                                                                     |
+| **WidgetKit widget**                                                                     | days       | no. A SwiftUI target, an app group and the dial re-derived natively — the rewrite `APP.md` argues against, for a 2×2 tile |
 
-So: default it to `~/Library/Application Support/circal/calendar.json`, connected on first launch,
-with the picker still there for somebody who wants it in iCloud Drive or a repo. Two consequences
-worth having — `circal-mcp --find` finds it without anybody knowing a path, and Tier 2's "data safety
-is one wrong click from zero" is closed for app users, because the rolling `.json` that bullet asks
-for is then always on.
-
-### 3. The list, cheapest first
-
-| thing                                                                                    | cost       | verdict                                                                                                                                                 |
-| ---------------------------------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Wake-from-sleep refresh.** `NSWorkspace.didWakeNotification` → nudge the page          | ~10 lines  | **the one actual defect**: after a lid close the minute tick is stale until it next fires, so the hand and every countdown are wrong for up to a minute |
-| **Drop a `.ics` on the dock icon** → import through `fromIcs`                            | ~20 lines  | yes. It is how a person moves a calendar in, and the parser is already there                                                                            |
-| **Default mirror path** (item 2 above)                                                   | ~20 lines  | yes                                                                                                                                                     |
-| **Launch at login** (`SMAppService`) and a menu-bar-only mode                            | ~30 lines  | yes for something that keeps a countdown and fires reminders                                                                                            |
-| **Notification actions** — Snooze 10m / Open on the banner, via `UNNotificationAction`   | ~30 lines  | real, and the tag already routes a tap back to the page                                                                                                 |
-| **The dial drawn live on the dock icon**                                                 | ~60 lines  | a gimmick, and a good one                                                                                                                               |
-| **`circal://` URL scheme** so Shortcuts or Raycast can quick-add through `parseQuickAdd` | ~40 lines  | only if the user lives in Shortcuts                                                                                                                     |
-| **Sparkle updater**                                                                      | half a day | after distribution exists, not before                                                                                                                   |
-| **WidgetKit widget**                                                                     | days       | no. A SwiftUI target, an app group and the dial re-derived natively — the rewrite `APP.md` argues against, for a 2×2 tile                               |
-
-If it were one: the wake refresh, because it is wrong rather than missing.
+There is no longer a clean "if it were one": the dock-icon dial is a gimmick worth doing but still a
+gimmick, the URL scheme is a yes only for somebody who lives in Shortcuts, Sparkle is blocked on
+distribution existing at all, and WidgetKit is a no. The table's cheap, uncontested work is spent —
+everything left here is either downstream of item 1's certificate or waiting on somebody deciding
+they want it.
 
 ---
 
 ## If it were three things
 
-1. Ask the timezone question the model can now hold — the travel notice.
-2. Split `Settings` and `EventEditor` off the first byte, then answer the first-frame question for
-   the marks.
-3. Make losing the browser's storage survivable: a nudge, or a rolling file — and on the Mac that is
-   Tier 6 item 2, which is twenty lines and turns the mirror on by default.
+1. Ask the timezone question the model can now hold — the travel notice. Still the best-value thing
+   left in this file; nothing this round touched it.
+2. Answer what the first frame draws, then split `ui/marks.ts` + `ui/icons.tsx` behind it — the one
+   lever left on the critical path, and 118 KB gzipped of it.
+3. Build the export nudge for the two browsers with no other answer. Safari and Firefox have no File
+   System Access API and therefore no mirror; the Mac and the Chromium browsers both close "one wrong
+   click from zero" now, and these two still do not.
 
 Everything above finishes something already started. Nothing needs a new screen except onboarding,
 which was already known — and one certificate, which needs a credit card rather than a decision.

@@ -6,7 +6,8 @@ universal). Windows is still unwritten and still wants Tauri. Linux gets the PWA
 
 The reason to do it was never the icon — it is that a browser eats six of the app's shortcuts,
 including two it will not give back. What the shell turned out to be worth beyond that: reminders,
-trackpad haptics, the mirror file the MCP server reads, a menu bar countdown and one global chord.
+trackpad haptics, the mirror file the MCP server reads, a menu bar countdown, its own login item and
+Dock-visibility toggle, notification actions and one global chord.
 
 ## what ships
 
@@ -78,30 +79,70 @@ from this one, a switch that turns on and then never fires is worse than one tha
 Automation gate). It costs the banner its icon and its click, and it is remembered in `UserDefaults`
 so the switch survives a reload. On this machine that flag reads `0`: the real path was taken.
 
+**Snooze 10m and Open, on the banner itself.** A `UNNotificationCategory` carries both; `Open` is the
+same `note.onclick` path a tap already used, and `Snooze` never leaves the shell — it re-posts the
+identical banner ten minutes later rather than asking the page anything, because `remind.ts`'s
+reminders are never allowed to catch up, and a snoozed one asking the page again would be exactly
+that (`AGENTS.md`). Verified for real: a banner snoozed at 07:23:08 came back, identical, ten minutes
+on. The `osascript` fallback above gets neither button — `display notification` has nothing to attach
+them to — and does not pretend otherwise.
+
 **Trackpad haptics, which the web build has never had at all.** `navigator.vibrate` is undefined in
 every desktop browser, so `canVibrate()` was false and the Vibration toggle never appeared. The shim
 maps the pattern `feedback.ts` already speaks — on, off, on — onto `NSHapticFeedbackManager`, one
 `.alignment` strike per contact. The dial's fifteen-minute detent is now a detent you can feel.
+**A lid closing does not leave the clock stale.** `useNow` already re-reads the clock and re-arms
+its timer on `focus` and `visibilitychange` (`AGENTS.md`); the shell's only job is supplying the
+`focus` a suspended machine never fires on its own — `NSWorkspace.didWakeNotification` dispatches a
+synthetic one at the page. A reload would fix the same one-minute skew and was rejected on purpose:
+it throws away scroll position, an open editor and an unsaved draft to correct a clock nobody would
+otherwise have noticed was wrong.
 
 **The mirror file, so the MCP server works in the app.** `WKWebView` ships none of the File System
 Access API (`showSaveFilePicker`, `showOpenFilePicker`, `showDirectoryPicker` are all undefined —
 measured), so `mirrorSupported()` was false and the assistant story was silently missing. The shell
 provides `window.__circalMirror` and `mirrorLink.ts` branches onto it: a save panel, then a
-**security-scoped bookmark** rather than a browser handle, which follows the file when it moves and
-needs no second gesture on a later launch. Everything downstream — the poll, the digest, the three
-verdicts, `store.adopt` — is the same code the browser path runs.
+**security-scoped bookmark** rather than a browser handle, which follows the file when it moves. That
+undersells it now — the _first_ launch needs no gesture either. `MirrorFile.remembered()` mints and
+adopts `~/Library/Application Support/circal/calendar.json` the moment nothing is remembered and
+nobody has declined, so an assistant connects before anyone has opened Settings at all; the save
+panel is still there for iCloud Drive or a repo, it is just no longer the only way in. Everything
+downstream — the poll, the digest, the three verdicts, `store.adopt` — is the same code the browser
+path runs.
+
+**A `.ics` dropped on the Dock icon imports itself.** `Info.plist` claims `.ics` as a viewer, or the
+Dock refuses the file outright; `application(_:open:)` reads it as UTF-8 text and hands it to
+`window.__circalImportIcs` — the settings panel's own Import button, unchanged — so a drop and a menu
+import cannot mean two different things: same new calendar, same toast, same undo step. The shell
+parses nothing; `src/lib/ics.ts` stays the only parser. A drop that lands before the page has
+registered that global is queued and flushed once the page itself posts `window.__circalReady`, which
+it does the instant the effect registering the import runs — not assumed from navigation finishing,
+which is earlier than the island mounting, its effects running and, now that `Settings` and
+`EventEditor` are their own lazy chunks, its imports landing. Closed entirely in menu-bar-only mode —
+see below — since without a Dock tile there is nothing to drop it on.
 
 **A menu bar item that carries the countdown.** `useTitleCountdown` already writes `· 14m · Standup`
 into `document.title` while the tab is hidden, and a window ordered out **is** hidden (measured). So
 the shell observes the webview's title and prints the suffix beside the ring: the reminder that
 survives a put-away window, with no new state, no second clock and nothing asked of the page.
 
+**Open at Login and Show in Dock, from the status item's own menu.** `SMAppService.mainApp` registers
+or unregisters a login item, off until asked — a calendar adding itself to login items unbidden is
+hostile, not helpful — and `NSApp.setActivationPolicy` swaps the Dock tile for menu-bar-only, off by
+default too, applied at launch before the window exists. Both live in the status item's own menu
+rather than behind ⌘, — that key already belongs to the page's settings — and `menuNeedsUpdate` reads
+each live rather than caching it: a login item removed from System Settings, or a Dock policy changed
+some other way, must not leave the menu asserting something no longer true. Accessory mode has a real
+cost, stated where it is paid: no Dock tile means `applicationShouldHandleReopen` never fires, so the
+`.ics` drop above cannot land — ⌥⌘C and the status item become the only ways in.
+
 **⌥⌘C, from anywhere, into the palette.** Carbon's `RegisterEventHotKey`, not
 `NSEvent.addGlobalMonitorForEvents`, because the latter wants Accessibility permission — a system
 prompt and a privacy-pane entry that a calendar does not deserve for one chord. The chord shows the
 window and dispatches ⌘P at it, so the palette opens through the app's own binding rather than a
 second entry point that could drift from it; pressing it again while circal is frontmost puts the
-window away. That is quick-add from anywhere, using the parser `quickadd.ts` already has.
+window away. That is quick-add from anywhere, using the parser `quickadd.ts` already has — and, in
+menu-bar-only mode, one of only two ways back into a window with no Dock tile to click.
 
 **`/api/feed` stops being a Worker.** The route only ever existed because no calendar host sends CORS
 headers, and native HTTP has no CORS. `main.swift` answers the same path with `URLSession`, carrying
@@ -117,9 +158,9 @@ things it is most useful for while out of sight. `show()` calls `NSApp.unhide` f
 optional: an application hidden with `NSApp.hide` stays hidden through
 `activate(ignoringOtherApps:)`, so ⌥⌘C did nothing at all until it was added.
 
-## two bugs the shell found in the app
+## three bugs the shell found in the app
 
-Both were app bugs the web build had all along; the shell is just where they became obvious.
+All three were app bugs the web build had all along; the shell is just where they became obvious.
 
 **Dragging the dial selected the face.** A press that crosses an hour numeral starts a selection, so
 one drag round the dial left half the numerals highlighted in accent blue and the next drag began by
@@ -130,6 +171,15 @@ only under `-webkit-`, and the prefixed declaration does not survive the CSS pip
 Lightning CSS folds it back into the unprefixed form for its own baseline. Verified through the app's
 own page: `selectstart` is prevented on an SVG numeral and on chrome, and **not** prevented in the
 palette's input.
+
+**Export did nothing.** `backup.ts`'s `download()` builds a Blob URL and clicks a synthetic
+`<a download>` — the web's whole mechanism for saving a file with no server — and a `WKWebView`
+silently drops it: the click resolves and nothing lands on disk, no error, no event, so both the
+`.json` backup and the `.ics` export shipped dead in the app while the identical code correctly
+downloaded on the web. Fixed the same way as the mirror's own picker: `window.__circalSave` bridges
+to an `NSSavePanel`, `download()` — now async — prefers it when the shell provides it and falls back
+to the anchor otherwise, and reports back whether a file was actually written, so a dismissed panel
+skips the toast rather than announcing an export nobody asked to keep.
 
 **A white flash on a cold start.** Three separate whites, and it took all three:
 `underPageBackgroundColor` for the over-scroll and the pre-paint colour, `drawsBackground = false`
