@@ -162,6 +162,26 @@ named a time, so the copy opens in the editor rather than landing invisibly on
 top of its original. The foot of the palette says so on whichever row you are
 standing on.
 
+## Sharing one
+
+**Share link**, at the foot of the event editor, puts the whole event on your
+clipboard as a link. Not a link _to_ anything: the event travels inside it, in
+the part of a URL that is never sent to a server, so there is nothing stored
+anywhere, nothing to expire and nothing to take down. Open it in another
+circal and the event arrives in the editor, on the day it names, in that
+person's own default calendar — theirs to change, or to escape and keep
+nothing. It is offered on a subscription's event too, since sharing is copying
+rather than editing.
+
+Two things it deliberately does not carry. **Guests do not travel** — an
+invitation's organiser and attendees are other people's names and addresses,
+and a link goes into group chats. And **it is not private**: the event is
+encoded, not encrypted, so anyone holding the link holds the event, which is
+what the notice says as the link is copied. A very long note or a rule with
+dozens of exceptions will be refused rather than turned into a link that
+breaks in transit; `.ics` is the way to hand those on, and the way to hand
+anything to a calendar that is not circal.
+
 ## The middle of the face
 
 The ring says what shape the day is; the middle says the one sentence. It has

@@ -1,7 +1,6 @@
 # todo
 
 more icons?
-share an event
 google map?
 browser notifications?
 pomodoro/timer?

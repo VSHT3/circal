@@ -4,7 +4,7 @@
  * ------------------------------------------------------------------ */
 
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { Calendar as CalendarIcon, Clock as ClockIcon } from "lucide-react";
+import { Calendar as CalendarIcon, Clock as ClockIcon, Link2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
   NEVER,
@@ -243,6 +243,7 @@ export default function EventEditor({
   calendars,
   onSave,
   onDelete,
+  onShare,
   onClose,
   onDraftChange,
 }: EventEditorProps) {
@@ -304,11 +305,17 @@ export default function EventEditor({
   const [browsing, setBrowsing] = useState(false);
   const [markQuery, setMarkQuery] = useState("");
 
+  /**
+   * The draft as it would be written. A blank title becomes the same word
+   * Save gives it, so the link and the event a receiver ends up with cannot
+   * be called two different things.
+   */
+  function named(): Omit<CalEvent, "id"> {
+    return { ...draft, title: draft.title.trim() || (draft.task ? "New task" : "New event") };
+  }
+
   function save(scope: EditScope) {
-    onSave(
-      { ...draft, title: draft.title.trim() || (draft.task ? "New task" : "New event") },
-      scope,
-    );
+    onSave(named(), scope);
   }
 
   function askOrSave() {
@@ -561,6 +568,40 @@ export default function EventEditor({
       : []),
     { value: String(REMIND_SILENT), label: "Never" },
   ];
+
+  /* --------------------------------- share -------------------------------- */
+
+  /**
+   * The event as a link, on the clipboard.
+   *
+   * It is a verb about one event, so it belongs on the surface where exactly
+   * one event is the subject — this footer, beside the other two verbs that
+   * act on the whole thing. The palette was the other candidate and its slot
+   * is taken: a row can only carry one `alt`, and that one is `Duplicate`, so
+   * sharing would have had to become a row of its own, which either doubles
+   * the result list or guesses which match it meant. The dial was the third,
+   * and a keystroke that silently puts a link to your calendar on the
+   * clipboard is not a keystroke this app should have.
+   *
+   * Only for an event that exists: a draft nobody has saved has no meaning to
+   * hand to somebody else. Present on a read-only target too, because sharing
+   * is copying rather than editing — a subscription's event is somebody
+   * else's data, but the link is a copy of what is already on this screen.
+   *
+   * There is no keyboard shortcut on purpose. ⌘↵ and ⌘⌫ are here because they
+   * are the two presses a form is expected to answer; a third would be a
+   * chord to remember for something you do once a week.
+   */
+  const shareRow = target.id ? (
+    <button
+      type="button"
+      onClick={() => onShare(named())}
+      className="flex items-center gap-1.5 rounded-[8px] px-2 py-1 text-[14px] text-ink-2 transition-colors hover:bg-white/6 hover:text-ink"
+    >
+      <Link2 size={14} strokeWidth={1.75} />
+      Share link
+    </button>
+  ) : null;
 
   return (
     <AnimatePresence>
@@ -963,6 +1004,7 @@ export default function EventEditor({
                   <span className="label text-ink-4">
                     {calendar?.name ?? "Subscription"} · read only
                   </span>
+                  {shareRow}
                   <button
                     autoFocus
                     type="button"
@@ -986,6 +1028,7 @@ export default function EventEditor({
                       <Kbd>⌫</Kbd>
                     </button>
                   )}
+                  {shareRow}
                   <div className="ml-auto flex items-center gap-3">
                     <button
                       type="button"

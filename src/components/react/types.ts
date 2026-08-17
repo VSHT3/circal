@@ -210,6 +210,16 @@ export interface EventEditorProps {
   onSave: (draft: Omit<CalEvent, "id">, scope: EditScope) => void;
   /** Only reachable when `target.id` is set. */
   onDelete: (scope: EditScope) => void;
+  /**
+   * The draft as the card is showing it, off to the clipboard as a link.
+   *
+   * The card sends what is on screen rather than what the store holds: the
+   * title field and the link cannot be allowed to say two different things,
+   * and a link is self-contained, so an edit shared and then abandoned costs
+   * nothing. Read-only targets get the verb too — sharing is copying, not
+   * editing.
+   */
+  onShare: (draft: Omit<CalEvent, "id">) => void;
   onClose: () => void;
   /**
    * The draft as it now stands, on every change that could move or recolour it.

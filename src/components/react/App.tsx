@@ -52,6 +52,7 @@ import {
   weekOffset,
 } from "@/lib/time";
 import { placeName, travelNotice } from "@/lib/travel";
+import { decodeShare, encodeShare, shareFragment, shareToken } from "@/lib/share";
 import { LIFE_META_H, lifeDot, lifeStage, type LifeRun } from "@/lib/life";
 import { weekFaceCentre, weekStage, weekZoomScale } from "@/lib/week";
 import { EASE, INTRO_MS, MODE_MS } from "@/lib/motion";
@@ -193,6 +194,24 @@ function writeLocation({ day, view }: ViewLocation, mode: "push" | "replace") {
   else window.history.replaceState(null, "", url);
 }
 
+/**
+ * The shared event on the URL, or `null` when there is not one — read off the
+ * fragment, which is where `share.ts` puts it and why nothing about a shared
+ * event ever reaches the server.
+ *
+ * It asks the store rather than a prop, and that is load-bearing for the same
+ * reason the travel notice does it: `store.snapshot()` reads through to
+ * storage, while the hook's value is the empty snapshot until the first
+ * `subscribe` a commit later — so a receiver's own default calendar is not in
+ * any prop yet at the moment this is resolved.
+ */
+function receiveShare() {
+  const token = shareToken(window.location.hash);
+  if (!token) return null;
+  const stored = store.snapshot();
+  return decodeShare(token, defaultCalendarId(stored.calendars, stored.settings.defaultCalendar));
+}
+
 /* --------------------------------- editing --------------------------------- */
 
 /**
@@ -301,10 +320,33 @@ function Shell() {
   const lastBackup = useLastBackup();
   const mirrorStatus = useMirror();
 
-  const [location, setLocation] = useState<ViewLocation>(() => readLocation());
+  /**
+   * A shared event, taken off the URL once, during the first render.
+   *
+   * Seeded state rather than an effect, because a link's payload is state this
+   * app is *starting from* — exactly what the URL's own `?d=` already is. An
+   * effect would render the wrong day first and correct it a frame later, and
+   * it would be a `setState` inside an effect, which this repo does not do.
+   */
+  const [received] = useState(receiveShare);
+  const [location, setLocation] = useState<ViewLocation>(() => {
+    // The event lands on the day it names, whatever view the link asked for:
+    // an editor over a face that cannot show what is being edited is a form.
+    if (received?.ok) return { day: startOfDay(new Date(received.draft.start)), view: "day" };
+    return readLocation();
+  });
   const { day, view } = location;
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [editor, setEditor] = useState<EditorTarget | null>(null);
+  /**
+   * The editor opens on a received event rather than the app writing it: an
+   * unmodified copy that lands with only a toast as evidence is worse than one
+   * the receiver is shown first, which is ⌘P's own argument for duplicating
+   * through the editor. Nothing is committed until Save, so Escape leaves no
+   * orphan and the receiver picks the calendar.
+   */
+  const [editor, setEditor] = useState<EditorTarget | null>(() =>
+    received?.ok ? { id: null, draft: received.draft } : null,
+  );
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   /**
@@ -597,11 +639,36 @@ function Shell() {
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
 
+  /**
+   * The URL, stamped — and the consumed fragment, gone with it.
+   *
+   * `writeLocation` builds the URL out of the day and the view and nothing
+   * else, so writing the location this render resolved to is also what drops a
+   * share fragment; `history` is not touched here directly, which is how every
+   * other location write in this file works. `replace`, because receiving a
+   * link is not a jump — and because the fragment MUST NOT survive: a reload
+   * would re-offer the same event and a bookmarked link would become a second
+   * copy of it every time it was opened.
+   *
+   * The notice for a payload this build cannot read lives here for the reason
+   * every notice does — it is an external system — and it is said once,
+   * quietly, and nothing else happens. Silence would be indistinguishable from
+   * a broken app, and a dialog would be chrome demanding an answer to somebody
+   * else's mistake.
+   */
   useEffect(() => {
-    // The URL starts bare, so stamp the day we resolved to — otherwise the
-    // first ← would push a second entry for a page that never had one.
-    writeLocation(readLocation(), "replace");
-  }, []);
+    // `current.current`, not `readLocation()`: a received event resolved to its
+    // own day, and the URL has not been told yet.
+    writeLocation(current.current, "replace");
+    if (received && !received.ok) {
+      notify(
+        received.reason === "version"
+          ? "That link was made by a newer circal"
+          : "That shared event could not be read",
+        "error",
+      );
+    }
+  }, [received]);
 
   // Subscriptions are a mirror, so they are pulled on arrival, on a timer and
   // whenever the tab comes back — see `useFeedRefresh`.
@@ -790,6 +857,42 @@ function Shell() {
     },
     [defaultCalendar],
   );
+
+  /**
+   * One event onto the clipboard, as a link that carries the whole of it.
+   *
+   * The link is minted against this page's own origin and path, so a self-
+   * hosted copy hands out its own address rather than somebody else's, and
+   * the payload goes in the fragment — never the query string, which would
+   * send the sender's event to the one server this app has (see `share.ts`).
+   *
+   * The notice is the disclosure as well as the confirmation, and that is
+   * deliberate: this is an encoding, not encryption, so anyone holding the
+   * link holds the event. The moment it exists is the only moment a reader is
+   * actually asking what it is, which is why the sentence is here rather than
+   * a permanent caption in a card of twenty rows nobody re-reads.
+   */
+  const shareEvent = useCallback((draft: Omit<CalEvent, "id">) => {
+    const encoded = encodeShare(draft);
+    if (!encoded.ok) {
+      notify("Too long to share as a link — export it as .ics instead", "error");
+      return;
+    }
+    const link = `${window.location.origin}${window.location.pathname}${shareFragment(encoded.token)}`;
+    // The clipboard needs a user gesture and a secure context; the press has
+    // the gesture, and WebKit withholds the API outright in places. A refusal
+    // is reported rather than swallowed — a share that copied nothing is a
+    // link the sender believes they have sent.
+    void (async () => {
+      try {
+        await navigator.clipboard.writeText(link);
+      } catch {
+        notify("Could not reach the clipboard — nothing was copied", "error");
+        return;
+      }
+      notify("Link copied — anyone with the link can add this event");
+    })();
+  }, []);
 
   /**
    * The open editor's draft, kept on the target so the face behind the modal can
@@ -1690,6 +1793,7 @@ function Shell() {
             calendars={calendars}
             onSave={saveEvent}
             onDelete={deleteEvent}
+            onShare={shareEvent}
             onDraftChange={trackDraft}
             onClose={() => setEditor(null)}
           />
