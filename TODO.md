@@ -1,4 +1,10 @@
 # todo
+more icons?
+share an event
+google map?
+browser notifications?
+pomodoro/timer?
+pinning some icons
 
 Recurrence is real, the interior answers the day, arcs carry their own names, the dial has an
 ambient mode, ⌘P writes an event in one line and ranks what it finds, the year is a revolution and
