@@ -26,8 +26,8 @@ import { notify } from "./notify";
 import { dayKey, isZone } from "./time";
 import { isRecord } from "./utils";
 import {
-  ICON_MAX,
   readGuests,
+  readMark,
   readPerson,
   readRecurrence,
   readRemindLead,
@@ -347,7 +347,10 @@ export function readEvent(value: unknown): CalEvent | null {
     seriesId: typeof value.seriesId === "string" ? value.seriesId : "",
     seriesKey: typeof value.seriesKey === "string" ? value.seriesKey : "",
     color: typeof value.color === "string" ? value.color : "",
-    icon: typeof value.icon === "string" ? value.icon.slice(0, ICON_MAX) : "",
+    // What a legal mark is lives in `events.ts`, next to the two vocabularies
+    // it has to tell apart. This used to slice at one shared cap, which turned
+    // ten of the 247 shipped names into strings matching no path.
+    icon: readMark(value.icon),
     task,
     // The same instant-key check EXDATE gets, and the same reason: a key this
     // does not spell matches no occurrence, so it is a row of dead weight that
@@ -383,11 +386,12 @@ export function readCalendar(value: unknown): Calendar | null {
     id,
     name: typeof name === "string" && name ? name : id,
     color: typeof color === "string" && color ? color : "#8ecbff",
-    // Length is the whole check. An icon name this build does not carry
-    // renders as the dot rather than as nothing, so an unknown one is worth
-    // keeping — a backup restored into an older build and back again should
-    // not lose the mark — but an unbounded string here is a paste.
-    icon: typeof icon === "string" ? icon.slice(0, ICON_MAX) : "",
+    // Same validator as an event's, same reason. An icon name this build does
+    // not carry still renders as the dot rather than as nothing, so an unknown
+    // one is worth keeping — a backup restored into an older build and back
+    // again should not lose the mark — but an unbounded string is a paste, and
+    // an over-long *name* is now dropped rather than cut into junk.
+    icon: readMark(icon),
     visible: value.visible !== false,
     ...(feedUrl ? { feed: { url: feedUrl, fetchedAt: 0, error: "" } } : {}),
   };

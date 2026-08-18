@@ -7,7 +7,6 @@ import {
   ATTENDEE_MAX,
   GUEST_ADDRESS_MAX,
   GUEST_NAME_MAX,
-  ICON_MAX,
   NEVER,
   REMIND_INHERIT,
   REMIND_SILENT,
@@ -606,8 +605,28 @@ describe("readCalendar", () => {
     expect(readCalendar({ id: "cal-x", icon: value })?.icon).toBe(want);
   });
 
-  it("caps a pasted icon rather than storing an essay", () => {
-    expect(readCalendar({ id: "cal-x", icon: "x".repeat(500) })?.icon).toHaveLength(ICON_MAX);
+  // This used to assert `toHaveLength(ICON_MAX)` — it was pinning the bug. A
+  // pasted essay is lowercase ASCII, so `isIconName` calls it a name, and a
+  // name is now kept whole or dropped rather than cut down to sixteen
+  // characters that match no path in `marks.ts`.
+  it("drops a pasted icon rather than storing a truncated one", () => {
+    expect(readCalendar({ id: "cal-x", icon: "x".repeat(500) })?.icon).toBe("");
+  });
+
+  // The regression that started all of this: ten of the 247 shipped names are
+  // longer than the old shared cap, and one of them is a `SEED_MARKS` entry, so
+  // a brand-new install corrupted its own seed data on the first round trip.
+  it.each([
+    "person-simple-run",
+    "dots-three-circle",
+    "presentation-chart",
+    "thermometer-simple",
+    "person-simple-tai-chi",
+    "globe-hemisphere-west",
+    "currency-circle-dollar",
+  ])("keeps the shipped name %s whole", (icon) => {
+    expect.soft(readCalendar({ id: "cal-x", icon })?.icon).toBe(icon);
+    expect.soft(readEvent({ ...baseEvent, icon })?.icon).toBe(icon);
   });
 
   it("a feed with a string url produces a feed with fetchedAt reset to 0", () => {

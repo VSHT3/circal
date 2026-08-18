@@ -54,12 +54,31 @@ export interface Calendar {
 }
 
 /**
- * Longest a mark may be, in UTF-16 units. A family with four members and three
- * zero-width joiners is 11 and a flag with a skin-tone modifier gets near it;
- * past that it is a paste rather than a glyph, and every Phosphor name in the
- * set is shorter than that anyway.
+ * Longest an **emoji** mark may be, in UTF-16 units. A family with four
+ * members and three zero-width joiners is 11 and a flag with a skin-tone
+ * modifier gets near it; past that it is a paste rather than a glyph.
+ *
+ * This used to cap *both* vocabularies and that was a data-loss bug, which is
+ * why the two now have a number each. A mark is an emoji or a Phosphor name
+ * (`isIconName` below is the whole discriminator), and the two have nothing in
+ * common about length: one grapheme against a word list whose longest entry is
+ * `currency-circle-dollar` at 22. One cap sized for the first silently
+ * truncated ten of the 247 names in `marks.ts` into strings that match no path
+ * and draw as the plain colour dot — and `person-simple-run` is one of the
+ * five `SEED_MARKS`, so a brand-new install corrupted its own seed data the
+ * first time a backup round-tripped it.
  */
 export const ICON_MAX = 16;
+
+/**
+ * Longest a **Phosphor name** may be. Deliberately roomy rather than fitted:
+ * the longest name this build ships is 22, and a cap set to 22 would have to
+ * move every time an icon is added — which is exactly the maintenance nobody
+ * did to the old one. The guard's job here is to refuse a paste, not to know
+ * the table, so it sits at about twice the longest real name and never needs
+ * touching. `readMark` is the only reader.
+ */
+export const ICON_NAME_MAX = 48;
 
 /**
  * Which of the two vocabularies a mark is written in. A Phosphor name is
@@ -85,6 +104,38 @@ export function firstGrapheme(value: string): string {
     return first ? first.segment.slice(0, ICON_MAX) : "";
   }
   return [...text][0]?.slice(0, ICON_MAX) ?? "";
+}
+
+/**
+ * The one validator for a stored mark, whatever it arrived in — a `.json`
+ * backup, a calendar record, an assistant's write. `readRecurrence` and
+ * `readRemindLead`'s shape: one place that decides what the field legally is,
+ * so its readers cannot form separate opinions about it.
+ *
+ * A vocabulary each, because the two fail differently and only one of them can
+ * be shortened at all:
+ *
+ * - A **name** is kept whole or dropped. It is never sliced, and that is the
+ *   whole fix: slicing a name manufactures an invalid value out of a valid one
+ *   — `person-simple-run` became `person-simple-ru`, which matches no path in
+ *   `marks.ts` and draws as the plain colour dot with nothing raised anywhere.
+ *   Dropping an over-long one lands on that same dot, but *honestly*: `""` is
+ *   already what an unknown name renders as, so a paste that happens to be
+ *   lowercase reads as "no mark" rather than as a mark this build has broken.
+ * - An **emoji** is truncated, because for that vocabulary truncation is
+ *   meaningful: one grapheme is exactly what the field holds, and
+ *   `firstGrapheme` is what keeps a flag or a ZWJ family whole while doing it.
+ *
+ * A name shorter than the cap is returned untouched even when this build
+ * carries no path for it — a set that shrinks, or a backup that has been
+ * through a newer build, must not come back with the mark missing.
+ */
+export function readMark(value: unknown): string {
+  if (typeof value !== "string") return "";
+  const mark = value.trim();
+  if (mark === "") return "";
+  if (isIconName(mark)) return mark.length <= ICON_NAME_MAX ? mark : "";
+  return firstGrapheme(mark);
 }
 
 /**

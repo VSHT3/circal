@@ -5,6 +5,7 @@ import {
   GUEST_ADDRESS_MAX,
   GUEST_NAME_MAX,
   ICON_MAX,
+  ICON_NAME_MAX,
   REMIND_INHERIT,
   REMIND_LEAD_MAX,
   REMIND_SILENT,
@@ -22,6 +23,7 @@ import {
   markOf,
   ownLead,
   readGuests,
+  readMark,
   readPartstat,
   readPerson,
   readRemindLead,
@@ -919,6 +921,69 @@ describe("firstGrapheme keeps one glyph whole", () => {
     // whatever a future emoji sequence turns out to be.
     expect.soft(firstGrapheme("👩‍👩‍👧‍👦").length).toBeLessThanOrEqual(ICON_MAX);
     expect.soft(firstGrapheme("a".repeat(100)).length).toBeLessThanOrEqual(ICON_MAX);
+  });
+});
+
+describe("readMark: a vocabulary each", () => {
+  it.each([
+    { name: "not a string", value: 7, want: "" },
+    { name: "absent", value: undefined, want: "" },
+    { name: "empty", value: "", want: "" },
+    { name: "only space", value: "   ", want: "" },
+    { name: "a known name", value: "barbell", want: "barbell" },
+    // A set that shrinks, or a backup through a newer build, must not come
+    // back with the mark missing.
+    { name: "an unknown name is kept", value: "unicorn", want: "unicorn" },
+    { name: "a name is trimmed, not dropped", value: "  barbell  ", want: "barbell" },
+    { name: "an emoji survives", value: "🎸", want: "🎸" },
+    { name: "an emoji is cut to one grapheme", value: "🎵🎸🥁", want: "🎵" },
+    { name: "a ZWJ family stays one glyph", value: "👩‍👩‍👧‍👦", want: "👩‍👩‍👧‍👦" },
+  ])("$name", ({ value, want }) => {
+    expect.soft(readMark(value)).toBe(want);
+  });
+
+  // The bug, from the format's own side. Every one of these is a real entry in
+  // `marks.ts` and every one was longer than the single shared cap.
+  it.each([
+    "person-simple-run",
+    "dots-three-circle",
+    "presentation-chart",
+    "thermometer-simple",
+    "person-simple-walk",
+    "person-simple-swim",
+    "person-simple-bike",
+    "person-simple-tai-chi",
+    "globe-hemisphere-west",
+    "currency-circle-dollar",
+  ])("keeps the shipped name %s whole", (icon) => {
+    expect.soft(readMark(icon)).toBe(icon);
+    expect.soft(icon.length).toBeGreaterThan(ICON_MAX);
+    expect.soft(icon.length).toBeLessThanOrEqual(ICON_NAME_MAX);
+  });
+
+  /**
+   * The claim that makes dropping the right answer rather than a second bug: a
+   * sliced name is *guaranteed* to be invalid, because the table is keyed by
+   * whole names. So slicing turns a legal value into one that renders as the
+   * plain dot with nothing raised, where dropping renders as the same dot and
+   * means it.
+   */
+  it("never returns a name it had to shorten", () => {
+    const long = "a".repeat(ICON_NAME_MAX + 1);
+    expect(readMark(long)).toBe("");
+  });
+
+  it("keeps a name of exactly the cap", () => {
+    const exact = "a".repeat(ICON_NAME_MAX);
+    expect(readMark(exact)).toBe(exact);
+  });
+
+  // A paste that happens to be lowercase ASCII reads as a name, so it is the
+  // one that gets dropped; a paste with any other character in it is an emoji
+  // field and keeps its first grapheme, which is what that field means.
+  it("tells a lowercase paste from a pasted sentence", () => {
+    expect.soft(readMark("x".repeat(500))).toBe("");
+    expect.soft(readMark("Hello there, this is a whole sentence")).toBe("H");
   });
 });
 
