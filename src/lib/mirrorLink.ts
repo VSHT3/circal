@@ -28,6 +28,7 @@ import {
   mirrorVerdict,
   readMirrorFile,
   serialiseMirror,
+  type MirrorContents,
   zonesAgree,
 } from "./mirror";
 
@@ -265,6 +266,94 @@ async function remember(): Promise<void> {
 }
 
 /**
+ * Take what somebody else wrote. The bookkeeping plus the store's own undoable
+ * commit, in one place because `poll` and the write guard below both do it and
+ * two copies would drift into two ideas of what adopting means.
+ */
+async function absorb(contents: MirrorContents): Promise<void> {
+  localRev = contents.rev;
+  lastDigest = mirrorDigest(contents);
+  store.adopt(contents);
+  await remember();
+  setStatus({ state: "live", message: "", at: Date.now() });
+  notify(`Calendar updated from ${handle?.name ?? "the mirror file"} — ⌘Z to undo`);
+}
+
+/**
+ * Take the file's own word for where it is, immediately before replacing it,
+ * and answer with the revision to write — or `null` to not write at all.
+ *
+ * `mirror.ts` states the contract in words: a writer reads the file, checks
+ * this is still what it read, and writes `rev + 1`. The MCP server's
+ * `casWrite` has always kept it; this half never did. `write` went straight to
+ * `createWritable`, which is a blind truncate, and the cost was measured
+ * rather than theorised: two events written through an agent vanished
+ * mid-session with no error on either side, because the tab wrote its own
+ * `localRev + 1` from memory a moment later and both writes carried the same
+ * number, so nothing downstream could notice.
+ *
+ * The verdict is `mirrorVerdict`'s rather than a second opinion — the three
+ * answers here are the same three. A file where we left it is ours to replace.
+ * A file *behind* us is an older copy restored underneath the tab, and
+ * re-asserting over it is the anti-rollback this feature already wanted. Only
+ * a file *ahead* of us is new, and that is the case that used to be lost.
+ *
+ * It abandons the write rather than merging, and that is a decision. There is
+ * no diff here, only two whole documents, so a merge would have to guess —
+ * and guessing by id resurrects anything deleted locally, which is the
+ * tombstone problem `duplicateOf` already documents from the other side.
+ * Adopting makes the casualty the *local* edit instead of the agent's, and
+ * that one is recoverable: `store.adopt` records an undo step and says so in a
+ * toast, where a truncated file is simply gone.
+ *
+ * The revision comes from what is actually on disk (`max` of the two, plus
+ * one) rather than from a number a caller worked out earlier. Two writes can
+ * queue behind `writing` — a poll's and a settle timer's — and the second's
+ * arithmetic was done before the first ran, so trusting it could write a
+ * revision the file already had. Deciding it here is what makes this a
+ * compare-and-swap rather than a compare-and-hope.
+ */
+async function claim(): Promise<number | null> {
+  if (!handle) return null;
+  let text: string;
+  try {
+    text = await (await handle.getFile()).text();
+  } catch (error: unknown) {
+    // The same diagnosis `poll` makes of the same failure, so the same answer:
+    // a handle we cannot read is one to ask the user about, never one to
+    // replace on the strength of a revision we never found.
+    setStatus({ state: "prompt", message: error instanceof Error ? error.message : "" });
+    return null;
+  }
+
+  // Empty is the file the picker just made — nothing to compare against, and
+  // the next write is what fills it.
+  if (text.trim() === "") return localRev + 1;
+
+  const contents = readMirrorFile(text);
+  // Not a circal file, so not ours to truncate. `poll` refuses this too; the
+  // difference is that reaching it here would have destroyed a stranger's file
+  // rather than merely declining to read one.
+  if (!contents) {
+    fail("That file is not a circal backup");
+    return null;
+  }
+
+  if (mirrorVerdict(contents.rev, localRev) === "adopt") {
+    // Refuse a file whose days are not our days rather than importing a
+    // calendar shifted by an offset — the reason the zone is in the file.
+    if (!zonesAgree(contents.zone, localZone())) {
+      fail(`That file was written in ${contents.zone}, this browser is in ${localZone()}`);
+      return null;
+    }
+    await absorb(contents);
+    return null;
+  }
+
+  return Math.max(contents.rev, localRev) + 1;
+}
+
+/**
  * Serialised behind `writing`: two overlapping writes to one file interleave
  * their chunks, and the loser is a truncated calendar.
  *
@@ -273,11 +362,16 @@ async function remember(): Promise<void> {
  * and never runs — so one refused write would silently stop the mirror for
  * the rest of the session, which is the failure mode this whole feature
  * exists to prevent.
+ *
+ * Takes no revision: `claim` decides it from the file, which is the only
+ * reading that can be right by the time the write actually runs.
  */
-function write(next: number): Promise<void> {
+function write(): Promise<void> {
   const done = writing
     .then(async () => {
       if (!handle) return;
+      const next = await claim();
+      if (next === null) return;
       const snapshot = store.snapshot();
       const body = serialiseMirror(snapshot, next);
       const stream = await handle.createWritable();
@@ -320,13 +414,13 @@ async function poll(): Promise<void> {
       fail("That file is not a circal backup");
       return;
     }
-    await write(localRev + 1);
+    await write();
     return;
   }
 
   const verdict = mirrorVerdict(contents.rev, localRev);
   if (verdict === "stale") {
-    await write(localRev + 1);
+    await write();
     return;
   }
   if (verdict === "ours") {
@@ -342,12 +436,7 @@ async function poll(): Promise<void> {
     return;
   }
 
-  localRev = contents.rev;
-  lastDigest = mirrorDigest(contents);
-  store.adopt(contents);
-  await remember();
-  setStatus({ state: "live", message: "", at: Date.now() });
-  notify(`Calendar updated from ${handle.name} — ⌘Z to undo`);
+  await absorb(contents);
 }
 
 /** The store moved. Write, unless what moved is not in the file. */
@@ -355,7 +444,7 @@ function onStoreChange() {
   if (!handle || status.state === "error") return;
   if (mirrorDigest(store.snapshot()) === lastDigest) return;
   clearTimeout(settleTimer);
-  settleTimer = window.setTimeout(() => void write(localRev + 1), SETTLE_MS);
+  settleTimer = window.setTimeout(() => void write(), SETTLE_MS);
 }
 
 /* -------------------------------- the actions ----------------------------- */
