@@ -432,6 +432,28 @@ export default function CenterPanel({
                           }}
                         >
                           <div
+                            /**
+                             * Focus peeks the arc exactly as the pointer does.
+                             * React's `onFocus`/`onBlur` are focusin/focusout
+                             * and bubble, so the wrapper catches the row's own
+                             * button and a task's tick without either knowing.
+                             *
+                             * Two things this buys, and the second is the
+                             * defect. The face lights the arc for the row you
+                             * have tabbed to, which is the only feedback a
+                             * keyboard has that the two are the same event —
+                             * the hover highlight is on `hovered`, so it was
+                             * pointer-only too. And on today the rows are
+                             * filtered to `occ.end > now || occ.key ===
+                             * hovered`: that escape hatch was written for the
+                             * pointer, so an event ending while you were
+                             * focused on its row unmounted the button under
+                             * the focus ring and dropped focus to `body`.
+                             * Writing `hovered` from focus is what keeps the
+                             * row mounted for as long as it is being read.
+                             */
+                            onFocus={() => onHover(occ.key)}
+                            onBlur={() => onHover(null)}
                             onMouseEnter={() => onHover(occ.key)}
                             onMouseLeave={() => onHover(null)}
                             className={cn(
@@ -486,23 +508,41 @@ export default function CenterPanel({
                           `Sleeper train` most of its letters — measured, not
                           guessed — and a name is worth more than a position
                           the row below the fold already prints. */}
-                              {!lead && (
-                                <span
-                                  className="shrink-0 font-mono font-medium text-ink-2 uppercase"
-                                  style={{
-                                    fontSize: `${10.5 * u}px`,
-                                    letterSpacing: "0.1em",
-                                    transition: `${MOOD} font-size`,
-                                  }}
-                                >
-                                  {span ??
-                                    (running
-                                      ? "Now"
-                                      : occ.event.allDay
-                                        ? "All day"
-                                        : formatTimeShort(occ.start, clock).replace(" ", "\u2009"))}
-                                </span>
-                              )}
+                              {/* Visible on every row but the headline, and
+                          read out on all of them.
+
+                          The headline drops the column for the reason above,
+                          and the ring it defers to is `aria-hidden` — a
+                          drawing, with no text a screen reader can reach. So
+                          on the one row that matters most the start time
+                          existed nowhere at all. `sr-only` puts it back in the
+                          reading order it was always in, costs the layout
+                          nothing, and keeps the clock spelled once rather than
+                          twice. `DAY 2/4` comes back here too: it was the
+                          *width* that took it off this row, and read aloud it
+                          costs none. */}
+                              <span
+                                className={cn(
+                                  "shrink-0 font-mono font-medium text-ink-2 uppercase",
+                                  lead && "sr-only",
+                                )}
+                                style={
+                                  lead
+                                    ? undefined
+                                    : {
+                                        fontSize: `${10.5 * u}px`,
+                                        letterSpacing: "0.1em",
+                                        transition: `${MOOD} font-size`,
+                                      }
+                                }
+                              >
+                                {span ??
+                                  (running
+                                    ? "Now"
+                                    : occ.event.allDay
+                                      ? "All day"
+                                      : formatTimeShort(occ.start, clock).replace(" ", "\u2009"))}
+                              </span>
                               <span
                                 className={cn(
                                   "truncate font-mono font-medium text-ink uppercase",

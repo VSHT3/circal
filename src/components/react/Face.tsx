@@ -446,7 +446,29 @@ export default function Face({
       viewBox={VIEW_BOX}
       preserveAspectRatio="xMidYMid meet"
       className="h-full w-full touch-none select-none"
-      role="presentation"
+      /**
+       * `aria-hidden`, not `role="presentation"`, and the difference is the
+       * whole bug this fixes. `presentation` drops *this element's* own
+       * semantics and leaves every descendant in the accessibility tree — so
+       * a screen reader read the face out as its text nodes: twenty-four hour
+       * numerals, every arc label, the second zone's caption and its four
+       * marks, in drawing order, with nothing to say what any of them were.
+       * `aria-hidden` prunes the subtree, which is what "this is a drawing"
+       * actually means here.
+       *
+       * Safe because nothing inside is focusable: the arc hit paths and the
+       * drag annulus take pointer events and carry no `tabIndex`, and
+       * `aria-hidden` over a focusable descendant is the one way this goes
+       * wrong. Anything added here that *can* be focused breaks that and
+       * needs the year ring's answer instead — an `sr-only` listbox beside
+       * the drawing rather than semantics hung on the drawing.
+       *
+       * The day still has a readable form, which is what makes this a prune
+       * rather than a deletion: `CenterPanel`'s agenda is HTML over the face,
+       * a real button per occurrence, and on the week strip each face sits
+       * inside a button that already carries its own `aria-label`.
+       */
+      aria-hidden="true"
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerCancel}
