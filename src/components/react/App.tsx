@@ -13,6 +13,7 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import type { Clock } from "@/lib/time";
 import {
   NEVER,
+  clashesWith,
   colorOf,
   dayAgenda,
   instantKey,
@@ -1026,6 +1027,20 @@ function Shell() {
       },
       newEventAt: (startMin: number, endMin: number) => openDraft(startMin, endMin, day),
       quickAdd: (spec) => {
+        /**
+         * Asked *before* the write, so the new event is not in the list it is
+         * being compared against — and deliberately not asked at all for an
+         * all-day line, which covers the revolution and would name everything
+         * on the day.
+         *
+         * This is the only create path with no review step: a drag shows the
+         * arc land beside its neighbours, and the editor shows the day behind
+         * it. A typed line shows neither until `go` has already committed it,
+         * so the toast is the one place an overlap can still be mentioned.
+         */
+        const clashes = spec.allDay
+          ? []
+          : clashesWith(dayAgenda(visible, calendars, spec.day).timed, spec.startMin, spec.endMin);
         store.create({
           ...draftEvent(spec.day, spec.startMin, spec.endMin, defaultCalendar),
           title: spec.title,
@@ -1038,7 +1053,17 @@ function Shell() {
         // is also the only review this gesture gets.
         go({ day: spec.day, view: "day" });
         cue("created", channels);
-        notify(`Added “${spec.title}” — ${MOD}Z to undo`);
+        // One name and a count, never a list: the first clash is the one the
+        // reader can act on, and `and 2 others` is the guests row's own way of
+        // saying a cap did not hide anything.
+        const first = clashes[0];
+        const rest = clashes.length - 1;
+        const over = !first
+          ? ""
+          : ` over “${first.event.title || "Untitled"}”${
+              rest > 0 ? ` and ${rest} other${rest === 1 ? "" : "s"}` : ""
+            }`;
+        notify(`Added “${spec.title}”${over} — ${MOD}Z to undo`);
       },
       undo: () => notify(store.undo() ? "Undone" : "Nothing to undo"),
       redo: () => notify(store.redo() ? "Redone" : "Nothing to redo"),
@@ -1076,6 +1101,7 @@ function Shell() {
       settings.defaultDuration,
       feedIds,
       calendars,
+      visible,
       inAmbient,
       enterAmbient,
       channels,

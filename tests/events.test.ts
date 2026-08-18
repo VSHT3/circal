@@ -10,6 +10,7 @@ import {
   REMIND_SILENT,
   PALETTE,
   DEFAULT_WAKING,
+  clashesWith,
   colorOf,
   dayAgenda,
   dayLoad,
@@ -666,6 +667,134 @@ describe("dayLoad", () => {
     const only = load([{ start: "2026-03-08 09:00", end: "2026-03-08 10:00", free: true }]);
     expect(only).not.toBeNull();
     expect(only?.booked).toBe(0);
+  });
+});
+
+describe("clashesWith", () => {
+  type Spec = {
+    start: string;
+    end: string;
+    title?: string;
+    allDay?: boolean;
+    free?: boolean;
+    task?: boolean;
+  };
+  const clash = (specs: Spec[], startMin: number, endMin: number) =>
+    clashesWith(
+      occurrencesOn(
+        specs.map((s) => event(s)),
+        [cal],
+        day("2026-03-08"),
+      ),
+      startMin,
+      endMin,
+    ).map((occ) => occ.event.title);
+
+  const rows: Array<{ name: string; events: Spec[]; span: [number, number]; expected: string[] }> =
+    [
+      {
+        name: "an empty day clashes with nothing",
+        events: [],
+        span: [9 * 60, 10 * 60],
+        expected: [],
+      },
+      {
+        name: "a span landing on top of a meeting names it",
+        events: [{ title: "Standup", start: "2026-03-08 09:00", end: "2026-03-08 09:30" }],
+        span: [9 * 60, 10 * 60],
+        expected: ["Standup"],
+      },
+      {
+        name: "a span wholly inside a longer event still clashes",
+        events: [{ title: "Workshop", start: "2026-03-08 09:00", end: "2026-03-08 17:00" }],
+        span: [13 * 60, 13 * 60 + 30],
+        expected: ["Workshop"],
+      },
+      {
+        // `end` is exclusive everywhere in this app, so the next thing is not a
+        // collision. The whole notice would cry wolf on every back-to-back day
+        // if this were inclusive.
+        name: "a span starting exactly where one ends does not clash",
+        events: [{ title: "Standup", start: "2026-03-08 09:00", end: "2026-03-08 10:00" }],
+        span: [10 * 60, 11 * 60],
+        expected: [],
+      },
+      {
+        name: "a span ending exactly where one starts does not clash",
+        events: [{ title: "Standup", start: "2026-03-08 10:00", end: "2026-03-08 11:00" }],
+        span: [9 * 60, 10 * 60],
+        expected: [],
+      },
+      {
+        // An all-day "Berlin" covers the revolution and is context, not a
+        // conflict — `freeGaps`' own rule, and the reason it is reused here.
+        name: "an all-day event is context and never clashes",
+        events: [
+          { title: "Berlin", start: "2026-03-08 00:00", end: "2026-03-09 00:00", allDay: true },
+        ],
+        span: [9 * 60, 10 * 60],
+        expected: [],
+      },
+      {
+        name: "a free event is the placeholder you book over",
+        events: [
+          { title: "Birthday", start: "2026-03-08 09:00", end: "2026-03-08 17:00", free: true },
+        ],
+        span: [9 * 60, 10 * 60],
+        expected: [],
+      },
+      {
+        // A task holds no minutes, so it is dropped on width rather than by a
+        // flag of its own — and one standing inside the span is the case a
+        // zero-width end alone would have let through.
+        name: "a task inside the span holds no minutes and does not clash",
+        events: [
+          {
+            title: "Renew passport",
+            start: "2026-03-08 09:30",
+            end: "2026-03-08 09:30",
+            task: true,
+          },
+        ],
+        span: [9 * 60, 10 * 60],
+        expected: [],
+      },
+      {
+        name: "several clashes come back in the day's own order",
+        events: [
+          { title: "Late", start: "2026-03-08 09:45", end: "2026-03-08 10:15" },
+          { title: "Early", start: "2026-03-08 09:00", end: "2026-03-08 09:30" },
+        ],
+        span: [9 * 60, 10 * 60],
+        expected: ["Early", "Late"],
+      },
+      {
+        name: "only the events the span actually reaches are named",
+        events: [
+          { title: "Standup", start: "2026-03-08 09:00", end: "2026-03-08 09:30" },
+          { title: "Retro", start: "2026-03-08 16:00", end: "2026-03-08 17:00" },
+        ],
+        span: [9 * 60, 10 * 60],
+        expected: ["Standup"],
+      },
+    ];
+
+  it.each(rows)("$name", ({ events, span, expected }) => {
+    expect.soft(clash(events, span[0], span[1])).toEqual(expected);
+  });
+
+  // A task being *created* has no width of its own, so there is nothing for it
+  // to land on top of — the guard is what keeps the notice off ⌘P's own tasks.
+  it("a zero-width span asks nothing", () => {
+    const events = [{ title: "Workshop", start: "2026-03-08 09:00", end: "2026-03-08 17:00" }];
+    expect(clash(events, 13 * 60, 13 * 60)).toEqual([]);
+  });
+
+  // An event through midnight runs past 1440, and the part of it on this day
+  // is answered normally rather than the query being refused.
+  it("answers for the part of a span that lands on this day", () => {
+    const events = [{ title: "Late shift", start: "2026-03-08 23:00", end: "2026-03-08 23:45" }];
+    expect(clash(events, 23 * 60 + 30, 25 * 60)).toEqual(["Late shift"]);
   });
 });
 

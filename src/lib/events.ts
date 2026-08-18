@@ -802,6 +802,49 @@ export function dayLoad(
   };
 }
 
+/**
+ * What a proposed span would land on top of, in the order the day reads.
+ *
+ * This exists for one surface: `⌘P` commits an event with no review step, and
+ * it is the only way to write one onto a day the reader was never looking at.
+ * The dial makes an overlap obvious the moment you see it — two arcs, two
+ * lanes — so every other route to a new event already answers this. A typed
+ * line does not, and the toast is the only thing left that can.
+ *
+ * Busy means exactly what `freeGaps` means by it, deliberately reusing the
+ * rule rather than restating it: an all-day event is context and does not
+ * clash (an all-day "Berlin" is not a conflict with lunch), a **free** one is
+ * the placeholder you are meant to book over, and anything holding no minutes
+ * at all — which is every task — is dropped on width, `freeGaps`' own test.
+ * Three surfaces now read that one idea of busy: the totals line, the slot
+ * search, and this. They cannot come to disagree about it.
+ *
+ * Touching ends do not clash, because `end` is exclusive here as everywhere:
+ * a 10:00 meeting after a 09:00–10:00 one is the next thing, not a collision.
+ *
+ * Two things the caller owns. An **all-day** span must not be asked about —
+ * it covers the revolution, so it would name everything on the day and say
+ * nothing. And an event through midnight is answered for the part that lands
+ * on `occurrences`' own day only; the tail belongs to the next day's query,
+ * and asking two days a question the notice prints as one sentence is a
+ * bigger claim than this is worth.
+ */
+export function clashesWith(
+  occurrences: Occurrence[],
+  startMin: number,
+  endMin: number,
+): Occurrence[] {
+  if (endMin <= startMin) return [];
+  return occurrences.filter(
+    (occ) =>
+      !occ.event.allDay &&
+      !occ.event.free &&
+      occ.endMin > occ.startMin &&
+      occ.startMin < endMin &&
+      occ.endMin > startMin,
+  );
+}
+
 /* --------------------------------- search --------------------------------- */
 
 /**
