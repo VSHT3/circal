@@ -87,6 +87,26 @@ describe("a backup is a mirror file", () => {
   it("reads a rev that is not a number as zero rather than failing the file", () => {
     expect(readMirrorFile(body({ rev: "seven" }))?.rev).toBe(0);
   });
+
+  // A backup taken before the mirror existed says nothing about the envelope,
+  // and must read as this build's own rather than as version zero — otherwise
+  // the writer's version guard would happily write it and the reader would
+  // have refused a file it wrote itself.
+  it("reads a missing version as this build's own", () => {
+    expect(readMirrorFile(body({ version: undefined }))?.version).toBe(MIRROR_VERSION);
+  });
+
+  it("reads a version that is not a number as this build's own", () => {
+    expect(readMirrorFile(body({ version: "two" }))?.version).toBe(MIRROR_VERSION);
+  });
+
+  // The one that matters: a file from a newer build reports its real version,
+  // so `assertVersionAllowsMutation` in the MCP server can refuse to write it
+  // rather than round-tripping it through a reader that would drop whatever
+  // this build has no name for.
+  it("reports a newer version rather than clamping it", () => {
+    expect(readMirrorFile(body({ version: MIRROR_VERSION + 1 }))?.version).toBe(MIRROR_VERSION + 1);
+  });
 });
 
 describe("hostile input", () => {

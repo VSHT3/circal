@@ -11,10 +11,16 @@
  * ------------------------------------------------------------------ */
 
 import { randomBytes } from "node:crypto";
-import { readFile, rename, writeFile } from "node:fs/promises";
+import { open, readFile, rename, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
-import { localZone, readMirrorFile, serialiseMirror, type MirrorContents } from "@/lib/mirror";
+import {
+  MIRROR_VERSION,
+  localZone,
+  readMirrorFile,
+  serialiseMirror,
+  type MirrorContents,
+} from "@/lib/mirror";
 
 /**
  * Refused by design, not by accident: a zone mismatch, a subscription
@@ -55,13 +61,56 @@ async function readMirror(path: string): Promise<MirrorContents> {
   return contents;
 }
 
-/** Writes `body` to `path` via a temp file in the same directory plus a
- *  rename, so a crash mid-write leaves the previous file intact rather than
- *  a truncated one — this file may be the only copy of the user's year. */
+/**
+ * Publish `body` at `path` so that no interruption can leave less than the
+ * whole of it there: write a sibling temp file, force it to the disk, then
+ * rename over the target. This file may be the only copy of the user's year.
+ *
+ * The `fsync` is the half that was missing, and its absence made the sentence
+ * above only two-thirds true. A temp file plus a rename survives a crash of
+ * *this process* — the rename is atomic, so a reader sees the old file or the
+ * new one. It does not survive a power loss or a kernel panic: `writeFile`
+ * returns once the bytes are in the page cache, and the rename is a metadata
+ * operation that can reach the platter before they do, leaving the new name
+ * pointing at a short or empty file where a complete one used to be.
+ *
+ * The directory sync is best-effort on purpose. Not every platform will open a
+ * directory for it, and failing a write whose bytes are already durable
+ * because a durability *nicety* was refused is the wrong way round — the same
+ * trade `mirrorLink.ts` makes when remembering a handle fails after the
+ * calendar is safely on disk.
+ *
+ * The temp file is removed if anything after its creation throws. A stray
+ * `.circal-mcp-*.tmp` beside somebody's calendar is untidy rather than
+ * dangerous, but it is litter this function made and should take away.
+ */
 async function atomicWrite(path: string, body: string): Promise<void> {
-  const tmp = join(dirname(path), `.circal-mcp-${randomBytes(6).toString("hex")}.tmp`);
-  await writeFile(tmp, body, "utf8");
-  await rename(tmp, path);
+  const dir = dirname(path);
+  const tmp = join(dir, `.circal-mcp-${randomBytes(6).toString("hex")}.tmp`);
+  try {
+    const file = await open(tmp, "w");
+    try {
+      await file.writeFile(body, "utf8");
+      await file.sync();
+    } finally {
+      await file.close();
+    }
+    await rename(tmp, path);
+  } catch (error) {
+    await rm(tmp, { force: true });
+    throw error;
+  }
+  try {
+    const entry = await open(dir, "r");
+    try {
+      await entry.sync();
+    } finally {
+      await entry.close();
+    }
+  } catch {
+    // Platform would not sync the directory. The file's own bytes are already
+    // durable; only the new name's arrival is left to the filesystem.
+  }
 }
 
 /** Whether the reader's own zone agrees with the file's. `null` when they do
@@ -89,6 +138,33 @@ function assertZoneAllowsMutation(contents: MirrorContents, env: NodeJS.ProcessE
     `Refusing to write: the file's zone (${contents.zone}) does not match this server's ` +
       `(${here}) — a write here could land on the wrong day there. Set ` +
       `CIRCAL_ALLOW_ZONE_MISMATCH=1 to write anyway.`,
+  );
+}
+
+/**
+ * Refuse to write a file whose envelope this build does not fully understand.
+ *
+ * A write here is never a patch — every mutation round-trips the whole
+ * document through `readEvent`, which keeps the fields it has names for and
+ * drops the rest. So an older reader writing a newer file is silent data loss
+ * of exactly the fields it was too old to know about, and that is measured
+ * rather than feared: a published bundle built before `free`, `remindLead`,
+ * `organizer` and the guest pair landed dropped nine keys per document on
+ * every write, and nothing anywhere said so.
+ *
+ * A read is still allowed, for `assertZoneAllowsMutation`'s reason: reading
+ * cannot damage the file, and refusing to *look* at a calendar because its
+ * envelope is one ahead would be worse than saying what is missing. There is
+ * deliberately no override env var — a zone mismatch is something an operator
+ * can reason about and be right, and "my reader is too old for this file" is
+ * not.
+ */
+function assertVersionAllowsMutation(contents: MirrorContents): void {
+  if (contents.version <= MIRROR_VERSION) return;
+  throw new RefusalError(
+    `Refusing to write: the file's format is version ${contents.version} and this server ` +
+      `understands ${MIRROR_VERSION}. Writing it would drop every field this build has no ` +
+      `name for. Rebuild circal-mcp from the matching source (pnpm build:mcp) and retry.`,
   );
 }
 
@@ -122,6 +198,7 @@ async function casWriteOnce<T>(
 ): Promise<T> {
   for (let attempt = 0; attempt < 2; attempt++) {
     const before = await readMirror(ctx.path);
+    assertVersionAllowsMutation(before);
     assertZoneAllowsMutation(before, ctx.env);
     const { result, summary } = mutate(before);
     const after = await readMirror(ctx.path);

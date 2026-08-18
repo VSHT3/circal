@@ -59,6 +59,19 @@ export interface MirrorFile extends Mirrored {
 export interface MirrorContents extends Mirrored {
   rev: number;
   zone: string;
+  /**
+   * The envelope version the file claims, defaulting to this build's own when
+   * it claims none — a plain `.json` backup handed to the mirror, which is a
+   * case the format exists to allow.
+   *
+   * Read so a writer can refuse a file it does not fully understand. An older
+   * reader round-tripping a newer file drops every field it has no name for,
+   * silently, on a write it thought was a patch: that is measured rather than
+   * feared — a stale published bundle lost nine keys per document that way.
+   * Refusing is `assertZoneAllowsMutation`'s answer to the same shape of
+   * question, one field over.
+   */
+  version: number;
 }
 
 /**
@@ -131,6 +144,13 @@ export function readMirrorFile(text: string): MirrorContents | null {
     // that did not say", which the reader treats as agreeing with it — the
     // alternative is refusing to open every backup ever exported.
     zone: typeof envelope.zone === "string" ? envelope.zone : "",
+    // Absent reads as this build's own, for the reason `zone` does: a plain
+    // `.json` backup handed to the mirror is a case the shared format exists
+    // to allow, and refusing every export ever taken would be the wrong trade.
+    version:
+      typeof envelope.version === "number" && Number.isFinite(envelope.version)
+        ? envelope.version
+        : MIRROR_VERSION,
   };
 }
 
