@@ -34,6 +34,22 @@ zone, revision) plus a ready-to-paste config block. Paste that block into
 your client below, swap the path if it picked up the wrong file, then
 restart the client.
 
+> **Use a locally built bundle, not `npx circal-mcp`.** The published
+> `circal-mcp@0.1.0` predates several fields in `src/lib` (`free`,
+> `remindLead`, `organizer` and the guest pair on an event; `backupNudge`,
+> `backupInterval`, `deviceZone`, `stampedZones` in settings). Every write
+> round-trips the whole document through its reader, so it silently drops
+> those nine keys — measured, same fixture, two bundles. A current server
+> refuses to write a file whose format is newer than its own, so this cannot
+> happen unnoticed any more, but the published bundle is still stale.
+>
+> ```sh
+> pnpm build:mcp   # -> mcp/dist/circal-mcp.mjs
+> ```
+>
+> Then use `node /absolute/path/to/circal/mcp/dist/circal-mcp.mjs` wherever
+> the examples below say `npx -y circal-mcp`.
+
 ### Claude Desktop
 
 Add to `claude_desktop_config.json`:
