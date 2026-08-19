@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { calendar, event } from "./helpers";
@@ -287,5 +287,75 @@ describe("casWrite", () => {
     ).rejects.toThrow();
     await casWrite(ctx(), () => ({ result: snapshot(), summary: 1 }));
     expect((await onDisk())?.rev).toBe(2);
+  });
+});
+
+/* ------------------------------- the lock --------------------------------- */
+
+/**
+ * The advisory `.lock` beside the file. Against another lock-honouring writer
+ * it is exclusion rather than detection — the window between the confirm-read
+ * and the `atomicWrite` used to be merely honest, and this is what closed it.
+ * What is observable here: the lock never outlives a write (success or
+ * refusal), a stale one is broken rather than queued behind, and a live one
+ * is waited out rather than ignored.
+ */
+describe("the advisory lock", () => {
+  const lockPath = () => `${path}.lock`;
+
+  it("is gone after a successful write", async () => {
+    await seed(1);
+    await casWrite(ctx(), () => ({ result: snapshot(), summary: 1 }));
+    expect((await readdir(dir)).filter((n) => n.endsWith(".lock"))).toEqual([]);
+  });
+
+  it("is gone after a refused write", async () => {
+    await seed(1, "Asia/Tokyo");
+    await expect(casWrite(ctx(), () => ({ result: snapshot(), summary: 1 }))).rejects.toThrow();
+    expect((await readdir(dir)).filter((n) => n.endsWith(".lock"))).toEqual([]);
+  });
+
+  it("breaks a stale lock instead of queueing behind a crashed writer", async () => {
+    await seed(1);
+    await writeFile(lockPath(), "99999 2026-01-01T00:00:00.000Z\n", "utf8");
+    const old = new Date(Date.now() - 60_000);
+    await utimes(lockPath(), old, old);
+
+    await casWrite(ctx(), () => ({ result: snapshot(), summary: 1 }));
+    expect((await onDisk())?.rev).toBe(2);
+    expect((await readdir(dir)).filter((n) => n.endsWith(".lock"))).toEqual([]);
+  });
+
+  // Real timers, deliberately: what is under test is `acquireLock`'s own
+  // polling of a real file on a real disk, and a fake clock cannot advance
+  // another process's release. The margins are wide — 300ms against a 100ms
+  // poll and a 10s stale threshold — so load moves the numbers, not the
+  // verdict.
+  it("waits for a live lock and writes once it is released", async () => {
+    await seed(1);
+    await writeFile(lockPath(), `${process.pid} live\n`, "utf8");
+    const began = Date.now();
+    const release = setTimeout(() => void rm(lockPath(), { force: true }), 300);
+
+    await casWrite(ctx(), () => ({ result: snapshot(), summary: 1 }));
+    clearTimeout(release);
+    // Well past the poll interval and well short of the stale threshold: the
+    // write went through because the holder let go, not because the lock was
+    // presumed dead.
+    expect(Date.now() - began).toBeGreaterThanOrEqual(250);
+    expect((await onDisk())?.rev).toBe(2);
+  });
+
+  // Real time again, ~2s of it: the deadline is the contract, and it is the
+  // only branch that stands between a wedged foreign writer and a tool call
+  // that never answers.
+  it("refuses, naming the lock, when a live one is never released", async () => {
+    await seed(1);
+    await writeFile(lockPath(), `${process.pid} live\n`, "utf8");
+    await expect(casWrite(ctx(), () => ({ result: snapshot(), summary: 1 }))).rejects.toThrow(
+      /another writer holds/i,
+    );
+    // The original is untouched — a refusal to lock is a refusal to write.
+    expect((await onDisk())?.rev).toBe(1);
   });
 });

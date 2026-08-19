@@ -9,6 +9,7 @@ import {
   type Repeat,
 } from "@/lib/events";
 import { DEFAULT_SETTINGS, LIFE_EXPECTANCY_RANGE, duplicateOf } from "@/lib/store";
+import { mirrorDigest, readMirrorFile, serialiseMirror } from "@/lib/mirror";
 import { MINUTES_PER_DAY, addDays, addMonths, dayKey, daysBetween, startOfDay } from "@/lib/time";
 import type * as StoreModule from "@/lib/store";
 import type * as NotifyModule from "@/lib/notify";
@@ -590,6 +591,65 @@ describe("undo / redo", () => {
 
     expect(s.store.undo()).toBe(true);
     expect(s.store.snapshot().settings.clock).toBe("12h");
+  });
+});
+
+/* ------------------------------ adopt ------------------------------ */
+
+/**
+ * `adopt` normalises on the way in — `sane` clamps settings, feed pull state
+ * is swept — so what the store holds afterwards is not byte-identical to the
+ * contents it was handed. `mirrorLink.absorb` records its `lastDigest` from
+ * the store's own snapshot for exactly this reason: recorded from the file's
+ * contents instead, the next `onStoreChange` sees a "change" that is only the
+ * normalisation and answers every adopt with one extra write.
+ */
+describe("adopt", () => {
+  const foreign = (settings: typeof DEFAULT_SETTINGS) =>
+    readMirrorFile(
+      serialiseMirror(
+        {
+          events: [],
+          calendars: [
+            { id: "imported", name: "Imported", color: "#8ecbff", icon: "", visible: true },
+          ],
+          settings,
+        },
+        3,
+      ),
+    );
+
+  it("normalises, so the digest to record is the store's, never the file's", async () => {
+    const s = await freshStore();
+    const contents = foreign({
+      ...DEFAULT_SETTINGS,
+      lifeExpectancy: LIFE_EXPECTANCY_RANGE.max + 100,
+    });
+    if (!contents) throw new Error("fixture failed to parse as a mirror file");
+
+    s.store.adopt(contents);
+
+    // The clamp is real — the store did not take the file at its word…
+    expect(s.store.snapshot().settings.lifeExpectancy).toBe(LIFE_EXPECTANCY_RANGE.max);
+    // …so the two digests disagree, and only the store's names what a
+    // subsequent write would actually serialise.
+    expect(mirrorDigest(s.store.snapshot())).not.toBe(mirrorDigest(contents));
+  });
+
+  it("is one undoable step that owns its settings, as its toast promises", async () => {
+    const s = await freshStore();
+    s.store.setClock("12h");
+    const before = s.store.snapshot().events;
+    const contents = foreign({ ...DEFAULT_SETTINGS, clock: "24h" });
+    if (!contents) throw new Error("fixture failed to parse as a mirror file");
+
+    s.store.adopt(contents);
+    expect(s.store.snapshot().settings.clock).toBe("24h");
+    expect(s.store.snapshot().events).toEqual([]);
+
+    expect(s.store.undo()).toBe(true);
+    expect(s.store.snapshot().settings.clock).toBe("12h");
+    expect(s.store.snapshot().events).toEqual(before);
   });
 });
 

@@ -4,54 +4,9 @@ Done work is not recorded here. The rationale that outlived it lives in `AGENTS.
 code it constrains — so an item finishing means it leaves this file rather than gaining a strike.
 
 The instrument is finished and the calendar under it is real: RFC 5545 in and out, four views of
-one idea, a test suite in the gate. Nothing below adds a screen. What is below is what is left of
-the mirror's four bugs, then a short list of things that finish something already started.
-
-## bugs
-
-Found by driving the calendar through the MCP server rather than by reading the code. They were one
-defect three times — **a value that passed validation silently becomes a different value, and
-nothing is raised where the damage happens** — plus a fourth of the same shape one layer down, a
-guarantee stated in a comment that the code did not provide.
-
-**Three of the four are fixed** (`readMark`, `claim`, `atomicWrite` + `assertVersionAllowsMutation`);
-the rationale is in `AGENTS.md` beside each. What is left is below.
-
-**1. Republish `circal-mcp` to npm.** `circal-mcp@0.1.0` was built before `free`, `remindLead`,
-`organizer` and the guest pair landed in `src/lib`. Every MCP write round-trips the whole document
-through its `readEvent`, so the stale bundle drops nine keys per document — per event `free`,
-`remindLead`, `organizer`, `attendees`, `attendeeCount`; in settings `backupNudge`,
-`backupInterval`, `deviceZone`, `stampedZones`. Measured, same fixture, two bundles: the published
-one loses all nine, one rebuilt from current `src` loses none.
-
-The durable half is done — a reader now refuses to write a file whose envelope version is newer than
-its own, so this can no longer happen silently in either direction. The republish itself is a
-command only the owner can run. Until it happens, `mcp/README.md:55` still tells everybody to run
-`npx -y circal-mcp`, and it should say `pnpm build:mcp` plus a path to `mcp/dist/circal-mcp.mjs`
-instead.
-
-**2. An adopt costs one extra write.** Observed while verifying the fix above, and benign rather
-than a defect: `absorb` sets `lastDigest` from the _file's_ contents, then `store.adopt` normalises
-them — `hydrateEvents` fills missing fields, `sane` clamps settings — so the store's own digest can
-differ from the file's, `onStoreChange` sees a change and writes once more. It converges
-immediately, because that write sets `lastDigest` from the store. Fixing it properly means digesting
-what the store made of the contents rather than the contents, which is one line and wants a test
-that can tell the two apart. `poll`'s adopt path has always done this.
-
-**3. A window remains inside `casWriteOnce`.** Between its confirm-read and its `atomicWrite`,
-milliseconds wide, and unlike the browser half it cannot be closed by re-reading — that _is_ the
-re-read. Closing it needs an advisory lock: a sibling `.lock`, or Web Locks plus a pid file the
-server also reads. That is the only fix that also covers a second browser tab, and it is the one
-thing on this list that would make the mirror safe under genuinely concurrent writers rather than
-merely honest about them.
-
-**4. The rest of the MCP server still has no tests.** `tests/mcp-file.test.ts` covers the layer the
-bugs lived in — path resolution, both refusals, the CAS, the queue, the write's own cleanliness — but
-`domain.ts` (770 lines), `tools.ts` and `find.ts` have none. Most of the _logic_ is genuinely
-covered, because the server imports the app's own domain layer and `mutate.ts` and `mirror.ts` are
-both tested; what is uncovered is the glue. Also: `pnpm build:mcp` is outside `pnpm verify`, so the
-bundle's `--external` and `--alias` flags are never exercised by the gate — which is how (1) stayed
-invisible. One `&&`.
+one idea, a test suite in the gate. The mirror's four driven-out bugs and their residue are all
+fixed; the rationale lives in `AGENTS.md` beside the code. Nothing below adds a screen — it is a
+short list of things that finish something already started.
 
 ## open
 

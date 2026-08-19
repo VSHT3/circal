@@ -11,8 +11,9 @@
  * ------------------------------------------------------------------ */
 
 import { randomBytes } from "node:crypto";
-import { open, readFile, rename, rm } from "node:fs/promises";
+import { open, readFile, rename, rm, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 
 import {
   MIRROR_VERSION,
@@ -179,43 +180,118 @@ export async function loadForRead(
 
 export type Mutated = Pick<MirrorContents, "events" | "calendars" | "settings">;
 
+/** How long a sibling `.lock` may sit before it is presumed abandoned — a
+ *  crashed writer, not a slow one. A whole write here is milliseconds, so ten
+ *  seconds is generous by three orders of magnitude. */
+const LOCK_STALE_MS = 10_000;
+/** How long to wait for a live lock before refusing, and how often to look.
+ *  Refusing beats queueing forever: the caller is a tool call with a user
+ *  behind it, and "something else is writing" is an answer it can act on. */
+const LOCK_WAIT_MS = 2_000;
+const LOCK_POLL_MS = 100;
+
+/**
+ * Take an advisory lock beside the mirror file, or throw.
+ *
+ * `open(…, "wx")` is the atom: exclusive create either succeeds or `EEXIST`s,
+ * so two processes cannot both hold it. The contents (pid, time) are for the
+ * human who finds one, never read by the code — staleness is judged by mtime,
+ * because a pid check cannot tell a dead writer from one on another machine,
+ * and a synced folder is exactly where a second writer lives. Two processes
+ * that both find a stale lock both remove it and race the exclusive create;
+ * one wins, the other loops back to waiting, which is the correct outcome.
+ *
+ * The browser cannot take this lock — a `FileSystemFileHandle` reaches one
+ * file, never its siblings — so this closes writer-vs-writer on the server
+ * side only. Against the tab, the confirm-read below is still the guard, and
+ * the tab holds a Web Lock against its own siblings (`mirrorLink.ts`).
+ */
+async function acquireLock(path: string): Promise<string> {
+  const lock = `${path}.lock`;
+  const deadline = Date.now() + LOCK_WAIT_MS;
+  for (;;) {
+    try {
+      const file = await open(lock, "wx");
+      try {
+        await file.writeFile(`${process.pid} ${new Date().toISOString()}\n`, "utf8");
+      } finally {
+        await file.close();
+      }
+      return lock;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    }
+    try {
+      if (Date.now() - (await stat(lock)).mtimeMs > LOCK_STALE_MS) {
+        await rm(lock, { force: true });
+        continue;
+      }
+    } catch {
+      // Vanished between the failed create and the stat — its holder just
+      // released. Go straight back to the exclusive create.
+      continue;
+    }
+    if (Date.now() >= deadline) {
+      throw new Error(
+        `Another writer holds ${lock}. If nothing else is writing this calendar, ` +
+          `delete that file and retry.`,
+      );
+    }
+    await sleep(LOCK_POLL_MS);
+  }
+}
+
 /**
  * Read → mutate → confirm the file has not moved → write `rev + 1`,
- * atomically. `mutate` runs against a fresh read every attempt, so a rev
- * mismatch really does redo the whole read-modify-write rather than
- * patching a stale result onto new data. One retry, then a refusal naming
- * both revisions — never a silent overwrite of whatever showed up in
- * between. A `RefusalError` thrown from `mutate` (a bad scope, a
- * subscription calendar, a zone mismatch) is not a concurrency problem and
- * is never retried.
+ * atomically, under the advisory lock above. `mutate` runs against a fresh
+ * read every attempt, so a rev mismatch really does redo the whole
+ * read-modify-write rather than patching a stale result onto new data. One
+ * retry, then a refusal naming both revisions — never a silent overwrite of
+ * whatever showed up in between. A `RefusalError` thrown from `mutate` (a bad
+ * scope, a subscription calendar, a zone mismatch) is not a concurrency
+ * problem and is never retried.
+ *
+ * The lock is what closes the window that used to sit between the
+ * confirm-read and the `atomicWrite`: against another lock-honouring writer
+ * it is exclusion, not detection. The confirm-read stays because the browser
+ * tab does not honour it — there the window is merely honest, and `claim` on
+ * the tab's side re-reads for the same reason.
  *
  * Exported as `casWrite` below, wrapped in the process-wide write queue —
- * this is the retry loop alone.
+ * this is the locked retry loop alone.
  */
 async function casWriteOnce<T>(
   ctx: MirrorEnv,
   mutate: (contents: MirrorContents) => { result: Mutated; summary: T },
 ): Promise<T> {
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const before = await readMirror(ctx.path);
-    assertVersionAllowsMutation(before);
-    assertZoneAllowsMutation(before, ctx.env);
-    const { result, summary } = mutate(before);
-    const after = await readMirror(ctx.path);
-    if (after.rev !== before.rev) {
-      if (attempt === 1) {
-        throw new Error(
-          `The file moved under this write: read at rev ${before.rev}, still found rev ` +
-            `${after.rev} after retrying once. Something else is writing it — try again.`,
-        );
+  const lock = await acquireLock(ctx.path);
+  try {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const before = await readMirror(ctx.path);
+      assertVersionAllowsMutation(before);
+      assertZoneAllowsMutation(before, ctx.env);
+      const { result, summary } = mutate(before);
+      const after = await readMirror(ctx.path);
+      if (after.rev !== before.rev) {
+        if (attempt === 1) {
+          throw new Error(
+            `The file moved under this write: read at rev ${before.rev}, still found rev ` +
+              `${after.rev} after retrying once. Something else is writing it — try again.`,
+          );
+        }
+        continue;
       }
-      continue;
+      await atomicWrite(
+        ctx.path,
+        serialiseMirror(result, after.rev + 1, after.zone || localZone()),
+      );
+      return summary;
     }
-    await atomicWrite(ctx.path, serialiseMirror(result, after.rev + 1, after.zone || localZone()));
-    return summary;
+    // The loop above always returns or throws; this satisfies the compiler.
+    throw new Error("unreachable");
+  } finally {
+    await rm(lock, { force: true });
   }
-  // The loop above always returns or throws; this satisfies the compiler.
-  throw new Error("unreachable");
 }
 
 /**

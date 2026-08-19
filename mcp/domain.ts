@@ -199,8 +199,15 @@ function resolveSpanForCreate(input: EventFieldsInput, day: Date, defaultDuratio
     const at = atMinutes(day, parseTime(input.start, "start")).getTime();
     return { start: at, end: at, allDay: false, task: true };
   }
+  // A `YYYY-MM-DD`-shaped `end` is a day, never a time — the all-day spelling
+  // the field's own doc allows. Counting it as "a time was given" forced
+  // `{date, end}` (a multi-day holiday, phrased exactly as documented) into
+  // the timed branch and refused it asking for an HH:MM `start`.
+  const endIsDay = input.end !== undefined && DATE_KEY_RE.test(input.end);
   const noTimeGiven =
-    input.start === undefined && input.end === undefined && input.duration === undefined;
+    input.start === undefined &&
+    (input.end === undefined || endIsDay) &&
+    input.duration === undefined;
   const allDay = input.allDay === true || (input.allDay === undefined && noTimeGiven);
   if (allDay) {
     const days = input.end ? Math.max(1, daysBetween(day, fromDayKey(input.end)) + 1) : 1;

@@ -272,8 +272,14 @@ async function remember(): Promise<void> {
  */
 async function absorb(contents: MirrorContents): Promise<void> {
   localRev = contents.rev;
-  lastDigest = mirrorDigest(contents);
   store.adopt(contents);
+  // Digest what the store *made* of the contents, never the contents: `adopt`
+  // normalises on the way in (`sane` clamps settings, feed pull state is
+  // swept), so the file's own digest can differ from the store's — and a
+  // digest recorded from the file makes `onStoreChange` see a change that is
+  // not one and answer an adopt with one extra write. `poll`'s next pass then
+  // converged, but a write that says nothing is still a write.
+  lastDigest = mirrorDigest(store.snapshot());
   await remember();
   setStatus({ state: "live", message: "", at: Date.now() });
   notify(`Calendar updated from ${handle?.name ?? "the mirror file"} — ⌘Z to undo`);
@@ -354,6 +360,22 @@ async function claim(): Promise<number | null> {
 }
 
 /**
+ * Cross-tab exclusion for the claim-and-replace below. `writing` serialises
+ * one tab's own writes; a second tab has its own queue, so both could read
+ * rev N and write N+1 — the same lost update `claim` closes against the MCP
+ * server, reopened by a sibling of ourselves. Web Locks are origin-scoped,
+ * which is exactly the set of writers that share this IndexedDB handle. The
+ * server cannot see this lock and does not need to: against it the re-read
+ * inside `claim` is the guard, and the server holds a sibling `.lock` on its
+ * own side. Absent `navigator.locks` (nothing current), behaviour is what it
+ * was — serialised in-tab, honest across tabs.
+ */
+async function withFileLock(run: () => Promise<void>): Promise<void> {
+  if (typeof navigator === "undefined" || !navigator.locks) return run();
+  await navigator.locks.request("circal.mirror", run);
+}
+
+/**
  * Serialised behind `writing`: two overlapping writes to one file interleave
  * their chunks, and the loser is a truncated calendar.
  *
@@ -364,24 +386,28 @@ async function claim(): Promise<number | null> {
  * exists to prevent.
  *
  * Takes no revision: `claim` decides it from the file, which is the only
- * reading that can be right by the time the write actually runs.
+ * reading that can be right by the time the write actually runs. The claim
+ * and the replace sit inside one `withFileLock`, because a lock around only
+ * the write would let another tab claim between the two.
  */
 function write(): Promise<void> {
   const done = writing
-    .then(async () => {
-      if (!handle) return;
-      const next = await claim();
-      if (next === null) return;
-      const snapshot = store.snapshot();
-      const body = serialiseMirror(snapshot, next);
-      const stream = await handle.createWritable();
-      await stream.write(body);
-      await stream.close();
-      localRev = next;
-      lastDigest = mirrorDigest(snapshot);
-      await remember();
-      setStatus({ state: "live", message: "", at: Date.now() });
-    })
+    .then(() =>
+      withFileLock(async () => {
+        if (!handle) return;
+        const next = await claim();
+        if (next === null) return;
+        const snapshot = store.snapshot();
+        const body = serialiseMirror(snapshot, next);
+        const stream = await handle.createWritable();
+        await stream.write(body);
+        await stream.close();
+        localRev = next;
+        lastDigest = mirrorDigest(snapshot);
+        await remember();
+        setStatus({ state: "live", message: "", at: Date.now() });
+      }),
+    )
     .catch((error: unknown) => {
       fail(error instanceof Error ? error.message : "Could not write the mirror file");
     });

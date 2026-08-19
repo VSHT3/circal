@@ -24,7 +24,7 @@
     "mcp": "\"$npm_execpath\" run build:mcp && node mcp/dist/circal-mcp.mjs",
     "build:mac": "astro build && bash mac/build.sh",
     "mac": "\"$npm_execpath\" run build:mac && open mac/build/circal.app",
-    "verify": "\"$npm_execpath\" run format:check && \"$npm_execpath\" run lint && \"$npm_execpath\" run check && \"$npm_execpath\" run test && \"$npm_execpath\" run build"
+    "verify": "\"$npm_execpath\" run format:check && \"$npm_execpath\" run lint && \"$npm_execpath\" run check && \"$npm_execpath\" run test && \"$npm_execpath\" run build:mcp && \"$npm_execpath\" run build"
   },
   "dependencies": {
     "@astrojs/react": "^6.0.2",
