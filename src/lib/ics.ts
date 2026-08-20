@@ -338,6 +338,35 @@ function recurDateLines(
 /* -------------------------------- serialise -------------------------------- */
 
 /**
+ * The right-hand side of every UID this app *writes*. It exists to name a
+ * domain the producer owns; uniqueness is carried entirely by the left-hand
+ * side (`event.id`), so nothing about the format depends on this string.
+ *
+ * **Changing it is not free, and this is the cost.** A consumer that keys on
+ * UID — Google, Apple, Outlook, Fastmail all do — treats a changed domain as
+ * a different event, so anyone who exported an `.ics` under the old value and
+ * imported it somewhere gets a *second copy of every event in both exports*
+ * on their next export-and-import into that same calendar. The old copies do
+ * not update and do not disappear; they sit alongside. It was changed once,
+ * from `circal.app` to `circal.day`, when it turned out `circal.app` had
+ * belonged to somebody else since 2022 — done then because nothing was yet
+ * deployed on any custom domain, which is as small as that population gets.
+ *
+ * What is *not* affected, which is most of it: circal → circal handoff, since
+ * `importIcs` mints a fresh id per uid and never matches on the uid itself
+ * (`backup.ts`, and its comment saying a uid is not what the store indexes
+ * by); the `.json` backup, the mirror file and the cloud row, none of which
+ * carry a uid at all. `toIcs` has exactly one caller — the Export button —
+ * so a hand-written `.ics` is the only way this string ever leaves.
+ *
+ * Not the domain a *synthesised* uid gets: a VEVENT that arrived without one
+ * is stamped `@circal.local` by `derivedUid`, deliberately a reserved
+ * non-routable TLD, so a fabricated id can never be mistaken for a minted
+ * one. Changing this constant must not change that one.
+ */
+const UID_DOMAIN = "circal.day";
+
+/**
  * `name` becomes X-WR-CALNAME.
  *
  * No VTIMEZONE component, zoned event or not. Every mainstream consumer
@@ -367,7 +396,7 @@ export function toIcs(events: CalEvent[], name: string): string {
     // prints as an ordinary standalone VEVENT rather than a dangling one.
     const overrides =
       event.seriesId && event.seriesKey ? events.find((e) => e.id === event.seriesId) : undefined;
-    const uid = overrides ? `${overrides.id}@circal.day` : `${event.id}@circal.day`;
+    const uid = `${overrides ? overrides.id : event.id}@${UID_DOMAIN}`;
     const zone = event.tzid;
 
     lines.push("BEGIN:VEVENT");
