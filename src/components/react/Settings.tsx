@@ -599,423 +599,439 @@ export default function Settings({
               </span>
             </div>
 
-            <div className="no-scrollbar flex-1 columns-[320px] gap-3 overflow-y-auto p-3 [--field-label:88px]">
-              <Section title="Face">
-                <FieldRow label="Dial" align="top">
-                  <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
-                    <Segmented
-                      value={clock}
-                      onChange={actions.setClock}
-                      options={[
-                        { id: "12h" as const, label: "12 h" },
-                        { id: "24h" as const, label: "24 h" },
-                      ]}
-                    />
-                    {/* The face's other word: how the day is spent. Off by
+            {/* Two elements, and the split is the whole of it: the scroll
+                container may not *be* the multi-column box. A multicol
+                fragments into more columns along the inline axis once its
+                content outgrows one fragmentainer, and the fragmentainer is
+                this flex item's own height — definite, because the dialog caps
+                at `min(900px,92vh)`. Chromium leaves the column height
+                unconstrained for a scroll container and grows downwards, which
+                is why this read correctly there; Firefox uses the definite
+                height and put Data, Mirror, Cloud and About in columns four and
+                five, past the right edge, with `.no-scrollbar` hiding the only
+                affordance that said so — half a settings panel, silently. An
+                inner box with auto height has no fragmentainer to overflow, so
+                the columns balance and grow in the block axis and the scroll is
+                vertical in every browser, which is what the header claims. */}
+            <div className="no-scrollbar flex-1 overflow-y-auto p-3 [--field-label:88px]">
+              <div className="columns-[320px] gap-3">
+                <Section title="Face">
+                  <FieldRow label="Dial" align="top">
+                    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
+                      <Segmented
+                        value={clock}
+                        onChange={actions.setClock}
+                        options={[
+                          { id: "12h" as const, label: "12 h" },
+                          { id: "24h" as const, label: "24 h" },
+                        ]}
+                      />
+                      {/* The face's other word: how the day is spent. Off by
                       default, so it sits beside the face it annotates rather
                       than in a row of its own. */}
-                    <Toggle
-                      label="Totals"
-                      name="Day totals"
-                      checked={totals}
-                      onChange={(on) => store.setToggle("totals", on)}
-                    />
-                  </div>
-                  {totals && (
-                    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
-                      <PositionField
-                        value={totalsAt}
-                        onChange={store.setTotalsAt}
-                        options={TOTALS_OPTIONS}
-                        label="Where the totals sit"
+                      <Toggle
+                        label="Totals"
+                        name="Day totals"
+                        checked={totals}
+                        onChange={(on) => store.setToggle("totals", on)}
                       />
-                      <span className="label text-ink-2">Where it sits on the face</span>
                     </div>
-                  )}
-                  {/* Its own line: three segments will not sit beside the face
+                    {totals && (
+                      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
+                        <PositionField
+                          value={totalsAt}
+                          onChange={store.setTotalsAt}
+                          options={TOTALS_OPTIONS}
+                          label="Where the totals sit"
+                        />
+                        <span className="label text-ink-2">Where it sits on the face</span>
+                      </div>
+                    )}
+                    {/* Its own line: three segments will not sit beside the face
                     and the totals switch inside 310px, and this is the one
                     setting here that changes what an arc *is* rather than
                     what the face is called. */}
-                  <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
-                    <Segmented
-                      value={arcLabels}
-                      onChange={store.setArcLabels}
-                      options={[
-                        { id: "always" as const, label: "Always" },
-                        { id: "hover" as const, label: "Hover" },
-                        { id: "off" as const, label: "Off" },
-                      ]}
-                    />
-                    {/* Two words: "Names on arcs" wraps at this column width,
+                    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
+                      <Segmented
+                        value={arcLabels}
+                        onChange={store.setArcLabels}
+                        options={[
+                          { id: "always" as const, label: "Always" },
+                          { id: "hover" as const, label: "Hover" },
+                          { id: "off" as const, label: "Off" },
+                        ]}
+                      />
+                      {/* Two words: "Names on arcs" wraps at this column width,
                       and a caption on two lines beside a control on one reads
                       as a row that has come apart. */}
-                    <span className="label text-ink-2">Arc names</span>
-                  </div>
-                </FieldRow>
+                      <span className="label text-ink-2">Arc names</span>
+                    </div>
+                  </FieldRow>
 
-                {/* A mark lives on calendars and events, not on the dial's
+                  {/* A mark lives on calendars and events, not on the dial's
                   geometry — but whether a bare event borrows one is still a
                   question of what an arc prints, which is the question "Arc
                   names" answers above, so it sits here rather than opening a
                   section of its own. Two words, because the `Life` card's own
                   `Marks` row is about the milestone rings: one label per
                   meaning, or the panel stops being a map. */}
-                <FieldRow label="Event marks" align="top">
-                  <Toggle
-                    label="Inherit"
-                    name="Bare events show the calendar's mark"
-                    checked={inheritMarks}
-                    onChange={(on) => store.setToggle("inheritMarks", on)}
-                  />
-                  <span className="caption">
-                    Off, an event with no mark of its own is just its colour; on, it borrows the
-                    calendar's — sensible with one calendar per kind of thing, redundant with one
-                    calendar per person
-                  </span>
-                </FieldRow>
+                  <FieldRow label="Event marks" align="top">
+                    <Toggle
+                      label="Inherit"
+                      name="Bare events show the calendar's mark"
+                      checked={inheritMarks}
+                      onChange={(on) => store.setToggle("inheritMarks", on)}
+                    />
+                    <span className="caption">
+                      Off, an event with no mark of its own is just its colour; on, it borrows the
+                      calendar's — sensible with one calendar per kind of thing, redundant with one
+                      calendar per person
+                    </span>
+                  </FieldRow>
 
-                <FieldRow label="2nd ring" align={secondZone ? "top" : "center"}>
-                  <Select
-                    value={secondZone}
-                    onChange={store.setSecondZone}
-                    label="Second timezone"
-                    className="flex-1"
-                    options={ZONE_OPTIONS}
-                  />
-                  {secondZone && (
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                      <Toggle
-                        label="City name"
-                        checked={showZoneName}
-                        onChange={(on) => store.setToggle("showZoneName", on)}
-                      />
-                      <Toggle
-                        label="Offset"
-                        checked={showZoneOffset}
-                        onChange={(on) => store.setToggle("showZoneOffset", on)}
-                      />
-                      {zonePlace && (
-                        <>
-                          <Toggle
-                            label="Daylight"
-                            name="Second ring daylight"
-                            checked={zoneDaylight}
-                            onChange={(on) => store.setToggle("zoneDaylight", on)}
-                          />
-                          <Toggle
-                            label="Moonlight"
-                            name="Second ring moonlight"
-                            checked={zoneMoonlight}
-                            onChange={(on) => store.setToggle("zoneMoonlight", on)}
-                          />
-                        </>
-                      )}
-                    </div>
-                  )}
-                </FieldRow>
+                  <FieldRow label="2nd ring" align={secondZone ? "top" : "center"}>
+                    <Select
+                      value={secondZone}
+                      onChange={store.setSecondZone}
+                      label="Second timezone"
+                      className="flex-1"
+                      options={ZONE_OPTIONS}
+                    />
+                    {secondZone && (
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                        <Toggle
+                          label="City name"
+                          checked={showZoneName}
+                          onChange={(on) => store.setToggle("showZoneName", on)}
+                        />
+                        <Toggle
+                          label="Offset"
+                          checked={showZoneOffset}
+                          onChange={(on) => store.setToggle("showZoneOffset", on)}
+                        />
+                        {zonePlace && (
+                          <>
+                            <Toggle
+                              label="Daylight"
+                              name="Second ring daylight"
+                              checked={zoneDaylight}
+                              onChange={(on) => store.setToggle("zoneDaylight", on)}
+                            />
+                            <Toggle
+                              label="Moonlight"
+                              name="Second ring moonlight"
+                              checked={zoneMoonlight}
+                              onChange={(on) => store.setToggle("zoneMoonlight", on)}
+                            />
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </FieldRow>
 
-                <FieldRow label="Lightcycle" align="top">
-                  <Select
-                    value={place?.zone ?? ""}
-                    onChange={pickPlace}
-                    label="Place"
-                    className="flex-1"
-                    options={LIGHTCYCLE_OPTIONS}
-                  />
-                  {place && (
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                      <Toggle
-                        label="Daylight"
-                        checked={daylight}
-                        onChange={(on) => store.setToggle("daylight", on)}
-                      />
-                      <Toggle
-                        label="Moonlight"
-                        checked={moonlight}
-                        onChange={(on) => store.setToggle("moonlight", on)}
-                      />
-                    </div>
-                  )}
-                  <span className="caption tabular-nums">
-                    {!place
-                      ? "Puts the day's light on the ring, in place of the elapsed trail"
-                      : sun?.polar === "day"
-                        ? "Midnight sun"
-                        : sun?.polar === "night"
-                          ? "Polar night"
-                          : sun?.sunrise != null && sun.sunset != null
-                            ? `${formatTimeShort(atMinutes(new Date(), sun.sunrise), clock)} – ${formatTimeShort(atMinutes(new Date(), sun.sunset), clock)}`
-                            : "No sunrise today"}
-                  </span>
-                </FieldRow>
+                  <FieldRow label="Lightcycle" align="top">
+                    <Select
+                      value={place?.zone ?? ""}
+                      onChange={pickPlace}
+                      label="Place"
+                      className="flex-1"
+                      options={LIGHTCYCLE_OPTIONS}
+                    />
+                    {place && (
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                        <Toggle
+                          label="Daylight"
+                          checked={daylight}
+                          onChange={(on) => store.setToggle("daylight", on)}
+                        />
+                        <Toggle
+                          label="Moonlight"
+                          checked={moonlight}
+                          onChange={(on) => store.setToggle("moonlight", on)}
+                        />
+                      </div>
+                    )}
+                    <span className="caption tabular-nums">
+                      {!place
+                        ? "Puts the day's light on the ring, in place of the elapsed trail"
+                        : sun?.polar === "day"
+                          ? "Midnight sun"
+                          : sun?.polar === "night"
+                            ? "Polar night"
+                            : sun?.sunrise != null && sun.sunset != null
+                              ? `${formatTimeShort(atMinutes(new Date(), sun.sunrise), clock)} – ${formatTimeShort(atMinutes(new Date(), sun.sunset), clock)}`
+                              : "No sunrise today"}
+                    </span>
+                  </FieldRow>
 
-                {/* Ambient is a display mode, so what it shows is its own
+                  {/* Ambient is a display mode, so what it shows is its own
                   question — and every switch here can only take away what the
                   working face already draws. A mode is not an argument with a
                   choice the user already made. */}
-                <FieldRow label="Ambient" align="top" last>
-                  <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
-                    <Select
-                      value={String(ambientAfter)}
-                      onChange={(next) => store.setAmbientAfter(Number(next))}
-                      label="Start ambient after"
-                      options={AMBIENT_OPTIONS}
-                    />
-                    <span className="label text-ink-2">Start on its own</span>
-                  </div>
-                  {/* Every one of these annotates something that has to exist
+                  <FieldRow label="Ambient" align="top" last>
+                    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
+                      <Select
+                        value={String(ambientAfter)}
+                        onChange={(next) => store.setAmbientAfter(Number(next))}
+                        label="Start ambient after"
+                        options={AMBIENT_OPTIONS}
+                      />
+                      <span className="label text-ink-2">Start on its own</span>
+                    </div>
+                    {/* Every one of these annotates something that has to exist
                     first, so with a bare dial the row is not empty — it is
                     not there. An empty flex row is a gap nobody can explain.
 
                     The two halves are ambient's own, not a view of the ones
                     above: only the place is shared, because a person is
                     somewhere and that is not a property of a mode. */}
-                  {(place || secondZone) && (
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                      {place && (
-                        <>
+                    {(place || secondZone) && (
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                        {place && (
+                          <>
+                            <Toggle
+                              label="Daylight"
+                              name="Ambient daylight"
+                              checked={ambientDaylight}
+                              onChange={(on) => store.setToggle("ambientDaylight", on)}
+                            />
+                            <Toggle
+                              label="Moonlight"
+                              name="Ambient moonlight"
+                              checked={ambientMoonlight}
+                              onChange={(on) => store.setToggle("ambientMoonlight", on)}
+                            />
+                            <Toggle
+                              label="Dusk dim"
+                              name="Dim with the lightcycle"
+                              checked={ambientDim}
+                              onChange={(on) => store.setToggle("ambientDim", on)}
+                            />
+                          </>
+                        )}
+                        {secondZone && (
                           <Toggle
-                            label="Daylight"
-                            name="Ambient daylight"
-                            checked={ambientDaylight}
-                            onChange={(on) => store.setToggle("ambientDaylight", on)}
+                            label="2nd ring"
+                            name="Second ring in ambient"
+                            checked={ambientZoneRing}
+                            onChange={(on) => store.setToggle("ambientZoneRing", on)}
                           />
-                          <Toggle
-                            label="Moonlight"
-                            name="Ambient moonlight"
-                            checked={ambientMoonlight}
-                            onChange={(on) => store.setToggle("ambientMoonlight", on)}
-                          />
-                          <Toggle
-                            label="Dusk dim"
-                            name="Dim with the lightcycle"
-                            checked={ambientDim}
-                            onChange={(on) => store.setToggle("ambientDim", on)}
-                          />
-                        </>
-                      )}
-                      {secondZone && (
-                        <Toggle
-                          label="2nd ring"
-                          name="Second ring in ambient"
-                          checked={ambientZoneRing}
-                          onChange={(on) => store.setToggle("ambientZoneRing", on)}
-                        />
-                      )}
+                        )}
+                      </div>
+                    )}
+                    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
+                      <Segmented
+                        value={ambientArcLabels}
+                        onChange={store.setAmbientArcLabels}
+                        options={[
+                          { id: "always" as const, label: "Always" },
+                          { id: "hover" as const, label: "Hover" },
+                          { id: "off" as const, label: "Off" },
+                        ]}
+                      />
+                      <span className="label text-ink-2">Arc names</span>
                     </div>
-                  )}
-                  <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
-                    <Segmented
-                      value={ambientArcLabels}
-                      onChange={store.setAmbientArcLabels}
-                      options={[
-                        { id: "always" as const, label: "Always" },
-                        { id: "hover" as const, label: "Hover" },
-                        { id: "off" as const, label: "Off" },
-                      ]}
-                    />
-                    <span className="label text-ink-2">Arc names</span>
-                  </div>
-                  <span className="caption">
-                    Chrome away, dial to the window — <Kbd>F</Kbd>, or <Kbd>⇧F</Kbd> for the whole
-                    screen
-                  </span>
-                </FieldRow>
-              </Section>
+                    <span className="caption">
+                      Chrome away, dial to the window — <Kbd>F</Kbd>, or <Kbd>⇧F</Kbd> for the whole
+                      screen
+                    </span>
+                  </FieldRow>
+                </Section>
 
-              {/* Its own card rather than a row inside Face: it is not
+                {/* Its own card rather than a row inside Face: it is not
                   really about the dial, it is the mini-month and the life
                   grid's columns too, and filing it under Face would leave
                   the other two surfaces owning something they cannot see. */}
-              <Section title="Week">
-                <FieldRow label="Starts on" align="top" last>
-                  <Segmented
-                    value={String(weekStart) as "1" | "0" | "6"}
-                    onChange={(next) => store.setWeekStart(Number(next) as WeekStart)}
-                    options={[
-                      { id: "1" as const, label: "MON" },
-                      { id: "0" as const, label: "SUN" },
-                      { id: "6" as const, label: "SAT" },
-                    ]}
-                  />
-                  <span className="caption">
-                    Moves the strip, the mini-month and the life grid's columns together — the three
-                    surfaces read one setting so they cannot disagree about where a week starts
-                  </span>
-                </FieldRow>
-              </Section>
+                <Section title="Week">
+                  <FieldRow label="Starts on" align="top" last>
+                    <Segmented
+                      value={String(weekStart) as "1" | "0" | "6"}
+                      onChange={(next) => store.setWeekStart(Number(next) as WeekStart)}
+                      options={[
+                        { id: "1" as const, label: "MON" },
+                        { id: "0" as const, label: "SUN" },
+                        { id: "6" as const, label: "SAT" },
+                      ]}
+                    />
+                    <span className="caption">
+                      Moves the strip, the mini-month and the life grid's columns together — the
+                      three surfaces read one setting so they cannot disagree about where a week
+                      starts
+                    </span>
+                  </FieldRow>
+                </Section>
 
-              {/* Also its own card: working hours are not a face setting
+                {/* Also its own card: working hours are not a face setting
                   either, and the two rows they touch — the totals line and
                   the palette's slot search — are both elsewhere. */}
-              <Section title="Day">
-                <FieldRow label="Hours" align="top" last>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <TimeField
-                      label="Waking hours start"
-                      clock={clock}
-                      value={atMinutes(new Date(), wakingFrom)}
-                      onCommit={(minutes) => store.setWaking(minutes, wakingTo)}
-                    />
-                    <span className="text-ink-3">–</span>
-                    <TimeField
-                      label="Waking hours end"
-                      clock={clock}
-                      value={atMinutes(new Date(), wakingTo)}
-                      onCommit={(minutes) => store.setWaking(wakingFrom, minutes)}
-                    />
-                  </div>
-                  <span className="caption">
-                    What free time is measured against — the dial's totals line and the palette's
-                    slot search both mean the same thing by "free" because they read this
-                  </span>
-                </FieldRow>
-              </Section>
+                <Section title="Day">
+                  <FieldRow label="Hours" align="top" last>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <TimeField
+                        label="Waking hours start"
+                        clock={clock}
+                        value={atMinutes(new Date(), wakingFrom)}
+                        onCommit={(minutes) => store.setWaking(minutes, wakingTo)}
+                      />
+                      <span className="text-ink-3">–</span>
+                      <TimeField
+                        label="Waking hours end"
+                        clock={clock}
+                        value={atMinutes(new Date(), wakingTo)}
+                        onCommit={(minutes) => store.setWaking(wakingFrom, minutes)}
+                      />
+                    </div>
+                    <span className="caption">
+                      What free time is measured against — the dial's totals line and the palette's
+                      slot search both mean the same thing by "free" because they read this
+                    </span>
+                  </FieldRow>
+                </Section>
 
-              {/* Its own card, because the sidebar is its own surface. The
+                {/* Its own card, because the sidebar is its own surface. The
                   moon is the one thing in this app that draws something the
                   calendar does not contain, and filing it under Face would
                   claim it is on the dial — the one place the "do not add a
                   ring" rule says it may never be. */}
-              <Section title="Sidebar">
-                <FieldRow label="Moon" align="top" last>
-                  <Toggle
-                    label="Phase"
-                    name="Moon phase in the sidebar"
-                    checked={moon}
-                    onChange={(on) => store.setToggle("moon", on)}
-                  />
-                  <span className="caption">
-                    The phase of the selected day, drawn as the astronomy: one disc, the terminator
-                    as an ellipse over it, no outline
-                  </span>
-                </FieldRow>
-              </Section>
+                <Section title="Sidebar">
+                  <FieldRow label="Moon" align="top" last>
+                    <Toggle
+                      label="Phase"
+                      name="Moon phase in the sidebar"
+                      checked={moon}
+                      onChange={(on) => store.setToggle("moon", on)}
+                    />
+                    <span className="caption">
+                      The phase of the selected day, drawn as the astronomy: one disc, the
+                      terminator as an ellipse over it, no outline
+                    </span>
+                  </FieldRow>
+                </Section>
 
-              {/* What ⌘N and a quick-add line start from. Its own card rather
+                {/* What ⌘N and a quick-add line start from. Its own card rather
                   than a row inside Face, because neither of these is anything
                   the dial draws — they are what the app assumes when you have
                   not said. */}
-              <Section title="New event">
-                <FieldRow label="Length">
-                  <NumberField
-                    label="Default event length"
-                    value={defaultDuration}
-                    onChange={store.setDefaultDuration}
-                    suffix="min"
-                    min={MIN_DURATION}
-                    max={MINUTES_PER_DAY}
-                  />
-                </FieldRow>
-                <FieldRow label="Calendar" align="top" last>
-                  <Select
-                    label="Calendar for new events"
-                    value={defaultCalendar}
-                    onChange={store.setDefaultCalendar}
-                    options={[
-                      { value: "", label: "First one" },
-                      ...calendars
-                        .filter((c) => !c.feed)
-                        .map((c) => ({ value: c.id, label: c.name })),
-                    ]}
-                  />
-                  <span className="caption">
-                    Where {MOD}N, a drag on the dial and a quick-add line put an event. A
-                    subscription is never offered: its events are a mirror
-                  </span>
-                </FieldRow>
-              </Section>
-
-              <Section title="Year">
-                <FieldRow label="Quote" align="top" last>
-                  <input
-                    type="text"
-                    value={yearQuote}
-                    onChange={(e) => store.setYearQuote(e.target.value)}
-                    maxLength={YEAR_QUOTE_MAX}
-                    placeholder="Say something"
-                    aria-label="The line under the year ring"
-                    className="h-8 w-full min-w-0 rounded-[8px] bg-surface-2 px-2 text-[13px] text-ink placeholder:text-ink-3"
-                  />
-                  <span className="caption">
-                    Printed in the middle of the ring, under the year. Empty leaves it bare
-                  </span>
-                </FieldRow>
-              </Section>
-
-              <Section title="Life">
-                <FieldRow label="Span" align="top">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <DateField
-                      label="Date of birth"
-                      value={birth}
-                      onChange={(next) => store.setLife(next, lifeExpectancy)}
-                      min="1900-01-01"
-                      max={dayKey(new Date())}
-                      className="w-[150px]"
-                    >
-                      <span className="truncate tabular-nums">
-                        {birthDate ? formatLifeDate(birthDate) : "Not set"}
-                      </span>
-                    </DateField>
+                <Section title="New event">
+                  <FieldRow label="Length">
                     <NumberField
-                      label="Life expectancy in years"
-                      value={lifeExpectancy}
-                      onChange={(next) => store.setLife(birth, next)}
-                      suffix="years"
-                      min={LIFE_EXPECTANCY_RANGE.min}
-                      max={LIFE_EXPECTANCY_RANGE.max}
+                      label="Default event length"
+                      value={defaultDuration}
+                      onChange={store.setDefaultDuration}
+                      suffix="min"
+                      min={MIN_DURATION}
+                      max={MINUTES_PER_DAY}
                     />
-                  </div>
-                  <span className="caption tabular-nums">
-                    {span
-                      ? `${formatCount(span.days)} days — one dot each, ending around ${formatLifeDate(span.death)}`
-                      : "One dot per day for a whole life. The date is asked for once and kept with your own calendar, nowhere else"}
-                  </span>
-                </FieldRow>
-                <FieldRow label="Marks" align="top">
-                  <Toggle
-                    label="Milestones"
-                    checked={milestones}
-                    onChange={(on) => store.setToggle("milestones", on)}
-                  />
-                  <span className="caption">
-                    Rings the round days: the ten-thousandth, the twenty-thousandth, the midpoint.
-                    Click one for what it means
-                  </span>
-                </FieldRow>
-                <FieldRow label="Loupe" align="top" last>
-                  <Toggle
-                    label="Magnify the year"
-                    checked={lifeLoupe}
-                    onChange={(on) => store.setToggle("lifeLoupe", on)}
-                  />
-                  <span className="caption">
-                    Point at a day and its whole year comes up on a card, large enough to read and
-                    to drag a range across. The eighty years stay where they are
-                  </span>
-                </FieldRow>
-              </Section>
+                  </FieldRow>
+                  <FieldRow label="Calendar" align="top" last>
+                    <Select
+                      label="Calendar for new events"
+                      value={defaultCalendar}
+                      onChange={store.setDefaultCalendar}
+                      options={[
+                        { value: "", label: "First one" },
+                        ...calendars
+                          .filter((c) => !c.feed)
+                          .map((c) => ({ value: c.id, label: c.name })),
+                      ]}
+                    />
+                    <span className="caption">
+                      Where {MOD}N, a drag on the dial and a quick-add line put an event. A
+                      subscription is never offered: its events are a mirror
+                    </span>
+                  </FieldRow>
+                </Section>
 
-              <Section title="Reminders">
-                <FieldRow label="Notify" align="top" last>
-                  <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
-                    <Toggle
-                      label="On"
-                      name="Notify before an event starts"
-                      checked={remind}
-                      onChange={(on) => void toggleRemind(on)}
+                <Section title="Year">
+                  <FieldRow label="Quote" align="top" last>
+                    <input
+                      type="text"
+                      value={yearQuote}
+                      onChange={(e) => store.setYearQuote(e.target.value)}
+                      maxLength={YEAR_QUOTE_MAX}
+                      placeholder="Say something"
+                      aria-label="The line under the year ring"
+                      className="h-8 w-full min-w-0 rounded-[8px] bg-surface-2 px-2 text-[13px] text-ink placeholder:text-ink-3"
                     />
-                    {remind && (
-                      <Select
-                        value={String(remindLead)}
-                        onChange={(next) => store.setRemindLead(Number(next))}
-                        label="How much warning"
-                        options={REMIND_OPTIONS}
+                    <span className="caption">
+                      Printed in the middle of the ring, under the year. Empty leaves it bare
+                    </span>
+                  </FieldRow>
+                </Section>
+
+                <Section title="Life">
+                  <FieldRow label="Span" align="top">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <DateField
+                        label="Date of birth"
+                        value={birth}
+                        onChange={(next) => store.setLife(next, lifeExpectancy)}
+                        min="1900-01-01"
+                        max={dayKey(new Date())}
+                        className="w-[150px]"
+                      >
+                        <span className="truncate tabular-nums">
+                          {birthDate ? formatLifeDate(birthDate) : "Not set"}
+                        </span>
+                      </DateField>
+                      <NumberField
+                        label="Life expectancy in years"
+                        value={lifeExpectancy}
+                        onChange={(next) => store.setLife(birth, next)}
+                        suffix="years"
+                        min={LIFE_EXPECTANCY_RANGE.min}
+                        max={LIFE_EXPECTANCY_RANGE.max}
                       />
-                    )}
-                  </div>
-                  {/* Said out loud, because the absence is the interesting
+                    </div>
+                    <span className="caption tabular-nums">
+                      {span
+                        ? `${formatCount(span.days)} days — one dot each, ending around ${formatLifeDate(span.death)}`
+                        : "One dot per day for a whole life. The date is asked for once and kept with your own calendar, nowhere else"}
+                    </span>
+                  </FieldRow>
+                  <FieldRow label="Marks" align="top">
+                    <Toggle
+                      label="Milestones"
+                      checked={milestones}
+                      onChange={(on) => store.setToggle("milestones", on)}
+                    />
+                    <span className="caption">
+                      Rings the round days: the ten-thousandth, the twenty-thousandth, the midpoint.
+                      Click one for what it means
+                    </span>
+                  </FieldRow>
+                  <FieldRow label="Loupe" align="top" last>
+                    <Toggle
+                      label="Magnify the year"
+                      checked={lifeLoupe}
+                      onChange={(on) => store.setToggle("lifeLoupe", on)}
+                    />
+                    <span className="caption">
+                      Point at a day and its whole year comes up on a card, large enough to read and
+                      to drag a range across. The eighty years stay where they are
+                    </span>
+                  </FieldRow>
+                </Section>
+
+                <Section title="Reminders">
+                  <FieldRow label="Notify" align="top" last>
+                    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
+                      <Toggle
+                        label="On"
+                        name="Notify before an event starts"
+                        checked={remind}
+                        onChange={(on) => void toggleRemind(on)}
+                      />
+                      {remind && (
+                        <Select
+                          value={String(remindLead)}
+                          onChange={(next) => store.setRemindLead(Number(next))}
+                          label="How much warning"
+                          options={REMIND_OPTIONS}
+                        />
+                      )}
+                    </div>
+                    {/* Said out loud, because the absence is the interesting
                       part: a calendar that never tells you anything is a
                       viewer, and the reason this one only speaks while it is
                       open is the reason nothing here runs on a server.
@@ -1024,267 +1040,270 @@ export default function Settings({
                       here leaves this browser", which the cloud copy three
                       cards down made false — a signed-in row is somewhere
                       else, and none of it runs circal's code. */}
-                  <span className="caption">
-                    Only while circal is open, in this tab. Reminders with it closed would need a
-                    server pushing them at you, and circal runs nowhere but this browser
-                  </span>
-                </FieldRow>
-              </Section>
+                    <span className="caption">
+                      Only while circal is open, in this tab. Reminders with it closed would need a
+                      server pushing them at you, and circal runs nowhere but this browser
+                    </span>
+                  </FieldRow>
+                </Section>
 
-              <Section title="Feedback">
-                {/* No caption: two switches whose labels are the whole of what
+                <Section title="Feedback">
+                  {/* No caption: two switches whose labels are the whole of what
                   they do, and the app demonstrates the rest the moment either
                   is on. */}
-                <FieldRow label="Cues" align="top" last>
-                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                    <Toggle
-                      label="Sound"
-                      checked={tickSound}
-                      onChange={(on) => store.setToggle("tickSound", on)}
-                    />
-                    {vibrates && (
+                  <FieldRow label="Cues" align="top" last>
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                       <Toggle
-                        label="Vibration"
-                        checked={tickHaptics}
-                        onChange={(on) => store.setToggle("tickHaptics", on)}
+                        label="Sound"
+                        checked={tickSound}
+                        onChange={(on) => store.setToggle("tickSound", on)}
                       />
-                    )}
-                  </div>
-                </FieldRow>
-              </Section>
-
-              <Section title="Data">
-                <FieldRow label="Feeds" align="top">
-                  {subscriptions.length === 0 && (
-                    <span className="caption">
-                      Paste a public ICS link — read-only, refreshed on launch
-                    </span>
-                  )}
-                  {subscriptions.map((calendar) => (
-                    <div key={calendar.id} className="flex items-center gap-2">
-                      <CalendarMark icon={calendar.icon} color={calendar.color} size={14} />
-                      <span className="flex min-w-0 flex-1 flex-col">
-                        <span className="truncate text-[13px] text-ink">{calendar.name}</span>
-                        <span
-                          className={feedMetaClass(calendar.feed?.error)}
-                          title={calendar.feed?.error || calendar.feed?.url}
-                        >
-                          {pulling === calendar.id
-                            ? "PULLING…"
-                            : calendar.feed?.error || relativeAge(calendar.feed?.fetchedAt ?? 0)}
-                        </span>
-                      </span>
-                      <IconButton label={`Refresh ${calendar.name}`} onClick={() => pull(calendar)}>
-                        <RefreshCw size={13} strokeWidth={1.75} />
-                      </IconButton>
-                      <IconButton
-                        label={`Remove ${calendar.name}`}
-                        onClick={() => store.removeCalendar(calendar.id)}
-                      >
-                        <Trash2 size={13} strokeWidth={1.75} />
-                      </IconButton>
+                      {vibrates && (
+                        <Toggle
+                          label="Vibration"
+                          checked={tickHaptics}
+                          onChange={(on) => store.setToggle("tickHaptics", on)}
+                        />
+                      )}
                     </div>
-                  ))}
-                  <div className="flex flex-wrap items-center gap-2">
-                    <TextField
-                      type="url"
-                      inputMode="url"
-                      value={feedUrl}
-                      onChange={setFeedUrl}
-                      onEnter={() => void addFeed()}
-                      label="Feed URL"
-                      placeholder="https://…/basic.ics"
-                      className="flex-1 basis-[140px]"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => void addFeed()}
-                      disabled={!feedUrl.trim()}
-                      className="h-8 shrink-0 rounded-[8px] border border-hairline bg-surface-2 px-3 text-[13px] text-ink transition-colors hover:bg-white/10 disabled:pointer-events-none disabled:opacity-35"
-                    >
-                      Add
-                    </button>
-                  </div>
-                </FieldRow>
+                  </FieldRow>
+                </Section>
 
-                {/* Only when there is something to say: after the travel
+                <Section title="Data">
+                  <FieldRow label="Feeds" align="top">
+                    {subscriptions.length === 0 && (
+                      <span className="caption">
+                        Paste a public ICS link — read-only, refreshed on launch
+                      </span>
+                    )}
+                    {subscriptions.map((calendar) => (
+                      <div key={calendar.id} className="flex items-center gap-2">
+                        <CalendarMark icon={calendar.icon} color={calendar.color} size={14} />
+                        <span className="flex min-w-0 flex-1 flex-col">
+                          <span className="truncate text-[13px] text-ink">{calendar.name}</span>
+                          <span
+                            className={feedMetaClass(calendar.feed?.error)}
+                            title={calendar.feed?.error || calendar.feed?.url}
+                          >
+                            {pulling === calendar.id
+                              ? "PULLING…"
+                              : calendar.feed?.error || relativeAge(calendar.feed?.fetchedAt ?? 0)}
+                          </span>
+                        </span>
+                        <IconButton
+                          label={`Refresh ${calendar.name}`}
+                          onClick={() => pull(calendar)}
+                        >
+                          <RefreshCw size={13} strokeWidth={1.75} />
+                        </IconButton>
+                        <IconButton
+                          label={`Remove ${calendar.name}`}
+                          onClick={() => store.removeCalendar(calendar.id)}
+                        >
+                          <Trash2 size={13} strokeWidth={1.75} />
+                        </IconButton>
+                      </div>
+                    ))}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <TextField
+                        type="url"
+                        inputMode="url"
+                        value={feedUrl}
+                        onChange={setFeedUrl}
+                        onEnter={() => void addFeed()}
+                        label="Feed URL"
+                        placeholder="https://…/basic.ics"
+                        className="flex-1 basis-[140px]"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void addFeed()}
+                        disabled={!feedUrl.trim()}
+                        className="h-8 shrink-0 rounded-[8px] border border-hairline bg-surface-2 px-3 text-[13px] text-ink transition-colors hover:bg-white/10 disabled:pointer-events-none disabled:opacity-35"
+                      >
+                        Add
+                      </button>
+                    </div>
+                  </FieldRow>
+
+                  {/* Only when there is something to say: after the travel
                     notice was answered with "move", or on a browser that never
                     travelled, nothing carries a stamp and a row offering to
                     clear nothing is worse than no row. */}
-                {stampCount > 0 && (
-                  <FieldRow label="Zones" align="top">
-                    {/* The place is in the verb, not only in the sentence:
+                  {stampCount > 0 && (
+                    <FieldRow label="Zones" align="top">
+                      {/* The place is in the verb, not only in the sentence:
                         "Clear 24 Berlin stamps" says what is about to happen
                         where a bare number does not. Two journeys kept in a
                         row name two places, and then the number leads and the
                         caption carries them. */}
-                    <DataButton
-                      icon={<RotateCcw size={13} strokeWidth={1.75} />}
-                      onClick={clearStamps}
-                    >
-                      Clear {stampCount} {stampPlaces.length === 1 ? `${stampPlaces[0]} ` : ""}
-                      stamp{stampCount === 1 ? "" : "s"}
-                    </DataButton>
-                    {/* Says what the scope actually is, including the part it
+                      <DataButton
+                        icon={<RotateCcw size={13} strokeWidth={1.75} />}
+                        onClick={clearStamps}
+                      >
+                        Clear {stampCount} {stampPlaces.length === 1 ? `${stampPlaces[0]} ` : ""}
+                        stamp{stampCount === 1 ? "" : "s"}
+                      </DataButton>
+                      {/* Says what the scope actually is, including the part it
                         cannot tell apart: an imported .ics event naming one of
                         these same cities is indistinguishable from a stamped
                         one, and promising precision this does not have would
                         be worse than naming the edge. */}
+                      <span className="caption">
+                        Kept when this browser arrived from {stampPlaces.join(", ")}. Clearing makes
+                        them floating again, drawn on whatever clock this browser is having — an
+                        imported event naming the same place is cleared with them
+                      </span>
+                    </FieldRow>
+                  )}
+
+                  <FieldRow label="Backup" align="top">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <DataButton
+                        icon={<Download size={13} strokeWidth={1.75} />}
+                        onClick={actions.exportIcs}
+                      >
+                        Export .ics
+                      </DataButton>
+                      <DataButton
+                        icon={<Download size={13} strokeWidth={1.75} />}
+                        onClick={actions.exportBackup}
+                      >
+                        Backup .json
+                      </DataButton>
+                      <DataButton
+                        icon={<Upload size={13} strokeWidth={1.75} />}
+                        onClick={actions.importFile}
+                      >
+                        Import…
+                      </DataButton>
+                    </div>
                     <span className="caption">
-                      Kept when this browser arrived from {stampPlaces.join(", ")}. Clearing makes
-                      them floating again, drawn on whatever clock this browser is having — an
-                      imported event naming the same place is cleared with them
+                      Events live in this browser. With no live copy connected below, a backup is
+                      the only one that survives it
                     </span>
                   </FieldRow>
-                )}
 
-                <FieldRow label="Backup" align="top">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <DataButton
-                      icon={<Download size={13} strokeWidth={1.75} />}
-                      onClick={actions.exportIcs}
-                    >
-                      Export .ics
-                    </DataButton>
-                    <DataButton
-                      icon={<Download size={13} strokeWidth={1.75} />}
-                      onClick={actions.exportBackup}
-                    >
-                      Backup .json
-                    </DataButton>
-                    <DataButton
-                      icon={<Upload size={13} strokeWidth={1.75} />}
-                      onClick={actions.importFile}
-                    >
-                      Import…
-                    </DataButton>
-                  </div>
-                  <span className="caption">
-                    Events live in this browser. With no live copy connected below, a backup is the
-                    only one that survives it
-                  </span>
-                </FieldRow>
-
-                <FieldRow label="Nudge" align="top" last>
-                  <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
-                    <Toggle
-                      label="On"
-                      name="Warn when a backup is overdue"
-                      checked={backupNudge}
-                      onChange={(on) => store.setToggle("backupNudge", on)}
-                    />
-                    {backupNudge && (
-                      <Select
-                        value={String(backupInterval)}
-                        onChange={(next) => store.setBackupInterval(Number(next))}
-                        label="How long between backups"
-                        options={BACKUP_OPTIONS}
+                  <FieldRow label="Nudge" align="top" last>
+                    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
+                      <Toggle
+                        label="On"
+                        name="Warn when a backup is overdue"
+                        checked={backupNudge}
+                        onChange={(on) => store.setToggle("backupNudge", on)}
                       />
-                    )}
-                  </div>
-                  {/* Said here because the nudge itself is one quiet line with
+                      {backupNudge && (
+                        <Select
+                          value={String(backupInterval)}
+                          onChange={(next) => store.setBackupInterval(Number(next))}
+                          label="How long between backups"
+                          options={BACKUP_OPTIONS}
+                        />
+                      )}
+                    </div>
+                    {/* Said here because the nudge itself is one quiet line with
                       no room to explain why it only speaks in some browsers: a
                       live mirror is the better answer where it exists, and this
                       warning stands in for it where it cannot. */}
-                  <span className="caption">
-                    On the main screen, when no backup has been saved in a while. Silent while a
-                    mirror file or the cloud copy is connected below — that copy is already live
-                  </span>
-                </FieldRow>
-              </Section>
+                    <span className="caption">
+                      On the main screen, when no backup has been saved in a while. Silent while a
+                      mirror file or the cloud copy is connected below — that copy is already live
+                    </span>
+                  </FieldRow>
+                </Section>
 
-              {/* Same subject as Data/Backup above — the only copy of the
+                {/* Same subject as Data/Backup above — the only copy of the
                   user's calendar — but this copy is *live*: a file on disk
                   the app keeps in sync rather than a snapshot taken once and
                   set aside. That is also what makes it the one surface an
                   outside program (an AI assistant, a script) can read and
                   write without circal growing a server. */}
-              <Section title="Mirror">
-                <FieldRow label="File" align="top" last>
-                  {!canMirror ? (
-                    <span className="caption">
-                      This browser can't hold a file handle for a live mirror — Export above still
-                      works
-                    </span>
-                  ) : (
-                    <>
-                      {/* `DataButton`, not `ActionPill` — the pill is the top
+                <Section title="Mirror">
+                  <FieldRow label="File" align="top" last>
+                    {!canMirror ? (
+                      <span className="caption">
+                        This browser can't hold a file handle for a live mirror — Export above still
+                        works
+                      </span>
+                    ) : (
+                      <>
+                        {/* `DataButton`, not `ActionPill` — the pill is the top
                           bar's vocabulary, where `label` is only ever the
                           aria-label and an icon is the whole control. In a
                           settings row that renders as a bare glyph with no
                           words on it, which is a poor thing for the one
                           button that turns a feature on. These sit directly
                           under Export/Backup/Import and speak the same way. */}
-                      {mirrorStatus.state === "off" && (
-                        <>
-                          <DataButton
-                            icon={<Link2 size={13} strokeWidth={1.75} />}
-                            onClick={() => void mirror.connect()}
-                            disabled={cloudEngaged}
-                          >
-                            Connect a file…
-                          </DataButton>
-                          <span className="caption">
-                            Circal keeps a live .json copy in a file you choose. That file is a
-                            backup that survives "Clear site data", and it's the file a local AI
-                            assistant reads and writes
-                          </span>
-                        </>
-                      )}
-                      {mirrorStatus.state === "prompt" && (
-                        <>
-                          <DataButton
-                            icon={<Link2 size={13} strokeWidth={1.75} />}
-                            onClick={() => void mirror.reconnect()}
-                            disabled={cloudEngaged}
-                          >
-                            Resume
-                          </DataButton>
-                          <span className="caption truncate">{mirrorStatus.name}</span>
-                        </>
-                      )}
-                      {mirrorStatus.state === "live" && (
-                        <>
-                          <span className="flex min-w-0 flex-col">
-                            <span className="truncate text-[13px] text-ink">
-                              {mirrorStatus.name}
-                            </span>
-                            <span className="caption tabular-nums">
-                              synced {mirrorAge(mirrorStatus.at)}
-                            </span>
-                          </span>
-                          <div className="flex flex-wrap items-center gap-2">
+                        {mirrorStatus.state === "off" && (
+                          <>
                             <DataButton
-                              icon={<RefreshCw size={13} strokeWidth={1.75} />}
-                              onClick={() => void mirror.syncNow()}
+                              icon={<Link2 size={13} strokeWidth={1.75} />}
+                              onClick={() => void mirror.connect()}
+                              disabled={cloudEngaged}
                             >
-                              Sync now
+                              Connect a file…
                             </DataButton>
+                            <span className="caption">
+                              Circal keeps a live .json copy in a file you choose. That file is a
+                              backup that survives "Clear site data", and it's the file a local AI
+                              assistant reads and writes
+                            </span>
+                          </>
+                        )}
+                        {mirrorStatus.state === "prompt" && (
+                          <>
                             <DataButton
-                              icon={<Unlink2 size={13} strokeWidth={1.75} />}
-                              onClick={() => void mirror.disconnect()}
+                              icon={<Link2 size={13} strokeWidth={1.75} />}
+                              onClick={() => void mirror.reconnect()}
+                              disabled={cloudEngaged}
                             >
-                              Disconnect
+                              Resume
                             </DataButton>
-                            {/* Anchor, not button — an assistant reads this
+                            <span className="caption truncate">{mirrorStatus.name}</span>
+                          </>
+                        )}
+                        {mirrorStatus.state === "live" && (
+                          <>
+                            <span className="flex min-w-0 flex-col">
+                              <span className="truncate text-[13px] text-ink">
+                                {mirrorStatus.name}
+                              </span>
+                              <span className="caption tabular-nums">
+                                synced {mirrorAge(mirrorStatus.at)}
+                              </span>
+                            </span>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <DataButton
+                                icon={<RefreshCw size={13} strokeWidth={1.75} />}
+                                onClick={() => void mirror.syncNow()}
+                              >
+                                Sync now
+                              </DataButton>
+                              <DataButton
+                                icon={<Unlink2 size={13} strokeWidth={1.75} />}
+                                onClick={() => void mirror.disconnect()}
+                              >
+                                Disconnect
+                              </DataButton>
+                              {/* Anchor, not button — an assistant reads this
                                 file once it is live, and setup is a page,
                                 not an action. Opens in a new tab for the
                                 same reason as the Manifesto link below. */}
-                            <a
-                              href="/assistant/"
-                              target="_blank"
-                              rel="noopener"
-                              className="flex h-8 w-fit items-center gap-1.5 rounded-[8px] border border-hairline bg-surface-2 px-2.5 text-[13px] text-ink transition-colors hover:bg-white/10"
-                            >
-                              <ArrowUpRight size={13} strokeWidth={1.75} />
-                              Set up an assistant
-                            </a>
-                          </div>
-                        </>
-                      )}
-                      {mirrorStatus.state === "error" && (
-                        <>
-                          {/* Plain `.caption`, not `text-danger`: a link that
+                              <a
+                                href="/assistant/"
+                                target="_blank"
+                                rel="noopener"
+                                className="flex h-8 w-fit items-center gap-1.5 rounded-[8px] border border-hairline bg-surface-2 px-2.5 text-[13px] text-ink transition-colors hover:bg-white/10"
+                              >
+                                <ArrowUpRight size={13} strokeWidth={1.75} />
+                                Set up an assistant
+                              </a>
+                            </div>
+                          </>
+                        )}
+                        {mirrorStatus.state === "error" && (
+                          <>
+                            {/* Plain `.caption`, not `text-danger`: a link that
                               is down is not a destructive action, and the
                               calendar is whole in `localStorage` either way.
                               It was red until the cloud half arrived beside it
@@ -1294,125 +1313,125 @@ export default function Settings({
                               answer. `feedMetaClass` keeps its red for a
                               different claim — a subscription that is failing
                               is showing stale events right now. */}
-                          <span className="caption">{mirrorStatus.message}</span>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <DataButton
-                              icon={<Link2 size={13} strokeWidth={1.75} />}
-                              onClick={() => void mirror.reconnect()}
-                              disabled={cloudEngaged}
-                            >
-                              Resume
-                            </DataButton>
-                            <DataButton
-                              icon={<Unlink2 size={13} strokeWidth={1.75} />}
-                              onClick={() => void mirror.disconnect()}
-                            >
-                              Disconnect
-                            </DataButton>
-                          </div>
-                        </>
-                      )}
-                      {/* Why the verb above is dead rather than missing: the
+                            <span className="caption">{mirrorStatus.message}</span>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <DataButton
+                                icon={<Link2 size={13} strokeWidth={1.75} />}
+                                onClick={() => void mirror.reconnect()}
+                                disabled={cloudEngaged}
+                              >
+                                Resume
+                              </DataButton>
+                              <DataButton
+                                icon={<Unlink2 size={13} strokeWidth={1.75} />}
+                                onClick={() => void mirror.disconnect()}
+                              >
+                                Disconnect
+                              </DataButton>
+                            </div>
+                          </>
+                        )}
+                        {/* Why the verb above is dead rather than missing: the
                           handle is still remembered and Disconnect is still
                           the way out of it, so hiding the row would trap a
                           reader who arrived with both remembered. Said once
                           for all four states, since it is true of all four. */}
-                      {cloudEngaged && (
-                        <span className="caption">
-                          One live copy at a time — sign out of the cloud copy below to mirror to a
-                          file instead
-                        </span>
-                      )}
-                      {/* Said plainly, once, regardless of state: a file
+                        {cloudEngaged && (
+                          <span className="caption">
+                            One live copy at a time — sign out of the cloud copy below to mirror to
+                            a file instead
+                          </span>
+                        )}
+                        {/* Said plainly, once, regardless of state: a file
                           circal keeps open for an assistant to write is a
                           file anything that can read it can write to, and
                           that is a property of the feature, not a warning
                           that goes away once you already trust it. */}
-                      <span className="caption">
-                        While the file is connected, anything that can read it can read and change
-                        your calendar
-                      </span>
-                    </>
-                  )}
-                </FieldRow>
-              </Section>
+                        <span className="caption">
+                          While the file is connected, anything that can read it can read and change
+                          your calendar
+                        </span>
+                      </>
+                    )}
+                  </FieldRow>
+                </Section>
 
-              {/* Absent, not disabled and not explained, where no project is
+                {/* Absent, not disabled and not explained, where no project is
                   configured: `SYNC.md` opens Phase 2 with "the app must be
                   byte-identical for somebody who never signs in", and a fork
                   that never set the two env vars is that person a step
                   earlier. The Mirror section above is the sibling this reads
                   as — same subject, same verbs, one transport over. */}
-              {canCloud && (
-                <Section title="Cloud">
-                  <FieldRow label="Account" align="top" last>
-                    {mirrorEngaged ? (
-                      <>
-                        <span className="caption">
-                          One live copy at a time — disconnect the mirror file above to sync through
-                          the cloud instead
-                        </span>
-                        {/* The retreat, and only where there is something to
+                {canCloud && (
+                  <Section title="Cloud">
+                    <FieldRow label="Account" align="top" last>
+                      {mirrorEngaged ? (
+                        <>
+                          <span className="caption">
+                            One live copy at a time — disconnect the mirror file above to sync
+                            through the cloud instead
+                          </span>
+                          {/* The retreat, and only where there is something to
                             retreat from: a session remembered from before the
                             file was picked is the one way both are held at
                             once, and it has to be droppable from here. */}
-                        {cloudEngaged && (
-                          <DataButton
-                            icon={<Unlink2 size={13} strokeWidth={1.75} />}
-                            onClick={() => void signOut()}
-                          >
-                            Sign out
-                          </DataButton>
-                        )}
-                      </>
-                    ) : (
-                      <>
-                        {cloudStatus.state === "off" && (
-                          <>
-                            {cloudFields()}
-                            <span className="caption">
-                              One encrypted copy of this calendar on a server, so another device can
-                              read it. Signing in is a six-digit code by email, never a link to
-                              click
-                            </span>
-                          </>
-                        )}
-                        {/* The transport's own sentence, printed rather than
+                          {cloudEngaged && (
+                            <DataButton
+                              icon={<Unlink2 size={13} strokeWidth={1.75} />}
+                              onClick={() => void signOut()}
+                            >
+                              Sign out
+                            </DataButton>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          {cloudStatus.state === "off" && (
+                            <>
+                              {cloudFields()}
+                              <span className="caption">
+                                One encrypted copy of this calendar on a server, so another device
+                                can read it. Signing in is a six-digit code by email, never a link
+                                to click
+                              </span>
+                            </>
+                          )}
+                          {/* The transport's own sentence, printed rather than
                             paraphrased — it is the one place either state has
                             anything to say, and a second wording of "a code is
                             on its way" is a second vocabulary to drift. */}
-                        {(cloudStatus.state === "prompt" || cloudStatus.state === "error") &&
-                          cloudStatus.message && (
-                            <span className="caption">{cloudStatus.message}</span>
+                          {(cloudStatus.state === "prompt" || cloudStatus.state === "error") &&
+                            cloudStatus.message && (
+                              <span className="caption">{cloudStatus.message}</span>
+                            )}
+                          {cloudStatus.state === "prompt" && cloudFields()}
+                          {cloudStatus.state === "live" && (
+                            <>
+                              <span className="flex min-w-0 flex-col">
+                                <span className="truncate text-[13px] text-ink">
+                                  {cloudStatus.name}
+                                </span>
+                                <span className="caption tabular-nums">
+                                  synced {mirrorAge(cloudStatus.at)}
+                                </span>
+                              </span>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <DataButton
+                                  icon={<RefreshCw size={13} strokeWidth={1.75} />}
+                                  onClick={() => void cloud.syncNow()}
+                                >
+                                  Sync now
+                                </DataButton>
+                                <DataButton
+                                  icon={<Unlink2 size={13} strokeWidth={1.75} />}
+                                  onClick={() => void signOut()}
+                                >
+                                  Sign out
+                                </DataButton>
+                              </div>
+                            </>
                           )}
-                        {cloudStatus.state === "prompt" && cloudFields()}
-                        {cloudStatus.state === "live" && (
-                          <>
-                            <span className="flex min-w-0 flex-col">
-                              <span className="truncate text-[13px] text-ink">
-                                {cloudStatus.name}
-                              </span>
-                              <span className="caption tabular-nums">
-                                synced {mirrorAge(cloudStatus.at)}
-                              </span>
-                            </span>
-                            <div className="flex flex-wrap items-center gap-2">
-                              <DataButton
-                                icon={<RefreshCw size={13} strokeWidth={1.75} />}
-                                onClick={() => void cloud.syncNow()}
-                              >
-                                Sync now
-                              </DataButton>
-                              <DataButton
-                                icon={<Unlink2 size={13} strokeWidth={1.75} />}
-                                onClick={() => void signOut()}
-                              >
-                                Sign out
-                              </DataButton>
-                            </div>
-                          </>
-                        )}
-                        {/* Two failures, two remedies, and the panel picks
+                          {/* Two failures, two remedies, and the panel picks
                             between them off facts it already has rather than
                             off a second reading of the message: a locked box
                             wants the passphrase again (`cloudLocked`), and so
@@ -1424,77 +1443,79 @@ export default function Settings({
                             retry is the whole of the fix. Neither sentence is
                             about lost data and neither is printed in danger
                             colour: nothing here is destructive. */}
-                        {cloudStatus.state === "error" &&
-                          (cloudLocked || !cloudStatus.at ? (
-                            cloudFields()
-                          ) : (
-                            <div className="flex flex-wrap items-center gap-2">
-                              <DataButton
-                                icon={<RefreshCw size={13} strokeWidth={1.75} />}
-                                onClick={() => void cloud.syncNow()}
-                              >
-                                Try again
-                              </DataButton>
-                              <DataButton
-                                icon={<Unlink2 size={13} strokeWidth={1.75} />}
-                                onClick={() => void signOut()}
-                              >
-                                Sign out
-                              </DataButton>
-                            </div>
-                          ))}
-                        {/* Said plainly, once, in every state — the mirror's
+                          {cloudStatus.state === "error" &&
+                            (cloudLocked || !cloudStatus.at ? (
+                              cloudFields()
+                            ) : (
+                              <div className="flex flex-wrap items-center gap-2">
+                                <DataButton
+                                  icon={<RefreshCw size={13} strokeWidth={1.75} />}
+                                  onClick={() => void cloud.syncNow()}
+                                >
+                                  Try again
+                                </DataButton>
+                                <DataButton
+                                  icon={<Unlink2 size={13} strokeWidth={1.75} />}
+                                  onClick={() => void signOut()}
+                                >
+                                  Sign out
+                                </DataButton>
+                              </div>
+                            ))}
+                          {/* Said plainly, once, in every state — the mirror's
                             own argument one transport over: an account is a
                             thing somebody else knows about you, and that is a
                             property of the feature rather than a warning that
                             stops being true once you trust it. */}
-                        <span className="caption">
-                          Whoever runs the project knows the email you sign in with; encrypting the
-                          calendar does not change that
-                        </span>
-                      </>
-                    )}
-                  </FieldRow>
-                </Section>
-              )}
+                          <span className="caption">
+                            Whoever runs the project knows the email you sign in with; encrypting
+                            the calendar does not change that
+                          </span>
+                        </>
+                      )}
+                    </FieldRow>
+                  </Section>
+                )}
 
-              <Section title="About">
-                <FieldRow label="Manifesto" align="top" last={!!reducedMotion}>
-                  {/* An anchor rather than a button: it is a real page, so
+                <Section title="About">
+                  <FieldRow label="Manifesto" align="top" last={!!reducedMotion}>
+                    {/* An anchor rather than a button: it is a real page, so
                       middle-click and "open in new tab" have to work. It opens
                       in one deliberately — installed standalone there is no
                       back button, and navigating away would also cost a reload
                       of a clock that is currently running. */}
-                  <a
-                    href="/manifesto/"
-                    target="_blank"
-                    rel="noopener"
-                    className="flex h-8 w-fit items-center gap-1.5 rounded-[8px] border border-hairline bg-surface-2 px-2.5 text-[13px] text-ink transition-colors hover:bg-white/10"
-                  >
-                    <ArrowUpRight size={13} strokeWidth={1.75} />
-                    Why a day is a circle
-                  </a>
-                  <span className="caption">
-                    One page on what this is, and what it will not become
-                  </span>
-                </FieldRow>
-                {/* Nothing to offer a reader whose system has asked for no
-                    motion: the sweep is the whole of it, and a button that
-                    plays nothing is worse than an absent one. */}
-                {!reducedMotion && (
-                  <FieldRow label="Intro" align="top" last>
-                    <DataButton
-                      icon={<RotateCcw size={13} strokeWidth={1.75} />}
-                      onClick={actions.replayIntro}
+                    <a
+                      href="/manifesto/"
+                      target="_blank"
+                      rel="noopener"
+                      className="flex h-8 w-fit items-center gap-1.5 rounded-[8px] border border-hairline bg-surface-2 px-2.5 text-[13px] text-ink transition-colors hover:bg-white/10"
                     >
-                      Play again
-                    </DataButton>
+                      <ArrowUpRight size={13} strokeWidth={1.75} />
+                      Why a day is a circle
+                    </a>
                     <span className="caption">
-                      One revolution, the day arriving in day order. Shown once, on the first visit
+                      One page on what this is, and what it will not become
                     </span>
                   </FieldRow>
-                )}
-              </Section>
+                  {/* Nothing to offer a reader whose system has asked for no
+                    motion: the sweep is the whole of it, and a button that
+                    plays nothing is worse than an absent one. */}
+                  {!reducedMotion && (
+                    <FieldRow label="Intro" align="top" last>
+                      <DataButton
+                        icon={<RotateCcw size={13} strokeWidth={1.75} />}
+                        onClick={actions.replayIntro}
+                      >
+                        Play again
+                      </DataButton>
+                      <span className="caption">
+                        One revolution, the day arriving in day order. Shown once, on the first
+                        visit
+                      </span>
+                    </FieldRow>
+                  )}
+                </Section>
+              </div>
             </div>
           </motion.div>
         </motion.div>
