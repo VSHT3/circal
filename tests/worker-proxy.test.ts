@@ -21,7 +21,7 @@ const env: Env = { ASSETS };
 
 /** A request at the proxy for `url`, which is encoded for you. */
 function feedRequest(url: string, init?: RequestInit) {
-  return new Request(`https://circal.app/api/feed?url=${encodeURIComponent(url)}`, init);
+  return new Request(`https://circal.day/api/feed?url=${encodeURIComponent(url)}`, init);
 }
 
 /**
@@ -53,14 +53,14 @@ afterEach(() => {
 
 describe("routing", () => {
   it("hands anything outside /api/ to the assets binding", async () => {
-    const response = await worker.fetch(new Request("https://circal.app/"), env);
+    const response = await worker.fetch(new Request("https://circal.day/"), env);
     expect(await response.text()).toBe("<!doctype html>");
   });
 
   it("404s any /api/ route that is not /api/feed", async () => {
     // The one-route rule, made enforceable: a second API route is a different
     // product, and this is where that argument is kept honest.
-    const response = await worker.fetch(new Request("https://circal.app/api/sync"), env);
+    const response = await worker.fetch(new Request("https://circal.day/api/sync"), env);
     expect(response.status).toBe(404);
   });
 
@@ -71,7 +71,7 @@ describe("routing", () => {
   });
 
   it("400s a missing url parameter", async () => {
-    const response = await worker.fetch(new Request("https://circal.app/api/feed"), env);
+    const response = await worker.fetch(new Request("https://circal.day/api/feed"), env);
     expect(response.status).toBe(400);
   });
 
@@ -139,10 +139,10 @@ describe("the response is a calendar, or it is not served", () => {
   it("echoes its own origin back and nobody else's", async () => {
     router({ "https://example.com/c.ics": () => new Response(ICS) });
     const mine = await worker.fetch(
-      feedRequest("https://example.com/c.ics", { headers: { origin: "https://circal.app" } }),
+      feedRequest("https://example.com/c.ics", { headers: { origin: "https://circal.day" } }),
       env,
     );
-    expect(mine.headers.get("access-control-allow-origin")).toBe("https://circal.app");
+    expect(mine.headers.get("access-control-allow-origin")).toBe("https://circal.day");
 
     router({ "https://example.com/c.ics": () => new Response(ICS) });
     const theirs = await worker.fetch(
@@ -160,7 +160,7 @@ describe("the response is a calendar, or it is not served", () => {
 
 describe("assets carry the security headers", () => {
   it("sets them on the way past the binding", async () => {
-    const response = await worker.fetch(new Request("https://circal.app/"), env);
+    const response = await worker.fetch(new Request("https://circal.day/"), env);
 
     // The body is still the binding's, untouched.
     expect(await response.text()).toBe("<!doctype html>");

@@ -4,6 +4,21 @@
   "compatibility_date": "2026-08-05",
   "main": "./worker/index.ts",
 
+  // The apex alone, and `www` deliberately absent — an origin decision, not
+  // an SEO one. Every event lives in `localStorage` under `circal.v1`, which
+  // is keyed by origin, so `www.circal.day` would not be a second address for
+  // this calendar: it would be a second, empty calendar, and a user who
+  // reached it once would be looking at a blank dial with no way to tell why.
+  // `www` gets a Cloudflare redirect rule onto the apex when its DNS record is
+  // made, never a route here. `custom_domain: true` rather than a route
+  // pattern because this Worker *is* the site — a zone route would need the
+  // DNS record to exist first and would leave the rest of the zone unrouted.
+  //
+  // The same origin argument applies to the `workers.dev` subdomain, which is
+  // still enabled: it is the one URL that works before DNS propagates, so it
+  // stays until the apex is verified, then `workers_dev: false` belongs here.
+  "routes": [{ "pattern": "circal.day", "custom_domain": true }],
+
   // Not assets-only: third-party ICS feeds (Google, Apple, Fastmail…) send no
   // CORS headers, so subscribing to one needs a same-origin proxy. That's the
   // Worker's one job — everything else is still the static build.
