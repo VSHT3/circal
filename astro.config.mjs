@@ -10,7 +10,7 @@ import tailwindcss from "@tailwindcss/vite";
 // continuously-animating clock and there is nothing to split out of it.
 // `src/pages/manifesto.astro` is prose and ships no JS at all.
 export default defineConfig({
-  site: "https://circal.app",
+  site: "https://circal.day",
   trailingSlash: "always",
 
   // The app fills the viewport edge to edge; the dev toolbar floats over the

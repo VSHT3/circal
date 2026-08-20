@@ -8,7 +8,7 @@ current minute. A web recreation of [Radical](https://www.raycast.com) for the
 browser.
 
 The argument, on one page: **[the
-manifesto](https://circal.app/manifesto/)**, also reachable from Settings.
+manifesto](https://circal.day/manifesto/)**, also reachable from Settings.
 
 The first time you open it, the face builds itself: the hand goes round once
 and every tick, hour and event arrives as it passes, each one delayed by the

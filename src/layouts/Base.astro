@@ -34,7 +34,7 @@ const { title, description, scroll = false } = Astro.props;
 /**
  * Absolute, because every crawler that reads these requires it — a relative
  * `og:image` is simply dropped. `Astro.site` is the production origin, so this
- * points at circal.app even from a dev preview; the alternative is a card that
+ * points at circal.day even from a dev preview; the alternative is a card that
  * works nowhere.
  */
 const canonical = new URL(Astro.url.pathname, Astro.site);
