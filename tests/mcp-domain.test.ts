@@ -57,6 +57,8 @@ function contents(over: Partial<MirrorContents> = {}): MirrorContents {
     events: [],
     calendars: [calendar({ id: CAL })],
     settings: DEFAULT_SETTINGS,
+    settingsAt: ms("2026-03-08 09:00"),
+    graves: [],
     rev: 1,
     zone: localZone(),
     version: MIRROR_VERSION,
@@ -1004,7 +1006,16 @@ describe("--find reports the mirror files it can actually read", () => {
   let log: MockInstance<(...args: unknown[]) => void>;
 
   const mirror = (events: CalEvent[] = []) =>
-    serialiseMirror({ events, calendars: [calendar({ id: CAL })], settings: DEFAULT_SETTINGS }, 7);
+    serialiseMirror(
+      {
+        events,
+        calendars: [calendar({ id: CAL })],
+        settings: DEFAULT_SETTINGS,
+        settingsAt: 0,
+        graves: [],
+      },
+      7,
+    );
 
   beforeEach(async () => {
     home = await mkdtemp(join(tmpdir(), "circal-find-"));

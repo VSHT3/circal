@@ -40,6 +40,8 @@ const snapshot = (events: CalEvent[] = []): Mutated => ({
   events,
   calendars: [calendar({ id: CAL })],
   settings: DEFAULT_SETTINGS,
+  settingsAt: 0,
+  graves: [],
 });
 
 /** Put a file on disk at a given rev and zone, bypassing the writer. */

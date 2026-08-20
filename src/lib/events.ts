@@ -51,6 +51,15 @@ export interface Calendar {
    * exported as yours.
    */
   feed?: Feed;
+  /**
+   * Epoch ms of the last change to this record, `0` for one written before
+   * stamping existed. Every merge decision about a calendar is made on this
+   * number — see `merge.ts` — so the rule is one line long: whoever commits a
+   * change stamps it, and nothing else touches it. A feed pull deliberately
+   * does **not**, because `fetchedAt` moving is not the calendar changing;
+   * `mirrorDigest` already zeroes that pair for the same reason.
+   */
+  updatedAt: number;
 }
 
 /**
@@ -382,6 +391,91 @@ export function readGuests(
   };
 }
 
+/* ------------------------------ stamps and graves ------------------------- */
+
+/**
+ * A stored stamp, read. Asked about validity rather than only shape, for
+ * `readRemindLead`'s reason one field over: every merge comparison is an
+ * inequality on this number, and `NaN` loses every one of them silently
+ * while a negative one wins against a record that predates stamping.
+ *
+ * `0` is the honest answer for anything unreadable, and it is load-bearing:
+ * it means *this record predates stamping*, which is what tells a merge to
+ * decline to merge rather than to guess.
+ */
+export function readStamp(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return 0;
+  return Math.floor(value);
+}
+
+/**
+ * An id that was deleted, and when.
+ *
+ * Kept because a filtered array cannot tell *deleted here* from *not seen
+ * here*: given two documents that disagree about an id's existence, a merge
+ * by id resurrects every deletion either machine ever made. One list covers
+ * events and calendars together — `newId` mints both out of the same
+ * sequence, so an id names one record of one kind.
+ */
+export interface Grave {
+  id: string;
+  /** Epoch ms of the deletion. */
+  at: number;
+}
+
+/**
+ * How long a deletion is remembered. The consequence is stated rather than
+ * hidden: **a machine offline longer than this resurrects what it deleted.**
+ *
+ * Ninety days is the alternative to unbounded growth inside the one ~5MB
+ * origin quota `FEED_BUDGET` already carves 2M characters out of for
+ * subscriptions. A grave is two fields, so this is not a size bound at any
+ * plausible rate of deleting — it is a bound on the *decade*, where a store
+ * that never forgets a deletion carries every one of them for ever.
+ */
+export const GRAVE_TTL = 90 * 86_400_000;
+
+/**
+ * How many graves are kept at once, newest first.
+ *
+ * The threat is the same unbounded array `ATTENDEE_MAX` bounds, one field
+ * over: an id and an instant are about 45 stored characters, and this list is
+ * the one part of the blob that grows with *use* rather than with what the
+ * user is holding. Five thousand is above ninety days of deleting fifty
+ * events a day and costs about 225,000 characters at that ceiling — a tenth
+ * of what one subscription may spend, inside a quota the calendar itself has
+ * to fit. Past the cap the oldest go, which is the policy `GRAVE_TTL` already
+ * applies by another measure.
+ */
+export const GRAVE_MAX = 5_000;
+
+/**
+ * A stored or imported grave list, read.
+ *
+ * One validator, three readers, for the reason `readGuests` is one:
+ * `backup.readBackup` (untrusted JSON), `store`'s hydration (a blob that
+ * predates the field) and the mirror's read path through the first of those
+ * all have to agree about what a legal grave list is. An id deleted twice
+ * keeps the later instant — the second deletion is the one a resurrection in
+ * between has to lose to.
+ */
+export function readGraves(value: unknown): Grave[] {
+  if (!Array.isArray(value)) return [];
+  const latest = new Map<string, number>();
+  for (const entry of value) {
+    if (entry === null || typeof entry !== "object") continue;
+    const { id, at } = entry as Record<string, unknown>;
+    if (typeof id !== "string" || !id) continue;
+    const when = readStamp(at);
+    if (when === 0) continue;
+    latest.set(id, Math.max(latest.get(id) ?? 0, when));
+  }
+  return [...latest]
+    .map(([id, at]) => ({ id, at }))
+    .sort((a, b) => b.at - a.at)
+    .slice(0, GRAVE_MAX);
+}
+
 export interface Feed {
   url: string;
   /** Epoch ms of the last successful pull. `0` = never pulled. */
@@ -548,6 +642,20 @@ export interface CalEvent extends Recurrence {
    * say the same thing.
    */
   attendeeCount: number;
+  /**
+   * Epoch ms of the last change to this record. `0` means it predates
+   * stamping, which is a document a merge declines to merge rather than one
+   * whose every event loses.
+   *
+   * Stamped by whoever *commits* a change — the `mutate.ts` reducers, which
+   * take the instant as an argument for the same reason they take `mintId`,
+   * and the store actions that do not go through one. A builder never stamps:
+   * `draftEvent`, `duplicateOf` and a shared link's draft all hand back `0`,
+   * because a record that has not been saved has not been changed. A feed's
+   * mirrored events keep that `0` for ever, and it costs nothing — a feed
+   * never merges (`merge.ts`, rule 6); it is re-pulled whole.
+   */
+  updatedAt: number;
 }
 
 /** One concrete appearance of an event on one day, clipped to that day. */

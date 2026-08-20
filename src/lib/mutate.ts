@@ -13,15 +13,37 @@
  * so `store.ts` stays the only place a mutation becomes persisted state.
  * Imports only `./events` and `./recur`: reaching for `./store` would be a
  * cycle, which is why `applySplit` takes `mintId` as a parameter instead of
- * calling `newId` itself.
+ * calling `newId` itself — and why every reducer takes `now` rather than
+ * reading the clock. A reducer is pure over its arguments, and the stamp a
+ * merge reads later is one of its outputs, so it arrives the same way the
+ * ids do.
  * ------------------------------------------------------------------ */
 
-import { toggleDoneKey, type CalEvent } from "./events";
+import { toggleDoneKey, type CalEvent, type Grave } from "./events";
 import { keyToInstant, splitRule } from "./recur";
 
-/** Patches one event; every other event is the same object, untouched. */
-export function applyUpdate(events: CalEvent[], id: string, patch: Partial<CalEvent>): CalEvent[] {
-  return events.map((e) => (e.id === id ? { ...e, ...patch } : e));
+/**
+ * The events that survived a removal, and the graves it left behind.
+ *
+ * Two returns rather than one because the two are not separable: a caller
+ * that took the events and dropped the graves would have deleted an id with
+ * nothing left to say so, which is the whole defect graves exist to close.
+ */
+export interface Removal {
+  events: CalEvent[];
+  graves: Grave[];
+}
+
+/** Patches one event; every other event is the same object, untouched. The
+ *  patched one is stamped, so a merge can tell this copy from the one the
+ *  other machine is holding. */
+export function applyUpdate(
+  events: CalEvent[],
+  id: string,
+  patch: Partial<CalEvent>,
+  now: number,
+): CalEvent[] {
+  return events.map((e) => (e.id === id ? { ...e, ...patch, updatedAt: now } : e));
 }
 
 /**
@@ -29,8 +51,15 @@ export function applyUpdate(events: CalEvent[], id: string, patch: Partial<CalEv
  * event: a weekly task ticked this Monday is not ticked every Monday, and
  * `doneKeys` is the list that says which.
  */
-export function applyToggleDone(events: CalEvent[], id: string, at: Date | number): CalEvent[] {
-  return events.map((e) => (e.id === id ? { ...e, doneKeys: toggleDoneKey(e.doneKeys, at) } : e));
+export function applyToggleDone(
+  events: CalEvent[],
+  id: string,
+  at: Date | number,
+  now: number,
+): CalEvent[] {
+  return events.map((e) =>
+    e.id === id ? { ...e, doneKeys: toggleDoneKey(e.doneKeys, at), updatedAt: now } : e,
+  );
 }
 
 /**
@@ -38,9 +67,18 @@ export function applyToggleDone(events: CalEvent[], id: string, at: Date | numbe
  * cannot leave its exceptions behind, because an orphaned override is an
  * ordinary event on the day it replaced, with nothing left to explain it and
  * no surface that can find it.
+ *
+ * The graves cover exactly the set that was filtered, and that identity is
+ * the point: a grave for the series alone lets a merge bring an orphaned
+ * override back as an ordinary event on the day it used to replace, which is
+ * precisely the state the paragraph above exists to prevent.
  */
-export function applyRemove(events: CalEvent[], id: string): CalEvent[] {
-  return events.filter((e) => e.id !== id && e.seriesId !== id);
+export function applyRemove(events: CalEvent[], id: string, now: number): Removal {
+  const buried = events.filter((e) => e.id === id || e.seriesId === id);
+  return {
+    events: events.filter((e) => e.id !== id && e.seriesId !== id),
+    graves: buried.map((e) => ({ id: e.id, at: now })),
+  };
 }
 
 /**
@@ -60,18 +98,33 @@ export function applySplit(
   at: number,
   tail: Omit<CalEvent, "id">,
   mintId: () => string,
+  now: number,
 ): { events: CalEvent[]; created: CalEvent | null } {
   const original = events.find((e) => e.id === id);
   if (!original) return { events, created: null };
   const split = splitRule(original, original.start, at);
-  const created: CalEvent = { ...tail, ...split.tail, seriesId: "", seriesKey: "", id: mintId() };
+  const created: CalEvent = {
+    ...tail,
+    ...split.tail,
+    seriesId: "",
+    seriesKey: "",
+    id: mintId(),
+    updatedAt: now,
+  };
   const seed = new Date(original.start);
   const detached = (e: CalEvent) =>
     e.seriesId === id && (keyToInstant(e.seriesKey, seed) ?? -Infinity) >= at;
   return {
     events: [
+      // The head, the tail and every re-pointed override are the three things
+      // this touches, so they are the three it stamps. An override before the
+      // cut is handed back as the same object and keeps the stamp it had.
       ...events.map((e) =>
-        e.id === id ? { ...e, ...split.head } : detached(e) ? { ...e, seriesId: created.id } : e,
+        e.id === id
+          ? { ...e, ...split.head, updatedAt: now }
+          : detached(e)
+            ? { ...e, seriesId: created.id, updatedAt: now }
+            : e,
       ),
       created,
     ],
@@ -80,14 +133,22 @@ export function applySplit(
 }
 
 /** "Delete this and all future events": the same cut with nothing on the far
- *  side of it, so the overrides past it go rather than move. Events unchanged
- *  when `id` is not there. */
-export function applyTruncate(events: CalEvent[], id: string, at: number): CalEvent[] {
+ *  side of it, so the overrides past it go rather than move — and are graved,
+ *  since an override this drops is a record the other machine still has.
+ *  Nothing changes and nothing is buried when `id` is not there. */
+export function applyTruncate(events: CalEvent[], id: string, at: number, now: number): Removal {
   const original = events.find((e) => e.id === id);
-  if (!original) return events;
+  if (!original) return { events, graves: [] };
   const split = splitRule(original, original.start, at);
   const seed = new Date(original.start);
-  return events
-    .filter((e) => !(e.seriesId === id && (keyToInstant(e.seriesKey, seed) ?? -Infinity) >= at))
-    .map((e) => (e.id === id ? { ...e, ...split.head } : e));
+  const past = (e: CalEvent) =>
+    e.seriesId === id && (keyToInstant(e.seriesKey, seed) ?? -Infinity) >= at;
+  return {
+    events: events
+      .filter((e) => !past(e))
+      .map((e) => (e.id === id ? { ...e, ...split.head, updatedAt: now } : e)),
+    // Only what is past the cut: the head survives the truncation, so a grave
+    // for it would delete the series a merge is meant to keep.
+    graves: events.filter(past).map((e) => ({ id: e.id, at: now })),
+  };
 }

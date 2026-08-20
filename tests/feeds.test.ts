@@ -180,7 +180,14 @@ describe("a failing feed is recorded, not thrown", () => {
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
 
-    await refreshFeed({ id: "local", name: "Personal", color: "#fff", icon: "", visible: true });
+    await refreshFeed({
+      id: "local",
+      name: "Personal",
+      color: "#fff",
+      icon: "",
+      visible: true,
+      updatedAt: 0,
+    });
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 });
@@ -338,13 +345,14 @@ describe("refreshStaleFeeds", () => {
     const now = Date.now();
     await refreshStaleFeeds(
       [
-        { id: "local", name: "Personal", color: "#fff", icon: "", visible: true },
+        { id: "local", name: "Personal", color: "#fff", icon: "", visible: true, updatedAt: 0 },
         {
           id: "old",
           name: "Old",
           color: "#fff",
           icon: "",
           visible: true,
+          updatedAt: 0,
           feed: { url: "https://example.com/old.ics", fetchedAt: now - 60 * 60_000, error: "" },
         },
         {
@@ -353,6 +361,7 @@ describe("refreshStaleFeeds", () => {
           color: "#fff",
           icon: "",
           visible: true,
+          updatedAt: 0,
           feed: { url: "https://example.com/fresh.ics", fetchedAt: now, error: "" },
         },
       ],

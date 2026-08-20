@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import { at, attendee, calendar, day, event, ms } from "./helpers";
 import {
   ATTENDEE_MAX,
+  GRAVE_MAX,
+  readGraves,
+  readStamp,
   GUEST_ADDRESS_MAX,
   GUEST_NAME_MAX,
   ICON_MAX,
@@ -1272,5 +1275,63 @@ describe("readGuests", () => {
     { name: "empty", value: [] },
   ])("reads $name as nobody at all", ({ value }) => {
     expect(readGuests(value, undefined)).toEqual({ attendees: [], attendeeCount: 0 });
+  });
+});
+
+/* --------------------------- stamps and graves ---------------------------- */
+
+/**
+ * The format half of the merge. Both readers are asked about *validity* rather
+ * than only shape, and the reason is the same for each: every merge decision
+ * is an inequality on one of these numbers, and an inequality against `NaN`
+ * answers `false` in both directions — a record that can never win and never
+ * lose, silently.
+ */
+describe("readStamp", () => {
+  it.each([
+    { name: "a stamp", value: ms("2026-03-08 09:00"), want: ms("2026-03-08 09:00") },
+    { name: "zero, which is a record that predates stamping", value: 0, want: 0 },
+    { name: "a fraction, floored so two readers agree", value: 1.7, want: 1 },
+    { name: "a negative instant", value: -1, want: 0 },
+    { name: "NaN", value: NaN, want: 0 },
+    { name: "Infinity", value: Infinity, want: 0 },
+    { name: "a string that looks like one", value: "1772946000000", want: 0 },
+    { name: "nothing at all", value: undefined, want: 0 },
+  ])("reads $name", ({ value, want }) => {
+    expect.soft(readStamp(value)).toBe(want);
+  });
+});
+
+describe("readGraves", () => {
+  it("keeps the later of two graves for one id, which is what a re-deletion is", () => {
+    const graves = readGraves([
+      { id: "a", at: ms("2026-03-08 09:00") },
+      { id: "a", at: ms("2026-03-10 09:00") },
+    ]);
+    expect(graves).toEqual([{ id: "a", at: ms("2026-03-10 09:00") }]);
+  });
+
+  it.each([
+    { name: "not an array", value: {} },
+    { name: "a row with no id", value: [{ at: 1 }] },
+    { name: "a row with an empty id", value: [{ id: "", at: 1 }] },
+    { name: "a row with an unreadable instant", value: [{ id: "a", at: "yesterday" }] },
+    // `0` is "predates stamping" for a record, so it cannot also mean a
+    // deletion: a grave at the epoch would outrank nothing and bury nothing.
+    { name: "a row stamped zero", value: [{ id: "a", at: 0 }] },
+    { name: "a row that is not an object", value: ["a"] },
+  ])("drops $name", ({ value }) => {
+    expect.soft(readGraves(value)).toEqual([]);
+  });
+
+  // The cap bounds the one part of the blob that grows with *use* rather than
+  // with what the user is holding, inside the same ~5MB origin quota
+  // `FEED_BUDGET` already carves 2M characters out of.
+  it("keeps the newest GRAVE_MAX and drops the oldest", () => {
+    const many = Array.from({ length: GRAVE_MAX + 10 }, (_, i) => ({ id: `g${i}`, at: i + 1 }));
+    const graves = readGraves(many);
+    expect.soft(graves).toHaveLength(GRAVE_MAX);
+    expect.soft(graves[0]).toEqual({ id: `g${GRAVE_MAX + 9}`, at: GRAVE_MAX + 10 });
+    expect.soft(graves.some((g) => g.id === "g0")).toBe(false);
   });
 });

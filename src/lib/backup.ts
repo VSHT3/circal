@@ -26,14 +26,17 @@ import { notify } from "./notify";
 import { dayKey, isZone } from "./time";
 import { isRecord } from "./utils";
 import {
+  readGraves,
   readGuests,
   readMark,
   readPerson,
   readRecurrence,
   readRemindLead,
+  readStamp,
   recurrenceOf,
   type CalEvent,
   type Calendar,
+  type Grave,
 } from "./events";
 
 const BACKUP_VERSION = 1;
@@ -45,6 +48,14 @@ interface Backup {
   events: CalEvent[];
   calendars: Calendar[];
   settings: Settings;
+  /**
+   * The deletions and the settings stamp travel with the events, because a
+   * backup is also the mirror file — a document that dropped them would come
+   * back through the mirror as a calendar with no record of what had been
+   * deleted, and every id it had lost would be resurrected by the next merge.
+   */
+  graves: Grave[];
+  settingsAt: number;
 }
 
 /**
@@ -111,6 +122,8 @@ export async function exportBackup(snapshot: Snapshot) {
       c.feed ? { ...c, feed: { ...c.feed, fetchedAt: 0, error: "" } } : c,
     ),
     settings: snapshot.settings,
+    settingsAt: snapshot.settingsAt,
+    graves: snapshot.graves,
   };
   const saved = await download(
     `circal-${dayKey(new Date())}.json`,
@@ -374,6 +387,11 @@ export function readEvent(value: unknown): CalEvent | null {
     // would print a negative remainder.
     organizer: readPerson(value.organizer),
     ...readGuests(value.attendees, value.attendeeCount),
+    // What a legal stamp is lives in `events.ts`, beside the graves it is
+    // compared against. `0` for anything unreadable and for every backup taken
+    // before stamping existed, which is what tells a merge that a document is
+    // not one it can merge.
+    updatedAt: readStamp(value.updatedAt),
   };
 }
 
@@ -393,6 +411,7 @@ export function readCalendar(value: unknown): Calendar | null {
     // an over-long *name* is now dropped rather than cut into junk.
     icon: readMark(icon),
     visible: value.visible !== false,
+    updatedAt: readStamp(value.updatedAt),
     ...(feedUrl ? { feed: { url: feedUrl, fetchedAt: 0, error: "" } } : {}),
   };
 }
@@ -407,7 +426,14 @@ export function readCalendar(value: unknown): Calendar | null {
  * and two notices; `mirror.ts` is this plus a revision number.
  */
 export type BackupRead =
-  | { ok: true; events: CalEvent[]; calendars: Calendar[]; settings: Settings }
+  | {
+      ok: true;
+      events: CalEvent[];
+      calendars: Calendar[];
+      settings: Settings;
+      settingsAt: number;
+      graves: Grave[];
+    }
   | { ok: false; reason: "not-circal" | "no-calendars" };
 
 export function readBackup(parsed: unknown): BackupRead {
@@ -439,6 +465,11 @@ export function readBackup(parsed: unknown): BackupRead {
     }),
     calendars,
     settings: readSettings(parsed.settings),
+    // Not through `readSettings`: this is bookkeeping about the object rather
+    // than a field of it, and a reader that clamped it into `Settings` would
+    // have to teach every one of the thirty-eight about a stamp.
+    settingsAt: readStamp(parsed.settingsAt),
+    graves: readGraves(parsed.graves),
   };
 }
 
@@ -513,6 +544,10 @@ export function importIcs(text: string, filename: string) {
         organizer: e.organizer,
         attendees: e.attendees,
         attendeeCount: e.attendeeCount,
+        // `addCalendarWithEvents` stamps the whole import in one instant, the
+        // same way `create` stamps a draft: these records begin to exist at
+        // the commit, not here.
+        updatedAt: 0,
       };
     }),
   );

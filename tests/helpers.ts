@@ -18,6 +18,7 @@ import {
   type Attendee,
   type CalEvent,
   type Calendar,
+  type Grave,
   type Partstat,
   type Recurrence,
 } from "@/lib/events";
@@ -122,8 +123,19 @@ export function calendar(overrides: Partial<Calendar> = {}): Calendar {
     color: "#a3d9e4",
     icon: "",
     visible: true,
+    // Unstamped, which is what a record written before stamping existed says —
+    // and what keeps a fixture deterministic, since a builder reading the clock
+    // would make every snapshot comparison depend on when it ran. A case about
+    // merging says its own stamp.
+    updatedAt: 0,
     ...overrides,
   };
+}
+
+/** One deletion, for the merge cases. `at` is a stamp, so a grave and the
+ *  record it argues with are written in the same vocabulary. */
+export function grave(id: string, at: string | number): Grave {
+  return { id, at: typeof at === "string" ? ms(at) : at };
 }
 
 /**
@@ -173,6 +185,8 @@ export function event(
     organizer: null,
     attendees: [],
     attendeeCount: 0,
+    // Unstamped, for `calendar()`'s reason.
+    updatedAt: 0,
     ...NEVER,
     ...rest,
   };

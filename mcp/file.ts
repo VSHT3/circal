@@ -178,7 +178,10 @@ export async function loadForRead(
   return { contents, warning: zoneWarning(contents) };
 }
 
-export type Mutated = Pick<MirrorContents, "events" | "calendars" | "settings">;
+export type Mutated = Pick<
+  MirrorContents,
+  "events" | "calendars" | "settings" | "settingsAt" | "graves"
+>;
 
 /** How long a sibling `.lock` may sit before it is presumed abandoned — a
  *  crashed writer, not a slow one. A whole write here is milliseconds, so ten

@@ -351,6 +351,10 @@ function decodeRule(field: string): Record<string, unknown> {
  *   setting" rather than somebody else's answer.
  * - **`calendarId`.** The receiver's calendars are their own, so the
  *   editor they are shown picks the default and they can change it.
+ * - **`updatedAt`.** A stamp says when *this copy* was last written, and the
+ *   receiver's copy is written when they save it. `readEvent` reads the absent
+ *   field as `0`, and `store.create` stamps it there — the same rule
+ *   `draftEvent` and `duplicateOf` follow.
  *
  * An **all-day event travels as a day and a day count, never as two
  * instants**, and that is the one instant decision in the format. Its

@@ -358,7 +358,9 @@ describe("addCalendar", () => {
       color: "#ff9fb4",
       icon: "paint-brush",
       visible: true,
+      updatedAt: cal.updatedAt,
     });
+    expect.soft(cal.updatedAt).toBeGreaterThan(0);
 
     expect(s.store.undo()).toBe(true);
     expect(s.store.snapshot().calendars.some((c) => c.id === cal.id)).toBe(false);
@@ -379,7 +381,16 @@ describe("updateCalendar", () => {
     s.store.updateCalendar(before.id, { name: "Renamed", color: "#8bf0b8" });
 
     const after = s.store.snapshot().calendars[0];
-    expect.soft(after).toEqual({ ...before, name: "Renamed", color: "#8bf0b8" });
+    // The stamp moves with the change, and only the stamp: an edit to a
+    // calendar is what a merge compares, so a rename that left it alone would
+    // lose to the other machine's older copy.
+    expect.soft(after).toEqual({
+      ...before,
+      name: "Renamed",
+      color: "#8bf0b8",
+      updatedAt: after.updatedAt,
+    });
+    expect.soft(after.updatedAt).toBeGreaterThan(0);
   });
 
   it("survives a feed pull that would otherwise rename it", async () => {
@@ -484,7 +495,43 @@ describe("undo / redo", () => {
     expect(s.store.undo()).toBe(true);
     expect(s.store.snapshot().events).toEqual([]);
     expect(s.store.redo()).toBe(true);
-    expect(s.store.snapshot().events).toEqual([created]);
+    // The same event, re-stamped: a redo is a change made now, which is the
+    // case below in full.
+    const back = s.store.snapshot().events;
+    expect(back).toEqual([{ ...created, updatedAt: back[0]?.updatedAt }]);
+  });
+
+  /**
+   * An undo is a fresh mutation, and the stamps are why. A step carries the
+   * events as they were, so putting one back with its old `updatedAt` leaves a
+   * record the other machine's copy outranks — the next merge would undo the
+   * undo, with nothing on screen to say so. Undoing a *creation* is the same
+   * argument from the other side: the id has to be buried, or the other
+   * machine writes it straight back.
+   */
+  it("restamps what an undo changes and buries what it takes away", async () => {
+    const s = await freshStore();
+    const kept = s.store.create({ ...draft(s, 60, 120), title: "Kept" });
+    const created = s.store.create({ ...draft(s, 180, 240), title: "Undone" });
+    s.store.update(kept.id, { title: "Edited" });
+    const edited = s.store.snapshot().events.find((e) => e.id === kept.id)!;
+
+    // Undo the edit: the record put back is the old title, stamped now.
+    expect(s.store.undo()).toBe(true);
+    const reverted = s.store.snapshot().events.find((e) => e.id === kept.id)!;
+    expect.soft(reverted.title).toBe("Kept");
+    expect.soft(reverted.updatedAt).toBeGreaterThanOrEqual(edited.updatedAt);
+    // The event the step did not touch keeps the stamp it had — an undo that
+    // re-dated the whole document would make this machine win every field of
+    // the next merge.
+    expect
+      .soft(s.store.snapshot().events.find((e) => e.id === created.id)?.updatedAt)
+      .toBe(created.updatedAt);
+
+    // Undo the second creation: gone, and graved rather than merely dropped.
+    expect(s.store.undo()).toBe(true);
+    expect.soft(s.store.snapshot().events.some((e) => e.id === created.id)).toBe(false);
+    expect.soft(s.store.snapshot().graves.map((g) => g.id)).toContain(created.id);
   });
 
   it("update -> undo -> reverted; redo -> reapplied", async () => {
@@ -584,8 +631,10 @@ describe("undo / redo", () => {
     s.store.setClock("12h");
     s.store.restore({
       events: [],
-      calendars: [{ id: "imported", name: "Imported", color: "#8ecbff", icon: "", visible: true }],
+      calendars: [calendar({ id: "imported", name: "Imported" })],
       settings: { ...DEFAULT_SETTINGS, clock: "24h" },
+      settingsAt: ms("2026-03-08 09:00"),
+      graves: [],
     });
     expect(s.store.snapshot().settings.clock).toBe("24h");
 
@@ -610,10 +659,10 @@ describe("adopt", () => {
       serialiseMirror(
         {
           events: [],
-          calendars: [
-            { id: "imported", name: "Imported", color: "#8ecbff", icon: "", visible: true },
-          ],
+          calendars: [calendar({ id: "imported", name: "Imported" })],
           settings,
+          settingsAt: ms("2026-03-08 09:00"),
+          graves: [],
         },
         3,
       ),
@@ -752,7 +801,12 @@ describe("the travel answers", () => {
       const { s, created } = await travelled();
       act(s);
       expect.soft(s.store.undo()).toBe(true);
-      expect.soft(s.store.snapshot().events.find((e) => e.id === created.id)).toEqual(created);
+      const back = s.store.snapshot().events.find((e) => e.id === created.id);
+      // Every instant back where it was, and the stamp moved: an undo is a
+      // change made now, or the next merge reverts it (see the restamp case
+      // above).
+      expect.soft(back).toEqual({ ...created, updatedAt: back?.updatedAt });
+      expect.soft(back?.updatedAt).toBeGreaterThanOrEqual(created.updatedAt);
       // Deliberately *not* wound back: the question has been answered, and a
       // stored zone rolled back with the events would ask it again.
       expect.soft(s.store.snapshot().settings.deviceZone).toBe("America/New_York");
@@ -1602,7 +1656,13 @@ describe("feed payloads live outside the blob", () => {
     const cal = s.store.addFeed("https://example.com/feed.ics", "Feed");
     s.store.setFeedEvents(cal.id, [event({ title: "theirs" })]);
 
-    s.store.restore({ events: [], calendars: [], settings: DEFAULT_SETTINGS });
+    s.store.restore({
+      events: [],
+      calendars: [],
+      settings: DEFAULT_SETTINGS,
+      settingsAt: 0,
+      graves: [],
+    });
     expect(feedKeys(s)).toEqual([]);
     expect(s.store.snapshot().feeds).toEqual({});
   });

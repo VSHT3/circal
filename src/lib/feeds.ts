@@ -105,6 +105,11 @@ export async function refreshFeed(calendar: Calendar): Promise<void> {
         organizer: e.organizer,
         attendees: e.attendees,
         attendeeCount: e.attendeeCount,
+        // A mirrored event is never merged and never stamped: `merge.ts`'s
+        // rule 6 says a feed is a read model each machine pulls for itself, so
+        // the `0` these keep through `hydrateEvents` costs nothing and is the
+        // honest answer — nobody wrote this record here.
+        updatedAt: 0,
       };
     });
     store.setFeedEvents(calendar.id, cached, name);

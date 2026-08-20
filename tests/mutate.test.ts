@@ -23,18 +23,23 @@ const WEEKLY = {
  *  mutate the id map by feeding it back through `applySplit`/`applyTruncate`. */
 const series = () => event({ repeat: "weekly", start: WEEKLY.seed });
 
+/** The instant every reducer here is asked to stamp with. A fixed number
+ *  rather than `Date.now()`: a stamp is an output of these functions, and a
+ *  test that could not name it could not assert on it. */
+const NOW = ms("2026-03-09 12:00");
+
 describe("applyUpdate", () => {
   it("patches only the named event; every other event is the same object, untouched", () => {
     const a = event({ title: "A" });
     const b = event({ title: "B" });
-    const patched = applyUpdate([a, b], a.id, { title: "A2" });
+    const patched = applyUpdate([a, b], a.id, { title: "A2" }, NOW);
     expect.soft(patched.find((e) => e.id === a.id)?.title).toBe("A2");
     expect.soft(patched.find((e) => e.id === b.id)).toBe(b);
   });
 
   it("patching an id that is not there is a no-op", () => {
     const a = event();
-    expect(applyUpdate([a], "does-not-exist", { title: "changed" })).toEqual([a]);
+    expect(applyUpdate([a], "does-not-exist", { title: "changed" }, NOW)).toEqual([a]);
   });
 });
 
@@ -42,7 +47,7 @@ describe("applyToggleDone", () => {
   it("ticks one occurrence of the named event, and leaves an override of the same series untouched", () => {
     const parent = series();
     const override = event({ seriesId: parent.id, seriesKey: instantKey(WEEKLY.second) });
-    const ticked = applyToggleDone([parent, override], parent.id, WEEKLY.second);
+    const ticked = applyToggleDone([parent, override], parent.id, WEEKLY.second, NOW);
     expect
       .soft(ticked.find((e) => e.id === parent.id)?.doneKeys)
       .toEqual([instantKey(WEEKLY.second)]);
@@ -53,7 +58,7 @@ describe("applyToggleDone", () => {
 
   it("un-ticks a key already present rather than appending a duplicate", () => {
     const task = event({ doneKeys: [instantKey(WEEKLY.second)] });
-    expect(applyToggleDone([task], task.id, WEEKLY.second)[0].doneKeys).toEqual([]);
+    expect(applyToggleDone([task], task.id, WEEKLY.second, NOW)[0].doneKeys).toEqual([]);
   });
 });
 
@@ -67,13 +72,20 @@ describe("applyRemove", () => {
       seriesKey: instantKey(WEEKLY.second),
     });
 
-    const remaining = applyRemove([target, detached, otherSeries, otherOverride], target.id);
-    expect.soft(remaining.map((e) => e.id)).toEqual([otherSeries.id, otherOverride.id]);
+    const removed = applyRemove([target, detached, otherSeries, otherOverride], target.id, NOW);
+    expect.soft(removed.events.map((e) => e.id)).toEqual([otherSeries.id, otherOverride.id]);
+    // The graves cover the same set the filter took: a grave for the series
+    // alone lets a merge bring the orphaned override back as an ordinary event
+    // on the day it used to replace.
+    expect.soft(removed.graves).toEqual([
+      { id: target.id, at: NOW },
+      { id: detached.id, at: NOW },
+    ]);
   });
 
   it("removing an id that is not there is a no-op", () => {
     const a = event();
-    expect(applyRemove([a], "does-not-exist")).toEqual([a]);
+    expect(applyRemove([a], "does-not-exist", NOW).events).toEqual([a]);
   });
 });
 
@@ -85,14 +97,34 @@ describe("applySplit", () => {
   ])("an override $name", ({ key, wantsHead }) => {
     const s = series();
     const override = event({ seriesId: s.id, seriesKey: instantKey(key) });
-    const { events, created } = applySplit([s, override], s.id, WEEKLY.third, body(s), mintId);
+    const { events, created } = applySplit([s, override], s.id, WEEKLY.third, body(s), mintId, NOW);
     const moved = events.find((e) => e.id === override.id);
     expect.soft(moved?.seriesId).toBe(wantsHead ? s.id : created?.id);
   });
 
+  it("stamps the head, the minted tail and every re-pointed override, and nothing else", () => {
+    const s = series();
+    const before = event({ seriesId: s.id, seriesKey: instantKey(WEEKLY.second) });
+    const after = event({ seriesId: s.id, seriesKey: instantKey(WEEKLY.fourth) });
+    const { events, created } = applySplit(
+      [s, before, after],
+      s.id,
+      WEEKLY.third,
+      body(s),
+      mintId,
+      NOW,
+    );
+    expect.soft(events.find((e) => e.id === s.id)?.updatedAt).toBe(NOW);
+    expect.soft(created?.updatedAt).toBe(NOW);
+    expect.soft(events.find((e) => e.id === after.id)?.updatedAt).toBe(NOW);
+    // Untouched, so unstamped: a reducer that re-dated the whole list would
+    // make this machine win every field of the next merge.
+    expect.soft(events.find((e) => e.id === before.id)).toBe(before);
+  });
+
   it("seeds the created tail as a series of its own — no seriesId, no seriesKey", () => {
     const s = series();
-    const { created } = applySplit([s], s.id, WEEKLY.third, body(s), mintId);
+    const { created } = applySplit([s], s.id, WEEKLY.third, body(s), mintId, NOW);
     expect.soft(created?.seriesId).toBe("");
     expect.soft(created?.seriesKey).toBe("");
     // The tail is the same rule the head was, unless split.tail overrides it.
@@ -102,13 +134,13 @@ describe("applySplit", () => {
   it("leaves an event with no relation to the split exactly as it was", () => {
     const s = series();
     const unrelated = event({ title: "standalone" });
-    const { events } = applySplit([s, unrelated], s.id, WEEKLY.third, body(s), mintId);
+    const { events } = applySplit([s, unrelated], s.id, WEEKLY.third, body(s), mintId, NOW);
     expect(events.find((e) => e.id === unrelated.id)).toBe(unrelated);
   });
 
   it("returns created: null and the events array unchanged for an id that is not there", () => {
     const events: CalEvent[] = [series()];
-    const result = applySplit(events, "does-not-exist", WEEKLY.third, body(series()), mintId);
+    const result = applySplit(events, "does-not-exist", WEEKLY.third, body(series()), mintId, NOW);
     expect.soft(result.created).toBeNull();
     expect(result.events).toBe(events);
   });
@@ -117,7 +149,7 @@ describe("applySplit", () => {
   // series' own start, which leaves the head able to generate nothing.
   it("cutting at the series' own first instant bounds the head before its own start", () => {
     const s = series();
-    const { events } = applySplit([s], s.id, WEEKLY.seed, body(s), mintId);
+    const { events } = applySplit([s], s.id, WEEKLY.seed, body(s), mintId, NOW);
     expect(events.find((e) => e.id === s.id)?.until).toBe(WEEKLY.seed - 1);
   });
 
@@ -130,7 +162,7 @@ describe("applySplit", () => {
         rdates: [instantKey(WEEKLY.second), instantKey(WEEKLY.fourth)],
       }),
     });
-    const { events, created } = applySplit([s], s.id, WEEKLY.third, body(s), mintId);
+    const { events, created } = applySplit([s], s.id, WEEKLY.third, body(s), mintId, NOW);
     const head = events.find((e) => e.id === s.id);
     // A future EXDATE left on the head would resurrect a day the split was
     // meant to keep skipped; a future RDATE left on the head would fire from
@@ -150,18 +182,36 @@ describe("applyTruncate", () => {
   ])("an override $name", ({ key, kept }) => {
     const s = series();
     const override = event({ seriesId: s.id, seriesKey: instantKey(key) });
-    const truncated = applyTruncate([s, override], s.id, WEEKLY.third);
+    const truncated = applyTruncate([s, override], s.id, WEEKLY.third, NOW).events;
     expect(truncated.some((e) => e.id === override.id)).toBe(kept);
+  });
+
+  it("graves only what is past the cut, never the head it keeps", () => {
+    const s = series();
+    const before = event({ seriesId: s.id, seriesKey: instantKey(WEEKLY.second) });
+    const after = event({ seriesId: s.id, seriesKey: instantKey(WEEKLY.fourth) });
+    const cut = applyTruncate([s, before, after], s.id, WEEKLY.third, NOW);
+    // A grave for the head would delete the series a merge is meant to keep,
+    // and an override left ungraved comes back as an ordinary event on the day
+    // it used to replace.
+    expect.soft(cut.graves).toEqual([{ id: after.id, at: NOW }]);
+    expect.soft(cut.events.find((e) => e.id === s.id)?.updatedAt).toBe(NOW);
+    // The override before the cut is handed back untouched, stamp included.
+    expect.soft(cut.events.find((e) => e.id === before.id)).toBe(before);
+  });
+
+  it("buries nothing when the id is not there", () => {
+    expect(applyTruncate([series()], "does-not-exist", WEEKLY.third, NOW).graves).toEqual([]);
   });
 
   it("bounds the head at the instant before the cut, the same as a split", () => {
     const s = series();
-    const truncated = applyTruncate([s], s.id, WEEKLY.third);
+    const truncated = applyTruncate([s], s.id, WEEKLY.third, NOW).events;
     expect(truncated.find((e) => e.id === s.id)?.until).toBe(WEEKLY.third - 1);
   });
 
   it("truncating an id that is not there returns the same events array, unchanged", () => {
     const events: CalEvent[] = [series()];
-    expect(applyTruncate(events, "does-not-exist", WEEKLY.third)).toBe(events);
+    expect(applyTruncate(events, "does-not-exist", WEEKLY.third, NOW).events).toBe(events);
   });
 });

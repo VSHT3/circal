@@ -43,15 +43,19 @@ import {
   instantKey,
   REMIND_INHERIT,
   keyToInstant,
+  readGraves,
   readGuests,
   readPerson,
   readRecurrence,
   readRemindLead,
+  readStamp,
   type CalEvent,
   type Calendar,
+  type Grave,
   type Repeat,
 } from "./events";
 import { applyRemove, applySplit, applyToggleDone, applyTruncate, applyUpdate } from "./mutate";
+import { pruneGraves, restamped } from "./merge";
 import { DEFAULT_DURATION, MIN_DURATION } from "./quickadd";
 import { REMIND_LEADS } from "./remind";
 import { clearedStamps, countStamped, keptEvents, movedEvents } from "./travel";
@@ -408,6 +412,26 @@ export interface Snapshot {
    */
   feeds: Record<string, CalEvent[]>;
   settings: Settings;
+  /**
+   * Epoch ms of the last settings change. `0` predates stamping.
+   *
+   * One stamp for the whole object rather than one per field: nobody would
+   * recognise a per-field merge of these, and a document whose dial came from
+   * one machine and whose life span came from the other is a document neither
+   * person wrote.
+   */
+  settingsAt: number;
+  /**
+   * The ids this browser has deleted, and when — a sibling of `events` and
+   * deliberately not a `deletedAt` field on `CalEvent`. A tombstone inside
+   * `events` would make every reader of that array wrong until it learned to
+   * filter (`dayAgenda`, `occurrencesOn`, `lifeDensity`, `scoreEvent`, the
+   * palette, the year ring's tallies, `mcp/domain.ts`); a sibling list means
+   * no reader changes at all, and `events` still holds exactly the events
+   * that exist. Only this file, `mutate.ts`, `backup.ts`, `mirror.ts` and
+   * `merge.ts` know graves exist.
+   */
+  graves: Grave[];
 }
 
 /** The blob: everything but the feed mirror, which has keys of its own. */
@@ -533,10 +557,19 @@ export const DEFAULT_SETTINGS: Settings = {
   wakingTo: DEFAULT_WAKING.to,
 };
 
+/** The three every install starts with. Unstamped for `seed`'s reason: they
+ *  are what a browser holds before anybody has told it anything. */
 const DEFAULT_CALENDARS: Calendar[] = [
-  { id: "personal", name: "Personal", color: PALETTE[0], icon: "house", visible: true },
-  { id: "work", name: "Work", color: PALETTE[3], icon: "briefcase", visible: true },
-  { id: "family", name: "Family", color: PALETTE[5], icon: "users", visible: true },
+  {
+    id: "personal",
+    name: "Personal",
+    color: PALETTE[0],
+    icon: "house",
+    visible: true,
+    updatedAt: 0,
+  },
+  { id: "work", name: "Work", color: PALETTE[3], icon: "briefcase", visible: true, updatedAt: 0 },
+  { id: "family", name: "Family", color: PALETTE[5], icon: "users", visible: true, updatedAt: 0 },
 ];
 
 export function newId(): string {
@@ -590,6 +623,10 @@ function seed(): CalEvent[] {
     organizer: null,
     attendees: [],
     attendeeCount: 0,
+    // Demo data nobody wrote, so there is nothing here a merge should defend:
+    // a first run is the one document in this app with no history, and the
+    // first edit to one of these stamps it like any other change.
+    updatedAt: 0,
     ...extra,
   });
 
@@ -643,6 +680,13 @@ const EMPTY: Snapshot = {
   calendars: DEFAULT_CALENDARS,
   feeds: {},
   settings: DEFAULT_SETTINGS,
+  // Nothing has been chosen and nothing deleted. The zero is what tells a
+  // merge to decline: a document with no settings stamp is either one written
+  // before stamping existed or one nobody has said anything to yet, and both
+  // want today's adopt rather than a union of somebody else's calendar with a
+  // demo day.
+  settingsAt: 0,
+  graves: [],
 };
 
 /**
@@ -822,6 +866,7 @@ function hydrateEvents(value: unknown): CalEvent[] {
       attendees,
       attendeeCount,
       tzid,
+      updatedAt,
     } = event;
     if (
       typeof interval === "number" &&
@@ -861,7 +906,13 @@ function hydrateEvents(value: unknown): CalEvent[] {
       (organizer === null || typeof organizer === "object") &&
       Array.isArray(attendees) &&
       Number.isInteger(attendeeCount) &&
-      typeof tzid === "string"
+      typeof tzid === "string" &&
+      // Validity, like the lead and for the same shape of reason: a stored
+      // `NaN` here is a number, and every merge comparison against it is an
+      // inequality that silently answers `false`. A feed's mirrored events
+      // come through here carrying `0` and keep it, which costs nothing — a
+      // feed never merges, it is re-pulled whole.
+      updatedAt === readStamp(updatedAt)
     ) {
       return event;
     }
@@ -896,6 +947,11 @@ function hydrateEvents(value: unknown): CalEvent[] {
       // floating, which is what those events already were — nothing zoned
       // an event but `fromIcs`'s own DTSTART reader.
       tzid: typeof tzid === "string" ? tzid : "",
+      // A blob written before stamping existed says `0` for every event, and
+      // that is the answer the merge needs: an unstamped record cannot be
+      // compared with a stamped one, so a document full of them is one the
+      // merge declines rather than one whose every event loses.
+      updatedAt: readStamp(updatedAt),
     };
   });
 }
@@ -911,7 +967,15 @@ function hydrateEvents(value: unknown): CalEvent[] {
 function hydrateCalendars(value: unknown): Calendar[] {
   if (!Array.isArray(value) || value.length === 0) return DEFAULT_CALENDARS;
   return (value as Calendar[]).map((calendar) =>
-    typeof calendar.icon === "string" ? calendar : { ...calendar, icon: "" },
+    // The stamp is asked about validity rather than shape, `readStamp`'s own
+    // reason: every merge decision about this record is an inequality on it.
+    typeof calendar.icon === "string" && calendar.updatedAt === readStamp(calendar.updatedAt)
+      ? calendar
+      : {
+          ...calendar,
+          icon: typeof calendar.icon === "string" ? calendar.icon : "",
+          updatedAt: readStamp(calendar.updatedAt),
+        },
   );
 }
 
@@ -928,6 +992,13 @@ function parse(stored: Partial<Snapshot>): Persisted {
     // Both of these can be stored *wrong* rather than merely missing, and both
     // draw something broken if they are.
     settings: sane(settings),
+    settingsAt: readStamp(stored.settingsAt),
+    // Dropped on read rather than on write, which is the only place the
+    // passage of time can be noticed: nothing mutates a grave, so a TTL
+    // enforced at the write would keep every one of them until the next
+    // deletion. `pruneGraves` is the merge's own rule, called here so the two
+    // cannot come to disagree about how long a deletion is remembered.
+    graves: pruneGraves(readGraves(stored.graves), Date.now()),
   };
 }
 
@@ -1198,7 +1269,12 @@ function emit() {
  *
  * `feeds` is a live mirror of somebody else's calendar and is never undoable,
  * and a feed pull also stamps `fetchedAt` on the calendar it belongs to — so
- * neither counts as the base moving. Everything else does.
+ * neither counts as the base moving. `graves` and `settingsAt` are out for a
+ * second reason: a grave list is pruned on every read, so a tab that sat idle
+ * past a grave's ninetieth day would read the passage of time as another tab
+ * having written and throw away sixty undo steps for it. Neither can move
+ * without `events` or `settings` moving with it, so nothing is missed.
+ * Everything else does count.
  */
 function baseSignature(s: Snapshot): string {
   return JSON.stringify([
@@ -1271,15 +1347,46 @@ function commit(next: Snapshot, record = true, ownsSettings = false) {
 }
 
 /**
+ * A settings change, stamped.
+ *
+ * Every action that replaces `settings` goes through here, so there is one
+ * answer to when the whole object was last written — which is all a merge
+ * reads (`merge.ts`, rule 5). Stamped unconditionally rather than only when a
+ * value actually moved: a settings action already commits and already writes
+ * the blob, and a comparison of thirty-eight fields to save the mirror one
+ * write is a cost in the wrong place.
+ *
+ * `setDeviceZone` is the one settings write that does **not** come through
+ * here, and it says why on itself.
+ */
+function withSettings(base: Snapshot, settings: Settings): Snapshot {
+  return { ...base, settings, settingsAt: Date.now() };
+}
+
+/**
  * A recorded step, rebased onto whatever is true *now* for the parts an undo
- * step does not own. Feeds are a live mirror and never owned; settings are
- * owned only by `restore`.
+ * step does not own, and stamped as the change it is. Feeds are a live mirror
+ * and never owned; settings are owned only by `restore`.
+ *
+ * The stamping is what stops an undo from being silently reverted. A step
+ * carries the events as they were, *with the stamps they had*, so an undo of
+ * yesterday's edit would put back a record the other machine's copy outranks
+ * — and the next merge would undo the undo, with nothing on screen to say so.
+ * An undo is a change the user just made, so `restamped` treats it as one:
+ * what it alters is stamped now, and what it removes (undoing a creation) is
+ * buried rather than merely dropped.
  */
 function rebase(step: UndoStep, current: Snapshot): Snapshot {
+  const now = Date.now();
   return {
     ...step.snapshot,
+    ...restamped(step.snapshot, current, now),
     feeds: current.feeds,
     settings: step.ownsSettings ? step.snapshot.settings : current.settings,
+    // The settings that are being put back are being written now, and the ones
+    // that are not owned have not moved — so the stamp follows whichever of the
+    // two this step is carrying.
+    settingsAt: step.ownsSettings ? now : current.settingsAt,
   };
 }
 
@@ -1372,33 +1479,40 @@ export const store = {
 
   create(event: Omit<CalEvent, "id">): CalEvent {
     const base = fresh();
-    const created: CalEvent = { ...event, id: newId() };
+    // Stamped here rather than in the draft: `draftEvent` and `duplicateOf`
+    // hand back `0`, because a record nobody has saved has not been changed,
+    // and this is the line where it becomes a record at all.
+    const created: CalEvent = { ...event, id: newId(), updatedAt: Date.now() };
     commit({ ...base, events: [...base.events, created] });
     return created;
   },
 
   update(id: string, patch: Partial<CalEvent>) {
     const base = fresh();
-    commit({ ...base, events: applyUpdate(base.events, id, patch) });
+    commit({ ...base, events: applyUpdate(base.events, id, patch, Date.now()) });
   },
 
   /** Recorded in history like any other edit — a tick is a keystroke away and
    *  ⌘Z is the only way back from the wrong one. */
   toggleDone(id: string, at: Date | number) {
     const base = fresh();
-    commit({ ...base, events: applyToggleDone(base.events, id, at) });
+    commit({ ...base, events: applyToggleDone(base.events, id, at, Date.now()) });
   },
 
+  /** The graves ride in the same commit as the removal, which is what makes
+   *  them believable: a deletion that landed without its grave is an id the
+   *  next merge brings straight back. */
   remove(id: string) {
     const base = fresh();
-    commit({ ...base, events: applyRemove(base.events, id) });
+    const removed = applyRemove(base.events, id, Date.now());
+    commit({ ...base, events: removed.events, graves: [...base.graves, ...removed.graves] });
   },
 
   /** One commit, not two — a second would be a second ⌘Z press for one edit,
    *  and the state between them would be a series with no future. */
   splitSeries(id: string, at: number, tail: Omit<CalEvent, "id">): CalEvent | null {
     const base = fresh();
-    const split = applySplit(base.events, id, at, tail, newId);
+    const split = applySplit(base.events, id, at, tail, newId, Date.now());
     if (!split.created) return null;
     commit({ ...base, events: split.events });
     return split.created;
@@ -1406,17 +1520,24 @@ export const store = {
 
   truncateSeries(id: string, at: number) {
     const base = fresh();
-    commit({ ...base, events: applyTruncate(base.events, id, at) });
+    const cut = applyTruncate(base.events, id, at, Date.now());
+    commit({ ...base, events: cut.events, graves: [...base.graves, ...cut.graves] });
   },
 
   /* ------------------------------ calendars ------------------------------- */
 
   toggleCalendar(id: string) {
     const base = fresh();
+    const now = Date.now();
     commit(
       {
         ...base,
-        calendars: base.calendars.map((c) => (c.id === id ? { ...c, visible: !c.visible } : c)),
+        // Stamped like any other change to the record. Visibility is stored
+        // state, so a merge that ignored it would put a calendar the user
+        // hid on this machine back on the face from the other one.
+        calendars: base.calendars.map((c) =>
+          c.id === id ? { ...c, visible: !c.visible, updatedAt: now } : c,
+        ),
       },
       false,
     );
@@ -1436,6 +1557,7 @@ export const store = {
       color: color || PALETTE[(base.calendars.length * 3) % PALETTE.length],
       icon,
       visible: true,
+      updatedAt: Date.now(),
     };
     commit({ ...base, calendars: [...base.calendars, calendar] });
     return calendar;
@@ -1449,9 +1571,10 @@ export const store = {
    */
   updateCalendar(id: string, patch: Partial<Pick<Calendar, "name" | "color" | "icon">>) {
     const base = fresh();
+    const now = Date.now();
     commit({
       ...base,
-      calendars: base.calendars.map((c) => (c.id === id ? { ...c, ...patch } : c)),
+      calendars: base.calendars.map((c) => (c.id === id ? { ...c, ...patch, updatedAt: now } : c)),
     });
   },
 
@@ -1476,13 +1599,24 @@ export const store = {
     if (moved > 0 && !into) return null;
     const { [id]: _dropped, ...feeds } = base.feeds;
     dropFeed(id);
+    const now = Date.now();
     commit({
       ...base,
       calendars: rest,
       events:
         moved === 0 || !into
           ? base.events
-          : base.events.map((e) => (e.calendarId === id ? { ...e, calendarId: into.id } : e)),
+          : // Reparenting is an edit to each event, so each one is stamped:
+            // unstamped, the other machine's copies still point at the
+            // calendar this just buried, and they would win.
+            base.events.map((e) =>
+              e.calendarId === id ? { ...e, calendarId: into.id, updatedAt: now } : e,
+            ),
+      // A calendar is a record like any other, so its deletion leaves the same
+      // mark. Without it the other machine's copy of the calendar comes back
+      // on the next merge, taking the events this action just reparented with
+      // it — the label would return and the reparenting would look undone.
+      graves: [...base.graves, { id, at: now }],
       feeds,
     });
     return { into, moved };
@@ -1492,61 +1626,61 @@ export const store = {
 
   setClock(clock: Clock) {
     const base = fresh();
-    commit({ ...base, settings: { ...base.settings, clock } }, false);
+    commit(withSettings(base, { ...base.settings, clock }), false);
   },
 
   setTotalsAt(totalsAt: TotalsPosition) {
     const base = fresh();
-    commit({ ...base, settings: { ...base.settings, totalsAt } }, false);
+    commit(withSettings(base, { ...base.settings, totalsAt }), false);
   },
 
   setArcLabels(arcLabels: ArcLabelMode) {
     const base = fresh();
-    commit({ ...base, settings: { ...base.settings, arcLabels } }, false);
+    commit(withSettings(base, { ...base.settings, arcLabels }), false);
   },
 
   setAmbientArcLabels(ambientArcLabels: ArcLabelMode) {
     const base = fresh();
-    commit({ ...base, settings: { ...base.settings, ambientArcLabels } }, false);
+    commit(withSettings(base, { ...base.settings, ambientArcLabels }), false);
   },
 
   /** Minutes of warning before an event starts; `0` fires as it does. */
   setRemindLead(remindLead: number) {
     const base = fresh();
-    commit({ ...base, settings: sane({ ...base.settings, remindLead }) }, false);
+    commit(withSettings(base, sane({ ...base.settings, remindLead })), false);
   },
 
   /** Days without a `.json` backup before the main-screen nudge appears;
    *  `sane()` pins a stray value to one `BACKUP_INTERVALS` offers. */
   setBackupInterval(backupInterval: number) {
     const base = fresh();
-    commit({ ...base, settings: sane({ ...base.settings, backupInterval }) }, false);
+    commit(withSettings(base, sane({ ...base.settings, backupInterval })), false);
   },
 
   /** How long ⌘N and a quick-add line with no length make an event. Sanitised
    *  because it comes from a field somebody types into. */
   setDefaultDuration(defaultDuration: number) {
     const base = fresh();
-    commit({ ...base, settings: sane({ ...base.settings, defaultDuration }) }, false);
+    commit(withSettings(base, sane({ ...base.settings, defaultDuration })), false);
   },
 
   /** The calendar a new event lands on; `""` is "the first one that is not a
    *  subscription", which is also what a since-deleted id falls back to. */
   setDefaultCalendar(defaultCalendar: string) {
     const base = fresh();
-    commit({ ...base, settings: { ...base.settings, defaultCalendar } }, false);
+    commit(withSettings(base, { ...base.settings, defaultCalendar }), false);
   },
 
   /** Minutes of stillness before the dial takes the window; `0` is never. */
   setAmbientAfter(ambientAfter: number) {
     const base = fresh();
-    commit({ ...base, settings: sane({ ...base.settings, ambientAfter }) }, false);
+    commit(withSettings(base, sane({ ...base.settings, ambientAfter })), false);
   },
 
   /** `""` turns the second ring off. */
   setSecondZone(secondZone: string) {
     const base = fresh();
-    commit({ ...base, settings: { ...base.settings, secondZone } }, false);
+    commit(withSettings(base, { ...base.settings, secondZone }), false);
   },
 
   /* --------------------------------- travel -------------------------------- */
@@ -1557,6 +1691,15 @@ export const store = {
    * moves the zone *and* answers for the events in one commit, because the
    * two must not be separable — a stamped zone with the old device zone
    * still recorded would ask the same question again on the next launch.
+   *
+   * The one settings write that does **not** stamp `settingsAt`, and the
+   * omission is load-bearing rather than an oversight. This fires
+   * unprompted on the first launch of a browser that holds nothing but seed
+   * data, and a stamp there would make that demo day a document the merge is
+   * willing to union into somebody's real calendar the moment they connect
+   * their mirror file — eight events nobody wrote, propagated to both
+   * machines. It is also the only write here that is not a *choice*: the app
+   * is recording where it is, and `merge.ts` compares choices.
    */
   setDeviceZone(deviceZone: string) {
     const base = fresh();
@@ -1582,9 +1725,20 @@ export const store = {
    */
   moveEventsToZone(from: string, to: string): number {
     const base = fresh();
-    const events = movedEvents(base.events, from, to);
+    const now = Date.now();
+    // Stamped where they moved, and nowhere else: `movedEvents` hands back the
+    // same object for an event it did not touch, which is the comparison the
+    // count below already trusts.
+    const events = movedEvents(base.events, from, to).map((e, i) =>
+      e === base.events[i] ? e : { ...e, updatedAt: now },
+    );
     const moved = events.reduce((n, e, i) => (e === base.events[i] ? n : n + 1), 0);
-    commit({ ...base, events, settings: { ...base.settings, deviceZone: to } });
+    commit({
+      ...base,
+      events,
+      settings: { ...base.settings, deviceZone: to },
+      settingsAt: now,
+    });
     return moved;
   },
 
@@ -1600,7 +1754,10 @@ export const store = {
    */
   keepEventsInZone(from: string, to: string): number {
     const base = fresh();
-    const events = keptEvents(base.events, from, to);
+    const now = Date.now();
+    const events = keptEvents(base.events, from, to).map((e, i) =>
+      e === base.events[i] ? e : { ...e, updatedAt: now },
+    );
     const stamped = events.reduce((n, e, i) => (e === base.events[i] ? n : n + 1), 0);
     // Only when something actually took the stamp: an answer that changed
     // nothing must not leave a zone behind for the row to count against.
@@ -1613,6 +1770,7 @@ export const store = {
         deviceZone: to,
         stampedZones: [...new Set([...base.settings.stampedZones, ...zones])],
       },
+      settingsAt: now,
     });
     return stamped;
   },
@@ -1636,11 +1794,15 @@ export const store = {
     const zones = base.settings.stampedZones;
     const cleared = countStamped(base.events, zones);
     if (cleared === 0) return 0;
+    const now = Date.now();
     commit(
       {
         ...base,
-        events: clearedStamps(base.events, zones),
+        events: clearedStamps(base.events, zones).map((e, i) =>
+          e === base.events[i] ? e : { ...e, updatedAt: now },
+        ),
         settings: { ...base.settings, stampedZones: [] },
+        settingsAt: now,
       },
       true,
       true,
@@ -1650,7 +1812,7 @@ export const store = {
 
   setPlace(place: PickedPlace | null) {
     const base = fresh();
-    commit({ ...base, settings: { ...base.settings, place } }, false);
+    commit(withSettings(base, { ...base.settings, place }), false);
   },
 
   /**
@@ -1661,7 +1823,7 @@ export const store = {
   setYearQuote(yearQuote: string) {
     const base = fresh();
     commit(
-      { ...base, settings: { ...base.settings, yearQuote: yearQuote.slice(0, YEAR_QUOTE_MAX) } },
+      withSettings(base, { ...base.settings, yearQuote: yearQuote.slice(0, YEAR_QUOTE_MAX) }),
       false,
     );
   },
@@ -1673,7 +1835,7 @@ export const store = {
    */
   setLife(birth: string, lifeExpectancy: number) {
     const base = fresh();
-    commit({ ...base, settings: sane({ ...base.settings, birth, lifeExpectancy }) }, false);
+    commit(withSettings(base, sane({ ...base.settings, birth, lifeExpectancy })), false);
   },
 
   /** Which weekday the strip, the mini-month and the life grid all cut their
@@ -1681,7 +1843,7 @@ export const store = {
    *  picker offers. */
   setWeekStart(weekStart: WeekStart) {
     const base = fresh();
-    commit({ ...base, settings: sane({ ...base.settings, weekStart }) }, false);
+    commit(withSettings(base, sane({ ...base.settings, weekStart })), false);
   },
 
   /** The window free time is counted against, in minutes since midnight.
@@ -1690,7 +1852,7 @@ export const store = {
    *  is the pair, not either half of it. */
   setWaking(wakingFrom: number, wakingTo: number) {
     const base = fresh();
-    commit({ ...base, settings: sane({ ...base.settings, wakingFrom, wakingTo }) }, false);
+    commit(withSettings(base, sane({ ...base.settings, wakingFrom, wakingTo })), false);
   },
 
   /**
@@ -1700,7 +1862,7 @@ export const store = {
    */
   setToggle(key: BooleanSetting, on: boolean) {
     const base = fresh();
-    commit({ ...base, settings: { ...base.settings, [key]: on } }, false);
+    commit(withSettings(base, { ...base.settings, [key]: on }), false);
   },
 
   /* ----------------------------- subscriptions ---------------------------- */
@@ -1716,6 +1878,7 @@ export const store = {
       // read its subject off; the mark stays the dot until you name one.
       icon: "",
       visible: true,
+      updatedAt: Date.now(),
       feed: { url, fetchedAt: 0, error: "" },
     };
     commit({ ...base, calendars: [...base.calendars, calendar] }, false);
@@ -1779,23 +1942,43 @@ export const store = {
    */
   addCalendarWithEvents(name: string, events: Omit<CalEvent, "calendarId">[]): Calendar {
     const base = fresh();
+    const now = Date.now();
     const calendar: Calendar = {
       id: newId(),
       name,
       color: PALETTE[(base.calendars.length * 3) % PALETTE.length],
       icon: "",
       visible: true,
+      updatedAt: now,
     };
     commit({
       ...base,
       calendars: [...base.calendars, calendar],
-      events: [...base.events, ...events.map((e) => ({ ...e, calendarId: calendar.id }))],
+      // Stamped here rather than by the caller, which is the same bargain
+      // `create` strikes: an import is where these records begin to exist, and
+      // `importIcs` hands over drafts carrying `0`.
+      events: [
+        ...base.events,
+        ...events.map((e) => ({ ...e, calendarId: calendar.id, updatedAt: now })),
+      ],
     });
     return calendar;
   },
 
-  /** Whole-store restore from a backup. One undo step, so a misfire is not fatal. */
-  restore(next: Pick<Snapshot, "events" | "calendars" | "settings">) {
+  /**
+   * Whole-store restore from a backup. One undo step, so a misfire is not
+   * fatal.
+   *
+   * Restamped, and `adopt` below deliberately is not — the asymmetry is the
+   * point, and a reader tidying it into consistency is reintroducing the bug
+   * this work exists to fix. A restore is a file the *user* chose to make
+   * true, so it is a change they just made and it should win the next merge;
+   * an adopt is a document from outside this browser, and restamping that
+   * would make whichever machine adopted last win every merge wholesale.
+   * `restamped` also buries what the backup does not carry, which is what
+   * stops the other machine resurrecting every event this restore dropped.
+   */
+  restore(next: Pick<Snapshot, "events" | "calendars" | "settings" | "settingsAt" | "graves">) {
     // Only for its side effect: `commit` records the *current* snapshot as the
     // step to undo onto, and a stale one would undo into another tab's past.
     fresh();
@@ -1804,14 +1987,15 @@ export const store = {
     // megabytes again, and they are the largest thing in storage. Undoing back
     // to the subscription brings the calendar, not the mirror; it re-pulls.
     sweepFeeds(next.calendars);
+    const now = Date.now();
     commit(
       {
         schema: SCHEMA,
-        events: next.events,
-        calendars: next.calendars,
+        ...restamped(next, snapshot, now),
         // Through the same clamp a stored blob goes through: a backup is
         // external input, and `readSettings` only guarantees the *types*.
         settings: sane({ ...DEFAULT_SETTINGS, ...next.settings }),
+        settingsAt: now,
         feeds: readFeeds(next.calendars),
       },
       true,
@@ -1831,7 +2015,7 @@ export const store = {
    * anything useful: it knows which file moved and whether this was a sync or
    * a reconnect, and this action knows neither.
    */
-  adopt(next: Pick<Snapshot, "events" | "calendars" | "settings">) {
+  adopt(next: Pick<Snapshot, "events" | "calendars" | "settings" | "settingsAt" | "graves">) {
     // Only for its side effect, the same reason `restore` calls it: `commit`
     // records the *current* snapshot as the step to undo onto.
     fresh();
@@ -1839,9 +2023,16 @@ export const store = {
     commit(
       {
         schema: SCHEMA,
+        // Taken as it stands, stamps and all. Restamping here is the one thing
+        // this action must never do: what arrives is either a merge or another
+        // writer's document, and re-dating it would make this browser's copy
+        // outrank the other machine's on every field it never touched. See
+        // `restore` above for the other half of the asymmetry.
         events: next.events,
         calendars: next.calendars,
+        graves: next.graves,
         settings: sane({ ...DEFAULT_SETTINGS, ...next.settings }),
+        settingsAt: next.settingsAt,
         feeds: readFeeds(next.calendars),
       },
       true,
@@ -1959,6 +2150,11 @@ export function draftEvent(
     organizer: null,
     attendees: [],
     attendeeCount: 0,
+    // A draft has never been saved, so it has never been changed. `create` and
+    // `update` are where a record gets its stamp; a `0` reaching storage would
+    // be an event that predates stamping, which is the conservative loser in
+    // every merge rather than a lie.
+    updatedAt: 0,
   };
 }
 
@@ -1986,7 +2182,10 @@ export function taskDraft(day: Date, startMin: number, calendarId: string): Omit
  * It is also why a duplicate asks no `EditScope` question: nothing existing is
  * being edited, so there is no occurrence for the question to be about.
  *
- * Six fields deliberately do not come across. `seriesId`/`seriesKey` name a
+ * Seven fields deliberately do not come across. `updatedAt` is the mechanical
+ * one: a copy is a record that begins to exist at the commit, so it carries
+ * `0` here and `create` stamps it — the same rule `draftEvent` follows.
+ * `seriesId`/`seriesKey` name a
  * relationship to *another* event, and two events cannot both claim one
  * occurrence — so a copy of an override is an ordinary event on the day it
  * used to replace. And `doneKeys` are ticks against work that was done once; a
@@ -2031,6 +2230,7 @@ export function duplicateOf(event: CalEvent, shiftMs = 0): Omit<CalEvent, "id"> 
     organizer: null,
     attendees: [],
     attendeeCount: 0,
+    updatedAt: 0,
   };
 }
 

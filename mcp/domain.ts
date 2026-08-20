@@ -331,6 +331,10 @@ export function buildEventRecord(
     organizer: null,
     attendees: [],
     attendeeCount: 0,
+    // The stamp is the caller's: `performCreateEvent` and the quick-add path
+    // are where this record starts existing, the same rule `draftEvent`
+    // follows in the app.
+    updatedAt: 0,
   });
 }
 
@@ -386,7 +390,32 @@ export function applyPatchToEvent(
     organizer: base.organizer,
     attendees: base.attendees,
     attendeeCount: base.attendeeCount,
+    // Carried, and overwritten by the reducer that commits the patch: it is
+    // the base's stamp until this edit lands, never a fresh record's zero.
+    updatedAt: base.updatedAt,
   });
+}
+
+/* --------------------------------- writes ---------------------------------- */
+
+/**
+ * Everything a write leaves alone, carried across.
+ *
+ * A mutation here round-trips the *whole* document, so a field this module
+ * does not name is a field it silently drops — measured rather than feared:
+ * the published `circal-mcp@0.1.0` bundle dropped nine keys per document that
+ * way. `graves` and `settingsAt` are the two that would be lost most quietly,
+ * because nothing on either side would look wrong afterwards; the browser
+ * would simply resurrect every event an agent had deleted on the next merge.
+ */
+function carried(contents: MirrorContents): Mutated {
+  return {
+    events: contents.events,
+    calendars: contents.calendars,
+    settings: contents.settings,
+    settingsAt: contents.settingsAt,
+    graves: contents.graves,
+  };
 }
 
 /* -------------------------------- formatting -------------------------------- */
@@ -596,26 +625,18 @@ export function performQuickAdd(
     title: parsed.title,
     ...parsed.repeat,
   });
-  const event: CalEvent = { ...record, id: newId() };
+  const event: CalEvent = { ...record, id: newId(), updatedAt: Date.now() };
   return {
-    mutated: {
-      events: [...contents.events, event],
-      calendars: contents.calendars,
-      settings: contents.settings,
-    },
+    mutated: { ...carried(contents), events: [...contents.events, event] },
     message: `Created ${eventSummaryLine(event, contents.calendars, contents.settings.clock)}`,
   };
 }
 
 export function performCreateEvent(contents: MirrorContents, input: EventFieldsInput): WriteResult {
   const record = buildEventRecord(input, contents.calendars, contents.settings);
-  const event: CalEvent = { ...record, id: newId() };
+  const event: CalEvent = { ...record, id: newId(), updatedAt: Date.now() };
   return {
-    mutated: {
-      events: [...contents.events, event],
-      calendars: contents.calendars,
-      settings: contents.settings,
-    },
+    mutated: { ...carried(contents), events: [...contents.events, event] },
     message: `Created ${eventSummaryLine(event, contents.calendars, contents.settings.clock)}`,
   };
 }
@@ -635,10 +656,10 @@ export function performUpdateEvent(
 
   if (scope === "all") {
     const record = applyPatchToEvent(original, patch, contents.calendars, contents.settings);
-    const events = applyUpdate(contents.events, original.id, record);
+    const events = applyUpdate(contents.events, original.id, record, Date.now());
     const updated = events.find((e) => e.id === original.id) as CalEvent;
     return {
-      mutated: { events, calendars: contents.calendars, settings: contents.settings },
+      mutated: { ...carried(contents), events },
       message: `Updated ${eventSummaryLine(updated, contents.calendars, clock)}`,
     };
   }
@@ -653,23 +674,23 @@ export function performUpdateEvent(
       seriesId: original.id,
       seriesKey: instantKey(at),
       id: newId(),
+      // An agent's write is a mutation like the app's, so it stamps like one:
+      // unstamped, the browser's own copy of this document wins on the next
+      // merge and the agent's work is quietly dropped.
+      updatedAt: Date.now(),
     };
     return {
-      mutated: {
-        events: [...contents.events, override],
-        calendars: contents.calendars,
-        settings: contents.settings,
-      },
+      mutated: { ...carried(contents), events: [...contents.events, override] },
       message: `Updated one occurrence: ${eventSummaryLine(override, contents.calendars, clock)}`,
     };
   }
 
   // "future"
   const record = applyPatchToEvent(original, patch, contents.calendars, contents.settings, at);
-  const split = applySplit(contents.events, original.id, at, record, newId);
+  const split = applySplit(contents.events, original.id, at, record, newId, Date.now());
   if (!split.created) throw new RefusalError(`no event with id "${id}"`);
   return {
-    mutated: { events: split.events, calendars: contents.calendars, settings: contents.settings },
+    mutated: { ...carried(contents), events: split.events },
     message: `Updated from ${dayKey(new Date(at))} on: ${eventSummaryLine(split.created, contents.calendars, clock)}`,
   };
 }
@@ -687,11 +708,15 @@ export function performDeleteEvent(
   const title = original.title || "Untitled";
 
   if (scope === "all") {
+    const removed = applyRemove(contents.events, original.id, Date.now());
     return {
+      // The graves ride with the removal, because an agent's deletion has to
+      // survive the browser's next merge: without them the tab still holding
+      // the event wins on stamps and writes it straight back.
       mutated: {
-        events: applyRemove(contents.events, original.id),
-        calendars: contents.calendars,
-        settings: contents.settings,
+        ...carried(contents),
+        events: removed.events,
+        graves: [...contents.graves, ...removed.graves],
       },
       message: `Deleted "${title}" (the whole series).`,
     };
@@ -700,20 +725,24 @@ export function performDeleteEvent(
   const at = resolveOccurrenceRequired(original, occurrence, scope);
 
   if (scope === "one") {
-    const events = applyUpdate(contents.events, original.id, {
-      exdates: [...original.exdates, instantKey(at)],
-    });
+    const events = applyUpdate(
+      contents.events,
+      original.id,
+      { exdates: [...original.exdates, instantKey(at)] },
+      Date.now(),
+    );
     return {
-      mutated: { events, calendars: contents.calendars, settings: contents.settings },
+      mutated: { ...carried(contents), events },
       message: `Deleted "${title}" on ${dayKey(new Date(at))} only — the series continues.`,
     };
   }
 
+  const cut = applyTruncate(contents.events, original.id, at, Date.now());
   return {
     mutated: {
-      events: applyTruncate(contents.events, original.id, at),
-      calendars: contents.calendars,
-      settings: contents.settings,
+      ...carried(contents),
+      events: cut.events,
+      graves: [...contents.graves, ...cut.graves],
     },
     message: `Deleted "${title}" from ${dayKey(new Date(at))} on.`,
   };
@@ -730,9 +759,9 @@ export function performToggleDone(
   refuseIfFeed(original, contents.calendars);
   const at = resolveInstant(original, occurrence);
   const wasDone = original.doneKeys.includes(instantKey(at));
-  const events = applyToggleDone(contents.events, original.id, at);
+  const events = applyToggleDone(contents.events, original.id, at, Date.now());
   return {
-    mutated: { events, calendars: contents.calendars, settings: contents.settings },
+    mutated: { ...carried(contents), events },
     message: `${wasDone ? "Reopened" : "Completed"} "${original.title || "Untitled"}" on ${dayKey(new Date(at))}.`,
   };
 }
@@ -751,14 +780,11 @@ export function performCreateCalendar(
     color: color || PALETTE[(contents.calendars.length * 3) % PALETTE.length],
     icon: icon ?? "",
     visible: true,
+    updatedAt: Date.now(),
   });
   if (!calendar) throw new RefusalError("the assembled calendar failed validation");
   return {
-    mutated: {
-      events: contents.events,
-      calendars: [...contents.calendars, calendar],
-      settings: contents.settings,
-    },
+    mutated: { ...carried(contents), calendars: [...contents.calendars, calendar] },
     message: `Created calendar "${calendar.name}" — id=${calendar.id}`,
   };
 }
