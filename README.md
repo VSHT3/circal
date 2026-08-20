@@ -113,11 +113,11 @@ events are not — "ten minutes before midnight" is not what an all-day event
 means — and a task already ticked off says nothing.
 
 **Only while circal is open, in this tab.** Reminders with it closed would
-need a server to push them, and nothing here leaves this browser. The setting
-says so in the panel rather than leaving it to be discovered by a missed
-meeting. Nothing ever catches up either: a reminder fires in its own minute or
-not at all, because a notification for a meeting that started an hour ago is
-worse than none.
+need a server pushing them at you, and circal runs nowhere but this browser.
+The setting says so in the panel rather than leaving it to be discovered by a
+missed meeting. Nothing ever catches up either: a reminder fires in its own
+minute or not at all, because a notification for a meeting that started an
+hour ago is worse than none.
 
 The tab title is the other half, and it needs no permission and no switch:
 while circal is in a background tab it reads `· 14m · Standup`, so the answer
@@ -470,8 +470,10 @@ With **reduce motion** set, none of it moves.
 
 ## Your data
 
-Events live in this browser's `localStorage` under `circal.v1`. Nothing is
-sent anywhere, which also means nothing is backed up anywhere:
+Events live in this browser's `localStorage` under `circal.v1`, and by default
+that is the only place they live. Nothing is sent anywhere until you connect
+one of the two copies below, and a browser can be cleared by a menu item, so
+the copy you take yourself is still the one that matters:
 
 - **Export `.ics`** hands your events to any other calendar.
 - **Backup `.json`** is the whole store — events, calendars, settings — and
@@ -524,8 +526,42 @@ Building from source instead: `pnpm build:mcp` produces
 `mcp/dist/circal-mcp.mjs`, and [`mcp/README.md`](mcp/README.md) has the
 client config for that path. One thing to know before switching it on: while
 the file is connected, anything that can read that file can read and change
-your calendar. Nothing on the network changes, there is still no account, no
-sync and no server.
+your calendar. Nothing goes over the network for it, and nothing about it asks
+you to sign in to anything.
+
+## The cloud copy
+
+Optional, off, and in **Settings** → **Cloud**. It holds one copy of the whole
+store on a server, so a second machine signed in to the same account opens the
+calendar you left on the first one. It is the same document the mirror file
+carries, in the same format: the only thing that changes is where the copy
+sits, and either side of a sync merges rather than overwriting, so two
+machines edited on two days keep both days.
+
+Signing in is an email address, then a six-digit code out of that email. There
+is no link to click: six digits go through you rather than through whatever
+mail client happens to open a link, and they work the same wherever circal is
+running.
+
+Then a passphrase, once, and this is the part worth reading twice. Circal
+seals the copy with it in this browser before anything leaves, so what the
+server holds is a locked box and a row number rather than your appointments.
+The other half of that same fact is the cost: there is nobody who can reset it
+for you, so losing the passphrase loses the cloud copy with it. What it does
+not lose is your calendar, which is still in this browser and in the mirror
+file if you keep one. And signing in is still signing in: whoever runs the
+project knows the email address you used, and encrypting the calendar does not
+change that.
+
+One live copy at a time. The file and the cloud are two answers to the same
+question rather than a pair, so while either is connected the panel puts the
+other's Connect button beyond reach and says why. Two writers merging one
+document is a thing to arrive at deliberately.
+
+A paused project reads as a link that is down. Supabase, which is what holds
+the row, stops a free project nobody has used for a week, and the panel prints
+what to do about it instead of retrying in silence; your calendar is whole on
+this device throughout, the way it is whenever the link is not working.
 
 ## Interaction
 
