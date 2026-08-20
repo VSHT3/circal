@@ -76,7 +76,7 @@ describe("round-trip", () => {
     expect.soft(out.location).toBe(ev.location);
     expect.soft(out.url).toBe(ev.url);
     expect.soft(out.notes).toBe(ev.notes);
-    expect.soft(out.uid).toBe(`${ev.id}@circal.app`);
+    expect.soft(out.uid).toBe(`${ev.id}@circal.day`);
   });
 
   it("an all-day event, DTEND landing on the day *after* the last day (end is exclusive)", () => {
@@ -174,7 +174,7 @@ describe("round-trip", () => {
     expect(outSeries).toBeDefined();
     expect(outOverride).toBeDefined();
     // Same UID is what tells a consumer these two VEVENTs are one series.
-    expect.soft(outSeries?.uid).toBe(`${seriesId}@circal.app`);
+    expect.soft(outSeries?.uid).toBe(`${seriesId}@circal.day`);
     expect.soft(outOverride?.uid).toBe(outSeries?.uid);
     // RECURRENCE-ID names the *original* slot, not the override's new time.
     expect.soft(outOverride?.recurrenceId).toBe(overriddenInstant);
@@ -871,7 +871,7 @@ describe("calendar structure", () => {
     const second = toIcs([ev], name);
     const uidOf = (text: string) => /UID:([^\r\n]+)/.exec(text)?.[1];
 
-    expect.soft(uidOf(first)).toBe(`${ev.id}@circal.app`);
+    expect.soft(uidOf(first)).toBe(`${ev.id}@circal.day`);
     expect.soft(uidOf(first)).toBe(uidOf(second));
     expect(fromIcs(first).name).toBe(name);
   });

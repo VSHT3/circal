@@ -367,7 +367,7 @@ export function toIcs(events: CalEvent[], name: string): string {
     // prints as an ordinary standalone VEVENT rather than a dangling one.
     const overrides =
       event.seriesId && event.seriesKey ? events.find((e) => e.id === event.seriesId) : undefined;
-    const uid = overrides ? `${overrides.id}@circal.app` : `${event.id}@circal.app`;
+    const uid = overrides ? `${overrides.id}@circal.day` : `${event.id}@circal.day`;
     const zone = event.tzid;
 
     lines.push("BEGIN:VEVENT");
