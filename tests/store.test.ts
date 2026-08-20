@@ -286,7 +286,14 @@ describe("splitSeries", () => {
     s.store.splitSeries(series.id, WEEKLY.third, body(series));
 
     expect(s.store.undo()).toBe(true);
-    expect(s.store.snapshot().events).toEqual([series]);
+    // The stamp is deliberately *not* the one the series was created with: an
+    // undo is a compensating edit, so `restamped` dates what it puts back at
+    // the moment it runs (`merge.ts`). Asserting the whole record including
+    // `updatedAt` passed only while both instants landed in one millisecond,
+    // which is a coin toss the full suite loses under load.
+    const [restored] = s.store.snapshot().events;
+    expect.soft(restored).toEqual({ ...series, updatedAt: expect.any(Number) });
+    expect(restored.updatedAt).toBeGreaterThanOrEqual(series.updatedAt);
   });
 
   it("re-points an override past the cut at the new series and leaves an earlier one alone", async () => {
@@ -549,7 +556,11 @@ describe("undo / redo", () => {
     const created = s.store.create(draft(s));
     s.store.remove(created.id);
     expect(s.store.undo()).toBe(true);
-    expect(s.store.snapshot().events).toEqual([created]);
+    // Same restamp as the split's undo above: what an undo puts back is dated
+    // now, so the record is compared without pinning its stamp to the clock.
+    const [restored] = s.store.snapshot().events;
+    expect.soft(restored).toEqual({ ...created, updatedAt: expect.any(Number) });
+    expect.soft(restored.updatedAt).toBeGreaterThanOrEqual(created.updatedAt);
     expect(s.store.redo()).toBe(true);
     expect(s.store.snapshot().events).toEqual([]);
   });

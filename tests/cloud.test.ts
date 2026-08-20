@@ -1,0 +1,259 @@
+import { describe, expect, it } from "vitest";
+import { calendar, event, grave, ms } from "./helpers";
+import { DEFAULT_SETTINGS } from "@/lib/store";
+import { MIRROR_VERSION, serialiseMirror } from "@/lib/mirror";
+import { LOCKED, cloudPlan, cloudTake, readCloudRow, type CloudRow } from "@/lib/cloudLink";
+import type { CalEvent, Calendar, Grave } from "@/lib/events";
+
+/**
+ * `cloudLink.ts` is a network client, an auth session, a websocket and a
+ * debounce, and `AGENTS.md` keeps `mirrorLink.ts` out of the suite for the
+ * same reason: a test that mocked a Postgres client would be asserting its own
+ * mock. So the transport is driven by hand — two browsers against one project,
+ * one of them offline, one of them holding the wrong passphrase — and what is
+ * pinned here is everything that decides *whether* to write, which is where a
+ * bug costs a calendar rather than a round trip:
+ *
+ * - `readCloudRow`, because the row is external input.
+ * - `cloudPlan`, the compare-and-swap decision, the version gate and the zone
+ *   gate — all three answerable before anything is decrypted, which is why
+ *   those three fields are columns.
+ * - `cloudTake`, the merge-or-adopt answer and the digest guard — and above
+ *   all its refusal to hand back anything a caller could write when the
+ *   payload would not open.
+ */
+
+const CAL = "work";
+const HERE = "Europe/Berlin";
+const STAMP = ms("2026-03-08 09:00");
+
+function snapshot(
+  events: CalEvent[],
+  over: { graves?: Grave[]; settingsAt?: number; calendars?: Calendar[] } = {},
+) {
+  return {
+    events,
+    calendars: over.calendars ?? [calendar({ id: CAL })],
+    settings: DEFAULT_SETTINGS,
+    // Stamped by default; the cases about an unstamped document say so.
+    settingsAt: over.settingsAt ?? STAMP,
+    graves: over.graves ?? [],
+  };
+}
+
+function row(over: Partial<CloudRow> = {}): CloudRow {
+  return { rev: 5, version: MIRROR_VERSION, zone: HERE, payload: "sealed", ...over };
+}
+
+describe("the row, as it arrives", () => {
+  it.each([
+    { name: "not an object", value: "sealed" },
+    { name: "null", value: null },
+    { name: "a row with no payload", value: { rev: 3, version: 2, zone: HERE } },
+    { name: "a row whose payload is empty", value: { rev: 3, payload: "" } },
+  ])("reads $name as no row at all", ({ value }) => {
+    expect.soft(readCloudRow(value)).toBeNull();
+  });
+
+  // The same readings `readMirrorFile` makes of the same envelope: bookkeeping
+  // that arrived malformed must not cost the document.
+  it.each([
+    { name: "a rev that is not a number", value: { payload: "x", rev: "five" }, want: { rev: 0 } },
+    { name: "an absent rev", value: { payload: "x" }, want: { rev: 0 } },
+    { name: "an absent zone", value: { payload: "x" }, want: { zone: "" } },
+    {
+      name: "an absent version",
+      value: { payload: "x" },
+      want: { version: MIRROR_VERSION },
+    },
+    {
+      name: "a version that is not a number",
+      value: { payload: "x", version: "two" },
+      want: { version: MIRROR_VERSION },
+    },
+  ])("reads $name", ({ value, want }) => {
+    expect.soft(readCloudRow(value)).toMatchObject(want);
+  });
+
+  // Reported rather than clamped, because the whole point of the gate below is
+  // being able to tell a newer writer from this one.
+  it("reports a newer envelope version as it found it", () => {
+    expect(readCloudRow({ payload: "x", version: MIRROR_VERSION + 3 })?.version).toBe(
+      MIRROR_VERSION + 3,
+    );
+  });
+});
+
+describe("the compare-and-swap decision", () => {
+  it("fills an empty slot rather than treating it as a loss", () => {
+    expect(cloudPlan(null, 4, HERE)).toEqual({ do: "write", rev: 5 });
+  });
+
+  // The one that would be a permanent write loop if it answered anything else:
+  // a row where we left it must produce no write at all.
+  it("keeps a row where we left it, and writes nothing", () => {
+    expect(cloudPlan(row({ rev: 7 }), 7, HERE)).toEqual({ do: "keep" });
+  });
+
+  it("opens a row somebody moved on, and hands the row over with the answer", () => {
+    const found = row({ rev: 8 });
+    expect(cloudPlan(found, 7, HERE)).toEqual({ do: "open", row: found });
+  });
+
+  // `mirrorVerdict`'s `stale`: winding a calendar backwards is the one outcome
+  // nothing undoes, so an older copy is re-asserted over, never adopted — and
+  // at *our* next revision, because ours is the newer truth. The row's own
+  // number matters only on the branch where it is ahead, which `claim` takes
+  // from the document it just absorbed.
+  it.each([
+    { name: "one behind", rev: 6 },
+    { name: "six behind", rev: 1 },
+  ])("re-asserts over a row that is $name", ({ rev }) => {
+    expect.soft(cloudPlan(row({ rev }), 7, HERE)).toEqual({ do: "write", rev: 8 });
+  });
+});
+
+describe("the gates, answered before anything is decrypted", () => {
+  it.each([
+    { name: "ahead of us", rev: 9, local: 7 },
+    { name: "behind us", rev: 2, local: 7 },
+  ])("refuses an envelope from a newer circal that is $name", ({ rev, local }) => {
+    const plan = cloudPlan(row({ rev, version: MIRROR_VERSION + 1 }), local, HERE);
+    expect.soft(plan.do).toBe("stop");
+    // Stricter than the file half on purpose: re-asserting over a newer
+    // document round-trips it through validators too old for it, which is the
+    // nine-keys loss in the other direction.
+    expect.soft(plan.do === "stop" && plan.message).toContain("newer circal");
+  });
+
+  it("refuses a row ahead of us that was written in another zone", () => {
+    const plan = cloudPlan(row({ rev: 9, zone: "Asia/Tokyo" }), 7, HERE);
+    expect.soft(plan.do).toBe("stop");
+    expect.soft(plan.do === "stop" && plan.message).toContain("Asia/Tokyo");
+  });
+
+  // The zone is asked only where the row would teach us something. A row we
+  // are re-asserting over cannot put an event on the wrong day here.
+  it("does not refuse a row behind us over its zone", () => {
+    expect(cloudPlan(row({ rev: 2, zone: "Asia/Tokyo" }), 7, HERE)).toEqual({
+      do: "write",
+      rev: 8,
+    });
+  });
+
+  it("opens a row whose writer did not say which zone it was in", () => {
+    expect(cloudPlan(row({ rev: 9, zone: "" }), 7, HERE).do).toBe("open");
+  });
+});
+
+describe("a payload that will not open", () => {
+  const mine = snapshot([event({ id: "mine", calendarId: CAL, updatedAt: STAMP })]);
+
+  /* The sharpest failure in the feature. A wrong passphrase or a damaged box
+   * must never produce anything a caller could write, because sealing local
+   * state over a box we could not read destroys the other machine's work with
+   * no copy anywhere. Every one of these asserts the *absence* of a document,
+   * not merely the presence of a message. */
+  it("stops, and hands back no document to write", () => {
+    const taken = cloudTake(null, mine, STAMP);
+    expect.soft(taken.take).toBe("stop");
+    expect.soft(taken).not.toHaveProperty("document");
+    expect.soft(taken.take === "stop" && taken.message).toBe(LOCKED);
+  });
+
+  it("says nothing was written, because nothing was", () => {
+    const taken = cloudTake(null, mine, STAMP);
+    expect(taken.take === "stop" && taken.message).toContain("untouched");
+  });
+
+  it("stops on a payload that opened into something that is not a calendar", () => {
+    expect.soft(cloudTake("{", mine, STAMP).take).toBe("stop");
+    expect.soft(cloudTake(JSON.stringify({ app: "fantastical" }), mine, STAMP).take).toBe("stop");
+  });
+});
+
+describe("merge, or adopt whole", () => {
+  const theirs = (over: Parameters<typeof snapshot>[1] = {}, rev = 9) =>
+    serialiseMirror(
+      snapshot([event({ id: "theirs", calendarId: CAL, updatedAt: STAMP })], over),
+      rev,
+    );
+
+  const mine = snapshot([
+    event({ id: "mine", calendarId: CAL, updatedAt: ms("2026-03-10 09:00") }),
+  ]);
+
+  it("merges two stamped documents, keeping both machines' work", () => {
+    const taken = cloudTake(theirs(), mine, STAMP);
+    expect.soft(taken.take).toBe("merge");
+    expect
+      .soft(taken.take !== "stop" && taken.document.events.map((e) => e.id))
+      .toEqual(["mine", "theirs"]);
+  });
+
+  it("carries the row's own revision and zone, since the merge is written over that row", () => {
+    const taken = cloudTake(theirs({}, 12), mine, STAMP);
+    expect.soft(taken.take !== "stop" && taken.document.rev).toBe(12);
+    expect.soft(taken.take !== "stop" && taken.document.version).toBe(MIRROR_VERSION);
+  });
+
+  // The gate is `mirrorMerges`', so a document that predates stamping is
+  // adopted whole exactly as it is on the file half.
+  it("adopts a document that predates stamping rather than guessing", () => {
+    const taken = cloudTake(theirs({ settingsAt: 0 }), mine, STAMP);
+    expect.soft(taken.take).toBe("adopt");
+    expect
+      .soft(taken.take !== "stop" && taken.document.events.map((e) => e.id))
+      .toEqual(["theirs"]);
+  });
+
+  // The first link of a browser: signing in is not publishing whatever this
+  // browser happens to hold, which on a seed day is eight demo events.
+  it("adopts rather than merges when the caller says this is a first link", () => {
+    const taken = cloudTake(theirs(), mine, STAMP, false);
+    expect.soft(taken.take).toBe("adopt");
+    expect
+      .soft(taken.take !== "stop" && taken.document.events.map((e) => e.id))
+      .toEqual(["theirs"]);
+  });
+
+  it("goes through mergeDocuments, so a grave still beats an older record", () => {
+    const buried = snapshot([], { graves: [grave("theirs", "2026-03-09 09:00")] });
+    const taken = cloudTake(theirs(), buried, STAMP);
+    expect.soft(taken.take).toBe("merge");
+    expect.soft(taken.take !== "stop" && taken.document.events).toEqual([]);
+  });
+});
+
+describe("the digest guard", () => {
+  const both = (over: Parameters<typeof snapshot>[1] = {}) =>
+    snapshot([event({ id: "shared", calendarId: CAL, updatedAt: STAMP })], over);
+
+  /* Whether a merge has to go back to the row. Answered against the row rather
+   * than against the store, because a pass that answered every read with a
+   * write is two machines writing at each other for ever — the loop Phase 1
+   * found the hard way. */
+  it("does not write back a merge that changed nothing", () => {
+    const taken = cloudTake(serialiseMirror(both(), 9), both(), STAMP);
+    expect.soft(taken.take).toBe("merge");
+    expect.soft(taken.take === "merge" && taken.changed).toBe(false);
+  });
+
+  it("writes back a merge carrying something the row has not got", () => {
+    const mine = snapshot([
+      event({ id: "shared", calendarId: CAL, updatedAt: STAMP }),
+      event({ id: "new", calendarId: CAL, updatedAt: ms("2026-03-11 09:00") }),
+    ]);
+    const taken = cloudTake(serialiseMirror(both(), 9), mine, STAMP);
+    expect.soft(taken.take === "merge" && taken.changed).toBe(true);
+  });
+
+  // The digest is canonical, so a document rebuilt by `readEvent` out of the
+  // payload and the same document held in memory are the same document. An
+  // insertion-order digest read this as a change and wrote on every pass.
+  it("does not read the round trip through the payload as a change", () => {
+    const held = both({ graves: [grave("gone", "2026-03-07 09:00")] });
+    const taken = cloudTake(serialiseMirror(held, 9), held, STAMP);
+    expect(taken.take === "merge" && taken.changed).toBe(false);
+  });
+});
