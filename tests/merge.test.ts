@@ -4,6 +4,8 @@ import { DEFAULT_SETTINGS, type Settings } from "@/lib/store";
 import { GRAVE_TTL } from "@/lib/events";
 import { canonicalJson, mergeDocuments, pruneGraves, restamped, stamped } from "@/lib/merge";
 import type { Mergeable } from "@/lib/merge";
+import { mirrorDigest, mirrorMerges, readMirrorFile, serialiseMirror } from "@/lib/mirror";
+import { applyRemove } from "@/lib/mutate";
 
 /**
  * The module that decides what a conflict means, so what is pinned here is the
@@ -86,6 +88,89 @@ describe("commutativity and idempotence", () => {
     // which would manufacture a meeting neither person wrote.
     expect.soft(merged.events.find((e) => e.id === "a")?.title).toBe("Wednesday");
     expect.soft(merged.events.find((e) => e.id === "b")?.title).toBe("mine only");
+  });
+});
+
+/**
+ * The whole point of the feature, through the real file format rather than
+ * through the merge alone: the laptop edits on Tuesday, the PC on Wednesday,
+ * and today whichever opens second adopts the other's document and discards
+ * its own day.
+ */
+describe("two machines, one mirror file", () => {
+  const MONDAY = ms("2026-03-09 09:00");
+  const cal = calendar({ id: "cal-work", updatedAt: TUESDAY });
+  const shared = event({
+    id: "standup",
+    title: "Standup",
+    calendarId: "cal-work",
+    updatedAt: TUESDAY,
+  });
+  // Written on Monday and deleted on Tuesday: a deletion follows the write it
+  // is about, which is what makes the grave outrank the copy the PC still has.
+  const stale = event({
+    id: "stale",
+    title: "Old thing",
+    calendarId: "cal-work",
+    updatedAt: MONDAY,
+  });
+
+  // Tuesday on the laptop: one new event, and one deletion.
+  const removal = applyRemove(
+    [
+      shared,
+      stale,
+      event({ id: "tue", title: "Tuesday plan", calendarId: "cal-work", updatedAt: TUESDAY }),
+    ],
+    "stale",
+    TUESDAY,
+  );
+  const laptop = doc({ events: removal.events, calendars: [cal], graves: removal.graves });
+
+  // Wednesday on the PC, from a copy predating all of that: its own event, an
+  // edit to the event they share, and the event the laptop deleted.
+  const pc = doc({
+    events: [
+      { ...shared, title: "Standup, moved", updatedAt: WEDNESDAY },
+      event({ id: "wed", title: "Wednesday plan", calendarId: "cal-work", updatedAt: WEDNESDAY }),
+      stale,
+    ],
+    calendars: [cal],
+  });
+
+  const fromLaptop = () => readMirrorFile(serialiseMirror(laptop, 7))!;
+  const fromPc = () => readMirrorFile(serialiseMirror(pc, 8))!;
+  const titles = (d: { events: { title: string }[] }) => d.events.map((e) => e.title).sort();
+
+  it("keeps both days' work, and the deletion sticks", () => {
+    expect.soft(mirrorMerges(fromLaptop(), pc)).toBe(true);
+    const onThePc = mergeDocuments(pc, fromLaptop(), WEDNESDAY);
+    const onTheLaptop = mergeDocuments(laptop, fromPc(), WEDNESDAY);
+
+    expect.soft(titles(onThePc)).toEqual(["Standup, moved", "Tuesday plan", "Wednesday plan"]);
+    expect.soft(titles(onTheLaptop)).toEqual(titles(onThePc));
+    // Not resurrected by the copy the PC was still holding.
+    expect.soft(onThePc.events.some((e) => e.id === "stale")).toBe(false);
+  });
+
+  /**
+   * The property the mirror depends on to stop writing back and forth, and it
+   * has to hold on records that came out of the *file* as well as out of the
+   * store — which is why the digest is canonical: the same event stored here
+   * and rebuilt by `readEvent` there enumerate their keys differently, and an
+   * insertion-order digest called a merge that changed nothing a change.
+   */
+  it("reaches one document from either side, and one digest with it", () => {
+    const onThePc = mergeDocuments(pc, fromLaptop(), WEDNESDAY);
+    const onTheLaptop = mergeDocuments(laptop, fromPc(), WEDNESDAY);
+    expect.soft(canonicalJson(onThePc)).toBe(canonicalJson(onTheLaptop));
+    expect.soft(mirrorDigest(onThePc)).toBe(mirrorDigest(onTheLaptop));
+  });
+
+  // What the mirror did before this work, for contrast: the branch took one
+  // document whole, and the undo step landed on the machine nobody is at.
+  it("where an adopt would have taken one document whole", () => {
+    expect(titles(fromLaptop())).toEqual(["Standup", "Tuesday plan"]);
   });
 });
 

@@ -22,7 +22,7 @@
  * ------------------------------------------------------------------ */
 
 import { readBackup } from "./backup";
-import { stamped, type Mergeable } from "./merge";
+import { canonicalJson, stamped, type Mergeable } from "./merge";
 import { localZone } from "./time";
 import type { Calendar } from "./events";
 import type { Settings, Snapshot } from "./store";
@@ -110,7 +110,16 @@ export function mirrorDigest(s: Mirrored): string {
   // this machine learning about the other one's deletion — must still reach
   // the file. The cost is one extra write on the day a grave passes its TTL on
   // one machine before the other, which is what a ninety-day bound is worth.
-  return JSON.stringify([s.events, settled(s.calendars), s.settings, s.settingsAt, s.graves]);
+  //
+  // `canonicalJson` rather than `JSON.stringify`, and this one is measured: a
+  // merged document holds records from both sides, and an event this browser
+  // stored enumerates its keys in a different order from the same event
+  // rebuilt by `readEvent` on the way out of the file. Insertion-order
+  // stringify calls those two different, so the digest said "changed" for a
+  // merge that changed nothing, both machines wrote back, and each read the
+  // other's write as news — one write every poll, for ever. The digest's whole
+  // claim is telling a real change from a re-read, and key order is not one.
+  return canonicalJson([s.events, settled(s.calendars), s.settings, s.settingsAt, s.graves]);
 }
 
 export function serialiseMirror(s: Mirrored, rev: number, zone = localZone()): string {
