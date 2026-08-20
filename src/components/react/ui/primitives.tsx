@@ -5,9 +5,12 @@
  * of a button is how a product stops looking like one thing, so a new surface
  * composes what is here or the control moves in here first.
  *
- * The two field controls at the bottom are shared by the settings card and the
- * life view's prompt — the same date and the same number, asked for in two
- * places.
+ * The typed fields at the bottom are the four ways this app asks for a value:
+ * `DateField` and `NumberField`, shared by the settings card and the life
+ * view's prompt — the same date and the same number, asked for in two places —
+ * then `TimeField`, because `input[type=time]` renders in the browser's locale
+ * rather than the app's, and `TextField`, because a panel that spells a bare
+ * `<input>` once per surface is four field shapes by the fourth surface.
  * ------------------------------------------------------------------ */
 
 import { ChevronsUpDown } from "lucide-react";

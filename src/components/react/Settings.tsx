@@ -970,7 +970,7 @@ export default function Settings({
                   <span className="caption tabular-nums">
                     {span
                       ? `${formatCount(span.days)} days — one dot each, ending around ${formatLifeDate(span.death)}`
-                      : "One dot per day for a whole life. The date is asked for once and never leaves this browser"}
+                      : "One dot per day for a whole life. The date is asked for once and kept with your own calendar, nowhere else"}
                   </span>
                 </FieldRow>
                 <FieldRow label="Marks" align="top">
@@ -1018,12 +1018,15 @@ export default function Settings({
                   {/* Said out loud, because the absence is the interesting
                       part: a calendar that never tells you anything is a
                       viewer, and the reason this one only speaks while it is
-                      open is the same reason it has no account. Leaving that
-                      to be discovered is how a missed meeting becomes a bug
-                      report. */}
+                      open is the reason nothing here runs on a server.
+                      Leaving that to be discovered is how a missed meeting
+                      becomes a bug report. The clause used to be "nothing
+                      here leaves this browser", which the cloud copy three
+                      cards down made false — a signed-in row is somewhere
+                      else, and none of it runs circal's code. */}
                   <span className="caption">
                     Only while circal is open, in this tab. Reminders with it closed would need a
-                    server to push them, and nothing here leaves this browser
+                    server pushing them at you, and circal runs nowhere but this browser
                   </span>
                 </FieldRow>
               </Section>
@@ -1157,7 +1160,8 @@ export default function Settings({
                     </DataButton>
                   </div>
                   <span className="caption">
-                    Events live only in this browser. A backup is the only copy that survives it
+                    Events live in this browser. With no live copy connected below, a backup is the
+                    only one that survives it
                   </span>
                 </FieldRow>
 
@@ -1280,7 +1284,17 @@ export default function Settings({
                       )}
                       {mirrorStatus.state === "error" && (
                         <>
-                          <span className="caption text-danger">{mirrorStatus.message}</span>
+                          {/* Plain `.caption`, not `text-danger`: a link that
+                              is down is not a destructive action, and the
+                              calendar is whole in `localStorage` either way.
+                              It was red until the cloud half arrived beside it
+                              printing the same kind of sentence in grey, and
+                              two neighbouring sections disagreeing about
+                              whether this is an emergency is worse than either
+                              answer. `feedMetaClass` keeps its red for a
+                              different claim — a subscription that is failing
+                              is showing stale events right now. */}
+                          <span className="caption">{mirrorStatus.message}</span>
                           <div className="flex flex-wrap items-center gap-2">
                             <DataButton
                               icon={<Link2 size={13} strokeWidth={1.75} />}
