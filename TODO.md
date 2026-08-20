@@ -83,10 +83,17 @@ stopwatch. Filed because it keeps coming back, not because it has an argument ye
 
 - **No seven-column grid.** The circle is the argument and a grid concedes it. Seven _dials_ do not,
   which is what ⌘E is.
-- **No accounts, and no second API route.** "Nothing leaves this browser" is the product. A relay
-  for calendar transfer needs storage, a TTL, size caps, rate limits and somebody answering abuse
-  mail — and a passphrase short enough to be memorable is offline-brute-forceable against a stored
-  ciphertext unless it runs a real PAKE, which is not something to hand-roll here.
+- **No anonymous relay, and still no second API route.** This entry forbade two things and only one
+  of them shipped, so it now says which. What is still refused is the _relay_: anonymous storage
+  keyed by a memorable passphrase, which needs a TTL, size caps, rate limits and somebody answering
+  abuse mail, and whose ciphertext is fetchable by anyone holding a guess — offline-brute-forceable
+  unless it runs a real PAKE, which is not something to hand-roll here. What shipped is not that.
+  `cloudLink.ts` puts the ciphertext behind an authenticated session (`SYNC.md` Phase 2), so a guess
+  is a guess against a row a stranger cannot fetch, and the passphrase stopped being the only thing
+  between them and a calendar. "Nothing leaves this browser" is still the default and still the
+  product: sync is off until somebody asks for it, and what leaves is a box sealed in the browser.
+  The route half is untouched — `supabase-js` talks straight to `*.supabase.co`, so `/api/feed`
+  remains the only thing the Worker serves.
 - **Do not add a ring to the dial.** Every radius costs `PAD` and legibility, and that face carries
   four plus two bands. The room is in the interior. Anything that is not a fact about the _day_ goes
   to the sidebar, which is where the moon went.
