@@ -11,7 +11,10 @@ anyone holding a guess, and the passphrase stops being the only thing between a 
 calendar. If Phase 2 is accepted, that `TODO.md` entry needs editing to say which of the two it
 still forbids.
 
-Phases 0 and 1 need no account, no server and no network. They are worth doing on their own terms.
+Phases 0 and 1 need no account, no server and no network, and they ship as one change rather than in
+sequence: Phase 0 on its own adds three fields no reader consumes, changes nothing a user could
+observe, and is therefore pure cost until the merge that consumes them exists. Phase 2 is deferred
+behind them indefinitely, for the reason given at its head.
 
 ---
 
@@ -69,11 +72,20 @@ year ring's tallies, `mcp/domain.ts`. A sibling list means **no reader changes a
 still holds exactly the events that exist. Only `store.ts`, `mutate.ts`, `backup.ts`, `mirror.ts` and
 the new merge know graves exist.
 
+Graves also need a validator, because they arrive from a file. The repo's standing shape is one
+validator per format with many readers — `readRecurrence`, `readRemindLead`, `readMark`, `readGuests`
+— so graves get **`readGraves`** and a **`GRAVE_MAX`**, in `src/lib/events.ts` beside the other
+format owners rather than in `backup.ts`, which reads formats but owns none. The threat is
+`ATTENDEE_MAX`'s exactly: an array with no natural length arriving from a hostile or merely broken
+file into the ~5MB origin quota that `FEED_BUDGET` already carves 2M characters out of. The cap is
+what makes the TTL below a policy rather than the only thing standing between a bad file and a full
+quota.
+
 ### `updatedAt`
 
-`CalEvent.updatedAt: number` and `Calendar.updatedAt: number`, epoch ms, stamped by `store.ts` on
-every mutation that commits. It is a _field of the record_, so `mutate.ts`'s five reducers stamp what
-they touch and nothing else:
+`CalEvent.updatedAt: number` and `Calendar.updatedAt: number`, epoch ms. It is a _field of the
+record_, so `mutate.ts`'s five reducers stamp what they touch and nothing else — and each of them
+takes `now: number` as a parameter rather than reading the clock itself:
 
 | reducer           | stamps                                                     |
 | ----------------- | ---------------------------------------------------------- |
@@ -87,8 +99,43 @@ they touch and nothing else:
 cover the same set, or a merge brings an orphaned override back as an ordinary event on the day it
 used to replace — which is precisely the state that reducer's comment exists to prevent.
 
+`now` arrives as a parameter for the same reason `mintId` does, and that file's own header already
+makes the argument: reaching for `store` from `mutate` is a cycle, and a reducer that calls
+`Date.now()` is a reducer no test can pin to an instant. The alternative considered was stamping at
+commit time in `store.ts` instead — one place, no signature churn, and wrong. `commit` sees whole
+arrays and cannot tell which elements moved, so it either restamps every event on every save, which
+makes `updatedAt` mean "when this device last wrote anything" and hands every merge to whichever
+machine saved last, or it diffs the arrays to find out what changed, which is the merge again, in the
+wrong module.
+
+Two reducers change their return type: `applyRemove` and `applyTruncate` stop returning a bare
+`CalEvent[]` and return the survivors together with the graves they emitted, because a grave computed
+inside the reducer and recomputed by the caller is the deletion rule written twice, in two files, to
+drift. That is a signature break, and it lands on `mcp/domain.ts` as well as `store.ts` — both call
+these directly.
+
 Settings do not merge field by field in any way a user would recognise, so they get one stamp:
 **`Snapshot.settingsAt: number`**, and the whole object is last-writer-wins under it.
+
+### Undo is a mutation
+
+This document said nothing about undo, and the silence loses data. `store.undo`, `redo`, `restore`
+and `adopt` put back a _recorded copy_ of the event arrays, and a recorded copy carries the
+`updatedAt` it had when it was recorded. So an undo produces a document that is, by every stamp in
+it, older than the one the other machine is holding: it loses on the very next merge and reverts
+itself, leaving nothing the user could act on. The one action whose whole promise is "that did not
+happen" is the one a merge would quietly undo.
+
+So **an undo or a redo counts as a fresh mutation**: what it changes is restamped at the moment it
+runs, and what it removes emits a grave, exactly as the forward mutation would have. Undo is not a
+time machine here, it is a compensating edit, and stamping it is what says so.
+
+`restore` and `adopt` then split on the same question in opposite directions, and the asymmetry is
+deliberate. `restore` is a user importing a backup on purpose, so it restamps — they mean this file
+to be the answer. `adopt` does not, and must not: restamping a document that just arrived from the
+other machine would mark every record in it as freshly edited _here_, and this machine would win
+every subsequent merge wholesale. That is the last-writer-wins defect this document exists to
+remove, reintroduced by the one line that looks like consistency.
 
 ### Migration
 
@@ -102,6 +149,11 @@ the merge needs to know to decline to merge. See `MIRROR_VERSION` below. Stampin
 the migration time instead would make the machine that upgraded last win wholesale, which is the bug
 being fixed wearing a different hat.
 
+Feed events pick up `updatedAt = 0` through the same fill-in, since `hydrateEvents` cannot tell a
+subscription's payload from the user's own array. That is accepted rather than overlooked: rule 6
+below has `feeds` never merging and re-pulled wholesale, so the stamp is never read by anything, and
+a special case to avoid it would be code defending nothing.
+
 ### Pruning
 
 `GRAVE_TTL` = **90 days**. A grave older than that is dropped on hydrate. The consequence is stated
@@ -112,8 +164,9 @@ kilobytes — the TTL is about the decade, not the year.
 
 ### Files touched
 
-`src/lib/events.ts` (both interfaces, `Grave`), `src/lib/mutate.ts` (five reducers), `src/lib/store.ts`
-(`Snapshot`, `Persisted`, `hydrate`, `commit`, `remove`, `removeCalendar`, `restore`, `adopt`,
+`src/lib/events.ts` (both interfaces, `Grave`, `readGraves`, `GRAVE_MAX`), `src/lib/mutate.ts` (five
+reducers, two of them returning graves alongside the survivors), `src/lib/store.ts` (`Snapshot`,
+`Persisted`, `hydrate`, `commit`, `remove`, `removeCalendar`, `undo`, `redo`, `restore`, `adopt`,
 `sane`), `src/lib/backup.ts` (`readEvent`, `readCalendar`, `readBackup`, `exportBackup`),
 `src/lib/mirror.ts` (`Mirrored`, `mirrorDigest`), `mcp/domain.ts` (its patch path round-trips whole
 documents, so a field it does not know is a field it silently drops — the `circal-mcp@0.1.0` lesson,
@@ -137,9 +190,18 @@ Rules, in order:
 2. **A grave wins over a record** when `grave.at > record.updatedAt`. Otherwise the record survives
    and the grave is discarded — an event edited after it was deleted elsewhere is a resurrection the
    user performed, which is different from one a merge invented.
-3. **Greater `updatedAt` wins.** Equal stamps break on the lower `id`, so both machines reach the
-   same answer without talking. Two devices genuinely editing one event in the same millisecond is
-   not a case worth a vector clock.
+3. **Greater `updatedAt` wins.** Equal stamps break on a **canonical serialisation** of the two
+   records — keys sorted, then stringified — keeping the lexicographically smaller. This rule
+   previously read "the lower `id`", which is empty: rule 1 is a union _by id_, so the two candidates
+   for a slot have the same id by construction and there is no lower one. Saying so is not
+   bookkeeping — a reader who sees only the replacement will reach for the id again, because it is
+   the obvious thing to reach for. Canonical is the load-bearing word: a record built by a spread and
+   the same record round-tripped through `backup.readEvent` enumerate their keys in different orders,
+   so a tie-break over raw `JSON.stringify` is a tie-break two machines can disagree about, which is
+   exactly what commutativity forbids — and one the commutativity test would only catch on the day a
+   fixture happened to differ in key order. Two devices genuinely editing one event in the same
+   millisecond is not a case worth a vector clock; it is a case worth a rule that cannot answer
+   twice.
 4. **Graves union**, then prune past `GRAVE_TTL` measured from `now`.
 5. **Settings**: whole-object, greater `settingsAt`.
 6. **`feeds` never merges.** It is a read model assembled from `circal.feed.*` keys and is the one
@@ -195,6 +257,14 @@ reader should be able to see the exemption was reasoned rather than forgotten.
 
 Off unless signed in. The app must be byte-identical for somebody who never does.
 
+**Deferred, and deliberately.** Once the merge exists, two machines pointed at one mirror file in a
+folder Syncthing keeps in step is complete sync: no account, no server, no passphrase to lose, and
+nothing anyone could breach. That is the arrangement to live with for a good period before Supabase
+is reconsidered at all, because it already answers the whole of the problem this document opens with,
+at none of the cost — and a dependency taken on before the free version has been run in anger is a
+dependency bought on speculation. What follows is the design if it is ever taken up, not a plan to
+take it up.
+
 ### Why Supabase fits, in facts rather than preference
 
 - **It adds no route.** `supabase-js` talks directly to `*.supabase.co`, so `/api/feed` remains the
@@ -207,6 +277,10 @@ Off unless signed in. The app must be byte-identical for somebody who never does
 - **Postgres is the compare-and-swap.** `mirrorLink.ts` needed a `.lock` sibling on the server side
   and Web Locks on the browser side because a file has no atomic read-modify-write. A conditional
   `UPDATE` is one.
+- **Hosted free tier, not self-hosted.** The payload is client-encrypted, so the server holds a
+  locked box either way: self-hosting buys no privacy that is not already there. What it does buy is
+  five or six containers, a Postgres to keep backed up and an ops burden that never ends, all to hold
+  one row per user.
 
 ### Schema
 
@@ -287,15 +361,22 @@ worth reaching deliberately rather than by default. Revisit once Phase 1 has run
 
 ## Open questions
 
-1. **Does the mirror get merging before any of this, and ship alone?** It is the recommendation:
-   Phases 0 and 1 make an existing feature strictly better, need no account, and are provable with
-   the file and the suite. Phase 2 is then the easy half.
+1. **Does the mirror get merging before any of this, and ship alone? — resolved, yes.** Phases 0 and
+   1 make an existing feature strictly better, need no account, and are provable with the file and
+   the suite. They ship as one change rather than in sequence, because Phase 0 alone is three fields
+   nothing reads. Phase 2 is no longer "the easy half" waiting behind them; it is deferred.
 2. **Passphrase-or-nothing, or a "let the server hold it in the clear" option?** The second is
    simpler to recover from and is what every other calendar does. It is also the version that makes
-   a breach somebody else's appointments. Recommendation: passphrase only, no opt-out.
-3. **Grave TTL at 90 days.** Longer is safer against a laptop in a drawer and costs storage that is
-   already budgeted. This is the one number here picked by judgement rather than derived, and it
-   should be argued before it is committed to.
-4. **Free-tier pausing.** Supabase pauses an idle project on the free plan, which for a calendar
-   means sync silently stopping. Either that is acceptable and surfaced as `MirrorState.error`, or
-   this needs a paid plan, and that is a product decision rather than a technical one.
+   a breach somebody else's appointments. Recommendation stands: passphrase only, no opt-out. This is
+   the one question here still genuinely open, and it stays open until Phase 2 is actually taken up —
+   settling it now would be settling it without the thing it is about in front of us.
+3. **Grave TTL at 90 days — resolved as proposed.** The argument in the Pruning section carries it on
+   its own: the storage cost is bounded and already budgeted, and the failure it admits is a machine
+   left offline for a quarter, stated rather than hidden. It remains the one number here picked by
+   judgement, which is why it stays written down next to what it costs.
+4. **Free-tier pausing — resolved: acceptable.** Supabase pauses an idle project on the free plan,
+   so sync stops until somebody unpauses it. That surfaces as `MirrorState.error`, the state
+   `mirrorLink.ts` already has for "this link is not working", which is the honest reading: a paused
+   project is a link that is down, and the calendar is still whole in `localStorage` and in the
+   mirror file. Paying a monthly fee to avoid an error message is not a product decision worth
+   making.
