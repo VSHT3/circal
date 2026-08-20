@@ -51,6 +51,7 @@
  * already this repo's answer to "is this the same content".
  * ------------------------------------------------------------------ */
 
+import { base64UrlToBytes, bytesToBase64Url } from "./base64";
 import { readEvent } from "./backup";
 import type { CalEvent } from "./events";
 import { fnv1a } from "./ics";
@@ -196,22 +197,16 @@ const utf8 = new TextEncoder();
  *  title is a row of replacement characters. */
 const utf8Reader = new TextDecoder("utf-8", { fatal: true });
 
+/** The record as base64url. The byte layer lives in `./base64`, which
+ *  `vault.ts` shares — see its header for why one spelling matters. */
 function toBase64Url(value: string): string {
-  const bytes = utf8.encode(value);
-  let binary = "";
-  // A byte at a time rather than `String.fromCharCode(...bytes)`: the
-  // spread is a call with one argument per byte, which the payload cap
-  // makes survivable and does not make correct.
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  return bytesToBase64Url(utf8.encode(value));
 }
 
 function fromBase64Url(value: string): string | null {
-  if (!/^[A-Za-z0-9_-]+$/.test(value)) return null;
+  const bytes = base64UrlToBytes(value);
+  if (!bytes) return null;
   try {
-    const binary = atob(value.replace(/-/g, "+").replace(/_/g, "/"));
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
     return utf8Reader.decode(bytes);
   } catch {
     return null;
