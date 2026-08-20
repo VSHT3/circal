@@ -38,6 +38,7 @@ import { cue } from "@/lib/feedback";
 import { placeForZone } from "@/lib/places";
 import { refreshFeed } from "@/lib/feeds";
 import { notify } from "@/lib/notify";
+import { startCloud, useCloud } from "@/lib/cloudLink";
 import { startMirror, useMirror } from "@/lib/mirrorLink";
 import { defaultStart } from "@/lib/quickadd";
 import {
@@ -317,9 +318,10 @@ function Shell() {
    */
   const now = useNow(60_000);
   const reducedMotion = useReducedMotion();
-  /** The backup clock and the mirror's state, for the main-screen nudge. */
+  /** The backup clock and both links' state, for the main-screen nudge. */
   const lastBackup = useLastBackup();
   const mirrorStatus = useMirror();
+  const cloudStatus = useCloud();
 
   /**
    * A shared event, taken off the URL once, during the first render.
@@ -680,6 +682,11 @@ function Shell() {
   // driving `Settings`' Mirror section entirely on its own.
   useEffect(() => startMirror(), []);
 
+  // The cloud copy, the same way and for the same reasons — and it returns a
+  // no-op teardown where no project is configured, so an unconfigured build
+  // fetches nothing and subscribes to nothing.
+  useEffect(() => startCloud(), []);
+
   // The Dock's calendar drop, routed through the one import the settings panel
   // already runs. The name it lands under is `fromIcs`'s own, so a filename
   // never reaches here — the shell has none to give once the file is text.
@@ -825,16 +832,18 @@ function Shell() {
    * the strip's is under its faces, the grid's meta strip is a caption row it
    * clears), so it collides with none of them. Never while a modal, the
    * palette, the editor, the drawer or ambient is up (`shaded`, `inAmbient`),
-   * so it never arrives over something that owns the screen. Silent while a
-   * mirror is live: a rolling copy is already being written on every change,
-   * and nagging for a backup somebody is continuously taking is the app not
-   * knowing what it does.
+   * so it never arrives over something that owns the screen. Silent while
+   * *either* link is live: a rolling copy is already being written on every
+   * change, and nagging for a backup somebody is continuously taking is the
+   * app not knowing what it does. The cloud copy earns that for the same
+   * reason the file does — it is the same document, one transport over.
    */
   const showNudge =
     settings.backupNudge &&
     !shaded &&
     !inAmbient &&
     mirrorStatus.state !== "live" &&
+    cloudStatus.state !== "live" &&
     backupDue(lastBackup, settings.backupInterval, now.getTime());
   useOnInput(
     ambient === "auto",

@@ -515,6 +515,76 @@ export function NumberField({
 }
 
 /**
+ * One line of typed text inside a row.
+ *
+ * It exists because the cloud section asks for three of them — an address, a
+ * six-digit code, a passphrase — and a settings panel with four differently
+ * spelled bare `<input>`s in it is the drift this file exists to stop. The
+ * shape is the one the feed row already had, so nothing about the panel
+ * changed when that row became the fourth caller.
+ *
+ * `onEnter` rather than a form: these fields sit inside a `role="dialog"`
+ * whose own Escape and ⌘-combos are live, so the key is handled here and the
+ * event stopped, exactly as `TimeField` handles its own Enter.
+ *
+ * `type` is a closed set on purpose. `password` is what a passphrase field
+ * is — a browser that offers to remember it is offering the one thing that
+ * makes a per-device passphrase bearable — and `email`/`tel` are what put the
+ * right keyboard under a thumb.
+ */
+export function TextField({
+  value,
+  onChange,
+  label,
+  placeholder,
+  type = "text",
+  inputMode,
+  autoComplete,
+  maxLength,
+  onEnter,
+  className,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+  label: string;
+  placeholder?: string;
+  type?: "text" | "email" | "url" | "password";
+  inputMode?: "text" | "email" | "url" | "numeric";
+  autoComplete?: string;
+  maxLength?: number;
+  onEnter?: () => void;
+  className?: string;
+}) {
+  return (
+    <input
+      type={type}
+      value={value}
+      aria-label={label}
+      placeholder={placeholder}
+      inputMode={inputMode}
+      autoComplete={autoComplete}
+      maxLength={maxLength}
+      spellCheck={false}
+      onChange={(e) => onChange(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key !== "Enter" || !onEnter) return;
+        e.preventDefault();
+        e.stopPropagation();
+        onEnter();
+      }}
+      className={cn(
+        // 32 on a mouse and 40 on a finger, the `IconButton` bargain: the
+        // field grows rather than gaining a hit area, because it sits beside a
+        // button at a 8px gap and an overlapping box would take that button's
+        // taps.
+        "h-8 min-w-0 rounded-[8px] bg-surface-2 px-2 text-[13px] text-ink placeholder:text-ink-3 pointer-coarse:h-10",
+        className,
+      )}
+    />
+  );
+}
+
+/**
  * A twelve- or twenty-four-hour clock field. Free text while focused,
  * normalised on blur or Enter; ↑/↓ nudge by five minutes so keyboard-only
  * editing is not a retype.

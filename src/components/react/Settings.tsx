@@ -20,9 +20,12 @@
 import { useState, type ReactNode } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
+  ArrowLeft,
   ArrowUpRight,
   Download,
+  KeyRound,
   Link2,
+  Mail,
   RefreshCw,
   RotateCcw,
   Trash2,
@@ -30,6 +33,7 @@ import {
   Upload,
   X,
 } from "lucide-react";
+import { LOCKED, cloud, cloudSupported, useCloud } from "@/lib/cloudLink";
 import { refreshFeed } from "@/lib/feeds";
 import { canVibrate } from "@/lib/feedback";
 import { formatCount, formatLifeDate, lifeSpan } from "@/lib/life";
@@ -75,6 +79,7 @@ import {
   PositionField,
   Segmented,
   Select,
+  TextField,
   TimeField,
   Toggle,
 } from "@/components/react/ui/primitives";
@@ -149,6 +154,30 @@ function mirrorAge(at: number): string {
   return minutes < 1 ? "just now" : `${formatDuration(minutes)} ago`;
 }
 
+/**
+ * Signing in to the cloud copy is three questions in order — an address, the
+ * code that address received, then the passphrase the copy is sealed with —
+ * and the third is asked again on every new device, where the first two are
+ * not.
+ */
+type Asking = "email" | "code" | "passphrase";
+
+/**
+ * What the panel has *done*, which is deliberately not the same list as what
+ * it is asking for. A gesture is recorded the moment it has been made and the
+ * transport's own state then says whether it took: `answered` plus `error` is
+ * a refused code, where `answered` plus `prompt` is a session. Keeping the two
+ * apart is what stops the panel from having to guess a verdict it can read.
+ */
+type Stage = "email" | "sent" | "answered" | "opened";
+
+interface SignIn {
+  stage: Stage;
+  email: string;
+  code: string;
+  passphrase: string;
+}
+
 /** A group of rows under one word, as a card. The titles are the panel's
  *  only orientation, and a card is what lets the group be moved into a
  *  column without its rows coming apart from their heading — `break-inside`
@@ -215,6 +244,22 @@ export default function Settings({
   const [pulling, setPulling] = useState<string | null>(null);
   const dialog = useFocusTrap<HTMLDivElement>(open);
   const mirrorStatus = useMirror();
+  const cloudStatus = useCloud();
+  /**
+   * The sign-in flow, as one value rather than four `useState`s: it is one
+   * gesture in three steps, and a stage that could disagree with the text it
+   * is collecting is a stage that will.
+   */
+  const [signIn, setSignIn] = useState<SignIn>({
+    stage: "email",
+    email: "",
+    code: "",
+    passphrase: "",
+  });
+  /** One round trip in flight. `unlock` is 600k PBKDF2 rounds, so this is a
+   *  visible fraction of a second and a second press would derive the key
+   *  twice. */
+  const [signingIn, setSigningIn] = useState(false);
 
   const subscriptions = calendars.filter((c) => c.feed);
   const sun = place ? sunTimes(startOfDay(new Date()), place) : null;
@@ -231,6 +276,55 @@ export default function Settings({
   /** Same rule for the mirror: no file handle, no offer — an unusable
    *  Connect button is worse than a section that says plainly it cannot. */
   const canMirror = mirrorSupported();
+  /**
+   * Same rule again, and the strictest of the three: with no
+   * `PUBLIC_SUPABASE_URL` / `PUBLIC_SUPABASE_ANON_KEY` the section is
+   * *absent*, not disabled and not explained. A fork that never configured a
+   * project should not learn from this panel that the feature exists.
+   */
+  const canCloud = cloudSupported();
+  /**
+   * One live copy at a time, and the panel is where that is enforced —
+   * `SYNC.md`'s "the first cut should still be one at a time", which the
+   * transport deliberately left to this surface. `off` is the only state
+   * either link is not holding something: a `prompt` is a remembered handle
+   * or a signed-in session, and an `error` is one gesture from writing. So
+   * each side's *advancing* verbs go when the other is engaged, while its
+   * retreating ones never do — a reader who arrives with both remembered
+   * (a session from before the file was picked) must be able to let one go.
+   */
+  const mirrorEngaged = canMirror && mirrorStatus.state !== "off";
+  const cloudEngaged = canCloud && cloudStatus.state !== "off";
+  /** The one message the panel reads rather than only prints: a locked box
+   *  wants the passphrase again, where every other failure wants a retry.
+   *  Compared against the transport's own constant, so there is still exactly
+   *  one place that sentence is written. */
+  const cloudLocked = cloudStatus.message === LOCKED;
+  /**
+   * Which of the three the panel is asking for — the gesture made, read
+   * against the verdict the transport has already published, so no failure
+   * leaves a field standing for a question that was answered.
+   *
+   * An empty `name` is the sharpest of them: `requestCode` sets the address on
+   * the status only where the code actually went out, so no name means nothing
+   * was sent and the address is what to ask for again. `answered` splits on
+   * the state for the same reason — `error` there is a refused code, and
+   * asking for a passphrase to a session that does not exist would send the
+   * user round the whole flow to find out.
+   *
+   * `cloudLocked` overrides all of it: a box that will not open is the
+   * passphrase's own failure whenever it happens, including on a link that was
+   * live an hour ago.
+   */
+  const asking: Asking = cloudLocked
+    ? "passphrase"
+    : cloudStatus.state === "off" || !cloudStatus.name
+      ? "email"
+      : signIn.stage === "sent"
+        ? "code"
+        : signIn.stage === "answered" && cloudStatus.state === "error"
+          ? "code"
+          : "passphrase";
 
   /** The life the grid would draw with what is set right now — the row prints
    *  where it ends, so the number beside it is never an abstraction. Plain
@@ -301,6 +395,167 @@ export default function Settings({
     setFeedUrl("");
     const calendar = store.addFeed(normalised, hostLabel(normalised));
     await pull(calendar);
+  }
+
+  /**
+   * The three gestures. Each is one round trip and each records that it was
+   * made — never that it worked, which is the transport's word and is already
+   * on the status by the time this returns. `asking` reads the two together.
+   */
+  async function sendCode() {
+    const email = signIn.email.trim();
+    if (!email || signingIn) return;
+    setSigningIn(true);
+    await cloud.requestCode(email);
+    setSigningIn(false);
+    setSignIn((flow) => ({ ...flow, stage: "sent", code: "" }));
+  }
+
+  async function submitCode() {
+    const code = signIn.code.trim();
+    if (!code || signingIn) return;
+    setSigningIn(true);
+    await cloud.submitCode(signIn.email.trim(), code);
+    setSigningIn(false);
+    setSignIn((flow) => ({ ...flow, stage: "answered", code: "" }));
+  }
+
+  /** The passphrase is dropped from state the moment it has been used: the
+   *  key it derives lives in the transport for the session, and a field this
+   *  panel keeps holding it is a copy nothing needs. */
+  async function unlockCloud() {
+    const passphrase = signIn.passphrase;
+    if (!passphrase || signingIn) return;
+    setSigningIn(true);
+    await cloud.unlock(passphrase);
+    setSigningIn(false);
+    setSignIn((flow) => ({ ...flow, stage: "opened", passphrase: "" }));
+  }
+
+  /**
+   * Back to the address, which is the whole reason the code is a step of its
+   * own: a mistyped address sends a code to somebody else, and a flow that
+   * cannot go back leaves a reload as the only way out.
+   *
+   * It signs out rather than merely rewinding, so a code already requested
+   * against the old address is dropped with it rather than left able to
+   * complete. The address itself is kept, which makes correcting it an edit
+   * rather than a retype.
+   */
+  async function changeAddress() {
+    await cloud.disconnect();
+    setSignIn((flow) => ({ ...flow, stage: "email", code: "", passphrase: "" }));
+  }
+
+  async function signOut() {
+    await cloud.disconnect();
+    setSignIn({ stage: "email", email: "", code: "", passphrase: "" });
+  }
+
+  /**
+   * Whichever of the three the flow is on. One renderer rather than a copy
+   * per state, because `prompt` and a recoverable `error` ask for exactly the
+   * same thing — the difference between them is the sentence above it, which
+   * is the transport's to write.
+   */
+  function cloudFields() {
+    if (asking === "email") {
+      return (
+        <div className="flex flex-wrap items-center gap-2">
+          <TextField
+            type="email"
+            inputMode="email"
+            autoComplete="email"
+            value={signIn.email}
+            onChange={(email) => setSignIn((flow) => ({ ...flow, email }))}
+            onEnter={() => void sendCode()}
+            label="Email address"
+            placeholder="you@example.com"
+            className="flex-1 basis-[140px]"
+          />
+          <DataButton
+            icon={<Mail size={13} strokeWidth={1.75} />}
+            onClick={() => void sendCode()}
+            disabled={!signIn.email.trim() || signingIn}
+          >
+            Send code
+          </DataButton>
+        </div>
+      );
+    }
+
+    if (asking === "code") {
+      return (
+        <div className="flex flex-wrap items-center gap-2">
+          <TextField
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            maxLength={6}
+            value={signIn.code}
+            onChange={(code) => setSignIn((flow) => ({ ...flow, code }))}
+            onEnter={() => void submitCode()}
+            label="Six-digit code"
+            placeholder="000000"
+            className="w-[8ch] tabular-nums"
+          />
+          <DataButton
+            icon={<Link2 size={13} strokeWidth={1.75} />}
+            onClick={() => void submitCode()}
+            disabled={!signIn.code.trim() || signingIn}
+          >
+            Sign in
+          </DataButton>
+          <DataButton
+            icon={<ArrowLeft size={13} strokeWidth={1.75} />}
+            onClick={() => void changeAddress()}
+          >
+            Change address
+          </DataButton>
+        </div>
+      );
+    }
+
+    return (
+      <>
+        <div className="flex flex-wrap items-center gap-2">
+          <TextField
+            type="password"
+            autoComplete="current-password"
+            value={signIn.passphrase}
+            onChange={(passphrase) => setSignIn((flow) => ({ ...flow, passphrase }))}
+            onEnter={() => void unlockCloud()}
+            label="Passphrase"
+            placeholder="passphrase"
+            className="flex-1 basis-[140px]"
+          />
+          <DataButton
+            icon={<KeyRound size={13} strokeWidth={1.75} />}
+            onClick={() => void unlockCloud()}
+            disabled={!signIn.passphrase || signingIn}
+          >
+            Unlock
+          </DataButton>
+          <DataButton
+            icon={<Unlink2 size={13} strokeWidth={1.75} />}
+            onClick={() => void signOut()}
+          >
+            Sign out
+          </DataButton>
+        </div>
+        {/* The trade, at the moment the decision is made, and nowhere else —
+            including not here once something has already gone wrong: the
+            transport's own sentence is above this one then, and repeating what
+            a passphrase costs beside "nothing was written" reads as a warning
+            about the wrong thing. */}
+        {cloudStatus.state !== "error" && (
+          <span className="caption">
+            Set once, and typed on every new device — circal seals the copy with it and never sends
+            it. Lose it and the cloud copy is lost with it; this browser's calendar and any mirror
+            file are untouched
+          </span>
+        )}
+      </>
+    );
   }
 
   return (
@@ -827,20 +1082,16 @@ export default function Settings({
                       </IconButton>
                     </div>
                   ))}
-                  <div className="flex items-center gap-2">
-                    <input
+                  <div className="flex flex-wrap items-center gap-2">
+                    <TextField
                       type="url"
+                      inputMode="url"
                       value={feedUrl}
-                      onChange={(e) => setFeedUrl(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          void addFeed();
-                        }
-                      }}
+                      onChange={setFeedUrl}
+                      onEnter={() => void addFeed()}
+                      label="Feed URL"
                       placeholder="https://…/basic.ics"
-                      aria-label="Feed URL"
-                      className="h-8 min-w-0 flex-1 rounded-[8px] bg-surface-2 px-2 text-[13px] text-ink placeholder:text-ink-3"
+                      className="flex-1 basis-[140px]"
                     />
                     <button
                       type="button"
@@ -933,7 +1184,7 @@ export default function Settings({
                       warning stands in for it where it cannot. */}
                   <span className="caption">
                     On the main screen, when no backup has been saved in a while. Silent while a
-                    mirror is connected below — that copy is already live
+                    mirror file or the cloud copy is connected below — that copy is already live
                   </span>
                 </FieldRow>
               </Section>
@@ -965,6 +1216,7 @@ export default function Settings({
                           <DataButton
                             icon={<Link2 size={13} strokeWidth={1.75} />}
                             onClick={() => void mirror.connect()}
+                            disabled={cloudEngaged}
                           >
                             Connect a file…
                           </DataButton>
@@ -980,6 +1232,7 @@ export default function Settings({
                           <DataButton
                             icon={<Link2 size={13} strokeWidth={1.75} />}
                             onClick={() => void mirror.reconnect()}
+                            disabled={cloudEngaged}
                           >
                             Resume
                           </DataButton>
@@ -1032,6 +1285,7 @@ export default function Settings({
                             <DataButton
                               icon={<Link2 size={13} strokeWidth={1.75} />}
                               onClick={() => void mirror.reconnect()}
+                              disabled={cloudEngaged}
                             >
                               Resume
                             </DataButton>
@@ -1043,6 +1297,17 @@ export default function Settings({
                             </DataButton>
                           </div>
                         </>
+                      )}
+                      {/* Why the verb above is dead rather than missing: the
+                          handle is still remembered and Disconnect is still
+                          the way out of it, so hiding the row would trap a
+                          reader who arrived with both remembered. Said once
+                          for all four states, since it is true of all four. */}
+                      {cloudEngaged && (
+                        <span className="caption">
+                          One live copy at a time — sign out of the cloud copy below to mirror to a
+                          file instead
+                        </span>
                       )}
                       {/* Said plainly, once, regardless of state: a file
                           circal keeps open for an assistant to write is a
@@ -1057,6 +1322,127 @@ export default function Settings({
                   )}
                 </FieldRow>
               </Section>
+
+              {/* Absent, not disabled and not explained, where no project is
+                  configured: `SYNC.md` opens Phase 2 with "the app must be
+                  byte-identical for somebody who never signs in", and a fork
+                  that never set the two env vars is that person a step
+                  earlier. The Mirror section above is the sibling this reads
+                  as — same subject, same verbs, one transport over. */}
+              {canCloud && (
+                <Section title="Cloud">
+                  <FieldRow label="Account" align="top" last>
+                    {mirrorEngaged ? (
+                      <>
+                        <span className="caption">
+                          One live copy at a time — disconnect the mirror file above to sync through
+                          the cloud instead
+                        </span>
+                        {/* The retreat, and only where there is something to
+                            retreat from: a session remembered from before the
+                            file was picked is the one way both are held at
+                            once, and it has to be droppable from here. */}
+                        {cloudEngaged && (
+                          <DataButton
+                            icon={<Unlink2 size={13} strokeWidth={1.75} />}
+                            onClick={() => void signOut()}
+                          >
+                            Sign out
+                          </DataButton>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        {cloudStatus.state === "off" && (
+                          <>
+                            {cloudFields()}
+                            <span className="caption">
+                              One encrypted copy of this calendar on a server, so another device can
+                              read it. Signing in is a six-digit code by email, never a link to
+                              click
+                            </span>
+                          </>
+                        )}
+                        {/* The transport's own sentence, printed rather than
+                            paraphrased — it is the one place either state has
+                            anything to say, and a second wording of "a code is
+                            on its way" is a second vocabulary to drift. */}
+                        {(cloudStatus.state === "prompt" || cloudStatus.state === "error") &&
+                          cloudStatus.message && (
+                            <span className="caption">{cloudStatus.message}</span>
+                          )}
+                        {cloudStatus.state === "prompt" && cloudFields()}
+                        {cloudStatus.state === "live" && (
+                          <>
+                            <span className="flex min-w-0 flex-col">
+                              <span className="truncate text-[13px] text-ink">
+                                {cloudStatus.name}
+                              </span>
+                              <span className="caption tabular-nums">
+                                synced {mirrorAge(cloudStatus.at)}
+                              </span>
+                            </span>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <DataButton
+                                icon={<RefreshCw size={13} strokeWidth={1.75} />}
+                                onClick={() => void cloud.syncNow()}
+                              >
+                                Sync now
+                              </DataButton>
+                              <DataButton
+                                icon={<Unlink2 size={13} strokeWidth={1.75} />}
+                                onClick={() => void signOut()}
+                              >
+                                Sign out
+                              </DataButton>
+                            </div>
+                          </>
+                        )}
+                        {/* Two failures, two remedies, and the panel picks
+                            between them off facts it already has rather than
+                            off a second reading of the message: a locked box
+                            wants the passphrase again (`cloudLocked`), and so
+                            does a link that never completed a pass at all
+                            (`at` still 0, so `unlock` itself is what failed).
+                            Anything else has a key in memory and a row it
+                            merely could not reach — a paused project — where
+                            retyping a passphrase would be busywork and the
+                            retry is the whole of the fix. Neither sentence is
+                            about lost data and neither is printed in danger
+                            colour: nothing here is destructive. */}
+                        {cloudStatus.state === "error" &&
+                          (cloudLocked || !cloudStatus.at ? (
+                            cloudFields()
+                          ) : (
+                            <div className="flex flex-wrap items-center gap-2">
+                              <DataButton
+                                icon={<RefreshCw size={13} strokeWidth={1.75} />}
+                                onClick={() => void cloud.syncNow()}
+                              >
+                                Try again
+                              </DataButton>
+                              <DataButton
+                                icon={<Unlink2 size={13} strokeWidth={1.75} />}
+                                onClick={() => void signOut()}
+                              >
+                                Sign out
+                              </DataButton>
+                            </div>
+                          ))}
+                        {/* Said plainly, once, in every state — the mirror's
+                            own argument one transport over: an account is a
+                            thing somebody else knows about you, and that is a
+                            property of the feature rather than a warning that
+                            stops being true once you trust it. */}
+                        <span className="caption">
+                          Whoever runs the project knows the email you sign in with; encrypting the
+                          calendar does not change that
+                        </span>
+                      </>
+                    )}
+                  </FieldRow>
+                </Section>
+              )}
 
               <Section title="About">
                 <FieldRow label="Manifesto" align="top" last={!!reducedMotion}>
@@ -1108,20 +1494,29 @@ function feedMetaClass(error?: string): string {
   return cn("label truncate text-[10px]", error ? "text-danger" : "text-ink-3");
 }
 
+/**
+ * The panel's own named verb. `disabled` because two of them are now offers
+ * this surface cannot keep — a second live link, and a request already in
+ * flight — and the styling is the one the Add button beside the feed field
+ * has always used, so a dead verb reads the same wherever it is.
+ */
 function DataButton({
   icon,
   onClick,
+  disabled,
   children,
 }: {
   icon: ReactNode;
   onClick: () => void;
+  disabled?: boolean;
   children: ReactNode;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="flex h-8 items-center gap-1.5 rounded-[8px] border border-hairline bg-surface-2 px-2.5 text-[13px] text-ink transition-colors hover:bg-white/10"
+      disabled={disabled}
+      className="flex h-8 items-center gap-1.5 rounded-[8px] border border-hairline bg-surface-2 px-2.5 text-[13px] text-ink transition-colors hover:bg-white/10 disabled:pointer-events-none disabled:opacity-35"
     >
       {icon}
       {children}
