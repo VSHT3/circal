@@ -4,12 +4,13 @@ import { DEFAULT_SETTINGS } from "@/lib/store";
 import {
   MIRROR_VERSION,
   mirrorDigest,
+  mirrorMerges,
   mirrorVerdict,
   readMirrorFile,
   serialiseMirror,
   zonesAgree,
 } from "@/lib/mirror";
-import type { CalEvent, Calendar } from "@/lib/events";
+import type { CalEvent, Calendar, Grave } from "@/lib/events";
 
 /**
  * The mirror file is the one artefact something outside this browser holds,
@@ -20,8 +21,20 @@ import type { CalEvent, Calendar } from "@/lib/events";
 
 const CAL = "work";
 
-function snapshot(events: CalEvent[], calendars: Calendar[] = [calendar({ id: CAL })]) {
-  return { events, calendars, settings: DEFAULT_SETTINGS };
+function snapshot(
+  events: CalEvent[],
+  calendars: Calendar[] = [calendar({ id: CAL })],
+  over: { graves?: Grave[]; settingsAt?: number } = {},
+) {
+  return {
+    events,
+    calendars,
+    settings: DEFAULT_SETTINGS,
+    // A stamped document by default: an unstamped one is what the version gate
+    // is about, and those cases say so.
+    settingsAt: over.settingsAt ?? ms("2026-03-08 09:00"),
+    graves: over.graves ?? [],
+  };
 }
 
 /** A file body with fields spliced in, for the cases a serialiser will not
@@ -36,6 +49,8 @@ function body(overrides: Record<string, unknown>): string {
     events: [],
     calendars: [calendar({ id: CAL })],
     settings: DEFAULT_SETTINGS,
+    settingsAt: ms("2026-03-08 09:00"),
+    graves: [],
     ...overrides,
   });
 }
@@ -168,6 +183,67 @@ describe("a feed pull is not a calendar change", () => {
     expect(feed?.url).toBe("https://example.com/c.ics");
     expect(feed?.fetchedAt).toBe(0);
     expect(feed?.error).toBe("");
+  });
+});
+
+describe("the version gate: merge, adopt, or refuse", () => {
+  /* Three answers, and the order they are asked in matters. A file this
+   * reader's build cannot fully understand, or a document that predates
+   * stamping, gets today's behaviour exactly — `mirrorVerdict`, adopt, stale,
+   * no merge — because an unstamped document cannot be merged without
+   * guessing. */
+  const mine = snapshot([
+    event({ id: "mine", calendarId: CAL, updatedAt: ms("2026-03-10 09:00") }),
+  ]);
+
+  it.each([
+    { name: "a v2 file against a v2 store merges", version: 2, settingsAt: 1, want: true },
+    { name: "a v1 file adopts, whatever it carries", version: 1, settingsAt: 1, want: false },
+    {
+      name: "a v2 file whose document predates stamping adopts",
+      version: 2,
+      settingsAt: 0,
+      want: false,
+    },
+  ])("$name", ({ version, settingsAt, want }) => {
+    const contents = readMirrorFile(body({ version, settingsAt, rev: 9 }));
+    expect.soft(contents).not.toBeNull();
+    expect.soft(contents && mirrorMerges(contents, mine)).toBe(want);
+  });
+
+  it("refuses to merge into a store that predates stamping, however new the file is", () => {
+    const contents = readMirrorFile(body({ version: MIRROR_VERSION, settingsAt: 1 }));
+    expect(contents && mirrorMerges(contents, snapshot([], undefined, { settingsAt: 0 }))).toBe(
+      false,
+    );
+  });
+
+  // The zone guard is asked *before* either, one layer up in `mirrorLink`: a
+  // file whose days are not this reader's days is refused whether the answer
+  // would have been a merge or an adopt, which is what this pair says here.
+  it.each([
+    { name: "a merge", version: 2 },
+    { name: "an adopt", version: 1 },
+  ])("a disagreeing zone is refused before $name", ({ version }) => {
+    const contents = readMirrorFile(body({ version, zone: "Asia/Tokyo", settingsAt: 1 }));
+    expect.soft(zonesAgree(contents?.zone ?? "", "Europe/Berlin")).toBe(false);
+  });
+
+  it("round trips the graves and the settings stamp, which is what version 2 means", () => {
+    const written = snapshot([], undefined, {
+      graves: [{ id: "deleted", at: ms("2026-03-09 09:00") }],
+      settingsAt: ms("2026-03-10 09:00"),
+    });
+    const read = readMirrorFile(serialiseMirror(written, 4));
+    expect.soft(read?.graves).toEqual(written.graves);
+    expect.soft(read?.settingsAt).toBe(written.settingsAt);
+  });
+
+  it("reads a file with neither as a document that predates stamping", () => {
+    const read = readMirrorFile(body({ graves: undefined, settingsAt: undefined }));
+    expect.soft(read?.graves).toEqual([]);
+    expect.soft(read?.settingsAt).toBe(0);
+    expect.soft(read && mirrorMerges(read, mine)).toBe(false);
   });
 });
 

@@ -21,10 +21,12 @@
 
 import { useSyncExternalStore } from "react";
 import { notify } from "./notify";
+import { mergeDocuments } from "./merge";
 import { store, subscribe } from "./store";
 import {
   localZone,
   mirrorDigest,
+  mirrorMerges,
   mirrorVerdict,
   readMirrorFile,
   serialiseMirror,
@@ -304,13 +306,14 @@ async function absorb(contents: MirrorContents): Promise<void> {
  * re-asserting over it is the anti-rollback this feature already wanted. Only
  * a file *ahead* of us is new, and that is the case that used to be lost.
  *
- * It abandons the write rather than merging, and that is a decision. There is
- * no diff here, only two whole documents, so a merge would have to guess —
- * and guessing by id resurrects anything deleted locally, which is the
- * tombstone problem `duplicateOf` already documents from the other side.
- * Adopting makes the casualty the *local* edit instead of the agent's, and
- * that one is recoverable: `store.adopt` records an undo step and says so in a
- * toast, where a truncated file is simply gone.
+ * A file ahead of us is **merged** where both documents carry stamps and
+ * graves, and adopted whole where either does not. It used to be adopted
+ * always, and the reason given was that there was no diff — only two whole
+ * documents, so a merge would have to guess, and guessing by id resurrects
+ * anything deleted locally. `Grave` and `CalEvent.updatedAt` are that diff.
+ * The adopt path is still what an unstamped document gets, and it is still
+ * recoverable rather than destructive: `store.adopt` records an undo step and
+ * says so in a toast, where a truncated file is simply gone.
  *
  * The revision comes from what is actually on disk (`max` of the two, plus
  * one) rather than from a number a caller worked out earlier. Two writes can
@@ -352,11 +355,39 @@ async function claim(): Promise<number | null> {
       fail(`That file was written in ${contents.zone}, this browser is in ${localZone()}`);
       return null;
     }
-    await absorb(contents);
-    return null;
+    // The branch this file's own comment used to call a decision: it abandoned
+    // the write rather than merging, because there was no diff and guessing by
+    // id resurrected anything deleted locally. Graves and stamps are that
+    // missing diff, so where both documents carry them the answer is a merge
+    // and the write goes ahead carrying it — the local edit stops being the
+    // casualty, and so does the agent's.
+    const union = merged(contents);
+    if (!union) {
+      await absorb(contents);
+      return null;
+    }
+    await absorb(union);
+    return Math.max(contents.rev, localRev) + 1;
   }
 
   return Math.max(contents.rev, localRev) + 1;
+}
+
+/**
+ * The merge of what is on disk with what this browser holds, adopted — or
+ * `null` when the two documents may not be merged and the caller should adopt
+ * the file whole instead.
+ *
+ * It goes through `store.adopt` like an adopt does, so a merge is still one
+ * undoable commit with a toast: it cannot lose data the way an adopt could,
+ * but it can still surprise, and the undo step is what makes a surprise
+ * recoverable. The rev and the zone come from the file, since the merged
+ * document is what is about to be written *over* that file.
+ */
+function merged(contents: MirrorContents): MirrorContents | null {
+  const mine = store.snapshot();
+  if (!mirrorMerges(contents, mine)) return null;
+  return { ...contents, ...mergeDocuments(mine, contents, Date.now()) };
 }
 
 /**
@@ -419,8 +450,16 @@ function write(): Promise<void> {
  * One pass over the file. Reads the revision, and acts on the three answers
  * `mirrorVerdict` gives — including `stale`, where the browser re-asserts
  * rather than letting an older copy of the file pull the calendar backwards.
+ *
+ * `merging: false` is `connect`'s alone, and it keeps that action's own
+ * documented promise: a file that already holds a calendar is *adopted*. The
+ * gesture is a person naming their calendar's file, which is a restore rather
+ * than a sync, and the one thing it must never do is push what this browser
+ * happened to be holding into it — on a first run that is eight seed events,
+ * and they would propagate to every machine on the file. Every automatic pass
+ * merges.
  */
-async function poll(): Promise<void> {
+async function poll(merging = true): Promise<void> {
   if (!handle) return;
   let text: string;
   try {
@@ -462,7 +501,19 @@ async function poll(): Promise<void> {
     return;
   }
 
-  await absorb(contents);
+  const union = merging ? merged(contents) : null;
+  if (!union) {
+    await absorb(contents);
+    return;
+  }
+  // The merged document has to go *back* to the file, or the other machine
+  // never learns what this one was holding — and only when it differs from
+  // what is already there, because a poll that answered every read with a
+  // write would have two machines writing at each other for ever. This is
+  // `lastDigest`'s trick, measured against the file rather than the store.
+  const changed = mirrorDigest(union) !== mirrorDigest(contents);
+  await absorb(union);
+  if (changed) await write();
 }
 
 /** The store moved. Write, unless what moved is not in the file. */
@@ -545,7 +596,7 @@ export const mirror = {
       lastDigest = "";
       setStatus({ state: "live", name, message: "", at: 0 });
       await remember();
-      await poll();
+      await poll(false);
       return;
     }
 
@@ -565,7 +616,7 @@ export const mirror = {
       lastDigest = "";
       setStatus({ state: "live", name: picked.name, message: "", at: 0 });
       await remember();
-      await poll();
+      await poll(false);
     } catch {
       // The picker throws on cancel, which is not a failure worth a red line.
       if (!handle) setStatus(OFF);

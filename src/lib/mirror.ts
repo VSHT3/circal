@@ -22,18 +22,26 @@
  * ------------------------------------------------------------------ */
 
 import { readBackup } from "./backup";
+import { stamped, type Mergeable } from "./merge";
 import { localZone } from "./time";
 import type { Calendar } from "./events";
-import type { Snapshot } from "./store";
+import type { Settings, Snapshot } from "./store";
 
 export { localZone };
 
 /** Bumped only when the *file's* own envelope changes meaning. The events,
  *  calendars and settings inside it are versioned by the backup format. */
-export const MIRROR_VERSION = 1;
+export const MIRROR_VERSION = 2;
 
-/** What a snapshot contributes to the file — the three fields a backup carries. */
-type Mirrored = Pick<Snapshot, "events" | "calendars" | "settings">;
+/**
+ * What a snapshot contributes to the file — the same fields a backup carries.
+ *
+ * `graves` and `settingsAt` joined the three at `MIRROR_VERSION` 2, which is
+ * what that number means: *every record in this document carries a stamp, and
+ * deletions are tombstoned*. A file without them cannot be merged, only
+ * adopted — see `mirrorMerges`.
+ */
+type Mirrored = Pick<Snapshot, "events" | "calendars" | "settings" | "settingsAt" | "graves">;
 
 export interface MirrorFile extends Mirrored {
   app: "circal";
@@ -97,7 +105,12 @@ function settled(calendars: Calendar[]): Calendar[] {
  * move on every write by construction and would make every comparison differ.
  */
 export function mirrorDigest(s: Mirrored): string {
-  return JSON.stringify([s.events, settled(s.calendars), s.settings]);
+  // The graves and the settings stamp are in here because they are part of the
+  // document a reader has to end up with: a merge that only changed them —
+  // this machine learning about the other one's deletion — must still reach
+  // the file. The cost is one extra write on the day a grave passes its TTL on
+  // one machine before the other, which is what a ninety-day bound is worth.
+  return JSON.stringify([s.events, settled(s.calendars), s.settings, s.settingsAt, s.graves]);
 }
 
 export function serialiseMirror(s: Mirrored, rev: number, zone = localZone()): string {
@@ -110,6 +123,8 @@ export function serialiseMirror(s: Mirrored, rev: number, zone = localZone()): s
     events: s.events,
     calendars: settled(s.calendars),
     settings: s.settings,
+    settingsAt: s.settingsAt,
+    graves: s.graves,
   };
   // Indented, because this file is the one part of circal a human is expected
   // to be able to open, read and hand to something else.
@@ -139,6 +154,11 @@ export function readMirrorFile(text: string): MirrorContents | null {
     events: read.events,
     calendars: read.calendars,
     settings: read.settings,
+    // Both through `readBackup`, which is the boundary that already assumes
+    // hostile input. A file that carries neither reads as a document that
+    // predates stamping, and `mirrorMerges` declines to merge it.
+    settingsAt: read.settingsAt,
+    graves: read.graves,
     rev: typeof envelope.rev === "number" && Number.isFinite(envelope.rev) ? envelope.rev : 0,
     // A plain `.json` backup has no zone. Absent means "written by something
     // that did not say", which the reader treats as agreeing with it — the
@@ -177,4 +197,29 @@ export type MirrorVerdict = "ours" | "adopt" | "stale";
 export function mirrorVerdict(fileRev: number, localRev: number): MirrorVerdict {
   if (fileRev === localRev) return "ours";
   return fileRev > localRev ? "adopt" : "stale";
+}
+
+/**
+ * Whether a file ahead of us may be *merged* rather than adopted whole. The
+ * three-way gate, and it is what stops a regression:
+ *
+ * - **v2 file, v2 store** → merge. Both documents carry stamps, so the
+ *   element-wise answer is available and it is strictly better than either
+ *   document winning.
+ * - **v1 file, or either side unstamped** → today's behaviour exactly:
+ *   `mirrorVerdict`, adopt, stale, no merge. An unstamped document cannot be
+ *   merged without guessing which of two undated copies of an event is newer,
+ *   and adopting is the right answer for it — including the case that matters
+ *   most, a browser holding nothing but its seed day.
+ * - **v2 file, v1 reader** → already refused, one layer over:
+ *   `assertVersionAllowsMutation` exists for exactly this, because a reader
+ *   that round-trips a document through validators it is too old for silently
+ *   drops every field it has no name for.
+ *
+ * A plain `.json` backup handed to the mirror carries `BACKUP_VERSION`, which
+ * is 1, so it adopts rather than merges. That is the conservative answer and
+ * the correct one: a backup is a document somebody chose, not a peer.
+ */
+export function mirrorMerges(contents: MirrorContents, mine: Mergeable<Settings>): boolean {
+  return contents.version >= MIRROR_VERSION && stamped(contents) && stamped(mine);
 }
