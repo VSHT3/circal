@@ -278,7 +278,7 @@ export default function Settings({
   const canMirror = mirrorSupported();
   /**
    * Same rule again, and the strictest of the three: with no
-   * `PUBLIC_SUPABASE_URL` / `PUBLIC_SUPABASE_ANON_KEY` the section is
+   * `PUBLIC_SUPABASE_URL` / `PUBLIC_SUPABASE_PUBLISHABLE_KEY` the section is
    * *absent*, not disabled and not explained. A fork that never configured a
    * project should not learn from this panel that the feature exists.
    */

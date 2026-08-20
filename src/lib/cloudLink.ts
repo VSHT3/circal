@@ -71,7 +71,7 @@ interface CloudConfig {
 }
 
 /**
- * `PUBLIC_SUPABASE_URL` and `PUBLIC_SUPABASE_ANON_KEY`, or `null`.
+ * `PUBLIC_SUPABASE_URL` and `PUBLIC_SUPABASE_PUBLISHABLE_KEY`, or `null`.
  *
  * `null` means the feature is **absent**, not broken: nothing fetches, nothing
  * renders, no error is reported, and a fork or a self-hoster who never sets
@@ -79,14 +79,21 @@ interface CloudConfig {
  * with "the app must be byte-identical for somebody who never signs in", and
  * somebody who never configured it is the same person a step earlier.
  *
- * The anon key belongs in the client bundle and is not a leaked secret: it
- * names the project and carries the `anon` role, and row level security is
- * what keeps one user's row out of another's reach (see the migration). Hiding
- * it would need a Worker route to proxy through, which is the one thing this
- * app refuses to grow. Do not "fix" this by moving it server-side.
+ * The publishable key belongs in the client bundle and is not a leaked secret:
+ * it names the project and reaches the database with no more authority than an
+ * unauthenticated visitor, and row level security is what keeps one user's row
+ * out of another's reach (see the migration). Hiding it would need a Worker
+ * route to proxy through, which is the one thing this app refuses to grow. Do
+ * not "fix" this by moving it server-side.
+ *
+ * Named for what Supabase now issues. The `sb_publishable_…` key is not a JWT,
+ * which is the whole reason the old name had to go: a variable called
+ * `ANON_KEY` holding one invites the next reader to decode it, and the two
+ * things on that dashboard page differ by one word — `sb_secret_…` carries
+ * full authority, bypasses RLS, and must never reach a browser or this file.
  */
 function config(): CloudConfig | null {
-  const { PUBLIC_SUPABASE_URL: url, PUBLIC_SUPABASE_ANON_KEY: key } = import.meta.env;
+  const { PUBLIC_SUPABASE_URL: url, PUBLIC_SUPABASE_PUBLISHABLE_KEY: key } = import.meta.env;
   if (typeof url !== "string" || typeof key !== "string" || !url || !key) return null;
   return { url, key };
 }
