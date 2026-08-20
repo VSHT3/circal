@@ -9,14 +9,21 @@
   // is keyed by origin, so `www.circal.day` would not be a second address for
   // this calendar: it would be a second, empty calendar, and a user who
   // reached it once would be looking at a blank dial with no way to tell why.
-  // `www` gets a Cloudflare redirect rule onto the apex when its DNS record is
-  // made, never a route here. `custom_domain: true` rather than a route
-  // pattern because this Worker *is* the site — a zone route would need the
-  // DNS record to exist first and would leave the rest of the zone unrouted.
+  // `www` is therefore a proxied placeholder record plus a 301 redirect rule
+  // onto the apex, preserving path *and* query: `?d=YYYY-MM-DD&v=year` is
+  // where the selected day and view live, so a redirect dropping the query
+  // would land a shared link on today instead of the day somebody sent. Never
+  // a route here. `custom_domain: true` rather than a route pattern because
+  // this Worker *is* the site — a zone route would need the DNS record to
+  // exist first and would leave the rest of the zone unrouted.
   //
-  // The same origin argument applies to the `workers.dev` subdomain, which is
-  // still enabled: it is the one URL that works before DNS propagates, so it
-  // stays until the apex is verified, then `workers_dev: false` belongs here.
+  // `workers_dev: false` for that same origin reason. The subdomain was kept
+  // because it is the one URL that works before DNS propagates; the apex is
+  // verified and serving, so that reason has expired and
+  // `circal.vsht.workers.dev` stops being a second, empty calendar anybody can
+  // reach. Declared rather than left to wrangler's default, so removing
+  // `routes` some day cannot silently hand the app a second origin back.
+  "workers_dev": false,
   "routes": [{ "pattern": "circal.day", "custom_domain": true }],
 
   // Not assets-only: third-party ICS feeds (Google, Apple, Fastmail…) send no
