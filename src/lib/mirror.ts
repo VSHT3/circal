@@ -219,7 +219,11 @@ export function mirrorVerdict(fileRev: number, localRev: number): MirrorVerdict 
  *   `mirrorVerdict`, adopt, stale, no merge. An unstamped document cannot be
  *   merged without guessing which of two undated copies of an event is newer,
  *   and adopting is the right answer for it — including the case that matters
- *   most, a browser holding nothing but its seed day.
+ *   most, a browser holding nothing but its demo day. `stamped` is what
+ *   answers that, and it asks about the records rather than only the settings
+ *   stamp: two fresh installs that had each changed nothing adopted each other
+ *   for ever, and the first real edit on either is the instant there is
+ *   something to defend. See its own comment.
  * - **v2 file, v1 reader** → already refused, one layer over:
  *   `assertVersionAllowsMutation` exists for exactly this, because a reader
  *   that round-trips a document through validators it is too old for silently

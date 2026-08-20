@@ -67,17 +67,42 @@ function sorted(value: unknown): unknown {
 }
 
 /**
- * Whether a document carries stamps at all.
+ * Whether a document carries stamps at all — a settings stamp, or any record
+ * or grave with a real instant on it.
  *
- * `settingsAt === 0` is the one question worth asking, and it is enough: a
- * blob written before Phase 0 has that zero, every blob written since has a
- * real instant on it, and an unstamped document cannot be merged without
- * guessing which of two unstamped copies of an event is the newer. The
- * caller's answer for one of those is today's adopt-or-refuse behaviour,
- * which is the correct answer for it.
+ * It read `settingsAt > 0` alone, and that was measured wrong on the real
+ * transport: two fresh installs signed into one account are both unstamped, so
+ * neither may merge, so each adopts the other's document whole — and adopting
+ * an unstamped document leaves you unstamped, so they never grow out of it. A
+ * user's first edit on their new laptop was adopted away by the machine that
+ * synced next, which is exactly what somebody sets up a second machine to
+ * avoid. Recoverable (`store.adopt` records an undo step and toasts) and still
+ * not shippable.
+ *
+ * What the predicate is protecting is **demo data, not settings**, which is
+ * what its own name says and what `freshInstall()` meant by withholding the
+ * stamp: `seed()`'s events, `DEFAULT_CALENDARS` and `duplicateOf` all carry
+ * `updatedAt: 0` on purpose, so a browser holding nothing but its demo day
+ * still answers `false` here and still cannot win a merge or publish eight
+ * events nobody wrote. The moment one real thing happens — an event created, a
+ * calendar added, a deletion buried, a setting changed — the document is
+ * stamped and merging begins, which is the earliest instant at which there is
+ * anything to defend.
+ *
+ * A pre-Phase-0 blob is unchanged: every record in it reads `0` through
+ * `hydrateEvents`' fill-in, `settingsAt` is `0`, so it is still a document the
+ * merge declines rather than one whose every event loses.
  */
-export function stamped(document: Pick<Mergeable, "settingsAt">): boolean {
-  return document.settingsAt > 0;
+export function stamped(document: Records & Pick<Mergeable, "settingsAt">): boolean {
+  if (document.settingsAt > 0) return true;
+  return (
+    document.events.some((e) => e.updatedAt > 0) ||
+    document.calendars.some((c) => c.updatedAt > 0) ||
+    // A grave is a stamp: it is the record of a deletion, and the machine that
+    // made it must be able to merge rather than adopt, or the deletion is the
+    // thing that gets adopted away.
+    document.graves.some((g) => g.at > 0)
+  );
 }
 
 /**

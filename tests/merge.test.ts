@@ -299,12 +299,42 @@ describe("an unstamped document is not merged", () => {
   /* The v1 refusal, and it is the caller's gate rather than a branch inside
    * `mergeDocuments`: a document that predates stamping cannot be merged
    * without guessing which of two undated copies of an event is the newer,
-   * and today's adopt is the correct answer for it. */
+   * and today's adopt is the correct answer for it.
+   *
+   * What counts as stamped is the records, not only the settings stamp. It was
+   * `settingsAt > 0` alone and that let two fresh installs adopt each other for
+   * ever: neither may merge, and adopting an unstamped document leaves you
+   * unstamped, so a real edit on one of them was adopted away by the other. */
+  const bare = { events: [], calendars: [], graves: [], settings: DEFAULT_SETTINGS, settingsAt: 0 };
+
   it.each([
-    { name: "a blob written before stamping existed", settingsAt: 0, want: false },
-    { name: "one written since", settingsAt: TUESDAY, want: true },
-  ])("$name", ({ settingsAt, want }) => {
-    expect.soft(stamped(doc({ settingsAt }))).toBe(want);
+    { name: "nothing stamped at all", over: {}, want: false },
+    {
+      name: "the demo day: seed events and default calendars, nobody's edits",
+      over: {
+        events: [event({ id: "demo" })],
+        calendars: [calendar({ id: "personal" })],
+      },
+      want: false,
+    },
+    { name: "a settings change", over: { settingsAt: TUESDAY }, want: true },
+    {
+      name: "one real event",
+      over: { events: [event({ id: "a", updatedAt: TUESDAY })] },
+      want: true,
+    },
+    {
+      name: "one real calendar",
+      over: { calendars: [calendar({ id: "cal", updatedAt: TUESDAY })] },
+      want: true,
+    },
+    {
+      name: "one deletion, and nothing left to show for it",
+      over: { graves: [grave("gone", TUESDAY)] },
+      want: true,
+    },
+  ])("$name", ({ over, want }) => {
+    expect.soft(stamped({ ...bare, ...over })).toBe(want);
   });
 });
 

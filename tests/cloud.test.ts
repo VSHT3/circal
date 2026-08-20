@@ -197,10 +197,15 @@ describe("merge, or adopt whole", () => {
     expect.soft(taken.take !== "stop" && taken.document.version).toBe(MIRROR_VERSION);
   });
 
-  // The gate is `mirrorMerges`', so a document that predates stamping is
-  // adopted whole exactly as it is on the file half.
+  // The gate is `mirrorMerges`', so a document that predates stamping — no
+  // settings stamp and no record carrying one — is adopted whole exactly as it
+  // is on the file half.
   it("adopts a document that predates stamping rather than guessing", () => {
-    const taken = cloudTake(theirs({ settingsAt: 0 }), mine, STAMP);
+    const older = serialiseMirror(
+      snapshot([event({ id: "theirs", calendarId: CAL })], { settingsAt: 0 }),
+      9,
+    );
+    const taken = cloudTake(older, mine, STAMP);
     expect.soft(taken.take).toBe("adopt");
     expect
       .soft(taken.take !== "stop" && taken.document.events.map((e) => e.id))
@@ -222,6 +227,79 @@ describe("merge, or adopt whole", () => {
     const taken = cloudTake(theirs(), buried, STAMP);
     expect.soft(taken.take).toBe("merge");
     expect.soft(taken.take !== "stop" && taken.document.events).toEqual([]);
+  });
+
+  /* Two fresh installs, which is what somebody sets this feature up to do and
+   * the one case every other test here passed over. Both machines are on their
+   * demo day, so neither carries a settings stamp; when `stamped` asked only
+   * about `settingsAt`, neither could merge, each adopted the other whole, and
+   * adopting an unstamped document left them both unstamped for ever — so the
+   * first real edit on the new laptop was adopted away by the machine that
+   * synced next. Driven on the real transport before it was fixed, not
+   * theorised. */
+  const demo = (over: Parameters<typeof snapshot>[1] = {}) =>
+    snapshot([event({ id: "demo", calendarId: CAL })], { settingsAt: 0, ...over });
+
+  it("still refuses to merge two untouched demo days, so neither publishes seed data", () => {
+    const taken = cloudTake(serialiseMirror(demo(), 1), demo(), STAMP);
+    expect(taken.take).toBe("adopt");
+  });
+
+  it("merges the moment each machine holds one real event, with no settings change on either", () => {
+    const laptop = snapshot(
+      [
+        event({ id: "demo", calendarId: CAL }),
+        event({ id: "laptop", calendarId: CAL, updatedAt: STAMP }),
+      ],
+      { settingsAt: 0 },
+    );
+    const desktop = snapshot(
+      [
+        event({ id: "demo", calendarId: CAL }),
+        event({ id: "desktop", calendarId: CAL, updatedAt: STAMP }),
+      ],
+      { settingsAt: 0 },
+    );
+    const taken = cloudTake(serialiseMirror(desktop, 2), laptop, STAMP);
+    expect.soft(taken.take).toBe("merge");
+    // Both days' work, which is the whole promise. Before the fix this was
+    // `["demo", "desktop"]` and the laptop's own event was gone.
+    expect
+      .soft(taken.take !== "stop" && taken.document.events.map((e) => e.id))
+      .toEqual(["demo", "desktop", "laptop"]);
+  });
+
+  /* One real action of any kind is enough, and `settingsAt` stays 0 in every
+   * row: the predicate is about demo data, not about settings. */
+  it.each([
+    {
+      name: "an event created",
+      make: () =>
+        snapshot(
+          [event({ id: "demo", calendarId: CAL }), event({ id: "real", updatedAt: STAMP })],
+          {
+            settingsAt: 0,
+          },
+        ),
+    },
+    {
+      name: "a calendar added",
+      make: () =>
+        snapshot([event({ id: "demo", calendarId: CAL })], {
+          settingsAt: 0,
+          calendars: [calendar({ id: CAL }), calendar({ id: "added", updatedAt: STAMP })],
+        }),
+    },
+    {
+      name: "something deleted, with nothing left to show for it",
+      make: () =>
+        snapshot([event({ id: "demo", calendarId: CAL })], {
+          settingsAt: 0,
+          graves: [grave("gone", STAMP)],
+        }),
+    },
+  ])("counts $name as a document worth merging, with settingsAt still 0", ({ make }) => {
+    expect.soft(cloudTake(serialiseMirror(make(), 3), make(), STAMP).take).toBe("merge");
   });
 });
 
