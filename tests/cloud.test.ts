@@ -2,7 +2,15 @@ import { describe, expect, it } from "vitest";
 import { calendar, event, grave, ms } from "./helpers";
 import { DEFAULT_SETTINGS } from "@/lib/store";
 import { MIRROR_VERSION, serialiseMirror } from "@/lib/mirror";
-import { LOCKED, cloudPlan, cloudTake, readCloudRow, type CloudRow } from "@/lib/cloudLink";
+import {
+  LOCKED,
+  cloudPlan,
+  cloudResume,
+  cloudTake,
+  readCloudRow,
+  type CloudRow,
+} from "@/lib/cloudLink";
+import { bytesToBase64Url } from "@/lib/base64";
 import type { CalEvent, Calendar, Grave } from "@/lib/events";
 import { mergeDocuments, pruneGraves } from "@/lib/merge";
 import { applyRemove } from "@/lib/mutate";
@@ -491,5 +499,55 @@ describe("a deletion coming back round", () => {
     expect.soft(taken.take).toBe("merge");
     expect.soft(taken.take !== "stop" && taken.learned).toBe(true);
     expect.soft(taken.take !== "stop" && taken.document.events.map((e) => e.id)).toEqual(["x"]);
+  });
+});
+
+/* The gate in front of a remembered key. Everything around it is hand-driven —
+ * the IndexedDB record, the `CryptoKey`, the resume itself — for the reason at
+ * the top of this file and the reason `AGENTS.md` keeps `mirrorLink.ts` out of
+ * the suite: a test that mocked them would assert its own mock. This is the one
+ * decision in that path that is a function of two values, and it is the one
+ * that decides whether a user meets an explanation or meets `LOCKED` having
+ * typed nothing at all. */
+describe("whether a remembered key still fits the box", () => {
+  /** A payload's header is `version(1) || salt(16) || iv(12) || …`, so a box
+   *  sealed under a given salt is that salt in bytes 1–17. Built by hand rather
+   *  than by sealing, because the salt is the only part this reads. */
+  const sealedUnder = (salt: Uint8Array) => {
+    const bytes = new Uint8Array(1 + 16 + 12 + 16);
+    bytes[0] = 1;
+    bytes.set(salt, 1);
+    return bytesToBase64Url(bytes);
+  };
+  const salt = (fill: number) => new Uint8Array(16).fill(fill);
+
+  it("opens on the salt the row was sealed under", () => {
+    expect(cloudResume(salt(7), sealedUnder(salt(7)))).toBe("open");
+  });
+
+  it("is stale when the row was re-sealed under another salt", () => {
+    expect(cloudResume(salt(7), sealedUnder(salt(8)))).toBe("stale");
+  });
+
+  it("is stale on a salt of the wrong length, without reading past either", () => {
+    expect(cloudResume(new Uint8Array(8).fill(7), sealedUnder(salt(7)))).toBe("stale");
+  });
+
+  // An account whose row is still empty has no salt to disagree with, and
+  // enrolment's own salt is committed by the first seal. Calling that stale
+  // would send every first-device user to a passphrase prompt for nothing.
+  it("opens when there is no row yet", () => {
+    expect(cloudResume(salt(7), null)).toBe("open");
+  });
+
+  /* A damaged box is not a stale key, and saying it is would send the user to a
+   * passphrase prompt that cannot help them. It goes down the ordinary path
+   * instead, which is the one that refuses to write. */
+  it.each([
+    { name: "junk", payload: "not base64url!!" },
+    { name: "an empty string", payload: "" },
+    { name: "too few bytes to hold a box", payload: bytesToBase64Url(new Uint8Array(20)) },
+  ])("opens rather than blaming the key for $name", ({ payload }) => {
+    expect(cloudResume(salt(7), payload)).toBe("open");
   });
 });

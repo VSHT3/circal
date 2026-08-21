@@ -57,7 +57,15 @@ import {
   type MirrorContents,
   zonesAgree,
 } from "./mirror";
-import { UnreadablePayload, WrongPassphrase, unlock as unlockVault, type Vault } from "./vault";
+import {
+  UnreadablePayload,
+  WrongPassphrase,
+  derive,
+  saltOf,
+  vaultOf,
+  type Keyed,
+  type Vault,
+} from "./vault";
 // Type-only, and erased: the two links print through one panel, so the status
 // vocabulary has one declaration rather than a copy that drifts. Nothing of
 // the file half's IndexedDB or File System Access reaches this chunk.
@@ -393,9 +401,143 @@ const SETTLE_MS = 400;
  */
 const REV_KEY = "circal.cloud";
 
+/* --------------------------- the remembered key --------------------------- */
+
+/**
+ * Where a derived key survives a reload, when the user asked it to.
+ *
+ * **IndexedDB and not a fifth `localStorage` key**, and not a `Settings` field
+ * either, for two separate reasons. `Settings` is part of the synced document,
+ * so "remember on *this* device" living there would arm itself on every other
+ * device the moment it was switched on here — a setting that contradicts its
+ * own name. And `localStorage` holds strings: a `CryptoKey` survives
+ * `structuredClone` as an opaque handle, which is the whole point, and
+ * stringifying it is impossible by design.
+ *
+ * `AGENTS.md` asks a new key outside the blob to argue for itself the way
+ * `circal.intro`, `circal.marks`, `circal.backup` and `circal.cloud` do. This
+ * one is per-device authority over an account, which is the strongest reason
+ * yet for a store the synced document cannot reach.
+ *
+ * The record *is* the switch: there is no separate flag, because a remembered
+ * key and the intention to remember one are the same fact, and two facts would
+ * be two things to keep in step. It carries `user` so signing out and in as
+ * somebody else cannot resume a stranger's key — one record ever, discarded
+ * rather than trusted when the id does not match.
+ */
+const DB_NAME = "circal.cloudkey";
+const DB_STORE = "key";
+const DB_KEY = "current";
+
+interface StoredKey extends Keyed {
+  /** The `auth.users` id this key was derived for. */
+  user: string;
+}
+
+function openDb(): Promise<IDBDatabase> {
+  const { promise, resolve, reject } = Promise.withResolvers<IDBDatabase>();
+  const request = indexedDB.open(DB_NAME, 1);
+  request.onupgradeneeded = () => request.result.createObjectStore(DB_STORE);
+  request.onsuccess = () => resolve(request.result);
+  request.onerror = () => reject(request.error);
+  return promise;
+}
+
+async function withStore<T>(
+  mode: IDBTransactionMode,
+  run: (s: IDBObjectStore) => IDBRequest<T>,
+): Promise<T> {
+  const db = await openDb();
+  const { promise, resolve, reject } = Promise.withResolvers<T>();
+  const request = run(db.transaction(DB_STORE, mode).objectStore(DB_STORE));
+  request.onsuccess = () => resolve(request.result);
+  request.onerror = () => reject(request.error);
+  return promise;
+}
+
+/** The stored key, or `null` — including when this browser refuses IndexedDB,
+ *  which is a browser that cannot remember rather than a browser in trouble. */
+async function storedKey(): Promise<StoredKey | null> {
+  try {
+    return (await withStore("readonly", (s) => s.get(DB_KEY) as IDBRequest<StoredKey>)) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Keep, or forget. Silent on failure for `rememberRev`'s reason: this is
+ * bookkeeping about convenience, and a link that works must not report itself
+ * broken because a note about it would not stick. Forgetting is the one half
+ * worth a thought — a delete that failed leaves a key behind — and there is
+ * nothing more this code can do about it than say so, which it cannot usefully
+ * do either, since the user is looking at a switch they have just turned off.
+ */
+async function keep(keyed: Keyed): Promise<void> {
+  try {
+    const stored: StoredKey = { user: userId, key: keyed.key, salt: keyed.salt };
+    await withStore("readwrite", (s) => s.put(stored, DB_KEY));
+  } catch {
+    // Private mode, or storage refused.
+  }
+}
+
+async function forget(): Promise<void> {
+  try {
+    await withStore("readwrite", (s) => s.delete(DB_KEY));
+  } catch {
+    // Same trade.
+  }
+}
+
+/**
+ * Whether a remembered key still matches the box it would have to open.
+ *
+ * The salt is per-payload and every `seal` writes it, so a row re-sealed under
+ * a different one — another device enrolling against an empty row, a passphrase
+ * changed elsewhere — leaves a key that opens nothing. Left to the ordinary
+ * path that key reaches `open`, throws `WrongPassphrase`, and arrives at
+ * `cloudTake`'s `null` as `LOCKED`: *that passphrase does not open the cloud
+ * copy*, in front of a user who typed no passphrase at all. Which is the third
+ * time this feature would have blamed a person for a machine's bookkeeping.
+ *
+ * `null` payload is nothing to compare rather than a mismatch: an account whose
+ * row is still empty has no salt to disagree with, and enrolment's own salt is
+ * committed by the first `seal`. An unreadable payload is also nothing to
+ * compare — a damaged box is not a stale key, and saying so here would send the
+ * user to a passphrase prompt that cannot help.
+ */
+export function cloudResume(salt: Uint8Array, payload: string | null): "open" | "stale" {
+  if (payload === null) return "open";
+  const sealed = saltOf(payload);
+  if (!sealed) return "open";
+  if (sealed.length !== salt.length) return "stale";
+  return sealed.every((byte, i) => byte === salt[i]) ? "open" : "stale";
+}
+
+/**
+ * Why a remembered key stopped working, which is the sentence `LOCKED` would
+ * otherwise have told them instead. It names the cause, and it says what to do.
+ */
+export const RESEALED =
+  "The cloud copy was re-sealed on another device, so the key this browser remembered no longer opens it. Enter your passphrase to open it again.";
+
+/* ------------------------------- the session ------------------------------ */
+
 let vault: Vault | null = null;
+/** The pair the vault was built from, kept so the switch can persist it
+ *  without asking for the passphrase a second time. Dropped by `disconnect`
+ *  with everything else. */
+let keyed: Keyed | null = null;
 let userId = "";
 let localRev = 0;
+/**
+ * Whether a remembered key was discarded this session because the row had been
+ * re-sealed under another salt. It outlives the pass that found out, so a
+ * remount cannot replace the explanation with the sentence for somebody who
+ * simply has not typed their passphrase yet.
+ */
+let resealed = false;
 /** The last document written or absorbed, so a change that is not a change —
  *  a feed re-pull, a settings toggle that set the same value — costs no round
  *  trip. */
@@ -892,15 +1034,26 @@ export const cloud = {
     }
 
     try {
-      vault = await unlockVault(passphrase, found?.payload);
+      keyed = await derive(passphrase, found?.payload);
+      vault = vaultOf(keyed);
     } catch (error: unknown) {
-      // `unlock` throws only on a payload it cannot parse; a wrong passphrase
+      // `derive` throws only on a payload it cannot parse; a wrong passphrase
       // is silent here and surfaces at the first `open`, which is `cloudTake`'s
       // `null` and the branch that refuses to write.
       fail(error instanceof UnreadablePayload ? LOCKED : describe(error));
       return;
     }
 
+    // Re-keep rather than keep: this only writes where a record already says
+    // the user asked to be remembered, and it has to, because the salt it was
+    // derived under may not be the salt this one was. A record discarded as
+    // stale is deliberately *not* rewritten here — being sent back to the
+    // passphrase once is the honest outcome of a re-seal elsewhere, and
+    // re-arming is the switch the user already knows about.
+    if ((await storedKey()) !== null) await keep(keyed);
+
+    // The explanation has been acted on, so it stops being owed.
+    resealed = false;
     const returning = rememberedRev();
     localRev = returning;
     lastDigest = "";
@@ -912,6 +1065,28 @@ export const cloud = {
   /** A pass on demand, for the panel's own button. */
   async syncNow(): Promise<void> {
     await poll();
+  },
+
+  /** Whether this browser is holding a key for the signed-in user. The record
+   *  is the switch, so this is the switch's state. */
+  async remembering(): Promise<boolean> {
+    const stored = await storedKey();
+    return stored !== null && stored.user === userId;
+  },
+
+  /**
+   * Keep the derived key on this device, or delete it.
+   *
+   * Off deletes now rather than stopping at the next launch: a user turning
+   * this off is withdrawing the authority, and "it will not be used again"
+   * is not what that gesture means while the key is still on the disk.
+   */
+  async remember(on: boolean): Promise<void> {
+    if (!on) {
+      await forget();
+      return;
+    }
+    if (keyed) await keep(keyed);
   },
 
   /**
@@ -928,9 +1103,14 @@ export const cloud = {
     const db = client;
     clearTimeout(settleTimer);
     vault = null;
-    userId = "";
+    keyed = null;
     localRev = 0;
     lastDigest = "";
+    // Before `userId` is cleared, because the record is scoped to it. Signing
+    // out is the same gesture as letting the link go: a key left behind would
+    // have the next launch resume, live and silent, a link the user just ended.
+    await forget();
+    userId = "";
     try {
       localStorage.removeItem(REV_KEY);
     } catch {
@@ -944,6 +1124,59 @@ export const cloud = {
   },
 };
 
+/**
+ * Come back live on a key this browser kept, or answer `false` and let the
+ * caller ask for the passphrase.
+ *
+ * The row is fetched before the key is trusted, and only to read its salt:
+ * `cloudResume` decides whether the box this key was cut for is the box that is
+ * there. A network failure answers `false` rather than throwing, because a
+ * passphrase prompt is a working link's worst case and an error screen is not.
+ *
+ * The stale branch answers `false` like every other refusal and leaves the
+ * sentence to `resealed`, so there is exactly one place that sets `prompt`.
+ * Setting it here as well cost the explanation the first time this was driven:
+ * `startCloud` runs from a `useEffect`, StrictMode mounts twice, and the second
+ * pass found the record already discarded, took the ordinary `false` branch and
+ * wrote the generic sentence over it. Any remount does that, not only
+ * StrictMode.
+ *
+ * The tail is `unlock`'s, deliberately identical — remembering a key changes
+ * how the key arrives and nothing about what happens next.
+ */
+async function resume(db: SupabaseClient, who: Account): Promise<boolean> {
+  const stored = await storedKey();
+  if (!stored) return false;
+  if (stored.user !== who.id) {
+    // Somebody else is signed in now. Not ours to keep, and not ours to use.
+    await forget();
+    return false;
+  }
+
+  let found: CloudRow | null;
+  try {
+    found = await fetchRow(db);
+  } catch {
+    return false;
+  }
+
+  if (cloudResume(stored.salt, found?.payload ?? null) === "stale") {
+    await forget();
+    resealed = true;
+    return false;
+  }
+
+  keyed = { key: stored.key, salt: stored.salt };
+  vault = vaultOf(keyed);
+  const returning = rememberedRev();
+  localRev = returning;
+  lastDigest = "";
+  setStatus({ state: "live", name: who.email, message: "", at: 0 });
+  await poll(returning > 0);
+  listen(db);
+  return true;
+}
+
 /* -------------------------------- lifetime -------------------------------- */
 
 /**
@@ -952,10 +1185,11 @@ export const cloud = {
  * fetches nothing, subscribes to nothing and leaves the status `off`, so the
  * feature is absent rather than broken.
  *
- * A remembered session restores to `prompt`, never to `live`: the passphrase
- * is not stored anywhere and deriving it needs the person. That is the same
- * `prompt` the file half shows for a lapsed permission — the state that means
- * a gesture is what this link is waiting for.
+ * A remembered session restores to `prompt` unless this browser is holding a
+ * key, which is the one thing that can carry a reload: the passphrase is
+ * stored nowhere and deriving it needs the person. That `prompt` is the same
+ * one the file half shows for a lapsed permission — the state that means a
+ * gesture is what this link is waiting for.
  */
 export function startCloud(): () => void {
   if (!cloudSupported()) return () => {};
@@ -967,11 +1201,13 @@ export function startCloud(): () => void {
       const who = await account(db);
       if (!who || !live) return;
       userId = who.id;
+      if (await resume(db, who)) return;
+      if (!live) return;
       setStatus({
         state: "prompt",
         name: who.email,
         at: 0,
-        message: "Enter your passphrase to open the cloud copy",
+        message: resealed ? RESEALED : "Enter your passphrase to open the cloud copy",
       });
     })
     .catch(() => setStatus(OFF));

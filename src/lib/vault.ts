@@ -113,7 +113,24 @@ export function saltOf(payload: string): Uint8Array | null {
 }
 
 /**
- * A vault, keyed by `passphrase`.
+ * A derived key and the salt it was derived under, which travel together or
+ * not at all: `seal` writes the salt into the header of every box it makes, so
+ * a key without its salt can open what it is handed and produce nothing.
+ */
+export interface Keyed {
+  key: CryptoKey;
+  salt: Uint8Array<ArrayBuffer>;
+}
+
+/**
+ * The expensive half: `passphrase` and a salt into an AES-GCM key.
+ *
+ * Separate from `vaultOf` so the key can be **named** by a caller that wants
+ * to keep it — `cloudLink`'s "remember on this device" stores this pair in
+ * IndexedDB, where a non-extractable key can be persisted and used without
+ * ever being readable by script. Nothing here changes for that: the key was
+ * already created `extractable: false`, and the passphrase is not part of the
+ * pair.
  *
  * With `payload`, the salt is read from it — that is reopening an
  * existing box, in this session or on another machine. Without one, a
@@ -125,7 +142,7 @@ export function saltOf(payload: string): Uint8Array | null {
  * version would answer every later `open` with `WrongPassphrase` — the
  * two failures collapsed into the one the user cannot act on.
  */
-export async function unlock(passphrase: string, payload?: string): Promise<Vault> {
+export async function derive(passphrase: string, payload?: string): Promise<Keyed> {
   let salt: Uint8Array<ArrayBuffer>;
   if (payload === undefined) {
     salt = crypto.getRandomValues(new Uint8Array(SALT_BYTES));
@@ -145,11 +162,25 @@ export async function unlock(passphrase: string, payload?: string): Promise<Vaul
     material,
     { name: "AES-GCM", length: 256 },
     // Not extractable: nothing here needs the key's bytes, and a key that
-    // cannot be read out cannot be logged, stored or posted by mistake.
+    // cannot be read out cannot be logged, stored or posted by mistake. It
+    // can still be *kept* — `structuredClone` and so IndexedDB take a
+    // `CryptoKey` as an opaque handle rather than as bytes — which is what
+    // makes remembering one a different question from storing a secret.
     false,
     ["encrypt", "decrypt"],
   );
 
+  return { key, salt };
+}
+
+/**
+ * A vault over a key that has already been derived, or restored.
+ *
+ * The salt is the pair's, never the payload's: `seal` has to stamp the salt
+ * this key belongs to into every box, and a box arriving under a different one
+ * is exactly the case `open` refuses.
+ */
+export function vaultOf({ key, salt }: Keyed): Vault {
   return {
     async seal(plaintext: string): Promise<string> {
       // A fresh random IV per seal, never derived and never reused. Under
@@ -193,4 +224,12 @@ export async function unlock(passphrase: string, payload?: string): Promise<Vaul
       return utf8Reader.decode(plain);
     },
   };
+}
+
+/**
+ * A vault, keyed by `passphrase` — `derive` then `vaultOf`, which is what
+ * every caller but the one that remembers a key wants.
+ */
+export async function unlock(passphrase: string, payload?: string): Promise<Vault> {
+  return vaultOf(await derive(passphrase, payload));
 }

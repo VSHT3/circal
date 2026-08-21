@@ -17,7 +17,7 @@
  * whole card), so growth spends the width first and the scroll last.
  * ------------------------------------------------------------------ */
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
   ArrowLeft,
@@ -300,6 +300,33 @@ export default function Settings({
    *  Compared against the transport's own constant, so there is still exactly
    *  one place that sentence is written. */
   const cloudLocked = cloudStatus.message === LOCKED;
+
+  /**
+   * Whether this browser is holding the derived key, asked of the transport
+   * rather than stored here: the IndexedDB record *is* the switch, so a second
+   * copy of that fact in a `Settings` field would be a copy to keep in step —
+   * and a synced one would arm this on every other device, which is the one
+   * thing "on this device" cannot mean.
+   *
+   * Re-asked whenever the link's state changes, because a key discarded as
+   * stale by `resume` puts the row back to `prompt` and the switch back to off
+   * without this surface doing anything.
+   */
+  const [remembering, setRemembering] = useState(false);
+  useEffect(() => {
+    let live = true;
+    void cloud.remembering().then((on) => {
+      if (live) setRemembering(on);
+    });
+    return () => {
+      live = false;
+    };
+  }, [cloudStatus.state]);
+
+  async function setRemember(on: boolean) {
+    setRemembering(on);
+    await cloud.remember(on);
+  }
   /**
    * Which of the three the panel is asking for — the gesture made, read
    * against the verdict the transport has already published, so no failure
@@ -1428,6 +1455,26 @@ export default function Settings({
                                   Sign out
                                 </DataButton>
                               </div>
+                              {/* Only while the link is live: there is nothing
+                                to remember before a key exists, and a switch
+                                offering to keep one would be a switch about a
+                                thing that has not happened. The caption is the
+                                whole of the decision — the passphrase is not
+                                what is kept, and what is kept carries *write*
+                                authority over every device on the account,
+                                which is the half a user would otherwise
+                                assume away. */}
+                              <Toggle
+                                label="Stay unlocked"
+                                name="Remember the key for the cloud copy on this device"
+                                checked={remembering}
+                                onChange={(on) => void setRemember(on)}
+                              />
+                              <span className="caption">
+                                The passphrase is never stored; the key it derives is. Anyone with
+                                this device and browser profile can then read and change the
+                                calendar on every device on the account
+                              </span>
                             </>
                           )}
                           {/* Two failures, two remedies, and the panel picks

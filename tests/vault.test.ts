@@ -7,8 +7,10 @@ import {
   UnreadablePayload,
   VAULT_VERSION,
   WrongPassphrase,
+  derive,
   saltOf,
   unlock,
+  vaultOf,
   type Vault,
 } from "@/lib/vault";
 
@@ -228,6 +230,51 @@ describe("saltOf — reopening without the passphrase yet", () => {
     // passphrase that was right. That is the two failures collapsed into
     // the one the user cannot act on.
     await expect(unlock(PASSPHRASE, "not base64url!!")).rejects.toThrow(UnreadablePayload);
+  });
+});
+
+/* `unlock` is `derive` then `vaultOf`, split so a caller can *name* the key —
+ * `cloudLink`'s "remember on this device" keeps the pair in IndexedDB, where a
+ * non-extractable key can be persisted and used without ever being readable by
+ * script. What is pinned here is that splitting it changed nothing: the same
+ * key, the same salt, and still not extractable. */
+describe("derive / vaultOf — a key a caller can keep", () => {
+  it("builds a vault that opens what the composed unlock sealed", async () => {
+    const payload = await vault.seal("written before the reload");
+    const keyed = await derive(PASSPHRASE, payload);
+    expect(await vaultOf(keyed).open(payload)).toBe("written before the reload");
+  });
+
+  it("hands back the salt the payload was sealed under, so seal stamps the same one", async () => {
+    const payload = await vault.seal("private");
+    const keyed = await derive(PASSPHRASE, payload);
+    expect.soft(keyed.salt).toEqual(saltOf(payload));
+    expect(saltOf(await vaultOf(keyed).seal("again"))).toEqual(saltOf(payload));
+  });
+
+  /* The property the whole feature rests on: it can be stored, and it cannot
+   * be read. A key that answered `exportKey` would make remembering one the
+   * same thing as writing the passphrase down. */
+  it("derives a key that cannot be exported", async () => {
+    const { key } = await derive(PASSPHRASE);
+    expect.soft(key.extractable).toBe(false);
+    await expect(crypto.subtle.exportKey("raw", key)).rejects.toThrow();
+  });
+
+  it("carries both usages, which is why remembering one confers writing", async () => {
+    const { key } = await derive(PASSPHRASE);
+    expect(key.usages).toEqual(expect.arrayContaining(["encrypt", "decrypt"]));
+  });
+
+  it("refuses an unreadable payload rather than enrolling a fresh salt", async () => {
+    await expect(derive(PASSPHRASE, "not base64url!!")).rejects.toThrow(UnreadablePayload);
+  });
+
+  it("mints a fresh salt with no payload, which is enrolment", async () => {
+    const a = await derive(PASSPHRASE);
+    const b = await derive(PASSPHRASE);
+    expect.soft(a.salt).toHaveLength(16);
+    expect(a.salt).not.toEqual(b.salt);
   });
 });
 
