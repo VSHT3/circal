@@ -1,0 +1,172 @@
+<!doctype html>
+<!--
+  circal · Authentication → Emails → Magic Link
+  Sent on every sign-in after the first. Byte-for-byte the twin of
+  confirm-signup.html, which covers the first: Supabase picks between them by
+  whether the address has signed in before, and the reader must not be able to
+  tell which one arrived. Change one, change the other.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="x-apple-disable-message-reformatting" />
+    <meta name="color-scheme" content="light" />
+    <meta name="supported-color-schemes" content="light" />
+    <title>Your circal sign-in code</title>
+    <!--
+      The only stylesheet in the file, and it declares one thing: this mail is
+      light and does not want re-colouring. Everything that draws a pixel is
+      inline, because a client that strips this block must still render the
+      mail exactly as intended.
+    -->
+    <style>
+      :root {
+        color-scheme: light;
+        supported-color-schemes: light;
+      }
+    </style>
+  </head>
+  <body
+    style="
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      background-color: #ffffff;
+      -webkit-text-size-adjust: 100%;
+      -ms-text-size-adjust: 100%;
+    "
+  >
+    <!--
+      Preheader: the line the inbox prints beside the subject. Hidden in the
+      body, and followed by a run of zero-width non-joiners so Gmail has nothing
+      left to scavenge from the first real paragraph.
+    -->
+    <div
+      style="
+        display: none;
+        overflow: hidden;
+        line-height: 1px;
+        max-height: 0;
+        max-width: 0;
+        opacity: 0;
+        mso-hide: all;
+      "
+    >
+      Six digits, good for one hour.
+      &#8204;&#8204;&#8204;&#8204;&#8204;&#8204;&#8204;&#8204;&#8204;&#8204;&#8204;&#8204;&#8204;&#8204;&#8204;&#8204;&#8204;&#8204;&#8204;&#8204;&#8204;&#8204;&#8204;&#8204;&#8204;&#8204;&#8204;&#8204;&#8204;&#8204;&#8204;&#8204;&#8204;&#8204;&#8204;&#8204;&#8204;&#8204;&#8204;&#8204;
+    </div>
+
+    <table
+      role="presentation"
+      border="0"
+      cellpadding="0"
+      cellspacing="0"
+      width="100%"
+      style="border-collapse: collapse; background-color: #ffffff"
+    >
+      <tr>
+        <td align="center" style="padding: 32px 16px 48px 16px">
+          <table
+            role="presentation"
+            border="0"
+            cellpadding="0"
+            cellspacing="0"
+            width="480"
+            style="border-collapse: collapse; width: 100%; max-width: 480px"
+          >
+            <tr>
+              <td
+                style="
+                  padding: 0 0 28px 0;
+                  font-family:
+                    -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, Helvetica, Arial,
+                    sans-serif;
+                  font-size: 15px;
+                  font-weight: 500;
+                  letter-spacing: -0.3px;
+                  color: #131315;
+                "
+              >
+                circal
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 0; border-top: 1px solid #e5e5e7; font-size: 0; line-height: 0">
+                &nbsp;
+              </td>
+            </tr>
+            <tr>
+              <td
+                style="
+                  padding: 32px 0 0 0;
+                  font-family:
+                    -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, Helvetica, Arial,
+                    sans-serif;
+                  font-size: 15px;
+                  line-height: 22px;
+                  color: #131315;
+                "
+              >
+                Your sign-in code.
+              </td>
+            </tr>
+            <!--
+              The payload, on its own line and wrapped in nothing: people
+              tap and hold to copy it, and a border, a badge or a span per
+              digit is one more thing for a selection to catch on.
+            -->
+            <tr>
+              <td
+                align="left"
+                style="
+                  padding: 20px 0 24px 0;
+                  font-family:
+                    ui-monospace, SFMono-Regular, Menlo, Consolas, &quot;Courier New&quot;,
+                    monospace;
+                  font-size: 34px;
+                  line-height: 42px;
+                  font-weight: 600;
+                  letter-spacing: 0.2em;
+                  color: #000000;
+                "
+              >
+                {{ .Token }}
+              </td>
+            </tr>
+            <tr>
+              <td
+                style="
+                  padding: 0;
+                  font-family:
+                    -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, Helvetica, Arial,
+                    sans-serif;
+                  font-size: 14px;
+                  line-height: 21px;
+                  color: #5c5c60;
+                "
+              >
+                It expires in one hour.
+              </td>
+            </tr>
+            <tr>
+              <td
+                style="
+                  padding: 8px 0 0 0;
+                  font-family:
+                    -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, Helvetica, Arial,
+                    sans-serif;
+                  font-size: 14px;
+                  line-height: 21px;
+                  color: #5c5c60;
+                "
+              >
+                If you did not ask to sign in, ignore this message.
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>
