@@ -1314,12 +1314,28 @@ function fresh(): Snapshot {
 }
 
 function write(next: Snapshot) {
-  snapshot = next;
+  // One entry per id, the later instant winning — the invariant every *reader*
+  // of a grave list already assumes and none of the writers held. `remove`,
+  // `truncateSeries` and `removeCalendar` all append, and `restamped` (so
+  // undo, redo and restore) concatenates both sides' lists, so a delete the
+  // user undid and made again left two graves for one id. Every reader
+  // collapses them, which made the store's list and the mirrored copy of it
+  // two different arrays describing one document, and the machine that
+  // deleted was told its own deletion was news on every pass thereafter.
+  //
+  // `pruneGraves` rather than a second spelling of the rule, for the reason
+  // hydrate calls it: the merge's list and the store's must not be able to
+  // disagree about what a grave list is. Skipped below two entries, which
+  // cannot hold a duplicate — this runs on every commit, and the common
+  // snapshot has no graves at all.
+  const settled =
+    next.graves.length > 1 ? { ...next, graves: pruneGraves(next.graves, Date.now()) } : next;
+  snapshot = settled;
   try {
     // Without `feeds`: they are persisted a key at a time by `storeFeed`, and
     // serialising them here as well is what put somebody else's calendar in
     // competition with yours for one quota.
-    const { feeds: _feeds, ...persisted } = next;
+    const { feeds: _feeds, ...persisted } = settled;
     const raw = JSON.stringify(persisted);
     localStorage.setItem(KEY, raw);
     lastRaw = raw;

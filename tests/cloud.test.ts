@@ -4,7 +4,7 @@ import { DEFAULT_SETTINGS } from "@/lib/store";
 import { MIRROR_VERSION, serialiseMirror } from "@/lib/mirror";
 import { LOCKED, cloudPlan, cloudTake, readCloudRow, type CloudRow } from "@/lib/cloudLink";
 import type { CalEvent, Calendar, Grave } from "@/lib/events";
-import { mergeDocuments } from "@/lib/merge";
+import { mergeDocuments, pruneGraves } from "@/lib/merge";
 import { applyRemove } from "@/lib/mutate";
 
 /**
@@ -455,6 +455,29 @@ describe("a deletion coming back round", () => {
   it("writes the deletion back to a row that has not got it, silently", () => {
     const taken = cloudTake(serialiseMirror(snapshot([x, y]), 10), mine, NOW);
     expect.soft(taken.take === "merge" && taken.changed).toBe(true);
+    expect.soft(taken.take !== "stop" && taken.learned).toBe(false);
+  });
+
+  /* The shape that diverged for ever. `store.remove` used to append its graves
+   * — `[...base.graves, ...removed.graves]` — while every reader of a grave
+   * list collapses an id to its latest instant, so a delete the user undid and
+   * then made again left the store holding two graves for one id and the row
+   * holding one. The same document by every rule that reads it, and two
+   * different arrays to the digest, so this machine was told its own deletion
+   * was news on every pass thereafter. `store.write` now collapses on the way
+   * in; these pin the merge's half of that agreement. */
+  const again = applyRemove([x, y], "y", KILLED + 1000);
+  const collapsed = pruneGraves([...removed.graves, ...again.graves], NOW);
+
+  it("collapses a re-deletion to one grave at the later instant", () => {
+    expect(collapsed).toEqual([{ id: "y", at: KILLED + 1000 }]);
+  });
+
+  it("learns nothing when a re-deletion comes back", () => {
+    const twice = snapshot(again.events, { graves: collapsed });
+    const theirsToo = mergeDocuments(snapshot([x, y]), twice, NOW);
+    const taken = cloudTake(serialiseMirror({ ...twice, ...theirsToo }, 11), twice, NOW);
+    expect.soft(taken.take).toBe("merge");
     expect.soft(taken.take !== "stop" && taken.learned).toBe(false);
   });
 

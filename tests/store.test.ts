@@ -541,6 +541,32 @@ describe("undo / redo", () => {
     expect.soft(s.store.snapshot().graves.map((g) => g.id)).toContain(created.id);
   });
 
+  /* One entry per id, the later instant winning. Every *reader* of a grave
+   * list assumes it — `readGraves` on the way in, `pruneGraves` in every
+   * merge — and none of the writers held it: `remove` appended, and
+   * `restamped` concatenates both sides' lists, so this sequence left two
+   * graves for one id. The cloud copy holds the collapsed list, so the two
+   * were one document in two shapes and the machine that deleted was told its
+   * own deletion was news on every pass. */
+  it("holds one grave per id after a delete, an undo and a delete", async () => {
+    const s = await freshStore();
+    const created = s.store.create(draft(s));
+    s.store.remove(created.id);
+    expect(s.store.undo()).toBe(true);
+
+    const back = s.store.snapshot().events.find((e) => e.id === created.id);
+    expect.soft(back).toBeDefined();
+
+    s.store.remove(created.id);
+    const graves = s.store.snapshot().graves.filter((g) => g.id === created.id);
+    expect.soft(graves).toHaveLength(1);
+
+    // And the persisted blob, not only the snapshot in memory: the mirrored
+    // copy is read from what was written.
+    const persisted = JSON.parse(s.storage.getItem(KEY)!) as { graves: { id: string }[] };
+    expect.soft(persisted.graves.filter((g) => g.id === created.id)).toHaveLength(1);
+  });
+
   it("update -> undo -> reverted; redo -> reapplied", async () => {
     const s = await freshStore();
     const created = s.store.create({ ...draft(s), title: "before" });
