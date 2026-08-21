@@ -4,6 +4,8 @@ import { DEFAULT_SETTINGS } from "@/lib/store";
 import { MIRROR_VERSION, serialiseMirror } from "@/lib/mirror";
 import { LOCKED, cloudPlan, cloudTake, readCloudRow, type CloudRow } from "@/lib/cloudLink";
 import type { CalEvent, Calendar, Grave } from "@/lib/events";
+import { mergeDocuments } from "@/lib/merge";
+import { applyRemove } from "@/lib/mutate";
 
 /**
  * `cloudLink.ts` is a network client, an auth session, a websocket and a
@@ -407,5 +409,64 @@ describe("whether this machine learned anything", () => {
     const held = shared({ graves: [grave("gone", "2026-03-07 09:00")] });
     const taken = cloudTake(serialiseMirror(held, 9), held, STAMP);
     expect(taken.take !== "stop" && taken.learned).toBe(false);
+  });
+});
+
+/* Graves take a different route through `mergeDocuments` than ordinary records
+ * do — united and pruned separately, then filtered against the survivors — and
+ * nothing else here pins the round trip. The cycle is the ordinary one: A
+ * deletes and writes; B merges, learns the deletion and writes the merged
+ * document back; A finds the row ahead and merges a document it should
+ * recognise as its own. */
+describe("a deletion coming back round", () => {
+  const x = event({ id: "x", calendarId: CAL, updatedAt: STAMP });
+  const y = event({ id: "y", calendarId: CAL, updatedAt: STAMP });
+  const KILLED = ms("2026-03-10 11:00");
+  const NOW = ms("2026-03-10 12:00");
+
+  /** What `store.remove` leaves behind: the shortened list, and a grave
+   *  appended to whatever was already there. Not pruned — the store appends. */
+  const removed = applyRemove([x, y], "y", KILLED);
+  const mine = snapshot(removed.events, { graves: removed.graves });
+
+  it("leaves the local document with the event gone and a grave for it", () => {
+    expect.soft(mine.events.map((e) => e.id)).toEqual(["x"]);
+    expect.soft(mine.graves).toEqual([{ id: "y", at: KILLED }]);
+  });
+
+  /** The other machine's write-back: it held both events, merged, and lost `y`
+   *  to the grave. */
+  const theirs = mergeDocuments(snapshot([x, y]), mine, NOW);
+
+  it("has the other machine reach the same document", () => {
+    expect.soft(theirs.events.map((e) => e.id)).toEqual(["x"]);
+    expect.soft(theirs.graves).toEqual([{ id: "y", at: KILLED }]);
+  });
+
+  it("learns nothing when its own deletion comes back", () => {
+    const taken = cloudTake(serialiseMirror({ ...mine, ...theirs }, 10), mine, NOW);
+    expect.soft(taken.take).toBe("merge");
+    expect.soft(taken.take !== "stop" && taken.learned).toBe(false);
+  });
+
+  // A row that has not caught up with the deletion needs this machine's bytes
+  // and still has nothing to tell it: `changed` without `learned`, which is the
+  // pair the two flags exist to keep apart.
+  it("writes the deletion back to a row that has not got it, silently", () => {
+    const taken = cloudTake(serialiseMirror(snapshot([x, y]), 10), mine, NOW);
+    expect.soft(taken.take === "merge" && taken.changed).toBe(true);
+    expect.soft(taken.take !== "stop" && taken.learned).toBe(false);
+  });
+
+  // The other direction, and the one the guard must never swallow: the row
+  // carries a deletion this machine has not seen, so there is something to
+  // adopt and something to say.
+  it("learns a deletion the row has and this machine has not", () => {
+    const killed = applyRemove([x, y], "y", KILLED);
+    const theirsGone = snapshot(killed.events, { graves: killed.graves });
+    const taken = cloudTake(serialiseMirror(theirsGone, 10), snapshot([x, y]), NOW);
+    expect.soft(taken.take).toBe("merge");
+    expect.soft(taken.take !== "stop" && taken.learned).toBe(true);
+    expect.soft(taken.take !== "stop" && taken.document.events.map((e) => e.id)).toEqual(["x"]);
   });
 });
