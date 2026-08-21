@@ -335,3 +335,77 @@ describe("the digest guard", () => {
     expect(taken.take === "merge" && taken.changed).toBe(false);
   });
 });
+
+describe("whether this machine learned anything", () => {
+  const shared = (over: Parameters<typeof snapshot>[1] = {}) =>
+    snapshot([event({ id: "shared", calendarId: CAL, updatedAt: STAMP })], over);
+
+  /* The write-back is not optional — both machines have to converge on the row
+   * — so the machine that wrote first always sees its own edit come back as
+   * the other one's `rev + 1`. It merges, produces exactly what it already
+   * had, and used to adopt and toast it: "Calendar updated from the cloud
+   * copy" about its own event, plus an undo step that undoes nothing. */
+  it("learns nothing from a row that is its own document at a higher revision", () => {
+    const taken = cloudTake(serialiseMirror(shared(), 12), shared(), STAMP);
+    expect.soft(taken.take).toBe("merge");
+    expect.soft(taken.take !== "stop" && taken.learned).toBe(false);
+  });
+
+  it("learns from a row carrying an event this machine has not got", () => {
+    const taken = cloudTake(
+      serialiseMirror(
+        snapshot([
+          event({ id: "shared", calendarId: CAL, updatedAt: STAMP }),
+          event({ id: "theirs", calendarId: CAL, updatedAt: ms("2026-03-11 09:00") }),
+        ]),
+        12,
+      ),
+      shared(),
+      STAMP,
+    );
+    expect.soft(taken.take).toBe("merge");
+    expect.soft(taken.take !== "stop" && taken.learned).toBe(true);
+  });
+
+  // An adopt is the other route into `absorb`, and two machines holding the
+  // same unstamped demo day reach it. Nothing to announce there either.
+  it("learns nothing from adopting a document it already holds", () => {
+    const demo = () => snapshot([event({ id: "demo", calendarId: CAL })], { settingsAt: 0 });
+    const taken = cloudTake(serialiseMirror(demo(), 1), demo(), STAMP);
+    expect.soft(taken.take).toBe("adopt");
+    expect.soft(taken.take !== "stop" && taken.learned).toBe(false);
+  });
+
+  it("learns from adopting a document that predates stamping", () => {
+    const older = serialiseMirror(
+      snapshot([event({ id: "theirs", calendarId: CAL })], { settingsAt: 0 }),
+      9,
+    );
+    const taken = cloudTake(older, shared(), STAMP);
+    expect.soft(taken.take).toBe("adopt");
+    expect.soft(taken.take !== "stop" && taken.learned).toBe(true);
+  });
+
+  /* The two flags are separate questions, and this is the pass that proves it:
+   * the row is behind, so it needs this machine's bytes, and the merge is
+   * exactly what this machine already held, so there is nothing to say. A fix
+   * that muted the toast by skipping the write-back would strand the other
+   * machine on an older row. */
+  it("writes back without announcing anything when only the row is behind", () => {
+    const mine = snapshot([
+      event({ id: "shared", calendarId: CAL, updatedAt: STAMP }),
+      event({ id: "mine", calendarId: CAL, updatedAt: ms("2026-03-11 09:00") }),
+    ]);
+    const taken = cloudTake(serialiseMirror(shared(), 9), mine, STAMP);
+    expect.soft(taken.take === "merge" && taken.changed).toBe(true);
+    expect.soft(taken.take !== "stop" && taken.learned).toBe(false);
+  });
+
+  // The digest is canonical either way, so the round trip through the payload
+  // is not a thing learned any more than it is a change.
+  it("does not read the round trip through the payload as something learned", () => {
+    const held = shared({ graves: [grave("gone", "2026-03-07 09:00")] });
+    const taken = cloudTake(serialiseMirror(held, 9), held, STAMP);
+    expect(taken.take !== "stop" && taken.learned).toBe(false);
+  });
+});

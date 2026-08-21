@@ -312,6 +312,21 @@ export const LOCKED =
  * ever. `mirrorDigest` is canonical, which is what makes that comparison mean
  * "the document differs" rather than "the keys are in a different order".
  *
+ * `learned` is that same comparison run against the **store**, and it answers
+ * a toast that told a machine about its own edit. The write-back above is not
+ * optional — both machines have to converge on the row — so the machine that
+ * wrote first always sees its own bytes come back as the other one's
+ * `rev + 1`, merges them, and produces exactly what it already had. There is
+ * nothing to adopt there and nothing to say. The two flags are deliberately
+ * separate questions and neither implies the other: `changed` asks whether the
+ * *row* needs our bytes, `learned` whether the *store* needs theirs, and a
+ * pass can easily want a write with nothing to announce.
+ *
+ * Both digests are taken over the `Mirrored` part only, so a revision is never
+ * the difference. `mine` is a store snapshot and a row is written from one, so
+ * an unchanged document compares equal; anything written by hand and not yet
+ * normalised reads as learned and toasts, which is the safe direction.
+ *
  * `merging: false` is the first link of a browser that has never synced, and
  * it keeps `connect`'s promise on this transport too: a row that already holds
  * a calendar is *adopted*. The gesture is a person signing in, not a person
@@ -320,8 +335,8 @@ export const LOCKED =
  * every machine on the account.
  */
 export type CloudTake =
-  | { take: "merge"; document: MirrorContents; changed: boolean }
-  | { take: "adopt"; document: MirrorContents }
+  | { take: "merge"; document: MirrorContents; changed: boolean; learned: boolean }
+  | { take: "adopt"; document: MirrorContents; learned: boolean }
   | { take: "stop"; message: string };
 
 export function cloudTake(
@@ -337,10 +352,17 @@ export function cloudTake(
   // is, somebody's bytes are in there and this build cannot read them.
   if (!contents) return { take: "stop", message: "That cloud copy is not a circal calendar" };
 
-  if (!merging || !mirrorMerges(contents, mine)) return { take: "adopt", document: contents };
+  const merges = merging && mirrorMerges(contents, mine);
+  const document: MirrorContents = merges
+    ? { ...contents, ...mergeDocuments(mine, contents, now) }
+    : contents;
 
-  const document: MirrorContents = { ...contents, ...mergeDocuments(mine, contents, now) };
-  return { take: "merge", document, changed: mirrorDigest(document) !== mirrorDigest(contents) };
+  const digest = mirrorDigest(document);
+  const changed = digest !== mirrorDigest(contents);
+  const learned = digest !== mirrorDigest(mine);
+  return merges
+    ? { take: "merge", document, changed, learned }
+    : { take: "adopt", document, learned };
 }
 
 /* ------------------------------- the session ------------------------------ */
@@ -535,6 +557,29 @@ async function absorb(document: MirrorContents): Promise<void> {
   notify("Calendar updated from the cloud copy — ⌘Z to undo");
 }
 
+/**
+ * The revision moved and the document did not: record where the row is, and
+ * say nothing.
+ *
+ * This is the ordinary second half of a sync rather than an edge case. The
+ * write-back in `poll` is not optional — both machines must converge on the
+ * row — so the machine that wrote first always sees its own edit return as the
+ * other one's `rev + 1`. `absorb`ing that would tell a machine its own work is
+ * news, and `store.adopt` would push a commit that changes nothing onto the
+ * undo stack, so ⌘Z would appear to do nothing.
+ *
+ * The bookkeeping is `absorb`'s, all of it, and skipping any of it swaps a
+ * spurious toast for a spurious write every `POLL_MS`: without `localRev` the
+ * next pass reads the row as ahead again, and without `lastDigest` the next
+ * `onStoreChange` sees a change that is not one.
+ */
+function settle(document: MirrorContents): void {
+  localRev = document.rev;
+  lastDigest = mirrorDigest(store.snapshot());
+  rememberRev();
+  setStatus({ state: "live", message: "", at: Date.now() });
+}
+
 interface Claim {
   /** The revision to write. */
   rev: number;
@@ -669,11 +714,17 @@ async function poll(merging = true): Promise<void> {
     fail(taken.message);
     return;
   }
-  await absorb(taken.document);
+  // Adopting is for a document this machine did not already have; anything
+  // else is bookkeeping and silence. `learned` is the only question here, and
+  // deliberately not "who wrote it" or "is this tab focused" — a genuinely
+  // remote change arriving in the focused tab should still say so.
+  if (taken.learned) await absorb(taken.document);
+  else settle(taken.document);
   // The merged document has to go back, or the other machine never learns what
   // this one was holding — and only when it differs from what is already
   // there, because a pass that answered every read with a write is the
-  // permanent loop.
+  // permanent loop. Independent of `learned`: a row behind this machine needs
+  // our bytes whether or not we took anything from it.
   if (taken.take === "merge" && taken.changed) await write();
 }
 

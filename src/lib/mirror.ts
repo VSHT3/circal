@@ -97,6 +97,21 @@ function settled(calendars: Calendar[]): Calendar[] {
 }
 
 /**
+ * The records of one array in id order, for the digest and nothing else.
+ *
+ * The store keeps events in the order they were made (`create` appends) while
+ * `mergeDocuments` unites them in **id** order, on purpose, so that two
+ * machines reach the same array whichever way round they merge. Those two
+ * orders are almost never the same one, and a digest that reads the
+ * difference as a change makes the machine that wrote first see its own edit
+ * come back as news — the array holds the same calendar either way. Array
+ * order is no more part of this document than key order is.
+ */
+function ordered<T extends { id: string }>(records: T[]): T[] {
+  return [...records].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+}
+
+/**
  * The part of a snapshot the file is actually about, as a string.
  *
  * `baseSignature`'s trick, for the same job one layer out: it lets the writer
@@ -118,8 +133,15 @@ export function mirrorDigest(s: Mirrored): string {
   // stringify calls those two different, so the digest said "changed" for a
   // merge that changed nothing, both machines wrote back, and each read the
   // other's write as news — one write every poll, for ever. The digest's whole
-  // claim is telling a real change from a re-read, and key order is not one.
-  return canonicalJson([s.events, settled(s.calendars), s.settings, s.settingsAt, s.graves]);
+  // claim is telling a real change from a re-read, and neither key order nor
+  // record order is one.
+  return canonicalJson([
+    ordered(s.events),
+    ordered(settled(s.calendars)),
+    s.settings,
+    s.settingsAt,
+    ordered(s.graves),
+  ]);
 }
 
 export function serialiseMirror(s: Mirrored, rev: number, zone = localZone()): string {

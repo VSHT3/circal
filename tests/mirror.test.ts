@@ -186,6 +186,31 @@ describe("a feed pull is not a calendar change", () => {
   });
 });
 
+/* The store keeps events in the order they were made and `mergeDocuments`
+ * unites them by id, so the two orders differ on any machine that did not
+ * happen to create its events alphabetically. While the digest read that as a
+ * change, the machine that wrote first saw its own edit return as the other
+ * one's write-back and announced it: "Calendar updated from the cloud copy"
+ * about an event it had just made itself. */
+describe("record order is not a change", () => {
+  const a = event({ id: "a", calendarId: CAL, start: "2026-03-08 09:00" });
+  const b = event({ id: "b", calendarId: CAL, start: "2026-03-09 09:00" });
+
+  it("digests two orderings of one document the same", () => {
+    expect(mirrorDigest(snapshot([b, a]))).toBe(mirrorDigest(snapshot([a, b])));
+  });
+
+  it("digests two orderings of one calendar list the same", () => {
+    const one = calendar({ id: "one" });
+    const two = calendar({ id: "two" });
+    expect(mirrorDigest(snapshot([], [one, two]))).toBe(mirrorDigest(snapshot([], [two, one])));
+  });
+
+  it("still notices a record the other ordering has not got", () => {
+    expect(mirrorDigest(snapshot([b, a]))).not.toBe(mirrorDigest(snapshot([a])));
+  });
+});
+
 describe("the version gate: merge, adopt, or refuse", () => {
   /* Three answers, and the order they are asked in matters. A file this
    * reader's build cannot fully understand, or a document that predates

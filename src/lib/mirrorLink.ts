@@ -271,10 +271,23 @@ async function remember(): Promise<void> {
  * Take what somebody else wrote. The bookkeeping plus the store's own undoable
  * commit, in one place because `poll` and the write guard below both do it and
  * two copies would drift into two ideas of what adopting means.
+ *
+ * **A document that is already the one in the store gets the bookkeeping and
+ * nothing else**, and that is the common case rather than a curiosity: the
+ * write-back in `poll` is not optional, so two machines on one file always
+ * hand each other's edits back, and the machine that wrote first sees its own
+ * work arrive as the other one's `rev + 1`. Adopting it would toast a machine
+ * about its own edit and push a commit that changes nothing onto the undo
+ * stack. The cloud half answers the same cycle one step earlier, as
+ * `cloudTake`'s `settle`, because it has a pure decision to put it in; here
+ * every caller funnels through this function, so this is the single place.
+ * `localRev` and `lastDigest` still move either way, or the next poll reads
+ * the file as ahead again and the toast is merely traded for a write.
  */
 async function absorb(contents: MirrorContents): Promise<void> {
   localRev = contents.rev;
-  store.adopt(contents);
+  const settled = mirrorDigest(contents) === mirrorDigest(store.snapshot());
+  if (!settled) store.adopt(contents);
   // Digest what the store *made* of the contents, never the contents: `adopt`
   // normalises on the way in (`sane` clamps settings, feed pull state is
   // swept), so the file's own digest can differ from the store's — and a
@@ -284,6 +297,7 @@ async function absorb(contents: MirrorContents): Promise<void> {
   lastDigest = mirrorDigest(store.snapshot());
   await remember();
   setStatus({ state: "live", message: "", at: Date.now() });
+  if (settled) return;
   notify(`Calendar updated from ${handle?.name ?? "the mirror file"} — ⌘Z to undo`);
 }
 
