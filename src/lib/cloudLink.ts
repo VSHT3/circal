@@ -122,8 +122,8 @@ let client: SupabaseClient | null = null;
  * puts the whole library and its websocket stack on the first paint of a
  * calendar that mostly never signs in.
  *
- * `detectSessionInUrl: false` because auth here is a six-digit code, never a
- * magic link: nothing arrives in the URL, and this app already reads `?d=` and
+ * `detectSessionInUrl: false` because auth here is a code typed by hand, never
+ * a magic link: nothing arrives in the URL, and this app already reads `?d=` and
  * `?v=` from it (`App.tsx`'s `go`), so a client that rewrites the location on
  * load is a client that can lose the day the user was looking at.
  */
@@ -749,9 +749,23 @@ async function account(db: SupabaseClient): Promise<Account | null> {
   return user ? { id: user.id, email: user.email ?? "" } : null;
 }
 
+/**
+ * The most characters a sign-in code field may hold — a guard against a paste
+ * of something that is not a code at all, and deliberately not a description
+ * of the code.
+ *
+ * How many digits Supabase mails is a dashboard setting on the identity
+ * provider's side, and this client is in no position to know it. It once
+ * thought it did: the field was `maxLength={6}` against a project issuing
+ * eight, so the input silently kept the first six and `verifyOtp` was handed a
+ * prefix. See the bullet in `AGENTS.md`. Wide enough that no plausible
+ * setting can be truncated, narrow enough to stay a code field.
+ */
+export const CODE_MAX = 32;
+
 export const cloud = {
   /**
-   * Send a six-digit code to `email`.
+   * Send a sign-in code to `email`.
    *
    * A code and deliberately not a magic link: a link needs registered redirect
    * URLs, and this app is a static bundle that also runs inside a `WKWebView`
@@ -770,7 +784,7 @@ export const cloud = {
       state: "prompt",
       name: email,
       at: 0,
-      message: `A six-digit code is on its way to ${email}`,
+      message: `A sign-in code is on its way to ${email}`,
     });
   },
 

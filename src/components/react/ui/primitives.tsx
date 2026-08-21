@@ -521,7 +521,7 @@ export function NumberField({
  * One line of typed text inside a row.
  *
  * It exists because the cloud section asks for three of them — an address, a
- * six-digit code, a passphrase — and a settings panel with four differently
+ * sign-in code, a passphrase — and a settings panel with four differently
  * spelled bare `<input>`s in it is the drift this file exists to stop. The
  * shape is the one the feed row already had, so nothing about the panel
  * changed when that row became the fourth caller.

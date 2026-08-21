@@ -538,10 +538,11 @@ carries, in the same format: the only thing that changes is where the copy
 sits, and either side of a sync merges rather than overwriting, so two
 machines edited on two days keep both days.
 
-Signing in is an email address, then a six-digit code out of that email. There
-is no link to click: six digits go through you rather than through whatever
-mail client happens to open a link, and they work the same wherever circal is
-running.
+Signing in is an email address, then a code out of that email. There is no
+link to click: the code goes through you rather than through whatever mail
+client happens to open a link, and it works the same wherever circal is
+running. How long the code is is the identity provider's own setting, so
+circal prints what it is told and counts nothing.
 
 Then a passphrase, once, and this is the part worth reading twice. Circal
 seals the copy with it in this browser before anything leaves, so what the

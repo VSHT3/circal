@@ -33,7 +33,7 @@ import {
   Upload,
   X,
 } from "lucide-react";
-import { LOCKED, cloud, cloudSupported, useCloud } from "@/lib/cloudLink";
+import { CODE_MAX, LOCKED, cloud, cloudSupported, useCloud } from "@/lib/cloudLink";
 import { refreshFeed } from "@/lib/feeds";
 import { canVibrate } from "@/lib/feedback";
 import { formatCount, formatLifeDate, lifeSpan } from "@/lib/life";
@@ -490,13 +490,13 @@ export default function Settings({
           <TextField
             inputMode="numeric"
             autoComplete="one-time-code"
-            maxLength={6}
+            maxLength={CODE_MAX}
             value={signIn.code}
             onChange={(code) => setSignIn((flow) => ({ ...flow, code }))}
             onEnter={() => void submitCode()}
-            label="Six-digit code"
-            placeholder="000000"
-            className="w-[8ch] tabular-nums"
+            label="Sign-in code"
+            placeholder="Code from the email"
+            className="flex-1 basis-[150px] tabular-nums"
           />
           <DataButton
             icon={<Link2 size={13} strokeWidth={1.75} />}
@@ -1391,8 +1391,7 @@ export default function Settings({
                               {cloudFields()}
                               <span className="caption">
                                 One encrypted copy of this calendar on a server, so another device
-                                can read it. Signing in is a six-digit code by email, never a link
-                                to click
+                                can read it. Signing in is a code by email, never a link to click
                               </span>
                             </>
                           )}
