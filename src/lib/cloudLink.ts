@@ -296,6 +296,18 @@ export const LOCKED =
   "That passphrase does not open the cloud copy. Nothing was written — this device's calendar is untouched.";
 
 /**
+ * A delete that may or may not have happened, in one sentence that does not
+ * guess. `LOCKED`'s shape: what to do, and what has *not* been lost.
+ *
+ * It cannot say "deleted" and it must not say "not deleted" — a `DELETE` that
+ * commits and then loses its response is indistinguishable here from one that
+ * never arrived. Signing out is what makes the sentence safe to print either
+ * way: nothing on this device will republish the row while the user decides.
+ */
+export const UNSURE =
+  "circal could not confirm the cloud copy was deleted, so it may still be there. You are signed out — sign in and try again. This device's calendar is untouched.";
+
+/**
  * What to do with the payload once it has been opened — or refused.
  *
  * **`text === null` is the sharpest failure in this whole feature, and the
@@ -956,6 +968,51 @@ async function account(db: SupabaseClient): Promise<Account | null> {
  */
 export const CODE_MAX = 32;
 
+/* ------------------------------ standing down ----------------------------- */
+
+/**
+ * Stop everything on this device that could write, and wait for whatever was
+ * already in flight.
+ *
+ * `vault = null` is the load-bearing line rather than the timers: `write`,
+ * `poll` and `onStoreChange` each open by refusing when it is null, so one
+ * assignment disarms the settle timer's callback, the fallback poll, the
+ * Realtime handler and the visibility tick together. The timers are cleared
+ * anyway, because a disarmed callback that still fires is a callback somebody
+ * will later have to reason about.
+ *
+ * `await writing` is last and it is not tidiness: a write already past its own
+ * guard is a request in the air, and a caller about to delete the row needs it
+ * to land first. Reversible on purpose — `deleteCopy` puts the vault back if
+ * the delete fails — so nothing here touches the session or storage.
+ */
+async function quiesce(db: SupabaseClient | null): Promise<void> {
+  clearTimeout(settleTimer);
+  vault = null;
+  if (db) await hush(db);
+  await writing;
+}
+
+/**
+ * Let the link go: the key, the revision, the session, the status.
+ *
+ * `forget` before `userId` is cleared, because the record is scoped to it.
+ */
+async function release(db: SupabaseClient | null): Promise<void> {
+  keyed = null;
+  localRev = 0;
+  lastDigest = "";
+  await forget();
+  userId = "";
+  try {
+    localStorage.removeItem(REV_KEY);
+  } catch {
+    // Same trade as `rememberRev`: bookkeeping, never a failure.
+  }
+  if (db) await db.auth.signOut();
+  setStatus(OFF);
+}
+
 export const cloud = {
   /**
    * Send a sign-in code to `email`.
@@ -1097,30 +1154,66 @@ export const cloud = {
    * resume a link the user just let go of — `mirror.declined`'s lesson in
    * `mac/main.swift`, one transport over. The row is left exactly as it is;
    * deleting a user's other machines' calendar is not what a disconnect on
-   * this machine means.
+   * this machine means. `deleteCopy` is the other intention, and it is a
+   * separate press for exactly that reason.
    */
   async disconnect(): Promise<void> {
     const db = client;
-    clearTimeout(settleTimer);
-    vault = null;
-    keyed = null;
-    localRev = 0;
-    lastDigest = "";
-    // Before `userId` is cleared, because the record is scoped to it. Signing
-    // out is the same gesture as letting the link go: a key left behind would
-    // have the next launch resume, live and silent, a link the user just ended.
-    await forget();
-    userId = "";
-    try {
-      localStorage.removeItem(REV_KEY);
-    } catch {
-      // Same trade as `rememberRev`: bookkeeping, never a failure.
+    await quiesce(db);
+    await release(db);
+  },
+
+  /**
+   * Take the data back off the server.
+   *
+   * **The row is the whole of the user's data, and it is all this can reach.**
+   * Deleting the auth user needs the service key, which cannot be in a browser
+   * and would want the server component `SYNC.md` rules out, so what survives
+   * is an email address in an auth table with nothing attached to it. The panel
+   * says so; a button that implied account erasure would be lying about which
+   * of those two things it did.
+   *
+   * The `DELETE` is scoped by `user_id` and the `own_document` policy is
+   * `for all` over `user_id = auth.uid()`, so the row is the only one this
+   * request can reach even if the filter were wrong.
+   *
+   * **The order is the feature.** `cloudPlan` answers a missing row with
+   * `write` — correctly, since an empty slot is the state a first link is in —
+   * so any pass that runs after the delete puts the calendar straight back, and
+   * the user's press would have achieved nothing. Every writer here guards on
+   * `vault`, so `quiesce` nulling it is what disarms the settle timer, the
+   * poll, the socket callback and the visibility tick in one move; `hush`
+   * closes the socket so the delete is not delivered back as a change; and
+   * `await writing` lets anything already past its own guard land *before* the
+   * row goes rather than after. Only then the delete, and only then the
+   * sign-out — which also clears `REV_KEY`, or a later session would start at
+   * a revision it remembers, read the empty slot and refill it.
+   *
+   * **A failed delete stands the link down too, and that is the interesting
+   * decision.** The first version restored the vault and re-listened, on the
+   * reasoning that nothing was deleted so nothing should change — and driving it
+   * showed what that costs. A `DELETE` can commit on the server and still fail
+   * on the way back, and a restored link answers the very next pass by finding
+   * an empty slot and *refilling it*: measured, `DELETE` then `GET GET POST`,
+   * the calendar back on the server at a fresh revision seconds after somebody
+   * asked for it to be gone. So the ambiguous case decides this branch, because
+   * it is the only one where the two behaviours differ and it is the one that
+   * matters: never put back what a person asked to remove. A clear failure
+   * costs them a sign-in they did not need, which is an annoyance; the other
+   * way round costs them the thing they pressed the button for.
+   */
+  async deleteCopy(): Promise<void> {
+    const db = client;
+    if (!db || !userId) return;
+    await quiesce(db);
+
+    const { error } = await db.from("documents").delete().eq("user_id", userId);
+    await release(db);
+    if (error) {
+      fail(UNSURE);
+      return;
     }
-    if (db) {
-      await hush(db);
-      await db.auth.signOut();
-    }
-    setStatus(OFF);
+    notify("Cloud copy deleted — this browser's calendar is untouched");
   },
 };
 

@@ -327,6 +327,27 @@ export default function Settings({
     setRemembering(on);
     await cloud.remember(on);
   }
+
+  /**
+   * The second press. Local to this surface, and dropped the moment the link
+   * stops being live, so a confirm strip can never be left standing over a
+   * link that has already gone.
+   *
+   * The **render-phase adjustment** `AGENTS.md` makes a hard convention, and
+   * not an effect: `react-hooks/set-state-in-effect` is right to refuse one
+   * here, which would render the stale confirm and then render again to take
+   * it down. React re-runs this component before touching the DOM, so it is
+   * never painted.
+   *
+   * No `seeded` sentinel, unlike `Sidebar`'s: that shape resets on a prop
+   * *changing*, and this is an invariant — a confirm may not stand while the
+   * link is not live, however it got there. The `deleting &&` guard is what
+   * makes the assignment terminate, and it is the whole of what the sentinel
+   * would be buying.
+   */
+  const [deleting, setDeleting] = useState(false);
+  if (deleting && cloudStatus.state !== "live") setDeleting(false);
+
   /**
    * Which of the three the panel is asking for — the gesture made, read
    * against the verdict the transport has already published, so no failure
@@ -476,6 +497,25 @@ export default function Settings({
 
   async function signOut() {
     await cloud.disconnect();
+    setSignIn({ stage: "email", email: "", code: "", passphrase: "" });
+  }
+
+  /**
+   * The row goes, and the link goes with it — the transport does both, in that
+   * order, because a link left live over a deleted row publishes it again on
+   * the next edit.
+   *
+   * The confirm is dropped either way. On success the row is gone and there is
+   * nothing left to ask about; on failure the transport has put the link back
+   * and printed why, and a confirm strip still standing over that sentence
+   * would be asking the user to press through an error.
+   */
+  async function deleteCopy() {
+    if (signingIn) return;
+    setSigningIn(true);
+    await cloud.deleteCopy();
+    setSigningIn(false);
+    setDeleting(false);
     setSignIn({ stage: "email", email: "", code: "", passphrase: "" });
   }
 
@@ -1475,6 +1515,50 @@ export default function Settings({
                                 this device and browser profile can then read and change the
                                 calendar on every device on the account
                               </span>
+                              {/* The other intention, and deliberately not
+                                behind Sign out: one press is "not on this
+                                device", this one is "not at all". Two presses,
+                                the editor's own shape — a `pending` flag swaps
+                                the verb for the confirm and a Cancel beside it
+                                — rather than a confirm widget this panel does
+                                not otherwise have. The reassurance sits on the
+                                second press because that is where somebody
+                                hesitates, and it says the two things a person
+                                fears here: the calendar is not what is being
+                                deleted, and this is not account erasure. */}
+                              {deleting ? (
+                                <>
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <DataButton
+                                      icon={<Trash2 size={13} strokeWidth={1.75} />}
+                                      onClick={() => void deleteCopy()}
+                                      disabled={signingIn}
+                                      danger
+                                    >
+                                      Delete the copy
+                                    </DataButton>
+                                    <DataButton
+                                      icon={<X size={13} strokeWidth={1.75} />}
+                                      onClick={() => setDeleting(false)}
+                                    >
+                                      Cancel
+                                    </DataButton>
+                                  </div>
+                                  <span className="caption">
+                                    The copy on the server goes and this browser&rsquo;s calendar is
+                                    untouched. Your email address stays in the project&rsquo;s
+                                    account list, with nothing attached to it
+                                  </span>
+                                </>
+                              ) : (
+                                <DataButton
+                                  icon={<Trash2 size={13} strokeWidth={1.75} />}
+                                  onClick={() => setDeleting(true)}
+                                  danger
+                                >
+                                  Delete cloud copy
+                                </DataButton>
+                              )}
                             </>
                           )}
                           {/* Two failures, two remedies, and the panel picks
@@ -1580,16 +1664,22 @@ function feedMetaClass(error?: string): string {
  * this surface cannot keep — a second live link, and a request already in
  * flight — and the styling is the one the Add button beside the feed field
  * has always used, so a dead verb reads the same wherever it is.
+ *
+ * `danger` is the editor's Delete in this panel's vocabulary rather than a
+ * second one: `AGENTS.md` reserves `text-danger` for a press that destroys
+ * something, and exactly one press here does.
  */
 function DataButton({
   icon,
   onClick,
   disabled,
+  danger,
   children,
 }: {
   icon: ReactNode;
   onClick: () => void;
   disabled?: boolean;
+  danger?: boolean;
   children: ReactNode;
 }) {
   return (
@@ -1597,7 +1687,10 @@ function DataButton({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="flex h-8 items-center gap-1.5 rounded-[8px] border border-hairline bg-surface-2 px-2.5 text-[13px] text-ink transition-colors hover:bg-white/10 disabled:pointer-events-none disabled:opacity-35"
+      className={cn(
+        "flex h-8 items-center gap-1.5 rounded-[8px] border border-hairline bg-surface-2 px-2.5 text-[13px] transition-colors hover:bg-white/10 disabled:pointer-events-none disabled:opacity-35",
+        danger ? "text-danger" : "text-ink",
+      )}
     >
       {icon}
       {children}

@@ -99,6 +99,23 @@ describe("the compare-and-swap decision", () => {
     expect(cloudPlan(null, 4, HERE)).toEqual({ do: "write", rev: 5 });
   });
 
+  /* The same answer read the other way round, and it is what shapes
+   * `deleteCopy`. An empty slot is a slot to fill, so **every** pass that runs
+   * after the row is deleted puts the calendar straight back — which is why the
+   * delete stands the link down first (`quiesce` nulls the vault, and every
+   * writer guards on it) and clears `REV_KEY` after (or a later session starts
+   * at a revision it remembers, reads the empty slot and refills it). It is
+   * also why a *second* signed-in device re-publishes: nothing in this decision
+   * can tell "deleted" from "not yet written", and nothing should — the
+   * alternative is a tombstone in a table whose whole content is one row. */
+  it.each([1, 4, 99])("answers a deleted row from rev %i by writing it again", (rev) => {
+    expect(cloudPlan(null, rev, HERE)).toEqual({ do: "write", rev: rev + 1 });
+  });
+
+  it("starts a cleared browser at rev 1, which is a first link and not a recreation", () => {
+    expect(cloudPlan(null, 0, HERE)).toEqual({ do: "write", rev: 1 });
+  });
+
   // The one that would be a permanent write loop if it answered anything else:
   // a row where we left it must produce no write at all.
   it("keeps a row where we left it, and writes nothing", () => {
