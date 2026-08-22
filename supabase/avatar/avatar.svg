@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!--
+    Sender avatar for noreply@send.circal.day. The same mark as public/favicon.svg
+    and public/icon.svg: a black disc and one thin white circumference.
+
+    Full-bleed and opaque, both because of the circle crop Google applies. The
+    crop keeps the inscribed circle, so a disc drawn inside the square would put
+    its own antialiased edge just inside the crop's and show whatever sat behind
+    it as a rim; painting to the corners means the crop cuts black against black
+    and the only edge in the result is the one Google drew. Opaque for the other
+    half of the same problem: alpha here composites onto the client's background,
+    and a transparent black mark on Gmail's dark list is a mark nobody sees.
+
+    Ratios are the favicon's, measured against its DISC (r=15.5) rather than its
+    canvas, because under the crop the disc is the whole image: 11/15.5 * 256 =
+    181.7 and 2.4/15.5 * 256 = 39.6. The favicon's own r=11 / stroke-width=2.4
+    are whole-pixel choices at 16px and do not carry; what carries is how much of
+    the disc the ring takes. Verified by rendering circle-cropped at 40px, 64px
+    and 250px on white and on #202124: at 40px the ring is ~3px of white and
+    holds on both. Re-check at 40px before changing either number.
+  -->
+  <rect width="512" height="512" fill="#000000" />
+  <circle cx="256" cy="256" r="181.7" fill="none" stroke="#ffffff" stroke-width="39.6" />
+</svg>
