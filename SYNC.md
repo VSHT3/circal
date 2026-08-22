@@ -1,24 +1,38 @@
 # sync
 
-What it would take for circal to hold one calendar on two machines without losing a day of work.
+What it took for circal to hold one calendar on two machines without losing a day of work.
 
-This supersedes `TODO.md`'s **"No accounts, and no second API route"** in one direction only, and the
-argument there is still half right, so it is worth restating rather than deleting. That entry refuses
-_a relay_: anonymous storage keyed by a memorable passphrase, which is offline-brute-forceable
-against a stored ciphertext unless it runs a real PAKE. That refusal stands. What is proposed here is
-not a relay — access is gated by an authenticated session, so the ciphertext is not fetchable by
-anyone holding a guess, and the passphrase stops being the only thing between a stranger and a
-calendar. If Phase 2 is accepted, that `TODO.md` entry needs editing to say which of the two it
-still forbids.
+**All three phases have shipped, and everything below describes something that runs.** Phases 0 and
+1 — stamps, graves and `src/lib/merge.ts` — went in as one change and turned the mirror file from
+last-writer-wins into a merge. Phase 2 followed and is live: `circal.day` holds one encrypted row
+per user in a hosted Supabase project, people sign in with a code mailed to their address, and two
+devices on one account converge. Nothing here is a proposal. Where the design was wrong, the
+correction sits next to what it corrects rather than over it, because a named wrong turn is the part
+of a design document a reader cannot get anywhere else.
 
-Phases 0 and 1 need no account, no server and no network, and they ship as one change rather than in
-sequence: Phase 0 on its own adds three fields no reader consumes, changes nothing a user could
-observe, and is therefore pure cost until the merge that consumes them exists. Phase 2 is deferred
-behind them indefinitely, for the reason given at its head.
+This supersedes `TODO.md`'s **"No accounts, and no second API route"** in one direction only, and
+the argument there was half right, so it is restated rather than deleted. That entry refused _a
+relay_: anonymous storage keyed by a memorable passphrase, which is offline-brute-forceable against
+a stored ciphertext unless it runs a real PAKE. That refusal stands, and nothing that shipped
+weakened it — access to the row is gated by an authenticated session, so the ciphertext is not
+fetchable by anyone holding a guess, and the passphrase stops being the only thing between a
+stranger and a calendar. That `TODO.md` entry has since been edited to say which of the two it
+still forbids: it now reads **"No anonymous relay, and still no second API route"**, and names the
+relay as the half that did not ship.
+
+Phases 0 and 1 need no account, no server and no network, and they shipped as one change rather than
+in sequence: Phase 0 on its own adds three fields no reader consumes, changes nothing a user could
+observe, and is pure cost until the merge that consumes them exists. Phase 2 was deferred behind
+them on purpose, and stayed deferred until the file half had been run in anger — which is what the
+head of that section used to argue. What it argues now is what the cloud copy cost.
 
 ---
 
 ## The problem, precisely
+
+This is the state Phase 0 started from, and it is written in the present tense because the argument
+only works read forwards. The `claim()` comment quoted below no longer exists: that branch merges
+now. Everything else here is still true of the file half.
 
 circal already replicates. `src/lib/mirror.ts` is a whole-document format with a monotonic `rev`;
 `src/lib/mirrorLink.ts` is a compare-and-swap writer over it. `claim()` re-reads the file
@@ -39,11 +53,11 @@ Tuesday, the PC on Wednesday, and whichever opens second adopts the other's whol
 discards its own day. The undo step lands on the machine that lost, which is the machine nobody is
 sitting at.
 
-**The reason it cannot do better is `applyRemove`.** `src/lib/mutate.ts:42` filters the event and its
-overrides out of the array. Nothing is left behind. So given two documents that disagree about an
-id's existence, there is no way to tell _deleted here_ from _not yet seen here_, and any merge
-by id resurrects every deletion — the same tombstone problem `duplicateOf` documents from the other
-side when it refuses to carry `doneKeys`.
+**The reason it could not do better was `applyRemove`.** It filtered the event and its overrides out
+of the array and left nothing behind. So given two documents that disagree about an id's existence,
+there is no way to tell _deleted here_ from _not yet seen here_, and any merge by id resurrects
+every deletion — the same tombstone problem `duplicateOf` documents from the other side when it
+refuses to carry `doneKeys`.
 
 This is a model problem. It does not change if the transport is a file, a Postgres row, or a folder
 somebody else syncs.
@@ -117,6 +131,13 @@ these directly.
 Settings do not merge field by field in any way a user would recognise, so they get one stamp:
 **`Snapshot.settingsAt: number`**, and the whole object is last-writer-wins under it.
 
+One settings write deliberately does not stamp it, and the exception is load-bearing.
+`store.setDeviceZone` records the zone this browser is in on first launch, having asked nothing, and
+a stamp there would make a browser holding nothing but seed data into a document the merge is
+willing to union into somebody's real calendar — eight demo events nobody wrote, on both machines.
+It is the only write in that file that is not a _choice_: the app is recording where it is, and
+`merge.ts` compares choices.
+
 ### Undo is a mutation
 
 This document said nothing about undo, and the silence loses data. `store.undo`, `redo`, `restore`
@@ -129,6 +150,14 @@ happen" is the one a merge would quietly undo.
 So **an undo or a redo counts as a fresh mutation**: what it changes is restamped at the moment it
 runs, and what it removes emits a grave, exactly as the forward mutation would have. Undo is not a
 time machine here, it is a compensating edit, and stamping it is what says so.
+
+`merge.ts`'s `restamped` is what does it, for `undo`, `redo` and `restore` alike: everything the step
+changes is stamped at the moment it runs, and everything it takes away is buried. It compares records
+by _content_ rather than by reference, because an undo step and the live snapshot hold the same
+objects only until another tab writes and the blob is re-hydrated, after which a reference test would
+restamp the whole document. Graves are never wound back either — undoing a deletion is answered by
+the stamp outrunning the grave, and dropping the grave instead would let the other machine's copy of
+that deletion come back as an event on the next merge.
 
 `restore` and `adopt` then split on the same question in opposite directions, and the asymmetry is
 deliberate. `restore` is a user importing a backup on purpose, so it restamps — they mean this file
@@ -162,31 +191,56 @@ is chosen against the alternative of unbounded growth in a ~5MB origin quota tha
 already carves 2M characters out of. A grave is two fields, so a thousand deletions is a few tens of
 kilobytes — the TTL is about the decade, not the year.
 
+`pruneGraves` lives in `merge.ts` and both the merge and `store.hydrate` call it, so the two cannot
+come to disagree about how long a deletion is remembered. It also collapses a list to one grave per
+id, and that was learned rather than designed: `remove`, `truncateSeries`, `removeCalendar` and
+`restamped` all append, so a deletion the user undid and made again left two graves for one id.
+Every reader collapses them, which made the store's list and the mirrored copy of it two different
+arrays describing one document, and the machine that had done the deleting was told about its own
+deletion on every pass thereafter. `commit` prunes for that reason, and `GRAVE_MAX` bounds the
+result at 5,000, newest first.
+
 ### Files touched
 
-`src/lib/events.ts` (both interfaces, `Grave`, `readGraves`, `GRAVE_MAX`), `src/lib/mutate.ts` (five
-reducers, two of them returning graves alongside the survivors), `src/lib/store.ts` (`Snapshot`,
-`Persisted`, `hydrate`, `commit`, `remove`, `removeCalendar`, `undo`, `redo`, `restore`, `adopt`,
-`sane`), `src/lib/backup.ts` (`readEvent`, `readCalendar`, `readBackup`, `exportBackup`),
-`src/lib/mirror.ts` (`Mirrored`, `mirrorDigest`), `mcp/domain.ts` (its patch path round-trips whole
-documents, so a field it does not know is a field it silently drops — the `circal-mcp@0.1.0` lesson,
-measured at nine keys).
+`src/lib/events.ts` (both interfaces, `Grave`, `readGraves`, `readStamp`, `GRAVE_TTL`, `GRAVE_MAX`),
+`src/lib/mutate.ts` (five reducers, two of them returning graves alongside the survivors),
+`src/lib/store.ts` (`Snapshot`, `Persisted`, `hydrate`, `commit`, `remove`, `removeCalendar`,
+`undo`, `redo`, `restore`, `adopt`, `sane`), `src/lib/backup.ts` (`readEvent`, `readCalendar`,
+`readBackup`, `exportBackup`), `src/lib/mirror.ts` (`Mirrored`, `mirrorDigest`), `mcp/domain.ts`
+(its patch path round-trips whole documents, so a field it does not know is a field it silently
+drops — the `circal-mcp@0.1.0` lesson, measured at nine keys).
 
 ---
 
 ## Phase 1 — the merge
 
 New module **`src/lib/merge.ts`**, at `mutate.ts`'s tier: pure over event lists, imports `./events`
-and nothing else. `store.ts` and `mirror.ts` both call it, which is what stops "what does a conflict
-mean" from having two answers — the same argument that put the scope reducers in one file.
+and nothing else. `store.ts`, `mirror.ts`/`mirrorLink.ts` and `cloudLink.ts` all call it, which is
+what stops "what does a conflict mean" from having three answers — the same argument that put the
+scope reducers in one file.
 
 ```ts
-export function mergeDocuments(mine: Mergeable, theirs: Mergeable, now: number): Mergeable;
+export function mergeDocuments<S>(
+  mine: Mergeable<S>,
+  theirs: Mergeable<S>,
+  now: number,
+): Mergeable<S>;
 ```
+
+`Settings` is a type _parameter_ rather than an import, since `store.ts` sits above this tier and a
+merge needs no field of it. Four more exports came out of the same file rather than being spelled a
+second time elsewhere: `stamped`, which answers whether a document may be merged at all;
+`pruneGraves`, shared with the store; `canonicalJson`, which is the tie-break's whole definition and
+the digest's as well; and `restamped`, which is what an undo owes the merge — the section above.
 
 Rules, in order:
 
-1. **Union by id**, across `events` and `calendars` independently.
+1. **Union by id**, across `events` and `calendars` independently, and the survivors are sorted **by
+   id**. That order is part of the contract rather than an implementation detail: two machines have
+   to reach the same document, and the only key both of them agree on is the id. Insertion order
+   makes `merge(a, b)` and `merge(b, a)` two different arrays of the same events, which the
+   transport then writes back and forth for ever — see the digest below, which learned this from the
+   other end.
 2. **A grave wins over a record** when `grave.at > record.updatedAt`. Otherwise the record survives
    and the grave is discarded — an event edited after it was deleted elsewhere is a resurrection the
    user performed, which is different from one a merge invented.
@@ -202,8 +256,13 @@ Rules, in order:
    fixture happened to differ in key order. Two devices genuinely editing one event in the same
    millisecond is not a case worth a vector clock; it is a case worth a rule that cannot answer
    twice.
-4. **Graves union**, then prune past `GRAVE_TTL` measured from `now`.
-5. **Settings**: whole-object, greater `settingsAt`.
+4. **Graves union**, then prune past `GRAVE_TTL` measured from `now`, then drop any grave whose
+   record survived rule 2. A grave the union has already overruled is one that would have to be
+   overruled again on every subsequent merge, and it is a grave both machines would keep writing at
+   each other.
+5. **Settings**: whole-object, greater `settingsAt`. Equal stamps take the same canonical tie-break
+   the records take, for the same reason — two machines that changed a setting inside one
+   millisecond would otherwise each keep their own and write over each other for ever.
 6. **`feeds` never merges.** It is a read model assembled from `circal.feed.*` keys and is the one
    `Snapshot` field `write()` never serialises. Each machine pulls its own.
 
@@ -211,41 +270,93 @@ Merging is **element-wise, so it is commutative and idempotent** — `merge(a, b
 `merge(a, a) === a`. Both are tests, not remarks: they are what make a merge safe to run on every
 poll rather than once at a handshake.
 
-### `MIRROR_VERSION` goes to 2
+### `MIRROR_VERSION` is 2, and `mirrorMerges` is the gate
 
-`2` means _every record in this document carries a stamp, and deletions are tombstoned_. The version
-gate is what stops a regression:
+`2` means _every record in this document carries a stamp, and deletions are tombstoned_.
+`mirrorMerges(contents, mine)` is the one place the question is asked, and it asks three things: that
+the envelope is at least 2, that their document is `stamped`, and that ours is. Both transports call
+it, so a merge refused over a file is refused identically over a row.
 
-- **v2 file, v2 store** → merge.
-- **v1 file (or any document with `settingsAt === 0`)** → today's behaviour exactly. `mirrorVerdict`,
-  `adopt`, `stale`, no merge. An unstamped document cannot be merged without guessing, and today's
-  answer is the correct one for it.
-- **v2 file, v1 reader** → already refused. `assertVersionAllowsMutation` exists for this, and its
-  reason is the same: a reader that round-trips a document through validators it is too old for
-  silently drops the fields it does not know.
+- **v2 both sides, both stamped** → merge.
+- **v1 file, or either side unstamped** → the old behaviour exactly. `mirrorVerdict`, `adopt`,
+  `stale`, no merge. An unstamped document cannot be merged without guessing, and adopting is the
+  correct answer for it.
+- **v2 file, v1 reader** → already refused. `assertVersionAllowsMutation` exists for this, and
+  `cloudPlan` makes the same refusal from the row's `version` column before it decrypts anything:
+  a reader that round-trips a document through validators it is too old for silently drops the
+  fields it does not know.
 
-### What this buys the mirror on its own
+**`stamped` was `settingsAt > 0`, and that was measured wrong on the real transport.** Two fresh
+installs signed into one account are both unstamped, so neither may merge, so each adopts the
+other's document whole — and adopting an unstamped document leaves you unstamped, so the pair never
+grows out of it. A user's first event on their new laptop was adopted away by the machine that
+synced next, which is exactly what somebody sets up a second machine to avoid. Recoverable
+(`store.adopt` records an undo step and toasts) and still not shippable. No suite would have found
+it either: every fixture is built stamped, and the predicate's own table asserted a false that was
+true for the wrong reason. Two real browsers against the real row found it in one pass.
 
-`claim()`'s "adopt, do not merge" branch becomes "merge, then write the merged document at
-`max(fileRev, localRev) + 1`". Two machines on one synced folder stop being last-writer-wins, with
-no account, no server, and no network. That is the whole of the sync most people asking for sync
-actually want, and it is reachable from here.
+The predicate now asks whether the document carries stamps **at all** — a settings stamp, or any
+record or grave with a real instant on it — which is what its name always claimed and what the
+protection was actually for. What it protects is **demo data, not settings**: `seed()`'s events,
+`DEFAULT_CALENDARS` and `duplicateOf` all carry `updatedAt: 0` on purpose, so a browser holding
+nothing but its demo day still cannot win a merge or publish eight events nobody wrote. The moment
+one real thing happens — an event created, a calendar added, a deletion buried, a setting changed —
+the document is stamped and merging begins, which is the earliest instant at which there is anything
+to defend. A pre-Phase-0 blob is unaffected: every record in it reads `0` through `hydrateEvents`'
+fill-in, so it is still a document the merge declines rather than one whose every event loses.
 
-`absorb()` keeps calling `store.adopt`, so a merge is still one undoable commit with a toast. The
+### What the mirror got out of it
+
+`claim()`'s "adopt, do not merge" branch is now "merge, then write the merged document at
+`max(fileRev, localRev) + 1`". Two machines on one synced folder stopped being last-writer-wins,
+with no account, no server and no network. That is the whole of the sync most people asking for sync
+actually want, and it was reachable from where the file already was.
+
+`absorb()` still goes through `store.adopt`, so a merge is one undoable commit with a toast. The
 merge cannot lose data the way an adopt could, but it can still surprise, and the undo step is what
 makes a surprise recoverable.
 
+**An absorb that changes nothing locally has to be silent, and that is the ordinary case rather than
+an edge.** The write-back is inherent to convergence — both machines must end up at the file, or at
+the row — so the machine that wrote first always sees its own edit return as the other one's
+`rev + 1`, merges it, and produces exactly what it already had. Adopting that tells a machine its
+own work is news and pushes a commit that changes nothing onto the undo stack, so ⌘Z appears to do
+nothing. The silence cannot come from a flag saying "this pass was ours", because the second pass
+happens either way: it has to come from comparing documents. `mirrorLink.absorb` compares the
+contents against the store, keeps every piece of the bookkeeping and skips only the toast — dropping
+`localRev` or `lastDigest` with it merely trades a spurious toast for a spurious write on the next
+pass. `cloudLink` splits the same decision one step earlier, into `absorb` and `settle`, because
+`cloudTake` is a pure function and the comparison had somewhere better to live.
+
+**`mirrorDigest` was wrong twice, and both times the symptom was traffic.** It is the guard that
+tells "the calendar changed" from "a feed re-pulled", so a merge that changed nothing must digest
+equal. First it was **key order**: a merged document holds records from both sides, and an event
+this browser stored enumerates its keys in a different order from the same event rebuilt by
+`readEvent` on the way out of the file, so insertion-order `JSON.stringify` called two identical
+events different. Both machines wrote back, each read the other's write as news, one write every
+poll for ever. `canonicalJson` closed that, and then **record order** did the same thing from the
+other end: the store keeps events in creation order while `mergeDocuments` unites them in id order,
+so the digest read the reordering as a change and the machine that wrote first was told its own edit
+was news. `mirrorDigest` now sorts each list by id before serialising it. Array order is no more
+part of this document than key order is, and a machine that cannot tell either from a real change
+cannot tell a sync from a loop.
+
 ### Tests
 
-`tests/merge.test.ts` — new file, owns the module. Commutativity, idempotence, the grave-versus-edit
-precedence in both directions, the tie-break, TTL pruning, and the v1 refusal. Table-driven with
-`it.each` and `expect.soft`, per the suite's convention.
+`tests/merge.test.ts` owns the module: commutativity, idempotence, the grave-versus-edit precedence
+in both directions, the canonical tie-break, TTL pruning, the v1 refusal, and two machines
+converging. Table-driven with `it.each` and `expect.soft`, per the suite's convention.
 
-`tests/mutate.test.ts` gains the grave sets: a series deletion graves its overrides, a truncate
+`tests/mutate.test.ts` carries the grave sets: a series deletion graves its overrides, a truncate
 graves only what is past the cut.
 
-`tests/mirror.test.ts` gains the version gate: a v1 file adopts, a v2 file merges, a v2 file in a
-disagreeing zone is still refused before either.
+`tests/mirror.test.ts` carries the version gate: a v1 file adopts, a v2 file merges, a v2 file in a
+disagreeing zone is refused before either.
+
+`tests/cloud.test.ts` carries the pure half of the cloud transport, and deliberately also the
+two-fresh-installs scenario — the shape that passed every case in `merge`, `mirror` and `cloud`
+while quietly adopting a user's first edit away. `stamped`'s table fails seven ways on the old
+predicate, which is what a case driven by hand is worth once it is written down.
 
 **No `tests/west/` case.** Every comparison here is epoch-ms arithmetic — no `dayKey`, no
 `startOfDay`, no `addDays`. That is worth stating because the standing rule is the opposite, and a
@@ -255,17 +366,50 @@ reader should be able to see the exemption was reasoned rather than forgotten.
 
 ## Phase 2 — the cloud copy, optional
 
-Off unless signed in. The app must be byte-identical for somebody who never does.
+Off unless signed in, and the app is byte-identical for somebody who never does: `supabase-js` is
+fetched only when sync is switched on, so a reader who never opens the Cloud card downloads none of
+it.
 
-**Deferred, and deliberately.** Once the merge exists, two machines pointed at one mirror file in a
-folder Syncthing keeps in step is complete sync: no account, no server, no passphrase to lose, and
-nothing anyone could breach. That is the arrangement to live with for a good period before Supabase
-is reconsidered at all, because it already answers the whole of the problem this document opens with,
-at none of the cost — and a dependency taken on before the free version has been run in anger is a
-dependency bought on speculation. What follows is the design if it is ever taken up, not a plan to
-take it up.
+**Built, and running.** `circal.day` syncs through one Postgres row per user in a hosted Supabase
+project. Signing in is an address and a code mailed to it; the row is opened with a passphrase the
+user sets once and types again on every new device. Two machines on one account converge, and the
+design below is what they converge through.
+
+It cost more than the sketch it was written as, and the cost belongs in one place:
+
+- **`src/lib/vault.ts`**, the locked box: AES-GCM under PBKDF2-SHA256, a versioned envelope, and two
+  distinct failures — `WrongPassphrase` and `UnreadablePayload` — because a caller that cannot tell
+  them apart tells a user their passphrase is wrong when their data is damaged, or the reverse.
+- **`src/lib/cloudLink.ts`**, longer than `mirrorLink.ts`: an auth session, a websocket, a poll, a
+  compare-and-swap, a remembered key in IndexedDB, and one written sentence for every way each of
+  those fails.
+- **`supabase/migrations/20260820121500_documents.sql`**, plus the two auth email templates in
+  `supabase/templates/`, which exist as files because a template living only in a dashboard form is
+  one nobody can review, nobody can diff and a rebuilt project loses.
+- **The Cloud card in `src/components/react/Settings.tsx`**: a sign-in asked in three steps, a
+  passphrase field that returns on every new device, a switch, a delete behind a confirmation, and a
+  caption per failure.
+- **A second surface that can hold a user's whole calendar**, which is the real price. Every failure
+  in it had to be given an answer that loses nothing, and one of them — a payload that will not
+  open — is the sharpest thing in the app.
+
+Two things arrived that this document never anticipated, both from using it rather than designing it.
+**"Stay unlocked"** keeps the derived key in IndexedDB so a device stops asking for the passphrase on
+every reload; the caption carries what a user would otherwise have to work out, which is that the
+passphrase is not what is kept and what is kept holds write authority over every device on the
+account. **"Delete cloud copy"** is the other: a feature that puts a calendar on a server owes a way
+to take it off again, and that is a different intention from signing out, so it is a different press.
+
+**The mirror file remains a complete answer for anybody who does not want an account.** Two machines
+pointed at one file in a folder Syncthing keeps in step is sync with no server, no passphrase to lose
+and nothing anyone could breach, and Phase 1 is what made it a merge rather than a race. It was the
+reason to defer this section and it is not the reason to skip it: the panel holds both and enforces
+one live copy at a time.
 
 ### Why Supabase fits, in facts rather than preference
+
+All four held once it was built, which is worth recording: this is the part of a design document most
+likely to be optimism.
 
 - **It adds no route.** `supabase-js` talks directly to `*.supabase.co`, so `/api/feed` remains the
   only route the Worker serves. `wrangler.jsonc` is untouched. The "second route = a different
@@ -308,35 +452,82 @@ another name.
 `zone` stays outside the ciphertext, because `zonesAgree` has to be answerable before decrypting —
 the same reason `rev` and `version` are in the envelope rather than the payload.
 
+The shipped migration is `supabase/migrations/20260820121500_documents.sql`, and it carries two
+things this sketch did not. `updated_at` means "when the row last moved", and a client-supplied
+timestamp is a client that can be wrong about that, so a `touch_document` trigger owns it. And the
+table joins the `supabase_realtime` publication in the same migration, because a table absent from
+it emits nothing and no error: the fallback poll below would be the only path, and nobody would find
+out from a log.
+
 ### Encrypted on the client
 
-`payload` is AES-GCM ciphertext under a key derived from a passphrase the user sets once — PBKDF2-
-SHA256, which WebCrypto has natively (Argon2id would want wasm, and this is not the PAKE case the
-`TODO.md` entry refuses). The server holds a locked box and a row id. RLS stops being the only thing
-between two users' calendars, and the obligation of holding strangers' medical appointments in
-plaintext never arises.
+`payload` is AES-GCM ciphertext under a key derived from a passphrase the user sets once —
+PBKDF2-SHA256 at `PBKDF2_ITERATIONS` = 600,000, which WebCrypto has natively (Argon2id would want
+wasm, and this is not the PAKE case the `TODO.md` entry refuses). The box is
+`version(1) || salt(16) || iv(12) || ciphertext-with-tag`, base64url, and the salt travels in the
+header of every box it seals, so a key held without its salt could open what it was handed and
+produce nothing. The server holds a locked box and a row id. RLS stops being the only thing between
+two users' calendars, and the obligation of holding strangers' medical appointments in plaintext
+never arises.
 
-Costs, both real: no server-side query capability, which nothing here wants; and a lost passphrase
-loses the cloud copy, with `localStorage` and the mirror file still holding copies. Supabase Auth
-still knows the email of everyone who signs in, and no client-side encryption changes that — it is
-worth saying out loud in the UI rather than implying otherwise.
+Costs, all three real: no server-side query capability, which nothing here wants; a lost passphrase
+loses the cloud copy, with `localStorage` and the mirror file still holding copies; and 600,000
+rounds is a visible fraction of a second on every unlock, which is why the panel disables its own
+button while one is in flight rather than deriving the key twice. Supabase Auth still knows the email
+of everyone who signs in, and no client-side encryption changes that — the panel says so out loud
+rather than implying otherwise.
+
+**A payload that will not open stops everything, and that is the sharpest failure in the feature.**
+It is either the wrong passphrase or a damaged box, and in both cases the one thing the link must
+never do is seal local state over it. That write is not a lost edit and not an adopt an undo step
+covers: it is the other machine's work, ciphertext, gone, with no copy anywhere. `cloudTake` answers
+`stop` and a sentence carrying both halves a person needs — what to try, and that nothing has been
+lost yet. A future reader will notice the local document is perfectly good and think writing it is
+the helpful thing to do; it is the opposite, because the row is the only copy of whatever the other
+machine has done since it last merged.
 
 ### `src/lib/cloudLink.ts`
 
-`mirrorLink.ts`'s shape, one transport over: the same `MirrorState` (`off` / `prompt` / `live` /
-`error`), the same `claim` → `absorb` → write cycle, the same `lastDigest` guard so a feed re-pull
-does not cost a round trip, the same `SETTLE_MS` debounce. `POLL_MS` becomes a Realtime subscription
-on the row, with a poll as the fallback when the socket is down.
+`mirrorLink.ts`'s shape, one transport over: the same status vocabulary (`off` / `prompt` / `live` /
+`error`), the same claim → absorb → write cycle, the same `lastDigest` guard so a feed re-pull costs
+no round trip, the same 400 ms `SETTLE_MS`. `mirror.ts` stays the sole owner of the format, and
+`serialiseMirror` and `readMirrorFile` are untouched — the plaintext sealed into `payload` _is_ the
+file's contents, byte for byte, so there is no second envelope for `readMirrorFile` to disagree with.
 
-`mirror.ts` stays the sole owner of the format. `serialiseMirror` and `readMirrorFile` are unchanged
-— the payload _is_ the file's contents.
+Four places the transport genuinely differs from a file, each decided rather than inherited:
+
+1. **The compare-and-swap is real.** `update … where rev = $expected` is atomic, so there is no
+   `.lock` sibling and no Web Locks dance here; two tabs of this origin need nothing beyond the
+   in-tab `writing` chain, since exactly one `UPDATE` matches and the other is told it lost in the
+   same round trip.
+2. **Realtime replaces the poll and is never required.** A subscription on this user's row, with a
+   15 s poll whenever the socket is not subscribed and only while the tab is visible, so somebody
+   behind a proxy that kills websockets still syncs, slower.
+3. **A paused project is a link that is down**, surfaced as `error` carrying a sentence that names
+   the dashboard rather than merely reporting failure. Open question 4, unchanged by contact with
+   reality.
+4. **A box that will not open stops everything**, above.
+
+The revision this browser last wrote is kept under `circal.cloud`, because a reload that forgot it
+would read the row as ahead of itself and adopt its own bytes back. The derived key is kept only if
+the user asks for it, and a key that no longer opens the row — the copy was re-sealed on another
+device — is discarded with its own sentence rather than the generic one, since "wrong passphrase"
+would be a lie about the one thing a user can act on.
+
+`readCloudRow`, `cloudPlan` and `cloudTake` are the pure halves and `tests/cloud.test.ts` owns them.
+The transport around them is hand-driven for `mirrorLink.ts`'s reason: it is a network client, an
+auth session, a websocket and a debounce, and a test that mocked a Postgres client would be
+asserting the mock. It is verified by driving two browsers at one project, which is also how the two
+bugs recorded under Phase 1 were found.
 
 ### Both links at once
 
-With Phase 1 in place two links can run together, each keeping its own `rev` against its own
-transport, and a merge on either side converges. The first cut should still be **one at a time**,
-because two writers each debouncing at 400ms into a document the other is also merging is a state
-worth reaching deliberately rather than by default. Revisit once Phase 1 has run in anger.
+Two links can run together in principle, each keeping its own `rev` against its own transport, with a
+merge on either side converging. What shipped is **one at a time**, and the panel is where that is
+enforced rather than the transport: each side's _advancing_ verbs go dead while the other is engaged
+while its retreating ones never do, so a reader who arrives holding both — a session from before the
+file was picked — can still let one go. Two writers each debouncing at 400 ms into a document the
+other is also merging is a state worth reaching deliberately, and nothing has asked for it yet.
 
 ---
 
@@ -354,29 +545,38 @@ worth reaching deliberately rather than by default. Revisit once Phase 1 has run
   bytes.
 - **No push notifications.** Reminders stay `Notification` off the minute tick, and the tab title
   stays the answer for a backgrounded tab.
-- **No second Worker route**, at any phase. If a phase ever seems to need one, that is the signal to
-  stop and re-read this line.
+- **No second Worker route**, at any phase, and none of the three needed one: `worker/index.ts`
+  serves `/api/feed` and answers 404 to every other `/api/` path. If something ever seems to need a
+  second, that is the signal to stop and re-read this line.
 
 ---
 
 ## Open questions
 
+All four are settled, and the two that were settled by building rather than by argument say which.
+
 1. **Does the mirror get merging before any of this, and ship alone? — resolved, yes.** Phases 0 and
    1 make an existing feature strictly better, need no account, and are provable with the file and
-   the suite. They ship as one change rather than in sequence, because Phase 0 alone is three fields
-   nothing reads. Phase 2 is no longer "the easy half" waiting behind them; it is deferred.
-2. **Passphrase-or-nothing, or a "let the server hold it in the clear" option?** The second is
-   simpler to recover from and is what every other calendar does. It is also the version that makes
-   a breach somebody else's appointments. Recommendation stands: passphrase only, no opt-out. This is
-   the one question here still genuinely open, and it stays open until Phase 2 is actually taken up —
-   settling it now would be settling it without the thing it is about in front of us.
-3. **Grave TTL at 90 days — resolved as proposed.** The argument in the Pruning section carries it on
-   its own: the storage cost is bounded and already budgeted, and the failure it admits is a machine
-   left offline for a quarter, stated rather than hidden. It remains the one number here picked by
-   judgement, which is why it stays written down next to what it costs.
-4. **Free-tier pausing — resolved: acceptable.** Supabase pauses an idle project on the free plan,
-   so sync stops until somebody unpauses it. That surfaces as `MirrorState.error`, the state
-   `mirrorLink.ts` already has for "this link is not working", which is the honest reading: a paused
-   project is a link that is down, and the calendar is still whole in `localStorage` and in the
-   mirror file. Paying a monthly fee to avoid an error message is not a product decision worth
-   making.
+   the suite. They shipped as one change rather than in sequence, because Phase 0 alone is three
+   fields nothing reads. Phase 2 followed once the file half had been run in anger, which is the
+   order this question asked for.
+2. **Passphrase-or-nothing, or a "let the server hold it in the clear" option? — resolved:
+   passphrase only, and that is what shipped.** The plaintext option is simpler to recover from and
+   is what every other calendar does; it is also the version that makes a breach somebody else's
+   appointments, and it would have made the sentence `AGENTS.md` opens with untrue. There is no
+   opt-out and no plaintext path in the code — `cloudLink` cannot write a row it did not seal, and
+   a payload it cannot open stops it rather than replacing it. The cost is charged to the user who
+   loses a passphrase, which is why the panel states it beside the field instead of in a help page.
+   Settling this before Phase 2 existed would have been settling it without the thing it was about
+   in front of us; having built it, the answer is the one the recommendation gave.
+3. **Grave TTL at 90 days — resolved as proposed, and shipped at 90.** The argument in the Pruning
+   section carries it on its own: the storage cost is bounded and already budgeted, and the failure
+   it admits is a machine left offline for a quarter, stated rather than hidden. It remains the one
+   number here picked by judgement, which is why it stays written down next to what it costs.
+4. **Free-tier pausing — resolved: acceptable, and it has happened.** Supabase pauses an idle
+   project on the free plan, so sync stops until somebody unpauses it. It surfaces as the `error`
+   state `mirrorLink.ts` already had for "this link is not working", carrying `cloudLink`'s own
+   sentence, which names the dashboard and says the calendar is whole on this device meanwhile — a
+   paused project is a link that is down, and an error that only reports failure leaves a user with
+   nothing to do about it. Paying a monthly fee to avoid an error message is not a product decision
+   worth making.
