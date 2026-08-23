@@ -29,14 +29,17 @@ the end are recorded as refusals, so they are argued once instead of re-litigate
    the palette's slot search, and TASKS.md's auto-schedule when that lands. One
    idea of the working day stays one idea; the template merely varies it by day.
 
-4. **A `Join` verb on conferencing links.** Detect Meet/Zoom/Jitsi in `url` /
-   `location` and give the headline row a `Join` verb that appears only inside the
-   event's reminder lead. High utility, one regex in `events.ts`, zero new chrome
-   at rest — the verb exists exactly while it is the next thing you need.
+4. **A `Join` verb on conferencing links.** — **Shipped** (`d764774`). `joinLink`
+   in `events.ts` (whole-hostname match: Meet/Zoom/Jitsi, `url` then `location`);
+   the verb sits on the headline row inside the reminder lead _and while running_
+   — you join the meetings you are late to most of all.
 
-5. **Duplicate day.** Palette verb: copy a day's user-written events onto the
-   selected day ("same as last Tuesday"). Falls out of `duplicateOf` + `dayAgenda`;
-   one commit, one ⌘Z, toast counts what landed.
+5. **Duplicate day.** — **Shipped** (`7ea7107`, plus `4e1f822`/`c019934` date
+   grammar). The Jump row's ⌘↵: `Copy N events here`, counted off `dayCopies`
+   before Enter. One decision beyond the sketch: copies are _one-offs_ — a day's
+   shape once, never a second series — and only occurrences starting on the
+   source day travel. `last <weekday>` and nearest-month-day parsing exist
+   because the copy source is almost always in the past.
 
 6. **Jog-wheel day scrubbing.** Hold a modifier and drag on empty face = rotate the
    day like a jog wheel, one revolution = one day. Same family as the zoom/unroll
@@ -68,10 +71,9 @@ the end are recorded as refusals, so they are argued once instead of re-litigate
 
 ## Eye-catching — each must earn its ink
 
-11. **Ambient mode as a real clock face.** `ambientAfter` exists; lean in — a
-    screensaver-grade mode: dial centred, chrome gone, next-event headline only,
-    wake-lock optional. People would leave it on a spare monitor or an iPad; it is
-    marketing that is also a feature. Mostly composition of switches that exist.
+11. **Ambient mode as a real clock face.** — **Already shipped** before this list
+    was written: `F`/`⇧F` (fullscreen), auto-arrival after `ambientAfter`, wake
+    lock, parked cursor, headline-only card, lightcycle dim. Nothing left to do.
 
 12. **Daylight across the year, on the year ring.** Day length over a year is one
     picture only a circular year can draw, and `sun.ts` ships already. As the
@@ -123,7 +125,7 @@ the end are recorded as refusals, so they are argued once instead of re-litigate
 
 ## Shortlist by value per effort
 
-**#4 (Join verb), #11 (ambient clock), #15 (theme presets)** — roughly an afternoon
-each, and each hits a different axis: productive, eye-catching, customizable.
+**#4 (Join verb)** and **#11 (ambient clock)** are done — see their entries.
+**#15 (theme presets)** is the remaining shortlist item on its own axis.
 **#8 (free-slot sharing)** is the strategic one: the only idea that makes circal
 useful to somebody who doesn't use circal.
