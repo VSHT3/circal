@@ -52,11 +52,17 @@ the end are recorded as refusals, so they are argued once instead of re-litigate
    instrument for balancing a week, not only looking at one. Reuses the totals
    line's exact vocabulary so "free" keeps one meaning.
 
-8. **Free-slot sharing.** `freeGaps` + the share-token machinery already exist:
-   "share my free time this week" mints a link that opens circal with ghost arcs of
-   the gaps — not the events, so privacy falls out of the construction rather than
-   a filter. Booking stays out (needs a channel this product refuses); _showing_
-   does not. The sleeper: the only idea here useful to people who don't use circal.
+8. **Free-slot sharing.** — **Shipped** (`d54b6dc`). As sketched: `freeGaps` +
+   the share-token machinery, gaps never events, booking stays out. Decisions
+   beyond the sketch: slots travel as **absolute instants**, the timed event's
+   own rule — free time exists to be booked over, so it is a moment two people
+   share, and wall minutes would offer hours the sender is asleep in; the
+   window is seven days from _now_, not "this week" — Monday-to-Sunday minted
+   on a Friday is four dead days; and the receiver lands on the **week strip**,
+   the one face that reads the whole payload at a glance, with the gaps as
+   ghost arcs (dimmer than the drag's own, context not gesture) and one quiet
+   line naming what the overlay is and how to take it down. Nothing is ever
+   written: the fragment is consumed on arrival, a reload starts clean.
 
 9. **Natural-language edits in the palette.** `move standup to 10`, `push lunch
 30m` — `parseQuickAdd` already owns the grammar's right-to-left scanner; this
@@ -142,7 +148,6 @@ the end are recorded as refusals, so they are argued once instead of re-litigate
 
 ## Shortlist by value per effort
 
-**#4 (Join verb)**, **#11 (ambient clock)**, **#13 (rings closed)** and
-**#15 (theme presets)** are done — see their entries.
-**#8 (free-slot sharing)** is the strategic one: the only idea that makes circal
-useful to somebody who doesn't use circal.
+**#4 (Join verb)**, **#8 (free-slot sharing)**, **#11 (ambient clock)**,
+**#13 (rings closed)** and **#15 (theme presets)** are done — see their
+entries. The shortlist is spent; what remains above is unranked.
