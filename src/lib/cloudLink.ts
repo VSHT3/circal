@@ -44,7 +44,7 @@
 
 import { useSyncExternalStore } from "react";
 import { notify } from "./notify";
-import { mergeDocuments, type Mergeable } from "./merge";
+import { mergeDocuments, stamped, type Mergeable } from "./merge";
 import { store, subscribe, type Settings } from "./store";
 import {
   MIRROR_VERSION,
@@ -139,10 +139,19 @@ async function connected(): Promise<SupabaseClient | null> {
   const settings = config();
   if (!settings) return null;
   if (client) return client;
-  const { createClient } = await import("@supabase/supabase-js");
-  client = createClient(settings.url, settings.key, {
-    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
-  });
+  try {
+    const { createClient } = await import("@supabase/supabase-js");
+    client = createClient(settings.url, settings.key, {
+      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
+    });
+  } catch {
+    // The chunk itself failed to arrive — offline at first sign-in, a CDN
+    // error. The link is down, not broken: `startCloud` already catches this
+    // throw, and answering `null` here is what keeps the panel's own verbs
+    // from ever needing to.
+    fail(DOWN);
+    return null;
+  }
   return client;
 }
 
@@ -201,6 +210,12 @@ function setStatus(next: Partial<MirrorStatus>) {
 
 function fail(message: string) {
   setStatus({ state: "error", message });
+  // An error must not strand the link. `onStoreChange` writes nothing while a
+  // pass is failing, and with a healthy socket the fallback poll was never
+  // armed either — so one transient 503 used to stop outbound sync in a
+  // continuously visible tab until a remote write happened to arrive. The
+  // poll clears the error on its next good pass and stands itself down.
+  if (vault) startPolling();
 }
 
 /** `name` is the signed-in email here, where the file half prints a file name:
@@ -248,15 +263,31 @@ export function useCloud(): MirrorStatus {
  */
 export type CloudPlan =
   | { do: "keep" }
+  /** Nothing there and nothing of ours worth publishing: a first-run document
+   *  must not seed an account. See the gate in the function. */
+  | { do: "hold" }
   | { do: "write"; rev: number }
   | { do: "open"; row: CloudRow }
   | { do: "stop"; message: string };
 
-export function cloudPlan(found: CloudRow | null, localRev: number, zone: string): CloudPlan {
+export function cloudPlan(
+  found: CloudRow | null,
+  localRev: number,
+  zone: string,
+  localStamped: boolean,
+): CloudPlan {
   // Nothing there. Not "somebody deleted it", not "we are ahead" — an empty
   // slot, which the next write fills, the same non-event as the empty file the
-  // picker has just made.
-  if (!found) return { do: "write", rev: localRev + 1 };
+  // picker has just made. Unless this browser holds nothing worth publishing:
+  // an unstamped document is a first run's demo day (`stamped`'s own
+  // argument), and a demo day seeded into an empty account is adopted whole
+  // by the user's real machine at its first link — the two-fresh-installs bug
+  // wearing the publish path as a hat. `hold` writes nothing and waits; the
+  // first real edit stamps the document and the next pass publishes it. The
+  // one calendar that pays is a pre-Phase-0 blob nobody has edited since
+  // stamping shipped — real events, stamps all `0` — whose first publish
+  // waits for its first edit rather than being lost: delayed, never dropped.
+  if (!found) return localStamped ? { do: "write", rev: localRev + 1 } : { do: "hold" };
 
   if (found.version > MIRROR_VERSION) {
     return {
@@ -560,6 +591,9 @@ let channel: RealtimeChannel | null = null;
  *  the bare one is typed as Node's `Timeout`, and this file is browser only. */
 let settleTimer = 0;
 let pollTimer = 0;
+/** Whether the Realtime channel is currently delivering rows — what lets the
+ *  error-armed fallback poll stand itself down once a pass has recovered. */
+let subscribed = false;
 
 /**
  * Read and write the remembered revision, and never fail a sync over either.
@@ -706,6 +740,12 @@ async function absorb(document: MirrorContents): Promise<void> {
   localRev = document.rev;
   store.adopt(document);
   lastDigest = mirrorDigest(store.snapshot());
+  // `store.adopt` emitted synchronously, and `onStoreChange` ran against the
+  // digest this adopt was about to replace — the settle timer it armed would
+  // write the adopted document straight back at rev + 1, an echo the timer's
+  // own re-check would also catch. Cleared here so a disarmed callback that
+  // still fires is not a thing anybody has to reason about.
+  clearTimeout(settleTimer);
   rememberRev();
   setStatus({ state: "live", message: "", at: Date.now() });
   notify("Calendar updated from the cloud copy — ⌘Z to undo");
@@ -753,22 +793,42 @@ interface Claim {
  */
 async function claim(db: SupabaseClient): Promise<Claim | null> {
   const found = await fetchRow(db);
-  const plan = cloudPlan(found, localRev, localZone());
+  // The vault can be stood down while the read was in the air — a disconnect,
+  // a delete, the re-seal below — and everything past this line writes.
+  if (!vault || !keyed) return null;
+  // A row sealed under another salt is a box this key was not cut for. The
+  // dangerous branch is `stale`: re-asserting would overwrite a document this
+  // machine cannot even open — a fresh enrolment after a delete, a passphrase
+  // changed elsewhere — so the link stands down to the passphrase instead,
+  // with the sentence that names the cause.
+  if (found && cloudResume(keyed.salt, found.payload) === "stale") {
+    await standDownResealed();
+    return null;
+  }
+  const plan = cloudPlan(found, localRev, localZone(), stamped(store.snapshot()));
 
   if (plan.do === "stop") {
     fail(plan.message);
     return null;
   }
+  // Nothing worth publishing yet; the first real edit will be.
+  if (plan.do === "hold") return null;
   if (plan.do === "keep") return { rev: localRev + 1, expected: found?.rev ?? null };
   if (plan.do === "write") return { rev: plan.rev, expected: found?.rev ?? null };
 
   // Ahead of us, so it has to be opened before it is replaced.
   const taken = await take(plan.row, true);
+  if (!vault) return null;
   if (taken.take === "stop") {
     fail(taken.message);
     return null;
   }
-  await absorb(taken.document);
+  // `poll`'s own branch, for `poll`'s own reason: a row that is ahead but
+  // content-identical — a reload that lost `REV_KEY` — is bookkeeping, not
+  // news, and absorbing it would toast a machine about its own bytes and
+  // push a no-op onto the undo stack.
+  if (taken.learned) await absorb(taken.document);
+  else settle(taken.document);
   // An unmergeable document is adopted and the write abandoned, exactly as the
   // file half abandons it: what arrived is now the store's own state, and
   // writing over it would be this machine deciding it had won after all.
@@ -839,7 +899,7 @@ function write(): Promise<void> {
 async function poll(merging = true): Promise<void> {
   await writing;
   const db = client;
-  if (!db || !userId || !vault) return;
+  if (!db || !userId || !vault || !keyed) return;
 
   let found: CloudRow | null;
   try {
@@ -848,13 +908,46 @@ async function poll(merging = true): Promise<void> {
     fail(describe(error));
     return;
   }
+  if (!vault) return;
+  // `claim`'s own guard, for `claim`'s own reason — and it catches the read
+  // side too: a row re-sealed elsewhere used to surface as `LOCKED`, telling
+  // somebody who typed no passphrase that their passphrase was wrong.
+  if (found && cloudResume(keyed.salt, found.payload) === "stale") {
+    await standDownResealed();
+    return;
+  }
 
-  const plan = cloudPlan(found, localRev, localZone());
+  const plan = cloudPlan(found, localRev, localZone(), stamped(store.snapshot()));
   if (plan.do === "stop") {
     fail(plan.message);
     return;
   }
+  // An empty slot and an unstamped document: nothing to publish, nothing to
+  // adopt. Live, and waiting for the first real edit.
+  if (plan.do === "hold") {
+    setStatus({ state: "live", message: "", at: Date.now() });
+    return;
+  }
   if (plan.do === "keep") {
+    // A session's first pass over a row this browser wrote last. The digest is
+    // still unset, so the first store emit of the session — any emit — would
+    // seal and write an identical document back at rev + 1. The row is in
+    // hand: read the digest off it. And if the store has moved since last
+    // session — edits made while signed-out or offline — deliver them now
+    // rather than have them ride the next unrelated emit.
+    if (lastDigest === "" && found) {
+      try {
+        const contents = readMirrorFile(await vault.open(found.payload));
+        if (contents) lastDigest = mirrorDigest(contents);
+      } catch {
+        // A wrong key surfaces on the open path with its own sentence; an
+        // unset digest merely keeps the old behaviour of one echo write.
+      }
+      if (lastDigest !== "" && mirrorDigest(store.snapshot()) !== lastDigest) {
+        await write();
+        return;
+      }
+    }
     setStatus({ state: "live", message: "", at: Date.now() });
     return;
   }
@@ -864,6 +957,7 @@ async function poll(merging = true): Promise<void> {
   }
 
   const taken = await take(plan.row, merging);
+  if (!vault) return;
   if (taken.take === "stop") {
     fail(taken.message);
     return;
@@ -882,12 +976,18 @@ async function poll(merging = true): Promise<void> {
   if (taken.take === "merge" && taken.changed) await write();
 }
 
-/** The store moved. Write, unless what moved is not in the document. */
+/** The store moved. Write, unless what moved is not in the document. The
+ *  digest is re-checked when the timer fires: an adopt that armed this during
+ *  its own emit, or a change that settled meanwhile, must not earn a write.
+ *  Deliberately no `error` gate — a failing pass must not swallow edits, and
+ *  `write` fails into the same sentence the pass did. */
 function onStoreChange() {
-  if (!client || !userId || !vault || status.state === "error") return;
+  if (!client || !userId || !vault) return;
   if (mirrorDigest(store.snapshot()) === lastDigest) return;
   clearTimeout(settleTimer);
-  settleTimer = window.setTimeout(() => void write(), SETTLE_MS);
+  settleTimer = window.setTimeout(() => {
+    if (mirrorDigest(store.snapshot()) !== lastDigest) void write();
+  }, SETTLE_MS);
 }
 
 /* -------------------------------- the socket ------------------------------ */
@@ -902,6 +1002,13 @@ function stopPolling() {
 function startPolling() {
   if (pollTimer) return;
   pollTimer = window.setInterval(() => {
+    // Armed by an error while the socket stayed healthy: once a pass has
+    // cleared the error, the socket carries the row again and this interval
+    // has nothing left to do. A stood-down link stops it outright.
+    if (!vault || (subscribed && status.state === "live")) {
+      stopPolling();
+      return;
+    }
     if (document.visibilityState === "visible") void poll();
   }, POLL_MS);
 }
@@ -921,6 +1028,9 @@ function startPolling() {
  * level security is, on the server, where a client cannot argue with it.
  */
 function listen(db: SupabaseClient) {
+  // A channel may already be up — a StrictMode remount, an unlock after a
+  // stand-down — and a second subscription would double every delivery.
+  if (channel) void db.removeChannel(channel);
   channel = db
     .channel(`documents:${userId}`)
     .on(
@@ -929,13 +1039,15 @@ function listen(db: SupabaseClient) {
       () => void poll(),
     )
     .subscribe((state) => {
-      if (state === "SUBSCRIBED") stopPolling();
+      subscribed = state === "SUBSCRIBED";
+      if (subscribed) stopPolling();
       else startPolling();
     });
 }
 
 async function hush(db: SupabaseClient) {
   stopPolling();
+  subscribed = false;
   if (!channel) return;
   await db.removeChannel(channel);
   channel = null;
@@ -991,6 +1103,37 @@ async function quiesce(db: SupabaseClient | null): Promise<void> {
   vault = null;
   if (db) await hush(db);
   await writing;
+}
+
+/**
+ * The row was re-sealed under another salt — a fresh enrolment against an
+ * emptied account, a passphrase changed elsewhere — so the key in memory
+ * opens nothing, and worse: `mirrorVerdict`'s `stale` branch would re-assert
+ * over the new box without ever opening it, which is the clobber that verdict
+ * exists to prevent, turned around. So the link stands down to the
+ * passphrase, with the sentence that names the cause rather than `LOCKED`'s
+ * accusation of a passphrase nobody typed.
+ *
+ * The rev bookkeeping goes too: it counted a row that no longer exists, and
+ * carrying it forward would read the new box as "behind us" for ever. The
+ * next unlock derives from the new box's own salt and adopts it whole —
+ * undoable and toasted, `store.adopt`'s contract — which is the safe
+ * direction when the two documents no longer share a history.
+ */
+async function standDownResealed(): Promise<void> {
+  clearTimeout(settleTimer);
+  vault = null;
+  keyed = null;
+  resealed = true;
+  await forget();
+  localRev = 0;
+  lastDigest = "";
+  try {
+    localStorage.removeItem(REV_KEY);
+  } catch {
+    // `rememberRev`'s trade: bookkeeping, never a failure.
+  }
+  setStatus({ state: "prompt", message: RESEALED, at: 0 });
 }
 
 /**
@@ -1101,14 +1244,6 @@ export const cloud = {
       return;
     }
 
-    // Re-keep rather than keep: this only writes where a record already says
-    // the user asked to be remembered, and it has to, because the salt it was
-    // derived under may not be the salt this one was. A record discarded as
-    // stale is deliberately *not* rewritten here — being sent back to the
-    // passphrase once is the honest outcome of a re-seal elsewhere, and
-    // re-arming is the switch the user already knows about.
-    if ((await storedKey()) !== null) await keep(keyed);
-
     // The explanation has been acted on, so it stops being owed.
     resealed = false;
     const returning = rememberedRev();
@@ -1116,6 +1251,16 @@ export const cloud = {
     lastDigest = "";
     setStatus({ state: "live", name: who.email, message: "", at: 0 });
     await poll(returning > 0);
+    // Re-keep rather than keep: this only writes where a record already says
+    // the user asked to be remembered, and it has to, because the salt it was
+    // derived under may not be the salt this one was. After the first pass
+    // and never before: a mistyped passphrase must not overwrite a good
+    // remembered key with one that opens nothing — the pass above is where a
+    // wrong key surfaces, as `LOCKED`. A record discarded as stale is
+    // deliberately *not* rewritten here — being sent back to the passphrase
+    // once is the honest outcome of a re-seal elsewhere, and re-arming is the
+    // switch the user already knows about.
+    if (keyed && status.state !== "error" && (await storedKey()) !== null) await keep(keyed);
     listen(db);
   },
 
@@ -1288,9 +1433,30 @@ export function startCloud(): () => void {
   if (!cloudSupported()) return () => {};
 
   let live = true;
+  let watching: { unsubscribe: () => void } | null = null;
   void connected()
     .then(async (db) => {
       if (!db || !live) return;
+      // The session's own lifecycle. Supabase emits `SIGNED_OUT` when a token
+      // refresh finally fails as well as on a sign-out, and a link left
+      // `live` over a dead session answers every pass with an auth error
+      // whose "Try again" cannot succeed. Standing down is idempotent — our
+      // own `release` clears `userId` before it signs out, so the echo of a
+      // deliberate disconnect finds nothing to do. The remembered key stays:
+      // it is passphrase authority, not session authority, and the next
+      // signed-in launch resumes on it.
+      watching = db.auth.onAuthStateChange((event) => {
+        if (event !== "SIGNED_OUT" || !userId) return;
+        void (async () => {
+          await quiesce(client);
+          keyed = null;
+          userId = "";
+          localRev = 0;
+          lastDigest = "";
+          setStatus(OFF);
+          notify("Cloud sync signed out — the session expired. Sign in again to resume");
+        })();
+      }).data.subscription;
       const who = await account(db);
       if (!who || !live) return;
       userId = who.id;
@@ -1319,5 +1485,13 @@ export function startCloud(): () => void {
     document.removeEventListener("visibilitychange", tick);
     stopPolling();
     clearTimeout(settleTimer);
+    watching?.unsubscribe();
+    // The socket does not survive the shell: a leaked channel keeps firing
+    // polls for a component that is gone, and a remount subscribes its own.
+    if (client && channel) {
+      void client.removeChannel(channel);
+      channel = null;
+      subscribed = false;
+    }
   };
 }

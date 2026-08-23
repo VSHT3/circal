@@ -608,8 +608,9 @@ export interface CalEvent extends Recurrence {
    * Who asked, off `ORGANIZER` — `null` on every event that arrived without
    * one, which is every event the user wrote here.
    *
-   * Read and printed, never composed. Circal has no account, no server and no
-   * outbound channel, so it cannot send an invitation and will not offer to:
+   * Read and printed, never composed. Circal has no channel that could reach
+   * an organiser — no mail, no CalDAV, and the cloud copy is a sealed box,
+   * not a relay — so it cannot send an invitation and will not offer to:
    * an editable organiser field would be a claim about a message this app
    * cannot post. What the field is *for* is the other half of the same fact —
    * an `.ics` that arrives by mail carries the one name that answers "who is

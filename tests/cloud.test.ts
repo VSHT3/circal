@@ -96,7 +96,7 @@ describe("the row, as it arrives", () => {
 
 describe("the compare-and-swap decision", () => {
   it("fills an empty slot rather than treating it as a loss", () => {
-    expect(cloudPlan(null, 4, HERE)).toEqual({ do: "write", rev: 5 });
+    expect(cloudPlan(null, 4, HERE, true)).toEqual({ do: "write", rev: 5 });
   });
 
   /* The same answer read the other way round, and it is what shapes
@@ -109,22 +109,22 @@ describe("the compare-and-swap decision", () => {
    * can tell "deleted" from "not yet written", and nothing should — the
    * alternative is a tombstone in a table whose whole content is one row. */
   it.each([1, 4, 99])("answers a deleted row from rev %i by writing it again", (rev) => {
-    expect(cloudPlan(null, rev, HERE)).toEqual({ do: "write", rev: rev + 1 });
+    expect(cloudPlan(null, rev, HERE, true)).toEqual({ do: "write", rev: rev + 1 });
   });
 
   it("starts a cleared browser at rev 1, which is a first link and not a recreation", () => {
-    expect(cloudPlan(null, 0, HERE)).toEqual({ do: "write", rev: 1 });
+    expect(cloudPlan(null, 0, HERE, true)).toEqual({ do: "write", rev: 1 });
   });
 
   // The one that would be a permanent write loop if it answered anything else:
   // a row where we left it must produce no write at all.
   it("keeps a row where we left it, and writes nothing", () => {
-    expect(cloudPlan(row({ rev: 7 }), 7, HERE)).toEqual({ do: "keep" });
+    expect(cloudPlan(row({ rev: 7 }), 7, HERE, true)).toEqual({ do: "keep" });
   });
 
   it("opens a row somebody moved on, and hands the row over with the answer", () => {
     const found = row({ rev: 8 });
-    expect(cloudPlan(found, 7, HERE)).toEqual({ do: "open", row: found });
+    expect(cloudPlan(found, 7, HERE, true)).toEqual({ do: "open", row: found });
   });
 
   // `mirrorVerdict`'s `stale`: winding a calendar backwards is the one outcome
@@ -136,7 +136,26 @@ describe("the compare-and-swap decision", () => {
     { name: "one behind", rev: 6 },
     { name: "six behind", rev: 1 },
   ])("re-asserts over a row that is $name", ({ rev }) => {
-    expect.soft(cloudPlan(row({ rev }), 7, HERE)).toEqual({ do: "write", rev: 8 });
+    expect.soft(cloudPlan(row({ rev }), 7, HERE, true)).toEqual({ do: "write", rev: 8 });
+  });
+
+  /* The publish gate. An unstamped document is a first run's demo day —
+   * `stamped`'s own argument — and a demo day seeded into an empty account is
+   * adopted whole by the user's real machine at its first link, which is the
+   * two-fresh-installs bug wearing the publish path as a hat. So nothing goes
+   * into an empty slot until something is worth publishing: the first real
+   * edit stamps the document and the next pass writes it. Only the empty slot
+   * is gated — a row that exists takes the verdicts above — and a pre-Phase-0
+   * calendar (real events, stamps all 0) is delayed to its first edit rather
+   * than lost. */
+  it.each([0, 4])("holds an unstamped document back from an empty slot, at rev %i", (rev) => {
+    expect.soft(cloudPlan(null, rev, HERE, false)).toEqual({ do: "hold" });
+  });
+
+  it("gates only the empty slot: an existing row takes the ordinary verdicts", () => {
+    expect.soft(cloudPlan(row({ rev: 8 }), 7, HERE, false).do).toBe("open");
+    expect.soft(cloudPlan(row({ rev: 7 }), 7, HERE, false)).toEqual({ do: "keep" });
+    expect.soft(cloudPlan(row({ rev: 2 }), 7, HERE, false)).toEqual({ do: "write", rev: 8 });
   });
 });
 
@@ -145,7 +164,7 @@ describe("the gates, answered before anything is decrypted", () => {
     { name: "ahead of us", rev: 9, local: 7 },
     { name: "behind us", rev: 2, local: 7 },
   ])("refuses an envelope from a newer circal that is $name", ({ rev, local }) => {
-    const plan = cloudPlan(row({ rev, version: MIRROR_VERSION + 1 }), local, HERE);
+    const plan = cloudPlan(row({ rev, version: MIRROR_VERSION + 1 }), local, HERE, true);
     expect.soft(plan.do).toBe("stop");
     // Stricter than the file half on purpose: re-asserting over a newer
     // document round-trips it through validators too old for it, which is the
@@ -154,7 +173,7 @@ describe("the gates, answered before anything is decrypted", () => {
   });
 
   it("refuses a row ahead of us that was written in another zone", () => {
-    const plan = cloudPlan(row({ rev: 9, zone: "Asia/Tokyo" }), 7, HERE);
+    const plan = cloudPlan(row({ rev: 9, zone: "Asia/Tokyo" }), 7, HERE, true);
     expect.soft(plan.do).toBe("stop");
     expect.soft(plan.do === "stop" && plan.message).toContain("Asia/Tokyo");
   });
@@ -162,14 +181,14 @@ describe("the gates, answered before anything is decrypted", () => {
   // The zone is asked only where the row would teach us something. A row we
   // are re-asserting over cannot put an event on the wrong day here.
   it("does not refuse a row behind us over its zone", () => {
-    expect(cloudPlan(row({ rev: 2, zone: "Asia/Tokyo" }), 7, HERE)).toEqual({
+    expect(cloudPlan(row({ rev: 2, zone: "Asia/Tokyo" }), 7, HERE, true)).toEqual({
       do: "write",
       rev: 8,
     });
   });
 
   it("opens a row whose writer did not say which zone it was in", () => {
-    expect(cloudPlan(row({ rev: 9, zone: "" }), 7, HERE).do).toBe("open");
+    expect(cloudPlan(row({ rev: 9, zone: "" }), 7, HERE, true).do).toBe("open");
   });
 });
 

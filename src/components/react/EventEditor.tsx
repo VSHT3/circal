@@ -189,7 +189,8 @@ const GUEST_ROW_H = 21;
  * else.
  *
  * Display only, on purpose and permanently. Accepting or declining is a
- * message, and circal has no account, no server and no way to post one, so
+ * message, and circal has no channel that could carry one to an organiser —
+ * no mail, no CalDAV, and the cloud copy is a sealed box, not a relay — so
  * there is no verb here, no button, and no control to add a guest: an empty
  * guest-list editor on an event you wrote yourself would be a promise the app
  * cannot keep. It renders only when a file actually named somebody, which is

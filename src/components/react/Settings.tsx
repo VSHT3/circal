@@ -346,7 +346,7 @@ export default function Settings({
    * would be buying.
    */
   const [deleting, setDeleting] = useState(false);
-  if (deleting && cloudStatus.state !== "live") setDeleting(false);
+  if (deleting && cloudStatus.state !== "live" && !cloudLocked) setDeleting(false);
 
   /**
    * Which of the three the panel is asking for — the gesture made, read
@@ -449,23 +449,34 @@ export default function Settings({
    * The three gestures. Each is one round trip and each records that it was
    * made — never that it worked, which is the transport's word and is already
    * on the status by the time this returns. `asking` reads the two together.
+   *
+   * `finally`, in every one of them: a verb that throws before its reset — a
+   * failed supabase-js chunk fetch was the measured case — left `signingIn`
+   * wedged `true` and every cloud button dead until a reload, since this
+   * panel stays mounted across open and close.
    */
   async function sendCode() {
     const email = signIn.email.trim();
     if (!email || signingIn) return;
     setSigningIn(true);
-    await cloud.requestCode(email);
-    setSigningIn(false);
-    setSignIn((flow) => ({ ...flow, stage: "sent", code: "" }));
+    try {
+      await cloud.requestCode(email);
+      setSignIn((flow) => ({ ...flow, stage: "sent", code: "" }));
+    } finally {
+      setSigningIn(false);
+    }
   }
 
   async function submitCode() {
     const code = signIn.code.trim();
     if (!code || signingIn) return;
     setSigningIn(true);
-    await cloud.submitCode(signIn.email.trim(), code);
-    setSigningIn(false);
-    setSignIn((flow) => ({ ...flow, stage: "answered", code: "" }));
+    try {
+      await cloud.submitCode(signIn.email.trim(), code);
+      setSignIn((flow) => ({ ...flow, stage: "answered", code: "" }));
+    } finally {
+      setSigningIn(false);
+    }
   }
 
   /** The passphrase is dropped from state the moment it has been used: the
@@ -475,9 +486,12 @@ export default function Settings({
     const passphrase = signIn.passphrase;
     if (!passphrase || signingIn) return;
     setSigningIn(true);
-    await cloud.unlock(passphrase);
-    setSigningIn(false);
-    setSignIn((flow) => ({ ...flow, stage: "opened", passphrase: "" }));
+    try {
+      await cloud.unlock(passphrase);
+      setSignIn((flow) => ({ ...flow, stage: "opened", passphrase: "" }));
+    } finally {
+      setSigningIn(false);
+    }
   }
 
   /**
@@ -513,10 +527,13 @@ export default function Settings({
   async function deleteCopy() {
     if (signingIn) return;
     setSigningIn(true);
-    await cloud.deleteCopy();
-    setSigningIn(false);
-    setDeleting(false);
-    setSignIn({ stage: "email", email: "", code: "", passphrase: "" });
+    try {
+      await cloud.deleteCopy();
+    } finally {
+      setSigningIn(false);
+      setDeleting(false);
+      setSignIn({ stage: "email", email: "", code: "", passphrase: "" });
+    }
   }
 
   /**
@@ -578,6 +595,17 @@ export default function Settings({
           >
             Change address
           </DataButton>
+          {/* An expired or lost code should not cost the round trip through
+              Change address, which signs the session out on its way. Same
+              verb as the first send; the transport reprints "a code is on
+              its way" over the status. */}
+          <DataButton
+            icon={<Mail size={13} strokeWidth={1.75} />}
+            onClick={() => void sendCode()}
+            disabled={signingIn}
+          >
+            Send a new code
+          </DataButton>
         </div>
       );
     }
@@ -609,6 +637,7 @@ export default function Settings({
             Sign out
           </DataButton>
         </div>
+        {deleteStrip}
         {/* The trade, at the moment the decision is made, and nowhere else —
             including not here once something has already gone wrong: the
             transport's own sentence is above this one then, and repeating what
@@ -624,6 +653,50 @@ export default function Settings({
       </>
     );
   }
+
+  /**
+   * The two-press delete, shared by the live branch and the locked one. On
+   * the locked branch it is the way out of a lost passphrase — without it the
+   * locked box was a dead end: Delete lived only on the live branch, so the
+   * one person who most needs to start over could never reach it. Deleting
+   * needs the session, never the key.
+   */
+  const deleteStrip =
+    cloudStatus.state === "live" || cloudLocked ? (
+      deleting ? (
+        <>
+          <div className="flex flex-wrap items-center gap-2">
+            <DataButton
+              icon={<Trash2 size={13} strokeWidth={1.75} />}
+              onClick={() => void deleteCopy()}
+              disabled={signingIn}
+              danger
+            >
+              Delete the copy
+            </DataButton>
+            <DataButton
+              icon={<X size={13} strokeWidth={1.75} />}
+              onClick={() => setDeleting(false)}
+            >
+              Cancel
+            </DataButton>
+          </div>
+          <span className="caption">
+            {cloudLocked
+              ? "The locked copy on the server goes; sign in again to set a new passphrase. This browser\u2019s calendar is untouched"
+              : "The copy on the server goes and this browser\u2019s calendar is untouched. Your email address stays in the project\u2019s account list, with nothing attached to it"}
+          </span>
+        </>
+      ) : (
+        <DataButton
+          icon={<Trash2 size={13} strokeWidth={1.75} />}
+          onClick={() => setDeleting(true)}
+          danger
+        >
+          {cloudLocked ? "Forgot it? Delete the copy and start over" : "Delete cloud copy"}
+        </DataButton>
+      )
+    ) : null;
 
   return (
     <AnimatePresence>
@@ -1525,40 +1598,10 @@ export default function Settings({
                                 second press because that is where somebody
                                 hesitates, and it says the two things a person
                                 fears here: the calendar is not what is being
-                                deleted, and this is not account erasure. */}
-                              {deleting ? (
-                                <>
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    <DataButton
-                                      icon={<Trash2 size={13} strokeWidth={1.75} />}
-                                      onClick={() => void deleteCopy()}
-                                      disabled={signingIn}
-                                      danger
-                                    >
-                                      Delete the copy
-                                    </DataButton>
-                                    <DataButton
-                                      icon={<X size={13} strokeWidth={1.75} />}
-                                      onClick={() => setDeleting(false)}
-                                    >
-                                      Cancel
-                                    </DataButton>
-                                  </div>
-                                  <span className="caption">
-                                    The copy on the server goes and this browser&rsquo;s calendar is
-                                    untouched. Your email address stays in the project&rsquo;s
-                                    account list, with nothing attached to it
-                                  </span>
-                                </>
-                              ) : (
-                                <DataButton
-                                  icon={<Trash2 size={13} strokeWidth={1.75} />}
-                                  onClick={() => setDeleting(true)}
-                                  danger
-                                >
-                                  Delete cloud copy
-                                </DataButton>
-                              )}
+                                deleted, and this is not account erasure.
+                                `deleteStrip` is shared with the locked branch,
+                                where it is the way out of a lost passphrase. */}
+                              {deleteStrip}
                             </>
                           )}
                           {/* Two failures, two remedies, and the panel picks

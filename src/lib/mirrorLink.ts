@@ -530,12 +530,17 @@ async function poll(merging = true): Promise<void> {
   if (changed) await write();
 }
 
-/** The store moved. Write, unless what moved is not in the file. */
+/** The store moved. Write, unless what moved is not in the file. The digest
+ *  is re-checked when the timer fires: an adopt arms this during its own
+ *  emit — `absorb` updates `lastDigest` a line later — and that write would
+ *  say nothing. The cloud half re-checks for the same reason. */
 function onStoreChange() {
   if (!handle || status.state === "error") return;
   if (mirrorDigest(store.snapshot()) === lastDigest) return;
   clearTimeout(settleTimer);
-  settleTimer = window.setTimeout(() => void write(), SETTLE_MS);
+  settleTimer = window.setTimeout(() => {
+    if (mirrorDigest(store.snapshot()) !== lastDigest) void write();
+  }, SETTLE_MS);
 }
 
 /* -------------------------------- the actions ----------------------------- */
