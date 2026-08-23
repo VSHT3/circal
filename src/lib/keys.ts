@@ -7,8 +7,7 @@
  * Nothing here is fetched, decoded or shipped; the whole keyboard is this
  * table, rendered into six short buffers on the first keystroke of a session.
  *
- * The two letter clicks are not invented. They are the pair Raycast's Radical
- * types its headline with, measured out of its bundle and refitted here: one
+ * The two letter clicks are not invented. Measured out of its bundle and refitted here: one
  * glides 2600 → 200 Hz over 8 ms, one holds 2325 Hz, both decaying with a
  * 1.4 ms time constant, and neither has a thing above 3.5 kHz. Fitted to a
  * spectral correlation of 0.96 against the originals, so this is the sound
@@ -47,7 +46,7 @@ import { audioContext, renderVoice, type Synth } from "@/lib/feedback";
  */
 const LETTER_PEAK = 0.24;
 /**
- * Radical plays its two clicks with ±8% of rate jitter, and that number is
+ * Plays its two clicks with ±8% of rate jitter, and that number is
  * doing more work than it looks: at 12 ms, a few percent of playback rate is
  * the difference between a row of identical taps and a row of keys.
  */

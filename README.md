@@ -4,7 +4,7 @@
 
 A calendar that draws days the way they behave. A day is one revolution: events
 are arcs, the day so far is a ramp of light around the rim, and the hand is the
-current minute. A web recreation of [Radical](https://www.raycast.com) for the
+current minute. Inspired by [Raycast's Radical](https://www.raycast.com), in the
 browser.
 
 The argument, on one page: **[the
