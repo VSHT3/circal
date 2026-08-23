@@ -39,10 +39,10 @@ import {
   weekFaceCentre,
 } from "@/lib/week";
 import {
-  MINUTES_PER_DAY,
   MONTHS,
   WEEKDAYS,
   dayKey,
+  daysBetween,
   formatDayRange,
   formatDuration,
   formatTimeShort,
@@ -56,7 +56,7 @@ import { cn } from "@/lib/utils";
 import type { Clock } from "@/lib/time";
 import type { Calendar } from "@/lib/events";
 import type { WeekViewProps } from "@/components/react/types";
-import Face, { GHOST_ALPHA, type FaceGhost } from "./Face";
+import Face, { GHOST_ALPHA } from "./Face";
 import { useHotkeys } from "./hooks";
 
 /**
@@ -90,6 +90,14 @@ interface Subject {
   key: string | null;
 }
 
+/** The mark of the event about to exist on a face: the all-day dot it will
+ *  become, plus its place in the run where the run is longer than a day. */
+interface GhostMark {
+  color: string;
+  opacity: number;
+  label: string | null;
+}
+
 export default function WeekView({
   stage,
   now,
@@ -99,6 +107,7 @@ export default function WeekView({
   settings,
   onSelectDay,
   onOpenEvent,
+  pending,
   onCreateSpan,
 }: WeekViewProps) {
   const reducedMotion = useReducedMotion();
@@ -262,19 +271,33 @@ export default function WeekView({
       }
     : null;
   /**
-   * What a covered face draws while the run is live: the dial's own picture
-   * of "a whole day being drawn" — `GhostArc`'s closed ring, white and
-   * translucent because the range has no colour to show yet. One object for
-   * all seven; a run is whole days, so every face it covers carries the
-   * same full turn, and the sentence under the grid is where the ends and
-   * the count are said.
+   * What a covered face carries: the mark an all-day event will get, in the
+   * middle the now-hand leaves empty — a run of whole days *is* that many
+   * all-day days, so the preview is the mark itself rather than a drawing
+   * the release throws away. Grey while the run is live (there is no colour
+   * to show yet, the dial's own rule for a range still under the pointer),
+   * the draft's colour once the editor has one — `pending`, the year ring's
+   * and the life grid's own handover, so the range survives the modal
+   * arriving. `Day i/n` is `spanLabel`'s voice; a single day says nothing a
+   * dot does not.
    */
-  const runGhost: FaceGhost = {
-    start: 0,
-    end: MINUTES_PER_DAY,
-    color: THEME_PALETTES[settings.theme].ghost,
-    opacity: GHOST_ALPHA,
-    task: false,
+  const ghostAt = (d: WeekDay, i: number): GhostMark | null => {
+    if (runRange) {
+      if (i < runRange[0] || i > runRange[1]) return null;
+      const days = runRange[1] - runRange[0] + 1;
+      return {
+        color: THEME_PALETTES[settings.theme].ghost,
+        opacity: GHOST_ALPHA,
+        label: days > 1 ? `Day ${i - runRange[0] + 1}/${days}` : null,
+      };
+    }
+    if (!pending || d.date < pending.from || d.date > pending.to) return null;
+    const days = daysBetween(pending.from, pending.to) + 1;
+    return {
+      color: pending.color,
+      opacity: 1,
+      label: days > 1 ? `Day ${daysBetween(pending.from, d.date) + 1}/${days}` : null,
+    };
   };
 
   return (
@@ -368,13 +391,6 @@ export default function WeekView({
                     elapsed={d.today}
                     hand={d.today}
                     inheritMarks={settings.inheritMarks}
-                    // The run, drawn where it will land: a closed ring on
-                    // every face it covers, since a run of whole days *is*
-                    // that many all-day days. `gesturing` recedes today's
-                    // hand for the dial's own reason — at full white it
-                    // competes with the range being drawn.
-                    ghost={run && on ? runGhost : null}
-                    gesturing={run !== null}
                     hovered={!run && active && on ? active.key : null}
                     // Hover only: this is what puts a hit stroke on the arc,
                     // and there is deliberately no `onGrab` behind it.
@@ -394,6 +410,7 @@ export default function WeekView({
                     named={detailed}
                     peeked={!run && active && on ? active.key : null}
                     onPeek={peek}
+                    ghost={ghostAt(d, i)}
                   />
                 </motion.div>
               </button>
@@ -500,6 +517,7 @@ function AllDayMarks({
   named,
   peeked,
   onPeek,
+  ghost,
 }: {
   occurrences: Occurrence[];
   calendars: Calendar[];
@@ -508,8 +526,11 @@ function AllDayMarks({
   named: boolean;
   peeked: string | null;
   onPeek: (key: string | null) => void;
+  /** The event about to exist here — the run being drawn, or the open
+   *  editor's draft — as the mark it is about to become. */
+  ghost: GhostMark | null;
 }) {
-  if (occurrences.length === 0) return null;
+  if (occurrences.length === 0 && !ghost) return null;
   const shown = occurrences.slice(0, named ? 2 : 4);
   const rest = occurrences.length - shown.length;
 
@@ -549,6 +570,20 @@ function AllDayMarks({
           );
         })}
         {rest > 0 && <span className="label shrink-0 text-[9px] text-ink-3">+{rest}</span>}
+        {ghost && (
+          <span
+            className="flex max-w-full items-center gap-[5px]"
+            style={{ opacity: ghost.opacity }}
+          >
+            <span
+              className="size-[5px] shrink-0 rounded-full"
+              style={{ backgroundColor: ghost.color }}
+            />
+            {named && ghost.label && (
+              <span className="truncate text-[10.5px] leading-none text-ink-2">{ghost.label}</span>
+            )}
+          </span>
+        )}
       </div>
     </div>
   );

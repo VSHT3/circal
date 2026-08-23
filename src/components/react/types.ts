@@ -352,6 +352,14 @@ export interface WeekViewProps {
    *  the editor is a modal, so it lands over the week rather than leaving it. */
   onOpenEvent: (occ: Occurrence) => void;
   /**
+   * The event the open editor is about to create, on the days it covers and
+   * in the colour it currently carries — the year ring's and the life grid's
+   * own prop, because a run drawn across this strip is the same thing drawn
+   * on those faces and neither may throw the range away when the modal
+   * arrives. Both ends inclusive.
+   */
+  pending: { from: Date; to: Date; color: string } | null;
+  /**
    * A drag across the strip: an all-day event running `days` days from
    * `from`, both ends inclusive — the ring's and the grid's own gesture, at
    * the one scale that was missing it. The shell turns it into a draft in

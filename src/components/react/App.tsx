@@ -1751,6 +1751,7 @@ function Shell() {
                   settings={settings}
                   onSelectDay={(next) => actions.goDay(next)}
                   onOpenEvent={openOccurrence}
+                  pending={pendingDays}
                   // The strip's own span drag, handed to the same function the
                   // ring and the grid use: which face drew the run is not
                   // something the editor can tell, and must not be.
