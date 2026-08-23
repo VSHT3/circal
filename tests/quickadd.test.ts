@@ -57,9 +57,16 @@ describe("parseDate", () => {
     { query: "sep 14", expected: "2026-09-14" },
     { query: "14 sep", expected: "2026-09-14" },
     { query: "september 14", expected: "2026-09-14" },
-    // A month already past rolls forward rather than backwards — nobody types
-    // a date to land on it eleven months ago.
+    // A month-day names the *nearest* one, past or future: a distant one
+    // still rolls forward ("jan 3" in August), but yesterday's date names
+    // yesterday — nobody types "aug 4" on the 5th to land a year out.
     { query: "jan 3", expected: "2027-01-03" },
+    { query: "aug 4", expected: "2026-08-04" },
+    { query: "4 aug", expected: "2026-08-04" },
+    // The reference day itself, not either neighbour year.
+    { query: "aug 5", expected: "2026-08-05" },
+    // Nearest also reaches backwards past a month boundary.
+    { query: "may 31", expected: "2026-05-31" },
     { query: "+3", expected: "2026-08-08" },
     { query: "-2", expected: "2026-08-03" },
     { query: "in 3 days", expected: "2026-08-08" },
@@ -78,6 +85,8 @@ describe("parseDate", () => {
     "last nonsense",
     "last 5",
     "2026-02-30",
+    // No year within reach of 2026 has a Feb 29.
+    "feb 29",
     "2026-13-01",
     "32",
     "0",

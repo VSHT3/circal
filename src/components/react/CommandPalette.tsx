@@ -125,7 +125,11 @@ export default function CommandPalette({
   const jumpDate = useMemo(() => parseDate(query, day), [query, day]);
   const jumpRows: Row[] = useMemo(() => {
     if (!jumpDate) return [];
-    const label = `Jump to ${WEEKDAYS[jumpDate.getDay()]}, ${MONTHS[jumpDate.getMonth()]} ${jumpDate.getDate()}`;
+    // The year, printed exactly when it is not this one: a row that points a
+    // year out and does not say so reads as pointing nearby — measured on a
+    // user, twice, back when a past month-day rolled forward.
+    const year = jumpDate.getFullYear() !== now.getFullYear() ? `, ${jumpDate.getFullYear()}` : "";
+    const label = `Jump to ${WEEKDAYS[jumpDate.getDay()]}, ${MONTHS[jumpDate.getMonth()]} ${jumpDate.getDate()}${year}`;
     /**
      * The jump row's second verb: copy that day's events onto the selected
      * one — "same as last Tuesday", with the day the query just named as the
@@ -167,7 +171,7 @@ export default function CommandPalette({
             : undefined,
       },
     ];
-  }, [jumpDate, day, events, calendars, actions, onClose]);
+  }, [jumpDate, day, now, events, calendars, actions, onClose]);
 
   /**
    * Quick-add: the whole line as one event, above everything else. It is safe

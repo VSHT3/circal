@@ -141,14 +141,34 @@ export function parseDate(raw: string, reference: Date): Date | null {
     return null;
   }
 
+  /**
+   * A bare month-day names the *nearest* one, past or future — never
+   * forward-only. "aug 21" typed on the 22nd means yesterday, not a day a
+   * year out (measured on a user, twice); "jan 3" typed in August still
+   * rolls forward, four and a half months beating seven back. A tie goes
+   * forward — a jump is usually a plan. Validity is asked per candidate
+   * year, so "feb 29" resolves only where a 29th exists.
+   */
   const resolveMonthDay = (monthStr: string, domStr: string): Date | null => {
     const monthIndex = MONTHS_LOWER.findIndex((m) => m === monthStr || m.slice(0, 3) === monthStr);
     const dom = Number(domStr);
-    if (monthIndex === -1 || dom < 1 || dom > daysInMonth(reference.getFullYear(), monthIndex))
-      return null;
+    if (monthIndex === -1 || dom < 1) return null;
     const year = reference.getFullYear();
-    const candidate = new Date(year, monthIndex, dom);
-    return candidate.getTime() < base.getTime() ? new Date(year + 1, monthIndex, dom) : candidate;
+    let best: Date | null = null;
+    for (const y of [year - 1, year, year + 1]) {
+      if (dom > daysInMonth(y, monthIndex)) continue;
+      const candidate = new Date(y, monthIndex, dom);
+      if (best === null) {
+        best = candidate;
+        continue;
+      }
+      const kept = Math.abs(best.getTime() - base.getTime());
+      const offered = Math.abs(candidate.getTime() - base.getTime());
+      if (offered < kept || (offered === kept && candidate.getTime() > base.getTime())) {
+        best = candidate;
+      }
+    }
+    return best;
   };
 
   const monthDay = /^([a-z]+)\s+(\d{1,2})$/.exec(query);
