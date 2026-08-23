@@ -33,3 +33,7 @@ pnpm-debug.log*
 
 # jetbrains setting folder
 .idea/
+
+# prose style guides for a different project entirely — they live in this
+# working tree for the author's convenience and are nothing of circal's
+BANNED - *.md
