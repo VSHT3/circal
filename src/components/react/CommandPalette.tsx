@@ -34,6 +34,7 @@ import type { CommandPaletteProps } from "@/components/react/types";
 import { colorOf, freeGaps, markOf, scoreEvent, type CalEvent } from "@/lib/events";
 import { fuzzyScore } from "@/lib/fuzzy";
 import { parseDate, parseQuickAdd, parseSlot, repeatPhrase } from "@/lib/quickadd";
+import { dayCopies } from "@/lib/store";
 import {
   MINUTES_PER_DAY,
   addDays,
@@ -125,6 +126,25 @@ export default function CommandPalette({
   const jumpRows: Row[] = useMemo(() => {
     if (!jumpDate) return [];
     const label = `Jump to ${WEEKDAYS[jumpDate.getDay()]}, ${MONTHS[jumpDate.getMonth()]} ${jumpDate.getDate()}`;
+    /**
+     * The jump row's second verb: copy that day's events onto the selected
+     * one — "same as last Tuesday", with the day the query just named as the
+     * source. Counted off `dayCopies` itself, so the label promises exactly
+     * what the commit lands (the create row's rule: printed before Enter),
+     * and absent when there is nothing to copy — a verb that would toast a
+     * refusal is a verb that should not be offered. Subscriptions filtered
+     * out first: a feed's occurrence copied into a calendar the sender does
+     * not own is the surprise the Duplicate verb already refuses.
+     */
+    const feedIds = new Set(calendars.filter((c) => c.feed).map((c) => c.id));
+    const copies = isSameDay(jumpDate, day)
+      ? 0
+      : dayCopies(
+          events.filter((e) => !feedIds.has(e.calendarId)),
+          calendars,
+          jumpDate,
+          day,
+        ).length;
     return [
       {
         id: "jump",
@@ -135,9 +155,19 @@ export default function CommandPalette({
           actions.goDay(jumpDate);
           onClose();
         },
+        alt:
+          copies > 0
+            ? {
+                label: `Copy ${copies} event${copies === 1 ? "" : "s"} here`,
+                run: () => {
+                  actions.duplicateDay(jumpDate);
+                  onClose();
+                },
+              }
+            : undefined,
       },
     ];
-  }, [jumpDate, actions, onClose]);
+  }, [jumpDate, day, events, calendars, actions, onClose]);
 
   /**
    * Quick-add: the whole line as one event, above everything else. It is safe

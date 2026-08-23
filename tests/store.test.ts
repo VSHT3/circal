@@ -8,7 +8,7 @@ import {
   type CalEvent,
   type Repeat,
 } from "@/lib/events";
-import { DEFAULT_SETTINGS, LIFE_EXPECTANCY_RANGE, duplicateOf } from "@/lib/store";
+import { DEFAULT_SETTINGS, LIFE_EXPECTANCY_RANGE, dayCopies, duplicateOf } from "@/lib/store";
 import { mirrorDigest, readMirrorFile, serialiseMirror } from "@/lib/mirror";
 import { MINUTES_PER_DAY, addDays, addMonths, dayKey, daysBetween, startOfDay } from "@/lib/time";
 import type * as StoreModule from "@/lib/store";
@@ -2058,6 +2058,115 @@ describe("duplicateOf", () => {
     const copy = duplicateOf(source);
     expect.soft(copy.exdates).toEqual(source.exdates);
     expect.soft(copy.rdates).toEqual(source.rdates);
+  });
+});
+
+/* -------------------------------- dayCopies -------------------------------- */
+
+describe("dayCopies", () => {
+  const cal = calendar();
+
+  it("shifts a timed event to the same wall clock on the target day, one-off", () => {
+    const source = event({ title: "Lunch", start: "2026-03-10 12:30", end: "2026-03-10 13:15" });
+    const [copy] = dayCopies([source], [cal], at("2026-03-10"), at("2026-03-17"));
+    expect.soft(copy.start).toBe(ms("2026-03-17 12:30"));
+    expect.soft(copy.end).toBe(ms("2026-03-17 13:15"));
+    expect.soft(copy.title).toBe("Lunch");
+    expect.soft(copy.repeat).toBe("never");
+  });
+
+  it("copies a series' occurrence as a one-off — a second whole series says everything twice", () => {
+    const source = event({
+      title: "Standup",
+      start: "2026-03-02 09:00",
+      end: "2026-03-02 09:30",
+      repeat: "weekly",
+      exdates: ["2026-03-16"],
+      until: ms("2026-06-01 00:00"),
+    });
+    // The occurrence copied is the *queried* day's, not the seed's.
+    const [copy] = dayCopies([source], [cal], at("2026-03-09"), at("2026-03-11"));
+    expect.soft(copy.start).toBe(ms("2026-03-11 09:00"));
+    expect.soft(copy.repeat).toBe("never");
+    expect.soft(copy.until).toBe(0);
+    expect.soft(copy.exdates).toEqual([]);
+  });
+
+  it("copies only what starts on the day — the trip's third morning is not a second trip", () => {
+    const trip = event({
+      title: "Trip",
+      start: "2026-03-08 00:00",
+      end: "2026-03-13 00:00",
+      allDay: true,
+    });
+    expect.soft(dayCopies([trip], [cal], at("2026-03-10"), at("2026-04-10"))).toEqual([]);
+    const [copy] = dayCopies([trip], [cal], at("2026-03-08"), at("2026-04-08"));
+    // The whole span comes when it starts here, both ends on local midnight.
+    expect.soft(copy.start).toBe(ms("2026-04-08 00:00"));
+    expect.soft(copy.end).toBe(ms("2026-04-13 00:00"));
+  });
+
+  it("keeps 09:00 at 09:00 across a DST transition — wall clock, not milliseconds", () => {
+    const source = event({ start: "2026-03-27 09:00", end: "2026-03-27 10:00" });
+    // Berlin springs forward on 2026-03-29; a millisecond shift would land 10:00.
+    const [copy] = dayCopies([source], [cal], at("2026-03-27"), at("2026-03-30"));
+    expect(copy.start).toBe(ms("2026-03-30 09:00"));
+  });
+
+  it("arrives unticked and detached, off duplicateOf's own rules", () => {
+    const task = event({
+      title: "Water plants",
+      start: "2026-03-10 08:00",
+      end: "2026-03-10 08:00",
+      task: true,
+      doneKeys: ["2026-03-10T08:00:00"],
+    });
+    const [copy] = dayCopies([task], [cal], at("2026-03-10"), at("2026-03-11"));
+    expect.soft(copy.task).toBe(true);
+    expect.soft(copy.doneKeys).toEqual([]);
+    expect.soft(copy.end).toBe(copy.start);
+  });
+
+  it("skips a hidden calendar — a day's copy is what the day shows", () => {
+    const hidden = calendar({ id: "hidden", visible: false });
+    const source = event({ start: "2026-03-10 09:00", calendarId: "hidden" });
+    expect(dayCopies([source], [cal, hidden], at("2026-03-10"), at("2026-03-11"))).toEqual([]);
+  });
+
+  it("copies nothing onto the same day", () => {
+    const source = event({ start: "2026-03-10 09:00" });
+    expect(dayCopies([source], [cal], at("2026-03-10"), at("2026-03-10 23:00"))).toEqual([]);
+  });
+});
+
+describe("store.duplicateDay", () => {
+  it("lands every copy in one commit, counted, and one undo takes the day back", async () => {
+    const s = await freshStore();
+    s.store.create(draft(s, 9 * 60, 10 * 60));
+    s.store.create(draft(s, 14 * 60, 15 * 60));
+    const before = s.store.snapshot().events.length;
+
+    const from = at("2026-03-08");
+    const landed = s.store.duplicateDay(from, addDays(from, 7));
+    expect.soft(landed).toBe(2);
+    expect.soft(s.store.snapshot().events).toHaveLength(before + 2);
+    // Stamped at the commit, so a merge can defend them.
+    const copies = s.store.snapshot().events.slice(before);
+    for (const copy of copies) expect.soft(copy.updatedAt).toBeGreaterThan(0);
+
+    expect.soft(s.store.undo()).toBe(true);
+    expect.soft(s.store.snapshot().events).toHaveLength(before);
+  });
+
+  it("commits nothing when there is nothing to copy", async () => {
+    const s = await freshStore();
+    const created = s.store.create(draft(s));
+    const landed = s.store.duplicateDay(at("2020-01-01"), at("2020-01-08"));
+    expect.soft(landed).toBe(0);
+    expect.soft(s.store.snapshot().events).toEqual([created]);
+    // No commit means no undo step for it: the undo takes the create back.
+    s.store.undo();
+    expect.soft(s.store.snapshot().events).toEqual([]);
   });
 });
 

@@ -1014,6 +1014,16 @@ function Shell() {
         setAmbient("off");
         setEditor({ id: null, draft: duplicateOf(event) });
       },
+      duplicateDay: (from: Date) => {
+        setPaletteOpen(false);
+        const count = store.duplicateDay(from, day);
+        const events = `${count} event${count === 1 ? "" : "s"}`;
+        notify(
+          count === 0
+            ? "Nothing to copy from that day"
+            : `Copied ${events} from ${formatRelativeDay(from)} — ${MOD}Z to undo`,
+        );
+      },
       newEvent: () => {
         // The hour a draft opens on is `defaultStart`'s answer, shared with
         // quick-add: two ways of adding an event must not disagree about when.

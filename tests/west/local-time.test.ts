@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { at, day, event, rule } from "../helpers";
+import { at, calendar, day, event, rule } from "../helpers";
+import { dayCopies } from "@/lib/store";
 import {
   lifeFraction,
   lifeMilestones,
@@ -308,5 +309,37 @@ describe("travel: an all-day event re-anchors to local midnight west of UTC", ()
     expect.soft(kept[0].start).toBe(timed.start);
     expect.soft(kept[1].tzid).toBe("");
     expect.soft(kept[1].start).toBe(day("2026-10-05").getTime());
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * `dayCopies` shifts by wall clock — `addDays` at both ends, never
+ * `delta × 86400000` — so a copy across the US transitions keeps its
+ * hours. The Berlin half lives in tests/store.test.ts; this is the
+ * same invariant where the offset moves the other way.
+ * ------------------------------------------------------------------ */
+
+describe("dayCopies keeps the wall clock across the US DST transitions", () => {
+  const cal = calendar();
+
+  it("09:00 copied across spring-forward is still 09:00", () => {
+    // LA springs forward on 2026-03-08.
+    const source = event({ start: at("2026-03-06 09:00"), end: at("2026-03-06 10:00") });
+    const [copy] = dayCopies([source], [cal], at("2026-03-06"), at("2026-03-09"));
+    expect.soft(new Date(copy.start).getHours()).toBe(9);
+    expect.soft(new Date(copy.end).getHours()).toBe(10);
+  });
+
+  it("an all-day event's copy keeps both ends on local midnight across fall-back", () => {
+    // LA falls back on 2026-11-01.
+    const source = event({
+      start: at("2026-10-30 00:00"),
+      end: at("2026-10-31 00:00"),
+      allDay: true,
+    });
+    const [copy] = dayCopies([source], [cal], at("2026-10-30"), at("2026-11-02"));
+    expect.soft(new Date(copy.start).getHours()).toBe(0);
+    expect.soft(new Date(copy.end).getHours()).toBe(0);
+    expect.soft(dayKey(new Date(copy.start))).toBe("2026-11-02");
   });
 });

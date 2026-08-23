@@ -29,6 +29,7 @@ import {
   addMonths,
   clamp,
   dayKey,
+  daysBetween,
   isZone,
   startOfDay,
   weekStartFor,
@@ -41,6 +42,7 @@ import {
   NEVER,
   PALETTE,
   instantKey,
+  occurrencesOn,
   REMIND_INHERIT,
   keyToInstant,
   readGraves,
@@ -1540,6 +1542,24 @@ export const store = {
     commit({ ...base, events: cut.events, graves: [...base.graves, ...cut.graves] });
   },
 
+  /**
+   * "Same as last Tuesday": every copy `dayCopies` builds, landed in one
+   * commit — one ⌘Z gives the whole day back, and the state between two
+   * commits would be half a day nobody asked for. Answers with how many
+   * landed, because the toast counts what it did rather than what was asked.
+   */
+  duplicateDay(from: Date, to: Date): number {
+    const base = fresh();
+    const copies = dayCopies(base.events, base.calendars, from, to);
+    if (copies.length === 0) return 0;
+    const now = Date.now();
+    commit({
+      ...base,
+      events: [...base.events, ...copies.map((c) => ({ ...c, id: newId(), updatedAt: now }))],
+    });
+    return copies.length;
+  },
+
   /* ------------------------------ calendars ------------------------------- */
 
   toggleCalendar(id: string) {
@@ -2248,6 +2268,54 @@ export function duplicateOf(event: CalEvent, shiftMs = 0): Omit<CalEvent, "id"> 
     attendeeCount: 0,
     updatedAt: 0,
   };
+}
+
+/**
+ * What "duplicate a day" means: the copies that put `from`'s shape onto `to`,
+ * as the drafts `duplicateDay` commits. Exported for the palette, which gates
+ * and counts its verb off the same list — the row prints how many events it
+ * will land before Enter, so the count and the commit must be one answer.
+ *
+ * Three decisions, argued once.
+ *
+ * A copy is the day's shape *once*, never its rules: `duplicateOf` carries a
+ * rule across on purpose (⌘-dragging a weekly standup gives back a weekly
+ * series), but "same as last Tuesday" asked for what that Tuesday looked
+ * like, and a second whole series is a calendar that now says everything
+ * twice. So each *occurrence* becomes a one-off — `NEVER` spread over the
+ * copy, its bound and both date lists gone with the rule they qualified.
+ *
+ * Only occurrences that *start* on `from` travel (`dayIndex === 1`): copying
+ * the third morning of a five-day trip must not land a second five-day trip,
+ * and the tail of something that began yesterday is yesterday's to copy. A
+ * multi-day span starting here comes whole, shifted.
+ *
+ * The shift is wall-clock, `addDays` at both ends, never `delta × 86400000`
+ * milliseconds: a 09:00 copied across a DST transition is still 09:00, which
+ * is the argument every multi-day span in this file already makes.
+ *
+ * Takes the caller's own events — the store hands its user-written list, the
+ * palette filters subscriptions out first: a feed's occurrence copied into a
+ * calendar the sender does not own is the surprise the Duplicate verb already
+ * refuses. Hidden calendars fall out for free: `occurrencesOn` drops them,
+ * and a day's copy is what the day *shows*.
+ */
+export function dayCopies(
+  events: CalEvent[],
+  calendars: Calendar[],
+  from: Date,
+  to: Date,
+): Omit<CalEvent, "id">[] {
+  const delta = daysBetween(startOfDay(from), startOfDay(to));
+  if (delta === 0) return [];
+  return occurrencesOn(events, calendars, from)
+    .filter((occ) => occ.dayIndex === 1)
+    .map((occ) => ({
+      ...duplicateOf(occ.event),
+      ...NEVER,
+      start: addDays(occ.start, delta).getTime(),
+      end: addDays(occ.end, delta).getTime(),
+    }));
 }
 
 /* ---------------------------------- intro --------------------------------- */

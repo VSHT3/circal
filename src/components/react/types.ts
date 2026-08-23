@@ -136,6 +136,13 @@ export interface ShellActions {
    * the arc names the time with the gesture and writes on release.
    */
   duplicateEvent: (event: CalEvent) => void;
+  /**
+   * "Same as last Tuesday": every event `from` shows, copied onto the
+   * selected day as one-offs, in one commit. Written rather than opened in
+   * an editor — a whole day cannot be one draft — and the toast counts what
+   * landed, since the copies arrive under whatever the day already holds.
+   */
+  duplicateDay: (from: Date) => void;
   toggleCalendar: (id: string) => void;
   /** The calendar card, empty. Colour is the only category encoding this app
    *  has, so making one is a first-class verb rather than a settings chore. */
