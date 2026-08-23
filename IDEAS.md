@@ -81,9 +81,16 @@ the end are recorded as refusals, so they are argued once instead of re-litigate
     not a new ring — the interior figure was already tried and refused; the rim's
     background is the one place this reads as data about the days it sits behind.
 
-13. **Rings closed.** When the last task pip of a day is ticked, one subtle
-    full-revolution shimmer of the elapsed ring. Fired at most once a day, gated on
-    `useReducedMotion`, silent otherwise. One animation; delight budget of one.
+13. **Rings closed.** — **Shipped** (`e2cad30`). One dash of light walked once
+    round the track when the day's last open pip is ticked — the intro's own
+    dash arithmetic, leaving from the current minute. Decisions beyond the
+    sketch: what "the day's work is done" means is a predicate, `dayCleared`
+    in `events.ts`, not a check inlined in the shell — an empty checklist is
+    not a finished one, and a subscription's task (which cannot be ticked
+    here) keeps the day open; the once-a-day guard is a session ref, not
+    storage — it exists against tick-untick-tick, not against tomorrow; and
+    it never fires on an untick or under `useReducedMotion`, where it would
+    be the only thing left moving.
 
 14. **Save this face.** Print/export a day or year as SVG/PNG — the faces are
     resolution-independent drawings already. Screenshots of dials are how this app
@@ -135,7 +142,7 @@ the end are recorded as refusals, so they are argued once instead of re-litigate
 
 ## Shortlist by value per effort
 
-**#4 (Join verb)**, **#11 (ambient clock)** and **#15 (theme presets)** are
-done — see their entries.
+**#4 (Join verb)**, **#11 (ambient clock)**, **#13 (rings closed)** and
+**#15 (theme presets)** are done — see their entries.
 **#8 (free-slot sharing)** is the strategic one: the only idea that makes circal
 useful to somebody who doesn't use circal.
