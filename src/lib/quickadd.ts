@@ -114,6 +114,22 @@ export function parseDate(raw: string, reference: Date): Date | null {
     return addDays(base, delta);
   }
 
+  // The past-facing twin, and it exists for the copy verb: every other form
+  // here resolves forward (a jump is usually a plan), but "copy a day here"
+  // almost always names one already lived — "same as last tuesday" was the
+  // feature's own sentence and had no spelling. On the weekday itself it
+  // means a week ago, as the bare form's `|| 7` means a week ahead.
+  const lastWeekday = /^last\s+([a-z]+)$/.exec(query);
+  if (lastWeekday) {
+    const idx = WEEKDAYS_LOWER.findIndex(
+      (w) => w === lastWeekday[1] || w.slice(0, 3) === lastWeekday[1],
+    );
+    if (idx !== -1) {
+      const delta = (base.getDay() - idx + 7) % 7 || 7;
+      return addDays(base, -delta);
+    }
+  }
+
   const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(query);
   if (iso) {
     const year = Number(iso[1]);

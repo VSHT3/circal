@@ -44,6 +44,15 @@ describe("parseDate", () => {
     // The weekday it is already on means the next one: a jump to today has a
     // word of its own, so "wednesday" asking for today would be a wasted form.
     { query: "wed", expected: "2026-08-12" },
+    // The past-facing twin, for the copy verb: "same as last tuesday" names
+    // a day already lived, and every other form here resolves forward.
+    { query: "last friday", expected: "2026-07-31" },
+    { query: "last fri", expected: "2026-07-31" },
+    { query: "last monday", expected: "2026-08-03" },
+    // On the weekday itself it means a week ago, as the bare form means a
+    // week ahead.
+    { query: "last wed", expected: "2026-07-29" },
+    { query: "LAST MONDAY", expected: "2026-08-03" },
     { query: "2026-09-14", expected: "2026-09-14" },
     { query: "sep 14", expected: "2026-09-14" },
     { query: "14 sep", expected: "2026-09-14" },
@@ -62,12 +71,20 @@ describe("parseDate", () => {
     expect(parsed && dayKey(parsed)).toBe(expected);
   });
 
-  it.each(["", "   ", "nonsense", "2026-02-30", "2026-13-01", "32", "0", "sep 40"])(
-    "refuses %o",
-    (query) => {
-      expect(parseDate(query, REFERENCE)).toBeNull();
-    },
-  );
+  it.each([
+    "",
+    "   ",
+    "nonsense",
+    "last nonsense",
+    "last 5",
+    "2026-02-30",
+    "2026-13-01",
+    "32",
+    "0",
+    "sep 40",
+  ])("refuses %o", (query) => {
+    expect(parseDate(query, REFERENCE)).toBeNull();
+  });
 
   it("refuses a day of the month the next month does not have", () => {
     expect(parseDate("31", day("2026-09-15"))).toBeNull();

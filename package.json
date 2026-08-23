@@ -27,7 +27,7 @@
     "verify": "\"$npm_execpath\" run format:check && \"$npm_execpath\" run lint && \"$npm_execpath\" run check && \"$npm_execpath\" run test && \"$npm_execpath\" run build:mcp && \"$npm_execpath\" run build"
   },
   "dependencies": {
-    "@astrojs/react": "^6.0.2",
+    "@astrojs/react": "^6.0.4",
     "@fontsource-variable/geist": "^5.3.0",
     "@fontsource-variable/geist-mono": "^5.3.0",
     "@modelcontextprotocol/server": "^2.0.0",
@@ -35,32 +35,32 @@
     "@tailwindcss/vite": "^4.3.3",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
-    "astro": "^7.1.6",
+    "astro": "^7.2.4",
     "clsx": "^2.1.1",
-    "lucide-react": "^1.28.0",
+    "lucide-react": "^1.33.0",
     "motion": "^12.43.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "tailwind-merge": "^3.6.0",
     "tailwindcss": "^4.3.3",
-    "zod": "^4.2.0"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.10",
     "@eslint/js": "^10.0.1",
-    "@types/node": "^26.1.2",
+    "@types/node": "^26.2.0",
     "esbuild": "^0.28.2",
-    "eslint": "^10.8.0",
-    "eslint-plugin-astro": "^3.0.1",
+    "eslint": "^10.9.0",
+    "eslint-plugin-astro": "^3.1.0",
     "eslint-plugin-jsx-a11y": "^6.10.2",
     "eslint-plugin-react-hooks": "^7.1.1",
-    "globals": "^17.8.0",
+    "globals": "^17.11.0",
     "prettier": "^3.9.6",
     "prettier-plugin-astro": "^0.14.1",
     "prettier-plugin-tailwindcss": "^0.8.1",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.65.0",
-    "vitest": "^4.1.10",
-    "wrangler": "^4.118.0"
+    "typescript-eslint": "^8.67.0",
+    "vitest": "^4.1.11",
+    "wrangler": "^4.125.0"
   }
 }
