@@ -3,12 +3,18 @@ import "./helpers";
 import { attendee, byDay, day, event, ms, rule } from "./helpers";
 import {
   SHARE_MAX,
+  SLOTS_MAX,
   decodeShare,
+  decodeSlots,
   encodeShare,
+  encodeSlots,
   shareCheck,
   shareFragment,
   shareToken,
+  slotsFragment,
+  slotsToken,
   type ShareEncoded,
+  type SlotsEncoded,
 } from "@/lib/share";
 import { MAX_INTERVAL, NEVER } from "@/lib/recur";
 import { REMIND_INHERIT, REMIND_SILENT } from "@/lib/events";
@@ -411,5 +417,167 @@ describe("decodeShare — a string from a stranger", () => {
     expect.soft(draft.exdates).toEqual([]);
     expect.soft(draft.byMonthDay).toEqual([]);
     expect.soft(draft.wkst).toBe(NEVER.wkst);
+  });
+});
+
+/* ---------------------------------------------------------------------- *
+ * Free time, inside a link — the other payload. The same two halves: the
+ * round trip must return the gaps the sender was free for, and a payload
+ * is a string from a stranger, so every wrong shape is a refusal.
+ * ---------------------------------------------------------------------- */
+
+function slotsTokenOf(encoded: SlotsEncoded): string {
+  if (!encoded.ok) throw new Error(`encodeSlots refused: ${encoded.reason}`);
+  return encoded.token;
+}
+
+function slotsTrip(spans: Parameters<typeof encodeSlots>[0]) {
+  const read = decodeSlots(slotsTokenOf(encodeSlots(spans)));
+  if (!read.ok) throw new Error(`decodeSlots refused: ${read.reason}`);
+  return read.slots;
+}
+
+/** A hand-built slots record: base in epoch minutes, then `offset.length`
+ *  pairs, all base36 — see `encodeSlots`. */
+const slotsRecord = (baseMin: number, pairs: string) => `${baseMin.toString(36)}~${pairs}`;
+
+const forgeSlots = (record: string) => `1.${shareCheck(record)}.${base64url(record)}`;
+
+describe("encodeSlots / decodeSlots — what travels", () => {
+  it("returns the gaps the sender was free for, as the instants they are", () => {
+    const spans = [
+      { start: ms("2026-03-08 09:00"), end: ms("2026-03-08 10:30") },
+      { start: ms("2026-03-09 14:00"), end: ms("2026-03-09 16:00") },
+    ];
+    const slots = slotsTrip(spans);
+    expect(slots).toHaveLength(2);
+    expect.soft(slots[0].start).toBeSameInstantAs("2026-03-08 09:00");
+    expect.soft(slots[0].end).toBeSameInstantAs("2026-03-08 10:30");
+    expect.soft(slots[1].start).toBeSameInstantAs("2026-03-09 14:00");
+    expect.soft(slots[1].end).toBeSameInstantAs("2026-03-09 16:00");
+  });
+
+  it("carries nothing else — no name, no titles, no ids", () => {
+    const record = payload(
+      slotsTokenOf(encodeSlots([{ start: ms("2026-03-08 09:00"), end: ms("2026-03-08 10:00") }])),
+    );
+    // One base36 instant and one pair: any letter sequence longer than a
+    // base36 field would be text that has no business here.
+    expect(record).toMatch(/^[0-9a-z]+~[0-9a-z]+\.[0-9a-z]+$/);
+  });
+
+  it("sorts and merges what it is given — a union of free time is the same free time", () => {
+    const slots = slotsTrip([
+      { start: ms("2026-03-08 14:00"), end: ms("2026-03-08 16:00") },
+      { start: ms("2026-03-08 09:00"), end: ms("2026-03-08 10:00") },
+      { start: ms("2026-03-08 15:00"), end: ms("2026-03-08 17:00") },
+      // Touching is merged too: two readings of one stretch is a decoder's
+      // question nobody should have to answer.
+      { start: ms("2026-03-08 10:00"), end: ms("2026-03-08 11:00") },
+    ]);
+    expect(slots).toHaveLength(2);
+    expect.soft(slots[0].start).toBeSameInstantAs("2026-03-08 09:00");
+    expect.soft(slots[0].end).toBeSameInstantAs("2026-03-08 11:00");
+    expect.soft(slots[1].start).toBeSameInstantAs("2026-03-08 14:00");
+    expect.soft(slots[1].end).toBeSameInstantAs("2026-03-08 17:00");
+  });
+
+  it("floors to the minute — nothing in this app writes a sub-minute instant", () => {
+    const slots = slotsTrip([
+      { start: ms("2026-03-08 09:00") + 31_000, end: ms("2026-03-08 10:00") + 59_999 },
+    ]);
+    expect.soft(slots[0].start).toBeSameInstantAs("2026-03-08 09:00");
+    expect.soft(slots[0].end).toBeSameInstantAs("2026-03-08 10:00");
+  });
+
+  it("refuses to mint an empty link, and a degenerate span is empty", () => {
+    expect(encodeSlots([])).toEqual({ ok: false, reason: "empty" });
+    const moment = ms("2026-03-08 09:00");
+    expect(encodeSlots([{ start: moment, end: moment }])).toEqual({
+      ok: false,
+      reason: "empty",
+    });
+  });
+
+  it("keeps a full week short enough to paste", () => {
+    // Two gaps a day for seven days: the ordinary shape of the feature.
+    const spans = Array.from({ length: 14 }, (_, i) => {
+      const start = ms("2026-03-08 08:00") + Math.floor(i / 2) * 86_400_000 + (i % 2) * 21_600_000;
+      return { start, end: start + 5_400_000 };
+    });
+    const minted = slotsTokenOf(encodeSlots(spans));
+    expect(minted.length).toBeLessThan(160);
+    expect(minted.length).toBeLessThan(SHARE_MAX);
+  });
+});
+
+describe("decodeSlots — a string from a stranger", () => {
+  it("a truncated link is a refusal, not shorter free time", () => {
+    const minted = slotsTokenOf(
+      encodeSlots([
+        { start: ms("2026-03-08 09:00"), end: ms("2026-03-08 10:00") },
+        { start: ms("2026-03-09 09:00"), end: ms("2026-03-09 10:00") },
+      ]),
+    );
+    expect(decodeSlots(minted.slice(0, -4))).toEqual({ ok: false, reason: "unreadable" });
+  });
+
+  it("a payload from a newer build is a version answer, not corruption", () => {
+    const minted = slotsTokenOf(
+      encodeSlots([{ start: ms("2026-03-08 09:00"), end: ms("2026-03-08 10:00") }]),
+    );
+    const [, check, body] = parts(minted);
+    expect(decodeSlots(`2.${check}.${body}`)).toEqual({ ok: false, reason: "version" });
+  });
+
+  it("refuses a payload past SHARE_MAX on length alone", () => {
+    expect(decodeSlots(`1.aaaa.${"A".repeat(SHARE_MAX)}`)).toEqual({
+      ok: false,
+      reason: "too-long",
+    });
+  });
+
+  it.each([
+    { name: "an overlap — the encoder merges, so one can only be damage", pairs: "0.1o,10.1o" },
+    { name: "a pair out of order", pairs: "2s.u,0.u" },
+    { name: "a zero-length slot", pairs: "0.0" },
+    { name: "a negative offset", pairs: "-5.u" },
+    { name: "a slot longer than a day", pairs: `0.${(1441).toString(36)}` },
+    { name: "a slot past the sixty-two-day window", pairs: `${(90_000).toString(36)}.u` },
+    { name: "a pair that is not a pair", pairs: "0.u.5" },
+    { name: "letters where minutes should be", pairs: "0.u,x!.u" },
+  ])("refuses $name", ({ pairs }) => {
+    expect(decodeSlots(forgeSlots(slotsRecord(29_538_720, pairs)))).toEqual({
+      ok: false,
+      reason: "unreadable",
+    });
+  });
+
+  it("refuses a base that is not an instant, and a list past the cap", () => {
+    expect.soft(decodeSlots(forgeSlots("0~0.u"))).toEqual({ ok: false, reason: "unreadable" });
+    expect.soft(decodeSlots(forgeSlots("~0.u"))).toEqual({ ok: false, reason: "unreadable" });
+    const crowd = Array.from({ length: SLOTS_MAX + 1 }, (_, i) => `${(i * 60).toString(36)}.u`);
+    expect.soft(decodeSlots(forgeSlots(slotsRecord(29_538_720, crowd.join(","))))).toEqual({
+      ok: false,
+      reason: "unreadable",
+    });
+  });
+
+  it("reads the control the table above varies from", () => {
+    // 29,538,720 epoch minutes is 2026-03-05 12:00 UTC; `u` is 30 minutes.
+    const read = decodeSlots(forgeSlots(slotsRecord(29_538_720, "0.u")));
+    expect(read.ok).toBe(true);
+    if (!read.ok) return;
+    expect(read.slots[0].end - read.slots[0].start).toBe(30 * 60_000);
+    expect(read.slots[0].start).toBe(29_538_720 * 60_000);
+  });
+});
+
+describe("the two fragments never read each other", () => {
+  it("rides #f= and leaves #e= alone", () => {
+    expect.soft(slotsToken(slotsFragment("abc"))).toBe("abc");
+    expect.soft(slotsToken(shareFragment("abc"))).toBe("");
+    expect.soft(shareToken(slotsFragment("abc"))).toBe("");
+    expect.soft(slotsToken("")).toBe("");
   });
 });

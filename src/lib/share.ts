@@ -56,7 +56,7 @@ import { readEvent } from "./backup";
 import type { CalEvent } from "./events";
 import { fnv1a } from "./ics";
 import type { Repeat } from "./recur";
-import { addDays, startOfDay } from "./time";
+import { MINUTES_PER_DAY, addDays, startOfDay } from "./time";
 
 /**
  * The format's one version token, and it leads the payload so a reader
@@ -517,4 +517,154 @@ export function shareFragment(token: string): string {
  */
 export function shareToken(hash: string): string {
   return hash.startsWith(FRAGMENT_PREFIX) ? hash.slice(FRAGMENT_PREFIX.length) : "";
+}
+
+/* ------------------------------- free slots -------------------------------- *
+ * The other payload a link can carry: not an event but the *absence* of
+ * them — "here is when I am free". It reuses every decision above (the
+ * fragment, the `version.check.body` envelope, base36, the check digits)
+ * and differs in exactly one way: there is no text in it. No name, no
+ * titles, no ids — the gaps are the whole disclosure, which is what makes
+ * the privacy fall out of the construction rather than a filter.
+ *
+ * A slot travels as **absolute instants**, the timed event's own rule: free
+ * time exists to be booked over, so it is a moment two people are meant to
+ * share, and 18:00 in Berlin genuinely is 09:00 in Los Angeles. Sending the
+ * wall clock would offer a receiver hours the sender is asleep in. The
+ * receiver's own faces clip each slot to their own days, exactly as a
+ * multi-day event's arc is.
+ * ------------------------------------------------------------------------- */
+
+/** Versioned apart from `SHARE_VERSION`: the two payloads ride different
+ *  fragments and evolve on their own clocks. */
+export const SLOTS_VERSION = 1;
+
+/** `f` for the free time it carries, beside `#e=`'s one event. */
+const SLOTS_PREFIX = "#f=";
+
+/**
+ * The most slots one link will carry or read. A week alternating half-hour
+ * meetings with half-hour gaps across a fourteen-hour waking window is under
+ * a hundred; two hundred is headroom, and past it the payload is not a
+ * calendar's week, it is a hostile string.
+ */
+export const SLOTS_MAX = 200;
+
+/** How far past its own first slot a payload may reach, in minutes. Two
+ *  months bounds the arithmetic a decoder does on a stranger's numbers —
+ *  nothing this app mints looks past one week. */
+const SLOTS_WINDOW = 62 * MINUTES_PER_DAY;
+
+/** One stretch of free time, in epoch milliseconds, end exclusive. */
+export interface SlotSpan {
+  start: number;
+  end: number;
+}
+
+export type SlotsEncoded =
+  | { ok: true; token: string }
+  /** `empty` is the caller's sentence to write — "no free time to share" is
+   *  an answer, not a failure of the format. */
+  | { ok: false; reason: "too-long" | "empty" };
+
+export type SlotsDecoded =
+  { ok: true; slots: SlotSpan[] } | { ok: false; reason: "too-long" | "version" | "unreadable" };
+
+/**
+ * Free time as a payload, or a refusal.
+ *
+ * The record is one base instant and then deltas: the first slot's start in
+ * epoch **minutes** (nothing in this app writes a sub-minute instant), then
+ * one `offset.length` pair per slot, both in minutes off that base — a week
+ * of deltas is two or three characters each where a week of absolute
+ * instants is seven. Input is normalised rather than trusted: floored to
+ * the minute, sorted, and overlapping or touching spans merged, because a
+ * union of free time is the same free time and a decoder should never have
+ * to wonder which of two readings of one hour the sender meant.
+ */
+export function encodeSlots(spans: SlotSpan[]): SlotsEncoded {
+  const floored = spans
+    .map((span) => ({
+      start: Math.floor(span.start / 60_000),
+      end: Math.floor(span.end / 60_000),
+    }))
+    .filter((span) => span.end > span.start)
+    .sort((a, b) => a.start - b.start);
+
+  const merged: { start: number; end: number }[] = [];
+  for (const span of floored) {
+    const last = merged[merged.length - 1];
+    if (last && span.start <= last.end) last.end = Math.max(last.end, span.end);
+    else merged.push({ ...span });
+  }
+  if (merged.length === 0) return { ok: false, reason: "empty" };
+
+  const base = merged[0].start;
+  const record = pack(
+    [b36(base), merged.map((s) => `${b36(s.start - base)}.${b36(s.end - s.start)}`).join(",")],
+    "~",
+  );
+  const token = `${b36(SLOTS_VERSION)}.${shareCheck(record)}.${toBase64Url(record)}`;
+  return token.length > SHARE_MAX ? { ok: false, reason: "too-long" } : { ok: true, token };
+}
+
+/**
+ * A payload back into spans, or why it is not one. The same posture as
+ * `decodeShare` — a string from a stranger, so nothing throws and every
+ * number is bounded: a slot is one minute to one day long, the list is
+ * ascending and non-overlapping (the encoder merges, so an overlap can only
+ * be damage), and the whole payload reaches no further than `SLOTS_WINDOW`
+ * past its own base.
+ */
+export function decodeSlots(token: string): SlotsDecoded {
+  if (token.length > SHARE_MAX) return { ok: false, reason: "too-long" };
+  const [versionField, check, body, ...extra] = token.split(".");
+  if (extra.length > 0 || !body) return { ok: false, reason: "unreadable" };
+  const version = fromB36(versionField);
+  if (Number.isNaN(version)) return { ok: false, reason: "unreadable" };
+  if (version !== SLOTS_VERSION) return { ok: false, reason: "version" };
+
+  const record = fromBase64Url(body);
+  if (record === null) return { ok: false, reason: "unreadable" };
+  if (check !== shareCheck(record)) return { ok: false, reason: "unreadable" };
+
+  const parts = fields(record);
+  const base = fromB36(parts[0] ?? "");
+  if (!Number.isInteger(base) || base <= 0) return { ok: false, reason: "unreadable" };
+
+  const pairs = (parts[1] ?? "").split(",");
+  if (pairs.length === 0 || pairs[0] === "" || pairs.length > SLOTS_MAX) {
+    return { ok: false, reason: "unreadable" };
+  }
+
+  const slots: SlotSpan[] = [];
+  let frontier = 0;
+  for (const pair of pairs) {
+    const [offsetField, lengthField, ...rest] = pair.split(".");
+    if (rest.length > 0 || !lengthField) return { ok: false, reason: "unreadable" };
+    const offset = fromB36(offsetField);
+    const length = fromB36(lengthField);
+    if (!Number.isInteger(offset) || !Number.isInteger(length)) {
+      return { ok: false, reason: "unreadable" };
+    }
+    if (offset < frontier || length < 1 || length > MINUTES_PER_DAY) {
+      return { ok: false, reason: "unreadable" };
+    }
+    if (offset + length > SLOTS_WINDOW) return { ok: false, reason: "unreadable" };
+    frontier = offset + length;
+    slots.push({ start: (base + offset) * 60_000, end: (base + offset + length) * 60_000 });
+  }
+  return { ok: true, slots };
+}
+
+/** The slots payload as a fragment — `shareFragment`'s twin, and with it the
+ *  only places a fragment's spelling lives. */
+export function slotsFragment(token: string): string {
+  return `${SLOTS_PREFIX}${token}`;
+}
+
+/** The slots payload out of `window.location.hash`, or `""` — including an
+ *  event fragment, which is the other reader's and not this one's. */
+export function slotsToken(hash: string): string {
+  return hash.startsWith(SLOTS_PREFIX) ? hash.slice(SLOTS_PREFIX.length) : "";
 }

@@ -160,6 +160,12 @@ export interface ShellActions {
   /** Pull every subscription now, regardless of age. */
   refreshFeeds: () => void;
   /**
+   * The next seven days' free time onto the clipboard, as a link — the gaps,
+   * never the events, so what does not travel is decided by construction
+   * rather than by a filter. See `freeSlots` and `encodeSlots`.
+   */
+  shareFreeSlots: () => void;
+  /**
    * The arrival sweep again, from Settings. Hidden under
    * `prefers-reduced-motion`, where there is nothing for it to play.
    */
@@ -359,6 +365,12 @@ export interface WeekViewProps {
    * arrives. Both ends inclusive.
    */
   pending: { from: Date; to: Date; color: string } | null;
+  /**
+   * Free time received from a link, as absolute spans. The strip clips each
+   * one to its seven faces — the whole point of showing it here: a shared
+   * week is read at one glance instead of seven arrow presses.
+   */
+  slots: { start: number; end: number }[] | null;
   /**
    * A drag across the strip: an all-day event running `days` days from
    * `from`, both ends inclusive — the ring's and the grid's own gesture, at

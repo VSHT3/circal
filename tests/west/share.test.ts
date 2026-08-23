@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import "../helpers";
 import { day, event, ms } from "../helpers";
-import { decodeShare, encodeShare } from "@/lib/share";
+import { decodeShare, decodeSlots, encodeShare } from "@/lib/share";
 
 /* ------------------------------------------------------------------ *
  * A shared link is the one payload in this app that is *written by one
@@ -108,5 +108,27 @@ describe("the round trip is stable in this zone too", () => {
     if (!again.ok) return;
     const read = decodeShare(again.token, CALENDAR);
     expect(read.ok && read.draft.exdates).toEqual(["2026-04-06"]);
+  });
+});
+
+/** `encodeSlots([{ start: ms("2026-07-15 18:00"), end: ms("2026-07-15
+ *  19:30") }, { start: ms("2026-07-16 09:00"), end: ms("2026-07-16 12:00")
+ *  }])`, encoded in Berlin. */
+const BERLIN_SLOTS = "1.m6ux.aHBjMm9-MC4yaSxwMC41MA";
+
+describe("shared free time is the same instants west of UTC", () => {
+  it("arrives as the moments the sender is free, on this reader's clock", () => {
+    // Free time exists to be booked over, so it takes the timed event's rule,
+    // never the all-day one: a Berlin evening is a Los Angeles morning, and
+    // an early Berlin slot legitimately lands on this reader's previous
+    // midnight rather than pretending to be a nine o'clock here.
+    const read = decodeSlots(BERLIN_SLOTS);
+    expect(read.ok).toBe(true);
+    if (!read.ok) return;
+    expect(read.slots).toHaveLength(2);
+    expect.soft(read.slots[0].start).toBeSameInstantAs("2026-07-15 09:00");
+    expect.soft(read.slots[0].end).toBeSameInstantAs("2026-07-15 10:30");
+    expect.soft(read.slots[1].start).toBeSameInstantAs("2026-07-16 00:00");
+    expect.soft(read.slots[1].end).toBeSameInstantAs("2026-07-16 03:00");
   });
 });

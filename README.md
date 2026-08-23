@@ -182,6 +182,20 @@ dozens of exceptions will be refused rather than turned into a link that
 breaks in transit; `.ics` is the way to hand those on, and the way to hand
 anything to a calendar that is not circal.
 
+## Sharing your free time
+
+`⌘P` → **Share free time as a link** puts the next seven days' gaps on your
+clipboard, the same way: the times travel inside the link, nothing is stored
+anywhere. It is the gaps and never the events — what you are busy _with_
+cannot leak because it was never encoded — measured against your own waking
+hours, at least half an hour wide, starting from right now rather than from a
+week's official Monday. Opened in any circal, the link lands on the week
+strip with the free stretches drawn as faint arcs under that person's own
+days, a line at the top saying whose kind of thing it is and which days it
+covers, and a way to take it down. Nothing is written: the overlay is gone on
+reload, and the same disclosure applies — encoded, not encrypted, so anyone
+holding the link can see when you are free.
+
 ## The middle of the face
 
 The ring says what shape the day is; the middle says the one sentence. It has

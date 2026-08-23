@@ -17,24 +17,16 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { VIEW_SIZE, minutesAtPoint } from "@/lib/dial";
-import { colorOf, type Calendar, type Occurrence } from "@/lib/events";
+import { clipToDay, colorOf, type Calendar, type Occurrence } from "@/lib/events";
 import { cue, type Cue } from "@/lib/feedback";
 import { ambientLevel, type Place } from "@/lib/sun";
-import {
-  MINUTES_PER_DAY,
-  addDays,
-  clamp,
-  daysBetween,
-  minutesOfDay,
-  snap,
-  startOfDay,
-} from "@/lib/time";
+import { MINUTES_PER_DAY, addDays, clamp, daysBetween, snap, startOfDay } from "@/lib/time";
 import { INTRO_SWEEP_MS } from "@/lib/motion";
 import type { Settings } from "@/lib/store";
 import { THEME_PALETTES } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import { useElementSize, useHotkeys } from "./hooks";
-import Face, { GHOST_ALPHA, type FaceGhost, type Grip } from "./Face";
+import Face, { GHOST_ALPHA, SLOT_ALPHA, type FaceGhost, type Grip } from "./Face";
 import CenterPanel from "./CenterPanel";
 
 /**
@@ -79,6 +71,12 @@ export interface DialProps {
    * this component's question and nobody else's.
    */
   pending: { start: number; end: number; allDay: boolean; task: boolean; color: string } | null;
+  /**
+   * Free time received from a link, as absolute spans — the receiver's side
+   * of "share my free time". Clipping each one to this face is this
+   * component's question, exactly as it is for `pending`.
+   */
+  slots: { start: number; end: number }[] | null;
   /**
    * Ambient: the chrome is gone and the face is the whole window, so the dial
    * stops being a surface you work on and becomes one you glance at from
@@ -311,16 +309,8 @@ function clipGhost(
   task: boolean,
   opacity = 1,
 ): FaceGhost | null {
-  const from = startOfDay(day);
-  const to = addDays(from, 1);
-  if (span.end < from.getTime() || span.start >= to.getTime()) return null;
-  return {
-    start: span.start <= from.getTime() ? 0 : minutesOfDay(new Date(span.start)),
-    end: span.end >= to.getTime() ? MINUTES_PER_DAY : minutesOfDay(new Date(span.end)),
-    color,
-    opacity,
-    task,
-  };
+  const clipped = clipToDay(span, day);
+  return clipped && { ...clipped, color, opacity, task };
 }
 
 export default function Dial({
@@ -331,6 +321,7 @@ export default function Dial({
   settings,
   zonePlace,
   pending,
+  slots,
   ambient,
   covered,
   onOpen,
@@ -493,6 +484,20 @@ export default function Dial({
   const about = ghost
     ? { ...ghost, color: THEME_PALETTES[theme].ghost, opacity: GHOST_ALPHA, task: false }
     : (copying ?? drafted);
+
+  /** Received free time, on this day's face. Memoised because it repaints the
+   *  SVG, and the spans only change when a link arrives or is dismissed. */
+  const slotGhosts = useMemo<FaceGhost[] | null>(() => {
+    if (!slots || slots.length === 0) return null;
+    const color = THEME_PALETTES[theme].ghost;
+    const clipped = slots.flatMap((span) => {
+      const arc = clipToDay(span, day);
+      return arc && arc.end > arc.start
+        ? [{ ...arc, color, opacity: SLOT_ALPHA, task: false }]
+        : [];
+    });
+    return clipped.length > 0 ? clipped : null;
+  }, [slots, day, theme]);
 
   /**
    * The event a drag has hold of, for the arc's own sake: it is drawn thicker,
@@ -746,6 +751,7 @@ export default function Dial({
         hovered={hovered}
         dragging={dragging}
         ghost={about}
+        slots={slotGhosts}
         gesturing={draw !== null || adjust !== null}
         intro={intro}
         shimmer={shimmer}

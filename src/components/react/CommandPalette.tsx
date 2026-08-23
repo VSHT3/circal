@@ -18,6 +18,7 @@ import {
   Grid2x2,
   Grid3x3,
   Hourglass,
+  Link,
   Maximize,
   PanelLeft,
   Plus,
@@ -456,6 +457,18 @@ export default function CommandPalette({
         title: "Export events as .ics",
         run: () => {
           actions.exportIcs();
+          onClose();
+        },
+      },
+      // Beside the exports, because it is one: data leaving the app. The gaps
+      // over the next seven days, as a link on the clipboard — the toast it
+      // fires carries the same not-private disclosure the event share does.
+      {
+        id: "cmd-share-free",
+        icon: <Link {...CHROME_ICON_PROPS} />,
+        title: "Share free time as a link",
+        run: () => {
+          actions.shareFreeSlots();
           onClose();
         },
       },

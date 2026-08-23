@@ -100,6 +100,13 @@ export interface FaceGhost {
  *  is two opinions on what "still being drawn" looks like. */
 export const GHOST_ALPHA = 0.45;
 
+/** How translucent a *received* free slot is — somebody else's gaps, drawn
+ *  under your own day. Dimmer than `GHOST_ALPHA` on purpose: the drag's ghost
+ *  is the thing being made and owns the eye; these are context it is made
+ *  against, and at the drag's own weight a week of them shouts down the
+ *  arcs. One constant for the dial and the strip, `GHOST_ALPHA`'s reason. */
+export const SLOT_ALPHA = 0.26;
+
 /**
  * Declared here rather than in `types.ts` for the reason `DialProps` and
  * `CenterPanelProps` are: that file holds the *panel* contracts, and this is
@@ -166,6 +173,10 @@ export interface FaceProps {
    *  dimmed for being in the past. */
   dragging?: string | null;
   ghost?: FaceGhost | null;
+  /** Free time received from a link: somebody else's gaps, clipped to this
+   *  day, drawn as ghost arcs under everything the day itself holds. Plain
+   *  white like every range that is not an event — see `SLOT_ALPHA`. */
+  slots?: FaceGhost[] | null;
   /** A gesture is in flight, so the now-hand recedes: it marks a time nobody
    *  is reading, and at full white it competes with the range being drawn. */
   gesturing?: boolean;
@@ -315,6 +326,7 @@ export default function Face({
   hovered = null,
   dragging = null,
   ghost = null,
+  slots = null,
   gesturing = false,
   intro = false,
   shimmer = null,
@@ -659,6 +671,24 @@ export default function Face({
           className="[pointer-events:stroke] cursor-crosshair"
           onPointerDown={onRingDown}
         />
+      )}
+
+      {/* Received free time, under the day's own arcs: it is context, not a
+          resident of the day, so anything the day actually holds paints over
+          it rather than the other way round. */}
+      {slots?.map(
+        (slot, i) =>
+          slot.end > slot.start && (
+            <GhostArc
+              key={i}
+              clock={clock}
+              start={slot.start}
+              end={slot.end}
+              color={slot.color}
+              opacity={slot.opacity}
+              task={false}
+            />
+          ),
       )}
 
       {occurrences.map((occ) => (

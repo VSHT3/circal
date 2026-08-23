@@ -17,6 +17,7 @@ import {
   colorOf,
   dayAgenda,
   dayCleared,
+  freeSlots,
   instantKey,
   repeats,
   type CalEvent,
@@ -56,7 +57,17 @@ import {
   weekOffset,
 } from "@/lib/time";
 import { placeName, travelNotice } from "@/lib/travel";
-import { decodeShare, encodeShare, shareFragment, shareToken } from "@/lib/share";
+import {
+  decodeShare,
+  decodeSlots,
+  encodeShare,
+  encodeSlots,
+  shareFragment,
+  shareToken,
+  slotsFragment,
+  slotsToken,
+  type SlotSpan,
+} from "@/lib/share";
 import { LIFE_META_H, lifeDot, lifeStage, type LifeRun } from "@/lib/life";
 import { weekFaceCentre, weekStage, weekZoomScale } from "@/lib/week";
 import { EASE, INTRO_MS, MODE_MS } from "@/lib/motion";
@@ -88,6 +99,7 @@ import type {
 } from "./types";
 import CalendarEditor from "./CalendarEditor";
 import { BackupNudge } from "./BackupNudge";
+import { SlotsNotice } from "./SlotsNotice";
 import { TravelPrompt } from "./TravelPrompt";
 import CommandPalette from "./CommandPalette";
 import Dial, { type DragPreview } from "./Dial";
@@ -222,6 +234,17 @@ function receiveShare() {
   return decodeShare(token, defaultCalendarId(stored.calendars, stored.settings.defaultCalendar));
 }
 
+/**
+ * The other payload a link can carry: somebody's free time, read off its own
+ * fragment. Nothing about it touches the store — the slots are shown, never
+ * written, so unlike `receiveShare` it has no calendar to resolve.
+ */
+function receiveSlots() {
+  const token = slotsToken(window.location.hash);
+  if (!token) return null;
+  return decodeSlots(token);
+}
+
 /* --------------------------------- editing --------------------------------- */
 
 /**
@@ -340,10 +363,25 @@ function Shell() {
    * it would be a `setState` inside an effect, which this repo does not do.
    */
   const [received] = useState(receiveShare);
+  const [receivedSlots] = useState(receiveSlots);
+  /**
+   * The received free time, until it is hidden. Session state only: the
+   * fragment is consumed on the first location write, so a reload starts
+   * clean and a bookmarked link re-offers the overlay, never data.
+   */
+  const [slots, setSlots] = useState<SlotSpan[] | null>(() =>
+    receivedSlots?.ok ? receivedSlots.slots : null,
+  );
   const [location, setLocation] = useState<ViewLocation>(() => {
     // The event lands on the day it names, whatever view the link asked for:
     // an editor over a face that cannot show what is being edited is a form.
     if (received?.ok) return { day: startOfDay(new Date(received.draft.start)), view: "day" };
+    // Free time lands on the *week*: the payload is a stretch of days and the
+    // strip is the one face that reads all of them at a glance — where the
+    // event above needs the single day its editor is about.
+    if (receivedSlots?.ok) {
+      return { day: startOfDay(new Date(receivedSlots.slots[0].start)), view: "week" };
+    }
     return readLocation();
   });
   const { day, view } = location;
@@ -679,7 +717,15 @@ function Shell() {
         "error",
       );
     }
-  }, [received]);
+    if (receivedSlots && !receivedSlots.ok) {
+      notify(
+        receivedSlots.reason === "version"
+          ? "That link was made by a newer circal"
+          : "That shared link could not be read",
+        "error",
+      );
+    }
+  }, [received, receivedSlots]);
 
   // Subscriptions are a mirror, so they are pulled on arrival, on a timer and
   // whenever the tab comes back — see `useFeedRefresh`.
@@ -843,6 +889,14 @@ function Shell() {
     useCallback(() => setAmbient("auto"), []),
   );
   /**
+   * The received free time's own line, only where its ghosts are drawn — the
+   * dial and the strip; the year ring and the life grid draw no slot, and a
+   * notice about arcs a view cannot show is an accusation of a bug. It takes
+   * the top edge whole while it stands: two notices side by side is a status
+   * bar, so the backup nudge waits its turn below.
+   */
+  const showSlots = slots !== null && !shaded && !inAmbient && (view === "day" || view === "week");
+  /**
    * Whether the backup nudge is on screen. On every view, not the dial alone:
    * this is the one message in the app that must not be missable — it is the
    * whole feature — and a person who lives on the week strip or the year ring
@@ -861,6 +915,7 @@ function Shell() {
     settings.backupNudge &&
     !shaded &&
     !inAmbient &&
+    !showSlots &&
     mirrorStatus.state !== "live" &&
     cloudStatus.state !== "live" &&
     backupDue(lastBackup, settings.backupInterval, now.getTime());
@@ -1115,6 +1170,42 @@ function Shell() {
         void Promise.all(subscriptions.map(refreshFeed));
       },
       /**
+       * The next seven days' free time onto the clipboard, as a link.
+       *
+       * The gaps and never the events — `freeSlots` reads the exact list the
+       * dial draws, so the link cannot claim an hour the sender's own face
+       * shows as booked, and nothing about *what* books an hour survives the
+       * construction. Seven days from now rather than "this week": a link is
+       * minted to schedule something ahead, and Monday-to-Sunday shared on a
+       * Friday is four dead days. The notice carries the same disclosure the
+       * event share does — an encoding, not encryption.
+       */
+      shareFreeSlots: () => {
+        setPaletteOpen(false);
+        const spans = freeSlots(visible, calendars, new Date(), 7, {
+          from: settings.wakingFrom,
+          to: settings.wakingTo,
+        });
+        const encoded = encodeSlots(spans);
+        if (!encoded.ok) {
+          // An empty answer is an answer, not a failure — a fully booked week
+          // is news worth a sentence, never a red one.
+          if (encoded.reason === "empty") notify("No free time to share in the next 7 days");
+          else notify("A week of free time did not fit in a link", "error");
+          return;
+        }
+        const link = `${window.location.origin}${window.location.pathname}${slotsFragment(encoded.token)}`;
+        void (async () => {
+          try {
+            await navigator.clipboard.writeText(link);
+          } catch {
+            notify("Could not reach the clipboard — nothing was copied", "error");
+            return;
+          }
+          notify("Link copied — anyone with the link can see when you're free");
+        })();
+      },
+      /**
        * The intro again, on request. It takes the panels down and goes to the
        * day view first, because the sweep is the dial's and a modal over it is
        * a modal over the one thing being shown.
@@ -1137,6 +1228,8 @@ function Shell() {
       openDraft,
       defaultCalendar,
       settings.defaultDuration,
+      settings.wakingFrom,
+      settings.wakingTo,
       feedIds,
       calendars,
       visible,
@@ -1774,6 +1867,7 @@ function Shell() {
                   settings={settings}
                   zonePlace={zonePlace}
                   pending={pending}
+                  slots={slots}
                   onOpen={openOccurrence}
                   onCreate={(startMin, endMin) => openDraft(startMin, endMin, day)}
                   onAdjust={adjustOccurrence}
@@ -1799,6 +1893,7 @@ function Shell() {
                   onSelectDay={(next) => actions.goDay(next)}
                   onOpenEvent={openOccurrence}
                   pending={pendingDays}
+                  slots={slots}
                   // The strip's own span drag, handed to the same function the
                   // ring and the grid use: which face drew the run is not
                   // something the editor can tell, and must not be.
@@ -1852,8 +1947,12 @@ function Shell() {
               carry it. Its own presence, so it animates away when a backup
               clears it or a modal opens over it. */}
           <AnimatePresence>
+            {showSlots && slots && (
+              <SlotsNotice key="slots" slots={slots} onDismiss={() => setSlots(null)} />
+            )}
             {showNudge && (
               <BackupNudge
+                key="nudge"
                 onBackup={() => void exportBackup(store.snapshot())}
                 onDismiss={dismissBackupNudge}
               />

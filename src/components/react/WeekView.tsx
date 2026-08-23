@@ -29,7 +29,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { motion, useReducedMotion } from "motion/react";
-import { colorOf, dayAgenda, dayLoad, spanLabel, type Occurrence } from "@/lib/events";
+import { clipToDay, colorOf, dayAgenda, dayLoad, spanLabel, type Occurrence } from "@/lib/events";
 import {
   WEEK_CAPTION_H,
   WEEK_DAYS,
@@ -56,7 +56,7 @@ import { cn } from "@/lib/utils";
 import type { Clock } from "@/lib/time";
 import type { Calendar } from "@/lib/events";
 import type { WeekViewProps } from "@/components/react/types";
-import Face, { GHOST_ALPHA } from "./Face";
+import Face, { GHOST_ALPHA, SLOT_ALPHA, type FaceGhost } from "./Face";
 import { useHotkeys } from "./hooks";
 
 /**
@@ -82,6 +82,9 @@ interface WeekDay {
   booked: number;
   /** Timed events plus all-day ones: what the readout counts. */
   count: number;
+  /** Free time received from a link, clipped to this face — the dial's own
+   *  overlay at strip size, so the whole shared week is read at once. */
+  slots: FaceGhost[] | null;
 }
 
 /** What the pointer is on: a face, and possibly one arc of it. */
@@ -108,6 +111,7 @@ export default function WeekView({
   onSelectDay,
   onOpenEvent,
   pending,
+  slots,
   onCreateSpan,
 }: WeekViewProps) {
   const reducedMotion = useReducedMotion();
@@ -131,9 +135,16 @@ export default function WeekView({
   const week = useMemo<WeekDay[]>(() => {
     if (!fromKey) return [];
     const waking = { from: settings.wakingFrom, to: settings.wakingTo };
+    const slotInk = THEME_PALETTES[settings.theme].ghost;
     return weekDays(fromDayKey(fromKey)).map((date) => {
       const { all } = dayAgenda(events, calendars, date);
       const load = dayLoad(all, waking);
+      const arcs = (slots ?? []).flatMap((span) => {
+        const arc = clipToDay(span, date);
+        return arc && arc.end > arc.start
+          ? [{ ...arc, color: slotInk, opacity: SLOT_ALPHA, task: false }]
+          : [];
+      });
       return {
         date,
         today: dayKey(date) === todayKey,
@@ -141,9 +152,19 @@ export default function WeekView({
         allDay: all.filter((occ) => occ.event.allDay),
         booked: load?.booked ?? 0,
         count: all.length,
+        slots: arcs.length > 0 ? arcs : null,
       };
     });
-  }, [events, calendars, fromKey, todayKey, settings.wakingFrom, settings.wakingTo]);
+  }, [
+    events,
+    calendars,
+    slots,
+    fromKey,
+    todayKey,
+    settings.wakingFrom,
+    settings.wakingTo,
+    settings.theme,
+  ]);
 
   /**
    * Once the grid scrolls, the day you arrived on has to be the day you can
@@ -380,6 +401,7 @@ export default function WeekView({
                     calendars={calendars}
                     clock={settings.clock}
                     theme={settings.theme}
+                    slots={d.slots}
                     track
                     ticks={detailed}
                     numerals={detailed ? "quarters" : "none"}

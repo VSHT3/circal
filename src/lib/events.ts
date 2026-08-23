@@ -976,6 +976,72 @@ export function dayLoad(
 }
 
 /**
+ * A pair of instants as minutes on one day's face, or `null` when the span
+ * does not reach the day at all.
+ *
+ * `minutesOfDay` at each end rather than elapsed milliseconds, because a day
+ * is not always 1440 minutes long and an arc has to sit at the time it
+ * prints; 0…1440 for a span whose middle covers the day, which is the closed
+ * ring. A degenerate pair (a task's moment) is let through, not judged — the
+ * caller knows whether zero width is a pip or nothing.
+ */
+export function clipToDay(
+  span: { start: number; end: number },
+  day: Date,
+): { start: number; end: number } | null {
+  const from = startOfDay(day);
+  const to = addDays(from, 1);
+  if (span.end < from.getTime() || span.start >= to.getTime()) return null;
+  return {
+    start: span.start <= from.getTime() ? 0 : minutesOfDay(new Date(span.start)),
+    end: span.end >= to.getTime() ? MINUTES_PER_DAY : minutesOfDay(new Date(span.end)),
+  };
+}
+
+/**
+ * The narrowest gap worth offering to somebody else, in minutes. The dial
+ * writes in fifteen-minute steps, but a shared link is an invitation to book
+ * something, and a quarter-hour sliver between two meetings is not one —
+ * half an hour is the shortest gap a call fits in.
+ */
+export const SLOT_SHARE_MIN = 30;
+
+/**
+ * The sender's free time over the next `days` days, as absolute instants —
+ * what "share my free time" mints, and the one place gaps become spans.
+ *
+ * It reads exactly what the dial reads: `dayAgenda` over the same event
+ * list, `freeGaps` against the same waking window, so a shared link cannot
+ * disagree with the face the sender was looking at. The first day starts at
+ * `now`, not at the waking window's edge — a gap that started twenty minutes
+ * ago is not free, it is late, the palette's own rule. Instants are built
+ * through the local `Date` constructor, the wall-clock reading every face
+ * here draws by.
+ */
+export function freeSlots(
+  events: CalEvent[],
+  calendars: Calendar[],
+  now: Date,
+  days: number,
+  waking: { from: number; to: number },
+): { start: number; end: number }[] {
+  const spans: { start: number; end: number }[] = [];
+  const first = startOfDay(now);
+  for (let i = 0; i < days; i++) {
+    const day = addDays(first, i);
+    const { all } = dayAgenda(events, calendars, day);
+    const from = i === 0 ? Math.max(waking.from, minutesOfDay(now)) : waking.from;
+    for (const gap of freeGaps(all, SLOT_SHARE_MIN, from, waking.to)) {
+      spans.push({
+        start: new Date(day.getFullYear(), day.getMonth(), day.getDate(), 0, gap.start).getTime(),
+        end: new Date(day.getFullYear(), day.getMonth(), day.getDate(), 0, gap.end).getTime(),
+      });
+    }
+  }
+  return spans;
+}
+
+/**
  * Whether the day's work is done: it holds at least one task, and every one
  * of them is ticked. One meaning, one reader — the shell fires the elapsed
  * ring's once-a-day shimmer off this — so a second surface wanting the

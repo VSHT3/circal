@@ -14,13 +14,16 @@ import {
   REMIND_SILENT,
   PALETTE,
   DEFAULT_WAKING,
+  SLOT_SHARE_MIN,
   clashesWith,
+  clipToDay,
   colorOf,
   dayAgenda,
   dayCleared,
   dayLoad,
   firstGrapheme,
   freeGaps,
+  freeSlots,
   instantKey,
   joinLink,
   inkOn,
@@ -1460,5 +1463,106 @@ describe("joinLink", () => {
     { name: "nothing at all", url: "", location: "" },
   ])("refuses $name", ({ url, location }) => {
     expect.soft(joinLink(event({ url, location }))).toBeNull();
+  });
+});
+
+/* ------------------------------------------------------------------------- *
+ * `clipToDay` — a span of instants onto one day's face. The contract the
+ * dial's ghost and every received slot stand on: minutes at the time the
+ * span prints, 0…1440 when its middle covers the day, `null` when it never
+ * reaches it.
+ * ------------------------------------------------------------------------- */
+
+describe("clipToDay", () => {
+  const on = day("2026-03-10");
+
+  it("returns a span inside the day at the minutes it prints", () => {
+    const span = { start: ms("2026-03-10 09:00"), end: ms("2026-03-10 10:30") };
+    expect(clipToDay(span, on)).toEqual({ start: 540, end: 630 });
+  });
+
+  it("clamps a span that runs past either midnight", () => {
+    const span = { start: ms("2026-03-09 22:00"), end: ms("2026-03-10 08:00") };
+    expect(clipToDay(span, on)).toEqual({ start: 0, end: 480 });
+    const overnight = { start: ms("2026-03-10 21:00"), end: ms("2026-03-11 07:00") };
+    expect(clipToDay(overnight, on)).toEqual({ start: 1260, end: 1440 });
+  });
+
+  it("is the closed ring for a span whose middle covers the day", () => {
+    const span = { start: ms("2026-03-09 12:00"), end: ms("2026-03-11 12:00") };
+    expect(clipToDay(span, on)).toEqual({ start: 0, end: MINUTES_PER_DAY });
+  });
+
+  it("is null for a span that never reaches the day", () => {
+    expect(
+      clipToDay({ start: ms("2026-03-11 09:00"), end: ms("2026-03-11 10:00") }, on),
+    ).toBeNull();
+    expect(
+      clipToDay({ start: ms("2026-03-09 09:00"), end: ms("2026-03-09 10:00") }, on),
+    ).toBeNull();
+  });
+
+  it("lets a degenerate pair through — the caller knows whether zero width is a pip", () => {
+    const moment = ms("2026-03-10 09:00");
+    expect(clipToDay({ start: moment, end: moment }, on)).toEqual({ start: 540, end: 540 });
+  });
+});
+
+/* ------------------------------------------------------------------------- *
+ * `freeSlots` — the sender's half of "share my free time": the same gaps the
+ * dial makes legible, as absolute instants over a run of days.
+ * ------------------------------------------------------------------------- */
+
+describe("freeSlots", () => {
+  const waking = DEFAULT_WAKING;
+
+  it("turns a day's gaps into instants around what is booked", () => {
+    const events = [event({ start: "2026-03-10 09:00", end: "2026-03-10 10:00" })];
+    const slots = freeSlots(events, [cal], at("2026-03-10 08:00"), 1, waking);
+    expect(slots).toEqual([
+      { start: ms("2026-03-10 08:00"), end: ms("2026-03-10 09:00") },
+      { start: ms("2026-03-10 10:00"), end: ms("2026-03-10 22:00") },
+    ]);
+  });
+
+  it("starts the first day at now — a gap that already started is not on offer", () => {
+    const slots = freeSlots([], [cal], at("2026-03-10 14:30"), 1, waking);
+    expect(slots).toEqual([{ start: ms("2026-03-10 14:30"), end: ms("2026-03-10 22:00") }]);
+  });
+
+  it("walks every later day from the waking window's own edge", () => {
+    const slots = freeSlots([], [cal], at("2026-03-10 21:50"), 2, waking);
+    expect(slots).toEqual([{ start: ms("2026-03-11 08:00"), end: ms("2026-03-11 22:00") }]);
+  });
+
+  it("ignores what books nothing: all-day context, free placeholders, tasks", () => {
+    const events = [
+      event({ start: day("2026-03-10"), end: day("2026-03-11"), allDay: true }),
+      event({ start: "2026-03-10 12:00", end: "2026-03-10 13:00", free: true }),
+      event({ start: "2026-03-10 15:00", end: "2026-03-10 15:00", task: true }),
+    ];
+    const slots = freeSlots(events, [cal], at("2026-03-10 08:00"), 1, waking);
+    expect(slots).toEqual([{ start: ms("2026-03-10 08:00"), end: ms("2026-03-10 22:00") }]);
+  });
+
+  it("drops a gap narrower than SLOT_SHARE_MIN — a sliver is not an invitation", () => {
+    const events = [
+      event({ start: "2026-03-10 08:00", end: "2026-03-10 12:00" }),
+      // A twenty-minute hole, then booked to the end of the window.
+      event({ start: "2026-03-10 12:20", end: "2026-03-10 22:00" }),
+    ];
+    expect(SLOT_SHARE_MIN).toBeGreaterThan(20);
+    expect(freeSlots(events, [cal], at("2026-03-10 08:00"), 1, waking)).toEqual([]);
+  });
+
+  it("expands a recurrence — a weekly standup books its day this week too", () => {
+    const standup = event({
+      start: "2026-03-03 08:00",
+      end: "2026-03-03 22:00",
+      repeat: "weekly",
+    });
+    const slots = freeSlots([standup], [cal], at("2026-03-09 08:00"), 2, waking);
+    // The 10th is the next Tuesday: fully booked, so only the 9th answers.
+    expect(slots).toEqual([{ start: ms("2026-03-09 08:00"), end: ms("2026-03-09 22:00") }]);
   });
 });
