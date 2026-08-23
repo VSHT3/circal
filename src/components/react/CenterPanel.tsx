@@ -16,6 +16,7 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
   colorOf,
   dayLoad,
+  joinLink,
   spanLabel,
   statusOf,
   type Calendar,
@@ -32,6 +33,7 @@ import {
   type Clock,
 } from "@/lib/time";
 import { EASE, MODE_MS, MOOD_MS } from "@/lib/motion";
+import { leadOf } from "@/lib/remind";
 import { placeName } from "@/lib/travel";
 import { cn } from "@/lib/utils";
 import type { TotalsPosition } from "@/lib/store";
@@ -59,6 +61,12 @@ export interface CenterPanelProps {
    *  this panel is otherwise a dozen narrow props and a setting the totals
    *  line does not otherwise need is not a reason to convert it. */
   waking: { from: number; to: number };
+  /** `Settings.remindLead`, the fallback `leadOf` resolves an event's own
+   *  lead against. Borrowed here as "how early is this event the next thing
+   *  you need" — the window the Join verb appears in — not as a notification
+   *  gate, which is why `settings.remind` is deliberately not threaded:
+   *  switching banners off does not make a meeting harder to join. */
+  remindLead: number;
   /** Live drag-to-create range, in minutes since midnight. */
   drag: { start: number; end: number } | null;
   hovered: string | null;
@@ -140,6 +148,7 @@ export default function CenterPanel({
   totals,
   totalsAt,
   waking,
+  remindLead,
   drag,
   hovered,
   onHover,
@@ -396,6 +405,22 @@ export default function CenterPanel({
                       // thing you came to the interior to read.
                       const span = spanLabel(occ);
                       /**
+                       * The Join verb, on the headline row alone and only
+                       * while it is the next thing you need: inside the
+                       * event's own reminder lead, or while the meeting is
+                       * running — you join the ones you are late to most of
+                       * all. A silent event keeps the running half: silence
+                       * withdrew the warning, not the meeting. Zero new
+                       * chrome at rest, which is the whole bargain.
+                       */
+                      const joinable = lead ? joinLink(occ.event) : null;
+                      const leadMin = joinable ? leadOf(occ.event, remindLead) : null;
+                      const join =
+                        joinable &&
+                        (running || (leadMin !== null && until > 0 && until <= leadMin * 60_000))
+                          ? joinable
+                          : null;
+                      /**
                        * The clock this event was written on, when it is not
                        * this one, and the slot it goes in.
                        *
@@ -575,6 +600,26 @@ export default function CenterPanel({
                                 {trail}
                               </span>
                             </button>
+                            {join && (
+                              // A sibling of the row's button, as the task
+                              // tick is: a control inside a control is not a
+                              // thing HTML has. An anchor, not a button — it
+                              // goes somewhere.
+                              <a
+                                href={join}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                aria-label={`Join “${occ.event.title}”`}
+                                className="shrink-0 rounded-full border border-hairline font-mono font-medium text-ink uppercase transition-colors hover:bg-white/10"
+                                style={{
+                                  fontSize: `${9.5 * u}px`,
+                                  letterSpacing: "0.1em",
+                                  padding: `${1.5 * u}px ${6 * u}px`,
+                                }}
+                              >
+                                Join
+                              </a>
+                            )}
                             {occ.event.task && (
                               <button
                                 type="button"

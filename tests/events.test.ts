@@ -21,6 +21,7 @@ import {
   firstGrapheme,
   freeGaps,
   instantKey,
+  joinLink,
   inkOn,
   isIconName,
   markOf,
@@ -1333,5 +1334,93 @@ describe("readGraves", () => {
     expect.soft(graves).toHaveLength(GRAVE_MAX);
     expect.soft(graves[0]).toEqual({ id: `g${GRAVE_MAX + 9}`, at: GRAVE_MAX + 10 });
     expect.soft(graves.some((g) => g.id === "g0")).toBe(false);
+  });
+});
+
+/* --------------------------------- joinLink -------------------------------- */
+
+describe("joinLink", () => {
+  it.each([
+    {
+      name: "a Meet link in the url field",
+      url: "https://meet.google.com/abc-defg-hij",
+      location: "",
+      found: "https://meet.google.com/abc-defg-hij",
+    },
+    {
+      name: "a Zoom link on a vanity subdomain, query kept",
+      url: "https://acme.zoom.us/j/91234567890?pwd=abc123",
+      location: "",
+      found: "https://acme.zoom.us/j/91234567890?pwd=abc123",
+    },
+    {
+      name: "a bare-domain Zoom link",
+      url: "https://zoom.us/j/91234567890",
+      location: "",
+      found: "https://zoom.us/j/91234567890",
+    },
+    {
+      name: "a Jitsi room",
+      url: "https://meet.jit.si/circal-standup",
+      location: "",
+      found: "https://meet.jit.si/circal-standup",
+    },
+    {
+      name: "a link embedded in location prose",
+      url: "",
+      location: "Room 4 · https://meet.google.com/abc-defg-hij",
+      found: "https://meet.google.com/abc-defg-hij",
+    },
+    {
+      name: "trailing punctuation prose hung on the link is not part of it",
+      url: "",
+      location: "join here: https://zoom.us/j/123).",
+      found: "https://zoom.us/j/123",
+    },
+    {
+      name: "the url field outranks a link in the location",
+      url: "https://zoom.us/j/111",
+      location: "https://meet.google.com/abc-defg-hij",
+      found: "https://zoom.us/j/111",
+    },
+    {
+      name: "a non-conferencing url in the field is skipped for the location's real one",
+      url: "https://docs.example.com/agenda",
+      location: "https://meet.jit.si/weekly",
+      found: "https://meet.jit.si/weekly",
+    },
+    {
+      name: "uppercase host still recognised",
+      url: "https://MEET.GOOGLE.COM/abc-defg-hij",
+      location: "",
+      found: "https://MEET.GOOGLE.COM/abc-defg-hij",
+    },
+  ])("finds $name", ({ url, location, found }) => {
+    expect.soft(joinLink(event({ url, location }))).toBe(found);
+  });
+
+  it.each([
+    { name: "an agenda doc", url: "https://docs.example.com/agenda", location: "" },
+    { name: "a plain room name", url: "", location: "Conference room 4" },
+    { name: "a conferencing homepage with no room", url: "https://zoom.us/", location: "" },
+    {
+      name: "a lookalike host suffixed past the real one",
+      url: "https://meet.google.com.evil.com/abc-defg-hij",
+      location: "",
+    },
+    {
+      name: "a lookalike host prefixed onto another domain",
+      url: "https://zoom.us.evil.com/j/123",
+      location: "",
+    },
+    { name: "notzoom, one letter of host away", url: "https://notzoom.us/j/123", location: "" },
+    {
+      name: "a bare host pasted without a scheme",
+      url: "meet.google.com/abc-defg-hij",
+      location: "",
+    },
+    { name: "nothing at all", url: "", location: "" },
+  ])("refuses $name", ({ url, location }) => {
+    expect.soft(joinLink(event({ url, location }))).toBeNull();
   });
 });

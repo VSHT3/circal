@@ -363,6 +363,7 @@ export default function Dial({
     totalsAt,
     tickSound,
     tickHaptics,
+    remindLead,
     wakingFrom,
     wakingTo,
   } = settings;
@@ -774,6 +775,7 @@ export default function Dial({
           totals={totals}
           totalsAt={totalsAt}
           waking={{ from: wakingFrom, to: wakingTo }}
+          remindLead={remindLead}
           drag={ghost && ghost.end > ghost.start ? ghost : adjust ? dragSpan(adjust, day) : null}
           hovered={hovered}
           onHover={setHovered}

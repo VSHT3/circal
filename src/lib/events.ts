@@ -1146,3 +1146,51 @@ export function statusOf(occ: Occurrence, now: Date): "past" | "now" | "upcoming
 export function spanLabel(occ: Occurrence): string | null {
   return occ.dayCount > 1 ? `Day ${occ.dayIndex}/${occ.dayCount}` : null;
 }
+
+/* ------------------------------- conferencing ----------------------------- */
+
+/**
+ * Hosts whose links are a meeting you *join*, anchored on the whole hostname:
+ * a suffix test would let `meet.google.com.evil.com` mint a Join verb, and
+ * this is a link the UI invites a press on. A closed list on purpose — the
+ * `url` field is just as often an agenda doc or a ticket, so "any URL is
+ * joinable" would put the verb on things it is wrong about. Self-hosted
+ * Jitsi rooms are indistinguishable from any other URL and stay out for the
+ * same reason.
+ */
+const JOIN_HOSTS = /^(meet\.google\.com|meet\.jit\.si|([a-z0-9-]+\.)*zoom\.us)$/;
+
+/** Punctuation prose hangs on the end of a pasted link — "join here:
+ *  https://zoom.us/j/123)." — which is never part of the address itself. */
+const TRAILING_PUNCTUATION = /[.,;:!?)\]'"]+$/;
+
+/**
+ * The conferencing link this event carries, or `null` — the whole of "does
+ * this event have a `Join` verb", answered here so the surface printing the
+ * verb and any later reader (the palette, an assistant) cannot disagree.
+ *
+ * `url` is asked before `location`: the URL field is the deliberate place
+ * for a link, the location merely often contains one ("Room 4 ·
+ * https://meet.google.com/abc-defg-hij"). Either field is scanned whole, and
+ * a candidate counts only when its hostname is one of `JOIN_HOSTS` *and* it
+ * has a path — the bare homepage of a conferencing product is not a meeting.
+ * Detection is typed text only, no lookup anywhere: the
+ * no-runtime-external-requests rule holds.
+ */
+export function joinLink(event: Pick<CalEvent, "url" | "location">): string | null {
+  for (const field of [event.url, event.location]) {
+    for (const raw of field.match(/https?:\/\/[^\s<>"]+/gi) ?? []) {
+      const candidate = raw.replace(TRAILING_PUNCTUATION, "");
+      let parsed: URL;
+      try {
+        parsed = new URL(candidate);
+      } catch {
+        continue;
+      }
+      if (JOIN_HOSTS.test(parsed.hostname.toLowerCase()) && parsed.pathname.length > 1) {
+        return candidate;
+      }
+    }
+  }
+  return null;
+}
