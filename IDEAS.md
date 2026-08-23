@@ -136,6 +136,29 @@ the end are recorded as refusals, so they are argued once instead of re-litigate
     and the event editor's inherit option now names the level that answers —
     `Follow calendar · 1h before` when the calendar has an opinion.
 
+## Outward — other calendars
+
+19. **Google Calendar, both directions.** The read half is already shipped by
+    construction: every Google calendar has a "secret address in iCal format",
+    and pasting it into subscriptions works today through the one route the
+    Worker has. The write half is **not architecturally blocked**, which is
+    worth recording because "we can't, no server" is the reflexive answer and
+    it is wrong: Google Identity Services' token flow hands the browser an
+    access token with no backend at all, and the Calendar API accepts requests
+    straight from the browser — so a `googleLink.ts` would sit at exactly
+    `cloudLink.ts`'s tier and shape (opt-in, lazily imported, talks directly
+    to Google, no new Worker route, no readable server-side state). The hard
+    parts already exist in the repo: `ics.ts` speaks full RRULE / EXDATE /
+    RECURRENCE-ID, and `merge.ts` / `mutate.ts` define what a conflict means.
+    What it is actually blocked on: real engineering (a foreign data model,
+    sync tokens, a mapping layer — months, not weeks), Google's OAuth
+    verification for the calendar scope, and one honest line to draw out
+    loud — events synced there sit **plaintext in the user's own Google**,
+    which softens the sealed-box story. That is the user's choice about their
+    own account, the travel prompt's shape; the standing refusal below is
+    circal becoming a relay _between_ users, which this is not. Decision
+    deferred until demand shows up after launch, not refused.
+
 ## Refusals, argued once
 
 - **Month grid view.** The obvious ask and the wrong one: a grid is the thing every
