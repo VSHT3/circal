@@ -34,7 +34,7 @@ import type { Settings } from "@/lib/store";
 import { THEME_PALETTES } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import { useElementSize, useHotkeys } from "./hooks";
-import Face, { type FaceGhost, type Grip } from "./Face";
+import Face, { GHOST_ALPHA, type FaceGhost, type Grip } from "./Face";
 import CenterPanel from "./CenterPanel";
 
 /**
@@ -150,9 +150,6 @@ export interface DialProps {
 
 /** Drag granularity. Matches what a fifteen-minute arc can actually show. */
 const STEP = 15;
-/** How translucent a range still under the pointer is. It has no colour to
- *  show yet, so it is the one thing on the face drawn in plain white. */
-const GHOST_ALPHA = 0.45;
 
 /**
  * Shortest signed distance from one ring position to another. Two positions

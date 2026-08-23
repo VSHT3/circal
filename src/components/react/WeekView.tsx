@@ -39,6 +39,7 @@ import {
   weekFaceCentre,
 } from "@/lib/week";
 import {
+  MINUTES_PER_DAY,
   MONTHS,
   WEEKDAYS,
   dayKey,
@@ -49,12 +50,13 @@ import {
   isSameDay,
 } from "@/lib/time";
 import { EASE, MOOD_MS } from "@/lib/motion";
+import { THEME_PALETTES } from "@/lib/theme";
 import { cue } from "@/lib/feedback";
 import { cn } from "@/lib/utils";
 import type { Clock } from "@/lib/time";
 import type { Calendar } from "@/lib/events";
 import type { WeekViewProps } from "@/components/react/types";
-import Face from "./Face";
+import Face, { GHOST_ALPHA, type FaceGhost } from "./Face";
 import { useHotkeys } from "./hooks";
 
 /**
@@ -159,8 +161,9 @@ export default function WeekView({
    *
    * `run.from` is the anchor and never moves once the press starts, so
    * nothing else needs to remember it. Held in state rather than a ref: the
-   * faces it covers have to re-render to grow and mark themselves, unlike
-   * the life grid's run, which paints on a canvas nothing here has.
+   * faces it covers have to re-render to grow, mark themselves and draw the
+   * ghost below, unlike the life grid's run, which paints on a canvas
+   * nothing here has.
    *
    * Above the early return with every other hook, because that is where
    * hooks live: the strip renders nothing until the shell has measured it.
@@ -258,6 +261,21 @@ export default function WeekView({
         days: runRange[1] - runRange[0] + 1,
       }
     : null;
+  /**
+   * What a covered face draws while the run is live: the dial's own picture
+   * of "a whole day being drawn" — `GhostArc`'s closed ring, white and
+   * translucent because the range has no colour to show yet. One object for
+   * all seven; a run is whole days, so every face it covers carries the
+   * same full turn, and the sentence under the grid is where the ends and
+   * the count are said.
+   */
+  const runGhost: FaceGhost = {
+    start: 0,
+    end: MINUTES_PER_DAY,
+    color: THEME_PALETTES[settings.theme].ghost,
+    opacity: GHOST_ALPHA,
+    task: false,
+  };
 
   return (
     <div className="relative h-full w-full">
@@ -350,6 +368,13 @@ export default function WeekView({
                     elapsed={d.today}
                     hand={d.today}
                     inheritMarks={settings.inheritMarks}
+                    // The run, drawn where it will land: a closed ring on
+                    // every face it covers, since a run of whole days *is*
+                    // that many all-day days. `gesturing` recedes today's
+                    // hand for the dial's own reason — at full white it
+                    // competes with the range being drawn.
+                    ghost={run && on ? runGhost : null}
+                    gesturing={run !== null}
                     hovered={!run && active && on ? active.key : null}
                     // Hover only: this is what puts a hit stroke on the arc,
                     // and there is deliberately no `onGrab` behind it.

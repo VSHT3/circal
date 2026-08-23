@@ -93,6 +93,13 @@ export interface FaceGhost {
   task: boolean;
 }
 
+/** How translucent a range still under the pointer is. It has no colour to
+ *  show yet, so it is the one thing on a face drawn in plain white. Beside
+ *  `GhostArc` rather than in a caller: the dial's drag and the week strip's
+ *  run draw the same about-to-exist range, and two spellings of this number
+ *  is two opinions on what "still being drawn" looks like. */
+export const GHOST_ALPHA = 0.45;
+
 /**
  * Declared here rather than in `types.ts` for the reason `DialProps` and
  * `CenterPanelProps` are: that file holds the *panel* contracts, and this is

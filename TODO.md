@@ -50,10 +50,6 @@ needed one, and a day's arcs would be the third.
 case — clamping sweep rather than the resulting instant is what makes a range stop dead at midnight
 instead of unwinding overshoot — so this needs a way to say "a whole day" that does not fight it.
 
-**Week strip: show the run while it is being drawn.** The gesture commits correctly and the shared
-readout prints `formatDayRange` plus a count, but the faces themselves show nothing, so the only
-feedback for a five-day drag is a sentence under it.
-
 **Typical-weekday ghost.** Past instances of the viewed weekday drawn faint behind the real arcs,
 on the same lanes so it costs no radius. The one idea here that would tell you something the
 calendar does not already contain — what a Tuesday is usually like, rather than what this Tuesday
