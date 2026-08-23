@@ -92,12 +92,18 @@ the end are recorded as refusals, so they are argued once instead of re-litigate
 
 ## Customizable
 
-15. **Theme presets.** Chrome is greyscale by rule — but _which_ greyscale (current
-    black, warm dark, paper light) and the accent could be a small preset list, the
-    `PALETTE` shape: enumerated, `sane()`-pinned, never a free-form theme editor. A
-    light theme is the most-requested thing this class of app gets. Cost is real:
-    every token in `global.css` moves to the preset, and `inkOn` contrast must be
-    re-verified per preset.
+15. **Theme presets.** — **Shipped** (`5eab28b`). Midnight, Ember, Paper —
+    enumerated, `sane()`-pinned, never a theme editor, as sketched. Two
+    corrections to the sketch's cost line. The tokens moving was the _small_
+    half: the real work was every colour a stylesheet cannot reach — the
+    elapsed ramp, the life grid's greys, the year ring's canvas — now fed by
+    `lib/theme.ts`, whose `wash` is a lerp from the theme's own void; on a
+    black void that is byte-identical to the multiply it replaced, so
+    midnight repaints nothing (pinned in `tests/theme.test.ts`). And `inkOn`
+    needed no re-verification at all — an arc label sits inside its own
+    pastel, not on the canvas; the contrast that _did_ need computing was
+    the accent as small text, which is why paper's is a darker aqua than
+    the calendar default it echoes.
 
 16. **Editable event palette.** `ColorPicker` has an any-colour cell; let the ten
     `PALETTE` slots themselves be edited (settings, synced), with `inkOn` checks so
@@ -129,7 +135,7 @@ the end are recorded as refusals, so they are argued once instead of re-litigate
 
 ## Shortlist by value per effort
 
-**#4 (Join verb)** and **#11 (ambient clock)** are done — see their entries.
-**#15 (theme presets)** is the remaining shortlist item on its own axis.
+**#4 (Join verb)**, **#11 (ambient clock)** and **#15 (theme presets)** are
+done — see their entries.
 **#8 (free-slot sharing)** is the strategic one: the only idea that makes circal
 useful to somebody who doesn't use circal.
