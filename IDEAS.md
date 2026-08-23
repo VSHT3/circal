@@ -108,9 +108,13 @@ the end are recorded as refusals, so they are argued once instead of re-litigate
     "instrument", "dense"), never sliders. A slider is a thousand faces nobody
     tested; three presets are three faces somebody did.
 
-18. **Per-calendar reminder lead.** The inherit chain gains one level — event →
-    calendar → setting — exactly `colorOf`'s shape, closing an asymmetry that
-    already half-exists. `leadOf` stays the sole reader of the precedence.
+18. **Per-calendar reminder lead.** — **Shipped** (`d355909`). The inherit chain
+    gained its middle level — event → calendar → setting — exactly `colorOf`'s
+    shape; `leadOf(event, calendars, fallback)` stays the sole reader of the
+    precedence. Two decisions beyond the sketch: a calendar's _silence_ quiets
+    every inheriting event on it (the third state exists at this level too),
+    and the event editor's inherit option now names the level that answers —
+    `Follow calendar · 1h before` when the calendar has an opinion.
 
 ## Refusals, argued once
 
