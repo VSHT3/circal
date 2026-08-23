@@ -123,6 +123,9 @@ export function calendar(overrides: Partial<Calendar> = {}): Calendar {
     color: "#a3d9e4",
     icon: "",
     visible: true,
+    // No opinion of its own, like every calendar anybody makes: the middle
+    // level of the inherit chain defaults to passing the question down.
+    remindLead: REMIND_INHERIT,
     // Unstamped, which is what a record written before stamping existed says —
     // and what keeps a fixture deterministic, since a builder reading the clock
     // would make every snapshot comparison depend on when it ran. A case about

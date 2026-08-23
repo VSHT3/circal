@@ -247,7 +247,17 @@ export interface CalendarEditorProps {
    * answer than a verb that fails.
    */
   removal: { holds: number; into: string } | null;
-  onSave: (name: string, color: string, icon: string) => void;
+  /**
+   * `settings.remind` and `settings.remindLead`, for the Remind row's inherit
+   * option to say what following the settings actually does — `Follow
+   * settings · off` rather than a duration a switched-off preference will
+   * never fire. Two scalars rather than `settings` whole, `TopBar`'s half of
+   * the panel-props rule: a card reading two fields should not re-render on
+   * a thirty-eighth changing.
+   */
+  remind: boolean;
+  remindLead: number;
+  onSave: (name: string, color: string, icon: string, remindLead: number) => void;
   onDelete: () => void;
   onClose: () => void;
 }

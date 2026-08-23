@@ -410,6 +410,12 @@ export function readCalendar(value: unknown): Calendar | null {
     // again should not lose the mark — but an unbounded string is a paste, and
     // an over-long *name* is now dropped rather than cut into junk.
     icon: readMark(icon),
+    // Same validator as an event's lead, same reason: the middle level of the
+    // inherit chain arrives from the same untrusted JSON the top one does, and
+    // a second opinion about what a legal lead is would be `readRecurrence`'s
+    // documented mistake. Absent reads as inheriting, which is what every
+    // calendar written before this field existed already did.
+    remindLead: readRemindLead(value.remindLead),
     visible: value.visible !== false,
     updatedAt: readStamp(value.updatedAt),
     ...(feedUrl ? { feed: { url: feedUrl, fetchedAt: 0, error: "" } } : {}),

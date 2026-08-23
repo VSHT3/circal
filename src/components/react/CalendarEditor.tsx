@@ -14,10 +14,11 @@
 
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useEffect, useState } from "react";
-import { PALETTE } from "@/lib/events";
+import { PALETTE, REMIND_INHERIT, REMIND_SILENT, ownLead } from "@/lib/events";
+import { REMIND_LEADS, remindLabel } from "@/lib/remind";
 import { cn } from "@/lib/utils";
 import { useFocusTrap } from "@/components/react/hooks";
-import { ColorPicker, FieldRow as Row, Kbd, MOD } from "@/components/react/ui/primitives";
+import { ColorPicker, FieldRow as Row, Kbd, MOD, Select } from "@/components/react/ui/primitives";
 import { CalendarMark } from "@/components/react/ui/icons";
 import { MarkPicker } from "@/components/react/MarkPicker";
 import type { CalendarEditorProps } from "@/components/react/types";
@@ -32,6 +33,8 @@ function removalNote(holds: number, into: string): string {
 export default function CalendarEditor({
   target,
   removal,
+  remind,
+  remindLead,
   onSave,
   onDelete,
   onClose,
@@ -42,6 +45,7 @@ export default function CalendarEditor({
   const [name, setName] = useState(target?.name ?? "");
   const [color, setColor] = useState(target?.color ?? PALETTE[0]);
   const [icon, setIcon] = useState(target?.icon ?? "");
+  const [lead, setLead] = useState(target?.remindLead ?? REMIND_INHERIT);
   /** Confirming a delete replaces the footer's verbs rather than stacking a
    *  second card on this one — the same swap the event editor's scope question
    *  makes, and for the same reason. */
@@ -81,12 +85,12 @@ export default function CalendarEditor({
       if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
         e.preventDefault();
         e.stopPropagation();
-        if (trimmed) onSave(trimmed, color, icon);
+        if (trimmed) onSave(trimmed, color, icon, lead);
       }
     }
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [browsing, onClose, onSave, trimmed, color, icon]);
+  }, [browsing, onClose, onSave, trimmed, color, icon, lead]);
 
   return (
     <AnimatePresence>
@@ -128,7 +132,7 @@ export default function CalendarEditor({
             <ColorPicker value={color} onChange={setColor} />
           </Row>
 
-          <Row label="Mark" align="top" last={!feed}>
+          <Row label="Mark" align="top">
             <MarkPicker
               icon={icon}
               color={color}
@@ -138,6 +142,38 @@ export default function CalendarEditor({
               onQuery={setMarkQuery}
               browsing={browsing}
               onBrowse={setBrowsing}
+            />
+          </Row>
+
+          {/* The middle level of the inherit chain, event → calendar →
+              setting: a lead here reaches every event on this calendar that
+              names none of its own, so a calendar of standups asks for an
+              hour's warning once. The option list is the event editor's —
+              inherit says what it resolves to, an off-list lead a backup
+              carried stays visible rather than vanishing out of a Select
+              with no option for it, and silence is a state, not a
+              convenience. On a subscription too: the events are somebody
+              else's, but how much warning *you* want about them is a local
+              fact about your dial, like its name and colour. */}
+          <Row label="Remind" last={!feed}>
+            <Select
+              value={String(lead)}
+              onChange={(next) => setLead(Number(next))}
+              label="How much warning"
+              options={[
+                {
+                  value: String(REMIND_INHERIT),
+                  label: `Follow settings · ${remind ? remindLabel(remindLead) : "off"}`,
+                },
+                ...REMIND_LEADS.map((minutes) => ({
+                  value: String(minutes),
+                  label: remindLabel(minutes),
+                })),
+                ...(ownLead({ remindLead: lead }) !== null && !REMIND_LEADS.includes(lead)
+                  ? [{ value: String(lead), label: remindLabel(lead) }]
+                  : []),
+                { value: String(REMIND_SILENT), label: "Never" },
+              ]}
             />
           </Row>
 
@@ -211,7 +247,7 @@ export default function CalendarEditor({
                 <button
                   type="button"
                   disabled={!valid}
-                  onClick={() => onSave(trimmed, color, icon)}
+                  onClick={() => onSave(trimmed, color, icon, lead)}
                   className="flex h-8 items-center gap-1.5 rounded-[9px] border border-hairline bg-surface-2 px-3 text-[14px] text-ink transition-colors hover:bg-white/10 disabled:pointer-events-none disabled:opacity-35"
                 >
                   {target ? "Save" : "Create"}

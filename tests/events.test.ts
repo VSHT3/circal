@@ -1011,7 +1011,7 @@ describe("ownLead: the lead an event names for itself", () => {
   });
 });
 
-describe("readRemindLead: one validator, four readers", () => {
+describe("readRemindLead: one validator, six readers", () => {
   it.each([
     { name: "a lead the panel offers", value: 15, expected: 15 },
     { name: "zero", value: 0, expected: 0 },

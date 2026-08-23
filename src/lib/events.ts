@@ -45,6 +45,17 @@ export interface Calendar {
    */
   icon: string;
   /**
+   * How much warning this calendar's events get when they name no lead of
+   * their own — the middle level of the inherit chain, event → calendar →
+   * setting, in exactly `colorOf`'s shape one field over. Same three-state
+   * vocabulary as `CalEvent.remindLead` (`REMIND_INHERIT` is the default and
+   * follows `settings.remindLead`; `REMIND_SILENT` quiets every inheriting
+   * event on it), and only `leadOf` reads the precedence — a calendar of
+   * standups can ask for an hour's warning once instead of once per event,
+   * and any one event can still override it or fall silent on its own.
+   */
+  remindLead: number;
+  /**
    * Set when this calendar mirrors a remote ICS feed. Its events are pulled
    * whole on refresh and live in `Snapshot.feeds`, not `Snapshot.events` —
    * they are somebody else's data, so they are never edited and never
@@ -148,10 +159,11 @@ export function readMark(value: unknown): string {
 }
 
 /**
- * The three states of `CalEvent.remindLead`, which is an *override* of
- * `settings.remindLead` in exactly the sense `CalEvent.color` overrides its
- * calendar's: the default is to name nothing and follow the setting, so
- * changing the setting still moves every event that never asked for its own.
+ * The three states of `CalEvent.remindLead` and `Calendar.remindLead`, each
+ * an *override* of the level beneath it in exactly the sense `CalEvent.color`
+ * overrides its calendar's: the default is to name nothing and follow the
+ * next level down — event to calendar, calendar to setting — so changing the
+ * setting still moves everything that never asked for its own.
  *
  * Here rather than in `remind.ts` for the reason `ICON_MAX` and `isIconName`
  * are here: this file owns what a `CalEvent` field legally *is*, and the
@@ -202,11 +214,12 @@ export function ownLead(event: Pick<CalEvent, "remindLead">): number | null {
  * A stored or imported value read as a lead. Unreadable is `REMIND_INHERIT`,
  * which is what every event written before this field existed already was.
  *
- * One validator, four readers, for the reason `readRecurrence` is one:
- * `backup.readEvent` (untrusted JSON), `store.hydrateEvents` (a blob that
- * predates the field), `ics.ts`'s `VALARM` reader (a `TRIGGER` off somebody
- * else's feed) and the editor's own Select all have to agree about what a
- * legal lead is, and a copy of the bounds in each would be four opinions.
+ * One validator, six readers, for the reason `readRecurrence` is one:
+ * `backup.readEvent` and `backup.readCalendar` (untrusted JSON),
+ * `store.hydrateEvents` and `store.hydrateCalendars` (a blob that predates
+ * the field), `ics.ts`'s `VALARM` reader (a `TRIGGER` off somebody else's
+ * feed) and the editor's own Select all have to agree about what a legal
+ * lead is, and a copy of the bounds in each would be six opinions.
  * Whole minutes only — a `VALARM` of ninety seconds is not a lead this app
  * can count down in, and rounding it would be a guess.
  */

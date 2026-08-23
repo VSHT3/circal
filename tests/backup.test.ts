@@ -629,6 +629,20 @@ describe("readCalendar", () => {
     expect.soft(readEvent({ ...baseEvent, icon })?.icon).toBe(icon);
   });
 
+  // Same validator as an event's lead — the six-reader rule — so the table
+  // here is only the boundary's own concern: absent reads as inheriting,
+  // which is every calendar written before the field existed.
+  it.each([
+    { name: "a lead the panel offers", input: 15, expected: 15 },
+    { name: "silence", input: REMIND_SILENT, expected: REMIND_SILENT },
+    { name: "as it starts", input: 0, expected: 0 },
+    { name: "absent", input: undefined, expected: REMIND_INHERIT },
+    { name: "a string", input: "15", expected: REMIND_INHERIT },
+    { name: "a negative that is neither state", input: -7, expected: REMIND_INHERIT },
+  ])("remindLead: $name", ({ input, expected }) => {
+    expect(readCalendar({ id: "cal-x", remindLead: input })?.remindLead).toBe(expected);
+  });
+
   it("a feed with a string url produces a feed with fetchedAt reset to 0", () => {
     const result = readCalendar({ id: "cal-x", feed: { url: "https://example.com/f.ics" } });
     expect(result?.feed).toEqual({ url: "https://example.com/f.ics", fetchedAt: 0, error: "" });

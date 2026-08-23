@@ -10,7 +10,7 @@
  * ------------------------------------------------------------------ */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { MemoryStorage, event } from "./helpers";
+import { MemoryStorage, calendar, event } from "./helpers";
 
 const ICS = (...vevents: string[]) =>
   ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//test//EN", ...vevents, "END:VCALENDAR"].join(
@@ -180,14 +180,7 @@ describe("a failing feed is recorded, not thrown", () => {
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
 
-    await refreshFeed({
-      id: "local",
-      name: "Personal",
-      color: "#fff",
-      icon: "",
-      visible: true,
-      updatedAt: 0,
-    });
+    await refreshFeed(calendar({ id: "local", name: "Personal", color: "#fff", updatedAt: 0 }));
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 });
@@ -345,25 +338,19 @@ describe("refreshStaleFeeds", () => {
     const now = Date.now();
     await refreshStaleFeeds(
       [
-        { id: "local", name: "Personal", color: "#fff", icon: "", visible: true, updatedAt: 0 },
-        {
+        calendar({ id: "local", name: "Personal", color: "#fff" }),
+        calendar({
           id: "old",
           name: "Old",
           color: "#fff",
-          icon: "",
-          visible: true,
-          updatedAt: 0,
           feed: { url: "https://example.com/old.ics", fetchedAt: now - 60 * 60_000, error: "" },
-        },
-        {
+        }),
+        calendar({
           id: "fresh",
           name: "Fresh",
           color: "#fff",
-          icon: "",
-          visible: true,
-          updatedAt: 0,
           feed: { url: "https://example.com/fresh.ics", fetchedAt: now, error: "" },
-        },
+        }),
       ],
       30 * 60_000,
     );

@@ -568,10 +568,27 @@ const DEFAULT_CALENDARS: Calendar[] = [
     color: PALETTE[0],
     icon: "house",
     visible: true,
+    remindLead: REMIND_INHERIT,
     updatedAt: 0,
   },
-  { id: "work", name: "Work", color: PALETTE[3], icon: "briefcase", visible: true, updatedAt: 0 },
-  { id: "family", name: "Family", color: PALETTE[5], icon: "users", visible: true, updatedAt: 0 },
+  {
+    id: "work",
+    name: "Work",
+    color: PALETTE[3],
+    icon: "briefcase",
+    visible: true,
+    remindLead: REMIND_INHERIT,
+    updatedAt: 0,
+  },
+  {
+    id: "family",
+    name: "Family",
+    color: PALETTE[5],
+    icon: "users",
+    visible: true,
+    remindLead: REMIND_INHERIT,
+    updatedAt: 0,
+  },
 ];
 
 export function newId(): string {
@@ -961,8 +978,10 @@ function hydrateEvents(value: unknown): CalEvent[] {
 /**
  * The same boundary, for calendars. A blob written before marks existed has no
  * `icon`, and `undefined` would reach `isIconName` as a crash rather than as a
- * missing glyph. Same unchanged-returns-the-same-array rule and the same
- * reason: this runs on every cross-tab write.
+ * missing glyph; one written before per-calendar leads has no `remindLead`,
+ * and `undefined` reaching `leadOf` is none of the three states — silently
+ * not the inheriting one. Same unchanged-returns-the-same-array rule and the
+ * same reason: this runs on every cross-tab write.
  *
  * No `SCHEMA` bump — nothing stored changed *meaning*, a field arrived.
  */
@@ -971,11 +990,16 @@ function hydrateCalendars(value: unknown): Calendar[] {
   return (value as Calendar[]).map((calendar) =>
     // The stamp is asked about validity rather than shape, `readStamp`'s own
     // reason: every merge decision about this record is an inequality on it.
-    typeof calendar.icon === "string" && calendar.updatedAt === readStamp(calendar.updatedAt)
+    // The lead likewise: it is compared against the two named states, so a
+    // stored `NaN` or a float would match none of them for ever.
+    typeof calendar.icon === "string" &&
+    calendar.remindLead === readRemindLead(calendar.remindLead) &&
+    calendar.updatedAt === readStamp(calendar.updatedAt)
       ? calendar
       : {
           ...calendar,
           icon: typeof calendar.icon === "string" ? calendar.icon : "",
+          remindLead: readRemindLead(calendar.remindLead),
           updatedAt: readStamp(calendar.updatedAt),
         },
   );
@@ -1585,7 +1609,7 @@ export const store = {
    * import already take, so three ways of arriving at a calendar do not
    * disagree about what colour the next one is.
    */
-  addCalendar(name: string, color?: string, icon = ""): Calendar {
+  addCalendar(name: string, color?: string, icon = "", remindLead = REMIND_INHERIT): Calendar {
     const base = fresh();
     const calendar: Calendar = {
       id: newId(),
@@ -1593,6 +1617,7 @@ export const store = {
       color: color || PALETTE[(base.calendars.length * 3) % PALETTE.length],
       icon,
       visible: true,
+      remindLead,
       updatedAt: Date.now(),
     };
     commit({ ...base, calendars: [...base.calendars, calendar] });
@@ -1605,7 +1630,10 @@ export const store = {
    * calendar is still carrying the placeholder it was given before the first
    * pull.
    */
-  updateCalendar(id: string, patch: Partial<Pick<Calendar, "name" | "color" | "icon">>) {
+  updateCalendar(
+    id: string,
+    patch: Partial<Pick<Calendar, "name" | "color" | "icon" | "remindLead">>,
+  ) {
     const base = fresh();
     const now = Date.now();
     commit({
@@ -1914,6 +1942,7 @@ export const store = {
       // read its subject off; the mark stays the dot until you name one.
       icon: "",
       visible: true,
+      remindLead: REMIND_INHERIT,
       updatedAt: Date.now(),
       feed: { url, fetchedAt: 0, error: "" },
     };
@@ -1985,6 +2014,7 @@ export const store = {
       color: PALETTE[(base.calendars.length * 3) % PALETTE.length],
       icon: "",
       visible: true,
+      remindLead: REMIND_INHERIT,
       updatedAt: now,
     };
     commit({

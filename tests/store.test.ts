@@ -365,6 +365,7 @@ describe("addCalendar", () => {
       color: "#ff9fb4",
       icon: "paint-brush",
       visible: true,
+      remindLead: REMIND_INHERIT,
       updatedAt: cal.updatedAt,
     });
     expect.soft(cal.updatedAt).toBeGreaterThan(0);
@@ -1503,7 +1504,33 @@ describe("hydrateCalendars", () => {
       }),
     );
     const s = await freshStore(storage);
-    expect(s.store.snapshot().calendars[0].icon).toBe("");
+    expect.soft(s.store.snapshot().calendars[0].icon).toBe("");
+    // The same blob predates per-calendar leads, and an absent one must reach
+    // `leadOf` as the inheriting state rather than as `undefined`, which is
+    // none of the three and would silently stop matching any of them.
+    expect.soft(s.store.snapshot().calendars[0].remindLead).toBe(REMIND_INHERIT);
+  });
+
+  it("keeps a stored lead and refuses a stored broken one", async () => {
+    const storage = new MemoryStorage();
+    storage.setItem(
+      KEY,
+      JSON.stringify({
+        schema: 2,
+        events: [],
+        calendars: [
+          { id: "a", name: "A", color: "#a3d9e4", icon: "", visible: true, remindLead: 45 },
+          // A float matches none of the three states in an inequality-free
+          // comparison, for ever — dropped to inheriting like every other
+          // unreadable lead.
+          { id: "b", name: "B", color: "#a3d9e4", icon: "", visible: true, remindLead: 1.5 },
+        ],
+        feeds: {},
+        settings: {},
+      }),
+    );
+    const s = await freshStore(storage);
+    expect(s.store.snapshot().calendars.map((c) => c.remindLead)).toEqual([45, REMIND_INHERIT]);
   });
 
   it("leaves a stored mark alone, unknown names included", async () => {

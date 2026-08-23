@@ -25,7 +25,7 @@ import {
 } from "@/lib/events";
 import { describeRule, isExpressible, nthLabel } from "@/lib/describe";
 import { DEFAULT_DURATION, MIN_DURATION, defaultStart } from "@/lib/quickadd";
-import { REMIND_LEADS, remindLabel } from "@/lib/remind";
+import { REMIND_LEADS, leadOf, remindLabel } from "@/lib/remind";
 import {
   WEEKDAYS,
   addDays,
@@ -580,10 +580,27 @@ export default function EventEditor({
    * in is a question with exactly one answerer.
    */
   const own = ownLead(draft);
+  /**
+   * What inheriting would actually do, now that the chain runs event →
+   * calendar → setting: `leadOf` is asked with the event's own answer
+   * withheld, so this option's caption and the reminder that fires cannot
+   * disagree. The word names the level that answers — a calendar with an
+   * opinion is "Follow calendar" — and the caption stays honest about the
+   * two ways nothing fires: "off" when reminders are switched off at all,
+   * "never" when the calendar itself asked for silence.
+   */
+  const inherited = leadOf(
+    { remindLead: REMIND_INHERIT, calendarId: draft.calendarId },
+    calendars,
+    remindLead,
+  );
+  const viaCalendar = calendar !== undefined && calendar.remindLead !== REMIND_INHERIT;
   const remindOptions = [
     {
       value: String(REMIND_INHERIT),
-      label: `Follow settings · ${remind ? remindLabel(remindLead) : "off"}`,
+      label: `${viaCalendar ? "Follow calendar" : "Follow settings"} · ${
+        !remind ? "off" : inherited === null ? "never" : remindLabel(inherited)
+      }`,
     },
     ...REMIND_LEADS.map((minutes) => ({ value: String(minutes), label: remindLabel(minutes) })),
     ...(own !== null && !REMIND_LEADS.includes(own)

@@ -414,7 +414,7 @@ export default function CenterPanel({
                        * chrome at rest, which is the whole bargain.
                        */
                       const joinable = lead ? joinLink(occ.event) : null;
-                      const leadMin = joinable ? leadOf(occ.event, remindLead) : null;
+                      const leadMin = joinable ? leadOf(occ.event, calendars, remindLead) : null;
                       const join =
                         joinable &&
                         (running || (leadMin !== null && until > 0 && until <= leadMin * 60_000))

@@ -28,24 +28,42 @@ export function remindLabel(minutes: number): string {
 }
 
 /**
- * How much warning this event gets, given what the setting says — `null` for
- * an event that gets none.
+ * How much warning this event gets, given its calendar and what the setting
+ * says — `null` for an event that gets none.
  *
  * The single place the three states are read, the way `colorOf` is the single
  * place colour precedence lives: every other surface asks this and is handed
  * one answer, so "which state is it in" cannot come to mean two things in two
- * files. It lives here rather than beside the vocabulary in `events.ts`
- * because the fallback it takes is a *setting*, and what an event's field
- * legally is has to be answerable without one — which is the same split the
- * mark has, `events.ts` owning the format and this layer owning the use.
+ * files. The chain is event → calendar → setting, each level consulted only
+ * when the one above it names nothing: an event's own lead or silence wins
+ * outright; an inheriting event takes its calendar's lead or silence; and
+ * only when both name nothing does `fallback` answer. It lives here rather
+ * than beside the vocabulary in `events.ts` because the fallback it takes is
+ * a *setting*, and what a field legally is has to be answerable without one —
+ * which is the same split the mark has, `events.ts` owning the format and
+ * this layer owning the use.
  *
  * `fallback` is `settings.remindLead`; whether reminders are switched on at
  * all is the shell's own gate and deliberately not asked here — this
  * function answers about the event, not about the browser.
  */
-export function leadOf(event: Pick<CalEvent, "remindLead">, fallback: number): number | null {
+export function leadOf(
+  event: Pick<CalEvent, "remindLead" | "calendarId">,
+  calendars: Calendar[],
+  fallback: number,
+): number | null {
   if (event.remindLead === REMIND_SILENT) return null;
-  return ownLead(event) ?? fallback;
+  const own = ownLead(event);
+  if (own !== null) return own;
+  // An event whose calendar the list does not carry (a draft mid-edit, an
+  // orphan a backup reparents later) simply has no middle level to consult.
+  const calendar = calendars.find((c) => c.id === event.calendarId);
+  if (calendar) {
+    if (calendar.remindLead === REMIND_SILENT) return null;
+    const calendarOwn = ownLead(calendar);
+    if (calendarOwn !== null) return calendarOwn;
+  }
+  return fallback;
 }
 
 export interface Reminder {
@@ -62,9 +80,10 @@ export interface Reminder {
  * Every reminder that comes due in the minute beginning at `now`.
  *
  * Each occurrence is tested against its *own* lead — `leadOf(event,
- * defaultLead)`, so an event that named one gets that and everything else
- * gets the setting's. `defaultLead` is therefore the fallback rather than
- * the lead: nothing here decides which of the three states an event is in.
+ * calendars, defaultLead)`, so an event that named one gets that, one on a
+ * calendar that named one gets the calendar's, and everything else gets the
+ * setting's. `defaultLead` is therefore the fallback rather than the lead:
+ * nothing here decides which of the three states an event is in.
  *
  * The test is unchanged in every way that made it correct, only restated per
  * occurrence: the moment a reminder should be raised is `start - lead`, and
@@ -99,7 +118,7 @@ export function dueReminders(
   // still one query, which is what it was before this field existed.
   const days = new Map<number, Date>();
   for (const event of events) {
-    const lead = leadOf(event, defaultLead);
+    const lead = leadOf(event, calendars, defaultLead);
     if (lead === null) continue;
     const day = startOfDay(new Date(minute + lead * MINUTE_MS));
     days.set(day.getTime(), day);
@@ -112,7 +131,7 @@ export function dueReminders(
       // Silent, and it is the only state that answers nothing: an event the
       // user has told to stop nudging them is skipped whatever the setting
       // says, which is the whole reason the third state exists.
-      const lead = leadOf(occ.event, defaultLead);
+      const lead = leadOf(occ.event, calendars, defaultLead);
       if (lead === null) continue;
       // No minute, so no "ten minutes before" — an all-day event has nothing
       // for a lead time to count down to. A dated task does have one, and is

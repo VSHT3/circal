@@ -1604,9 +1604,10 @@ function Shell() {
   }, [editedCalendar, calendars, events]);
 
   const saveCalendar = useCallback(
-    (name: string, color: string, icon: string) => {
-      if (editedCalendar) store.updateCalendar(editedCalendar.id, { name, color, icon });
-      else store.addCalendar(name, color, icon);
+    (name: string, color: string, icon: string, remindLead: number) => {
+      if (editedCalendar)
+        store.updateCalendar(editedCalendar.id, { name, color, icon, remindLead });
+      else store.addCalendar(name, color, icon, remindLead);
       setCalendarEditor(null);
     },
     [editedCalendar],
@@ -1876,6 +1877,8 @@ function Shell() {
         <CalendarEditor
           target={editedCalendar}
           removal={calendarRemoval}
+          remind={settings.remind}
+          remindLead={settings.remindLead}
           onSave={saveCalendar}
           onDelete={removeEditedCalendar}
           onClose={() => setCalendarEditor(null)}

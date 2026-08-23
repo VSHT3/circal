@@ -26,7 +26,7 @@ describe("REMIND_LEADS", () => {
  * belongs to the model and is tested in `tests/events.test.ts`; what is here
  * is the precedence, which is this module's own. */
 
-describe("leadOf: inherit, its own, or silent", () => {
+describe("leadOf: event, then calendar, then setting", () => {
   const rows = [
     { name: "inheriting takes the setting's lead", own: REMIND_INHERIT, expected: 10 },
     { name: "its own lead beats the setting", own: 60, expected: 60 },
@@ -38,14 +38,51 @@ describe("leadOf: inherit, its own, or silent", () => {
   ];
 
   it.each(rows)("$name", ({ own, expected }) => {
-    expect(leadOf(event({ remindLead: own }), 10)).toBe(expected);
+    expect(leadOf(event({ remindLead: own }), [cal], 10)).toBe(expected);
+  });
+
+  // The middle level. Each row is one step of the chain answering only when
+  // the one above it named nothing — the shape `colorOf` has, one field over.
+  const chain = [
+    { name: "an inheriting event takes its calendar's lead", own: REMIND_INHERIT, expected: 45 },
+    { name: "the event's own lead beats its calendar's", own: 60, expected: 60 },
+    // Zero is named at both levels: an event saying "as it starts" is not an
+    // event saying nothing.
+    { name: "the event's 0 beats its calendar's 45", own: 0, expected: 0 },
+    { name: "the event's silence beats its calendar's lead", own: REMIND_SILENT, expected: null },
+  ];
+
+  it.each(chain)("$name", ({ own, expected }) => {
+    const standups = calendar({ id: "cal-standups", remindLead: 45 });
+    const e = event({ calendarId: "cal-standups", remindLead: own });
+    expect(leadOf(e, [standups], 10)).toBe(expected);
+  });
+
+  it("a silent calendar quiets every inheriting event on it", () => {
+    const quiet = calendar({ id: "cal-quiet", remindLead: REMIND_SILENT });
+    expect(leadOf(event({ calendarId: "cal-quiet" }), [quiet], 10)).toBeNull();
+  });
+
+  it("a silent calendar does not quiet an event that named its own lead", () => {
+    const quiet = calendar({ id: "cal-quiet", remindLead: REMIND_SILENT });
+    expect(leadOf(event({ calendarId: "cal-quiet", remindLead: 15 }), [quiet], 10)).toBe(15);
+  });
+
+  it("an inheriting calendar passes the question down to the setting", () => {
+    expect(leadOf(event({ calendarId: cal.id }), [cal], 10)).toBe(10);
+  });
+
+  it("an event whose calendar the list does not carry falls to the setting", () => {
+    // A draft mid-edit, or an orphan a backup reparents later: no middle
+    // level to consult is not an error, it is the setting's turn.
+    expect(leadOf(event({ calendarId: "gone" }), [], 10)).toBe(10);
   });
 
   it("answers about the event, never about whether reminders are switched on", () => {
     // The shell's own gate, deliberately not asked here — a resolver that
     // consulted it could not be used by the exporter, which must know what
     // the event says whatever this browser is set to.
-    expect(leadOf(event({ remindLead: 15 }), 10)).toBe(15);
+    expect(leadOf(event({ remindLead: 15 }), [cal], 10)).toBe(15);
   });
 });
 
@@ -181,6 +218,46 @@ describe("dueReminders: an event's own lead overrides the setting's", () => {
     const reminders = dueReminders([e], [cal], at("2026-03-08 23:15"), 0, new Set());
     expect.soft(reminders).toHaveLength(1);
     expect.soft(reminders[0]?.start).toBeSameInstantAs("2026-03-09 00:15");
+  });
+});
+
+describe("dueReminders: a calendar's lead reaches its inheriting events", () => {
+  // The setting says five minutes; the whole standup calendar wants an hour.
+  const standups = () => calendar({ id: "cal-standups", remindLead: 60 });
+
+  it("fires an hour ahead for an event that named no lead of its own", () => {
+    const e = event({ calendarId: "cal-standups", start: "2026-03-09 09:00" });
+    const reminders = dueReminders([e], [standups()], at("2026-03-09 08:00"), 5, new Set());
+    expect.soft(reminders).toHaveLength(1);
+    expect.soft(reminders[0]?.lead).toBe(60);
+  });
+
+  it("says nothing at the setting's own minute", () => {
+    const e = event({ calendarId: "cal-standups", start: "2026-03-09 09:00" });
+    const reminders = dueReminders([e], [standups()], at("2026-03-09 08:55"), 5, new Set());
+    expect.soft(reminders).toHaveLength(0);
+  });
+
+  // The day scan is driven off the leads in use, and a calendar's lead is
+  // now one of them: only its 60 looks far enough into tomorrow to find this.
+  it("a calendar's lead is the one that crosses midnight", () => {
+    const e = event({ calendarId: "cal-standups", start: "2026-03-09 00:15" });
+    const reminders = dueReminders([e], [standups()], at("2026-03-08 23:15"), 0, new Set());
+    expect.soft(reminders).toHaveLength(1);
+    expect.soft(reminders[0]?.start).toBeSameInstantAs("2026-03-09 00:15");
+  });
+
+  it("a silent calendar quiets its inheriting events and nothing else", () => {
+    const quiet = calendar({ id: "cal-quiet", remindLead: REMIND_SILENT });
+    const muted = event({ calendarId: "cal-quiet", start: "2026-03-09 09:00" });
+    const own = event({
+      id: "e-own",
+      calendarId: "cal-quiet",
+      start: "2026-03-09 09:00",
+      remindLead: 5,
+    });
+    const atLead = dueReminders([muted, own], [quiet], at("2026-03-09 08:55"), 5, new Set());
+    expect.soft(atLead.map((r) => r.event.id)).toEqual(["e-own"]);
   });
 });
 
