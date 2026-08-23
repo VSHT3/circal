@@ -190,10 +190,12 @@ anywhere. It is the gaps and never the events — what you are busy _with_
 cannot leak because it was never encoded — measured against your own waking
 hours, at least half an hour wide, starting from right now rather than from a
 week's official Monday. Opened in any circal, the link lands on the week
-strip with the free stretches drawn as faint arcs under that person's own
-days, a line at the top saying whose kind of thing it is and which days it
-covers, and a way to take it down. Nothing is written: the overlay is gone on
-reload, and the same disclosure applies — encoded, not encrypted, so anyone
+strip with the free stretches drawn as hollow outlines under that person's
+own days — the same empty band a free event draws, "open" rather than
+"booked" — with a line at the top saying it is someone else's free time and
+which days it covers, and a way to take it down. Nothing is written: the
+overlay is gone on reload, and the same disclosure applies — encoded, not
+encrypted, so anyone
 holding the link can see when you are free.
 
 ## The middle of the face

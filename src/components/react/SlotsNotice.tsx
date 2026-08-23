@@ -39,7 +39,9 @@ export function SlotsNotice({
       transition={reducedMotion ? { duration: 0 } : { duration: MODE_MS / 1000, ease: EASE }}
     >
       <div className="pointer-events-auto flex max-w-full items-center gap-2 rounded-[10px] border border-hairline bg-surface px-3 py-1.5">
-        <span className="caption truncate">Free time from a link · {formatDayRange(from, to)}</span>
+        <span className="caption truncate">
+          Someone's free time, from a link · {formatDayRange(from, to)}
+        </span>
         <ActionPill icon={<X size={14} strokeWidth={1.75} />} label="Hide" onClick={onDismiss} />
       </div>
     </motion.div>

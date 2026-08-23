@@ -59,9 +59,10 @@ the end are recorded as refusals, so they are argued once instead of re-litigate
    share, and wall minutes would offer hours the sender is asleep in; the
    window is seven days from _now_, not "this week" — Monday-to-Sunday minted
    on a Friday is four dead days; and the receiver lands on the **week strip**,
-   the one face that reads the whole payload at a glance, with the gaps as
-   ghost arcs (dimmer than the drag's own, context not gesture) and one quiet
-   line naming what the overlay is and how to take it down. Nothing is ever
+   the one face that reads the whole payload at a glance, with the gaps drawn
+   hollow — the free event's own encoding, since a filled arc at any alpha
+   read as the receiver's own events — and one quiet line naming whose the
+   overlay is and how to take it down. Nothing is ever
    written: the fragment is consumed on arrival, a reload starts clean.
 
 9. **Natural-language edits in the palette.** `move standup to 10`, `push lunch

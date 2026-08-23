@@ -100,12 +100,13 @@ export interface FaceGhost {
  *  is two opinions on what "still being drawn" looks like. */
 export const GHOST_ALPHA = 0.45;
 
-/** How translucent a *received* free slot is — somebody else's gaps, drawn
- *  under your own day. Dimmer than `GHOST_ALPHA` on purpose: the drag's ghost
- *  is the thing being made and owns the eye; these are context it is made
- *  against, and at the drag's own weight a week of them shouts down the
- *  arcs. One constant for the dial and the strip, `GHOST_ALPHA`'s reason. */
-export const SLOT_ALPHA = 0.26;
+/** How translucent a *received* free slot's outline is. Hollow already says
+ *  "not booked" (it is the free event's own encoding), so the alpha only has
+ *  to keep a hairline legible on the void without competing with the arcs —
+ *  a filled arc at any alpha reads as an event, which is exactly the
+ *  misreading being avoided. One constant for the dial and the strip,
+ *  `GHOST_ALPHA`'s reason. */
+export const SLOT_ALPHA = 0.6;
 
 /**
  * Declared here rather than in `types.ts` for the reason `DialProps` and
@@ -679,14 +680,13 @@ export default function Face({
       {slots?.map(
         (slot, i) =>
           slot.end > slot.start && (
-            <GhostArc
+            <SlotArc
               key={i}
               clock={clock}
               start={slot.start}
               end={slot.end}
               color={slot.color}
               opacity={slot.opacity}
-              task={false}
             />
           ),
       )}
@@ -1567,6 +1567,47 @@ function GhostArc({
   const from = angleAt(start, clock) + inset;
   const to = Math.max(from, angleAt(end, clock) - inset);
   return <path d={arcPath(DIAL.LANE, from, to)} strokeLinecap="round" {...stroke} />;
+}
+
+/**
+ * A received free slot: somebody *else's* gap, drawn hollow.
+ *
+ * The outline is the free event's own encoding — a placeholder you are meant
+ * to book over — which is exactly what a shared gap is, one calendar removed.
+ * Filled translucent was tried first and read as the receiver's own arcs
+ * (the ghost is "the range being drawn", and these were never drawn here),
+ * so the fill is withheld: an empty band at the lane says "open", not
+ * "booked". Same footprint arithmetic as `GhostArc` above — `hollowPath`
+ * keeps `capInset`'s promise, and its own closed-turn branch answers a slot
+ * that covers the whole revolution.
+ */
+function SlotArc({
+  clock,
+  start,
+  end,
+  color,
+  opacity,
+}: {
+  clock: Clock;
+  start: number;
+  end: number;
+  color: string;
+  opacity: number;
+}) {
+  const stroke = {
+    fill: "none",
+    stroke: color,
+    strokeOpacity: opacity,
+    strokeWidth: ARC_HAIRLINE,
+    pointerEvents: "none",
+  } as const;
+  if (end - start >= MINUTES_PER_DAY) {
+    return <path d={hollowPath(DIAL.LANE, 0, 360)} {...stroke} />;
+  }
+  const inset = capInset(DIAL.LANE);
+  const from = angleAt(start, clock) + inset;
+  const to = Math.max(from, angleAt(end, clock) - inset);
+  return <path d={hollowPath(DIAL.LANE, from, to)} {...stroke} />;
 }
 
 /**
