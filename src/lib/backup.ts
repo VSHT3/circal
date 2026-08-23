@@ -13,6 +13,7 @@
  * ------------------------------------------------------------------ */
 
 import { fnv1a, fromIcs, toIcs } from "./ics";
+import { isThemeName } from "./theme";
 import { placeForZone } from "./places";
 import {
   DEFAULT_SETTINGS,
@@ -174,6 +175,10 @@ export function readSettings(value: unknown): Settings {
     // there are exactly two spellings and both are written out by every
     // version that has ever had the setting.
     clock: value.clock === "12h" || value.clock === "24h" ? value.clock : DEFAULT_SETTINGS.clock,
+    // A preset this build does not carry resets rather than half-applies:
+    // `sane()` would pin it anyway, but a restored calendar should not spend
+    // one commit looking broken first.
+    theme: isThemeName(value.theme) ? value.theme : DEFAULT_SETTINGS.theme,
     secondZone: typeof value.secondZone === "string" ? value.secondZone : "",
     // The zone the browser that wrote this backup was in. Carried rather than
     // dropped, and deliberately not replaced with the reader's own: a Berlin

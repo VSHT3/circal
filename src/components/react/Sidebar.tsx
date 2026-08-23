@@ -39,6 +39,7 @@ export default function Sidebar({
   events,
   calendars,
   moon,
+  theme,
   weekStart,
   actions,
 }: SidebarProps) {
@@ -201,7 +202,7 @@ export default function Sidebar({
                 sits at the foot of a dial. It reads the *selected* day, which
                 is what makes it worth having: arrowing through a week walks
                 the moon through its week. */}
-      {moon && <MoonPanel day={day} />}
+      {moon && <MoonPanel day={day} theme={theme} />}
     </div>
   );
 

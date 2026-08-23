@@ -678,7 +678,7 @@ export default function CommandPalette({
                           onClick={row.run}
                           className={cn(
                             "mx-1.5 flex h-9 cursor-pointer items-center gap-2.5 rounded-[8px] px-4 text-[13.5px] text-ink transition-colors",
-                            active && "bg-white/8",
+                            active && "bg-(--veil-08)",
                           )}
                         >
                           {row.mark ? (

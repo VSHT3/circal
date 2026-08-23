@@ -49,7 +49,7 @@ export function ScopeChoices({ heading, danger, onPick, onCancel }: ScopeChoices
             type="button"
             onClick={() => onPick(scope)}
             className={cn(
-              "flex h-9 items-center rounded-[9px] border border-hairline bg-surface-2 px-3 text-left text-[14px] transition-colors hover:bg-white/10",
+              "flex h-9 items-center rounded-[9px] border border-hairline bg-surface-2 px-3 text-left text-[14px] transition-colors hover:bg-(--veil-10)",
               danger ? "text-danger" : "text-ink",
             )}
           >

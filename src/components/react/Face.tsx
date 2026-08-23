@@ -68,6 +68,7 @@ import {
 import type { ArcLabelMode } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { EASE, INTRO_SETTLE_MS, INTRO_SWEEP_MS, MODE_MS, MOOD_MS } from "@/lib/motion";
+import { THEME_PALETTES, wash, washHex, type ThemeName } from "@/lib/theme";
 
 /**
  * What a press on an arc took hold of: one of its two ends, all of it, or —
@@ -105,6 +106,9 @@ export interface FaceProps {
   occurrences: Occurrence[];
   calendars: Calendar[];
   clock: Clock;
+  /** Which greyscale the face draws in — `settings.theme`, threaded because
+   *  every canvas-side colour below is computed, not styled. */
+  theme: ThemeName;
 
   /* --- What this face carries besides its arcs. Every one off by default. --- */
 
@@ -236,12 +240,15 @@ function introDelay(minute: number, clock: Clock, lead = 0): CSSProperties {
 }
 
 /**
- * White at `level` alpha, pre-composited against the black canvas. Opaque, so
- * overlapping strokes replace rather than accumulate.
+ * The elapsed ramp's shade at `level`: a lerp from the theme's own void up
+ * to its ink. On midnight that is exactly the white-at-level multiply this
+ * always was — same bytes, pinned in `tests/theme.test.ts` — and on paper
+ * the same ramp darkens toward printed ink instead of brightening toward
+ * white. Opaque either way, so overlapping strokes replace rather than
+ * accumulate.
  */
-function grey(level: number): string {
-  const v = Math.round(clamp(level, 0, 1) * 255);
-  return `rgb(${v},${v},${v})`;
+function grey(theme: ThemeName, level: number): string {
+  return washHex(theme, THEME_PALETTES[theme].ink, level);
 }
 
 /** An id safe to put behind a `#` in a `url(…)` or an `href`. */
@@ -275,6 +282,7 @@ export default function Face({
   occurrences,
   calendars,
   clock,
+  theme,
   glow = false,
   track = false,
   ticks = false,
@@ -300,6 +308,7 @@ export default function Face({
   onPointerUp,
   onPointerCancel,
 }: FaceProps) {
+  const P = THEME_PALETTES[theme];
   const glowId = useSvgId("face-glow");
   const today = isSameDay(day, now);
   const nowMin = minutesOfDay(now);
@@ -409,11 +418,11 @@ export default function Face({
       const level = 0.045 + 0.62 * ((i + 0.7) / count) ** 1.7;
       return {
         d: arcPath(DIAL.TRACK, a, Math.min(b, to)),
-        stroke: grey(level),
+        stroke: grey(theme, level),
         cap: i === 0 || i === count - 1 ? ("round" as const) : ("butt" as const),
       };
     });
-  }, [elapsed, banded, spent, clock]);
+  }, [elapsed, banded, spent, clock, theme]);
 
   /**
    * Each arc's clearance from its neighbours on the same lane, in minutes.
@@ -477,9 +486,9 @@ export default function Face({
         <>
           <defs>
             <radialGradient id={glowId}>
-              <stop offset="0%" stopColor="#fff" stopOpacity="0.05" />
-              <stop offset="52%" stopColor="#fff" stopOpacity="0.014" />
-              <stop offset="100%" stopColor="#fff" stopOpacity="0" />
+              <stop offset="0%" stopColor={P.ink} stopOpacity="0.05" />
+              <stop offset="52%" stopColor={P.ink} stopOpacity="0.014" />
+              <stop offset="100%" stopColor={P.ink} stopOpacity="0" />
             </radialGradient>
           </defs>
           <circle
@@ -509,7 +518,7 @@ export default function Face({
           //
           // The value is chosen at strip size, where it lands at about the
           // ramp's own floor once that rounding is done.
-          stroke="#fff"
+          stroke={P.tick}
           strokeOpacity={0.28}
           strokeWidth={DIAL.TRACK_WIDTH}
           pointerEvents="none"
@@ -522,6 +531,7 @@ export default function Face({
             <SunBand
               day={day}
               clock={clock}
+              theme={theme}
               place={band.place}
               daylight={band.daylight}
               moonlight={band.moonlight}
@@ -561,6 +571,7 @@ export default function Face({
             <SunBand
               day={day}
               clock={clock}
+              theme={theme}
               place={zoneBand.place}
               daylight={zoneBand.daylight}
               moonlight={zoneBand.moonlight}
@@ -573,6 +584,7 @@ export default function Face({
             <ZoneRing
               now={now}
               clock={clock}
+              theme={theme}
               zone={zoneRing.zone}
               showName={zoneRing.showName}
               showOffset={zoneRing.showOffset}
@@ -581,10 +593,11 @@ export default function Face({
         )}
       </AnimatePresence>
 
-      {ticks && <Ticks clock={clock} intro={intro} />}
+      {ticks && <Ticks clock={clock} theme={theme} intro={intro} />}
       {numerals !== "none" && (
         <HourLabels
           clock={clock}
+          theme={theme}
           quartersOnly={numerals === "quarters"}
           meridiem={meridiem}
           intro={intro}
@@ -648,7 +661,7 @@ export default function Face({
           {/* Keyed on the face: relabelling is a 180° jump, and a hand
               sweeping half the dial while the numerals under it teleport is
               two events. */}
-          <NowHand key={clock} minutes={nowMin} clock={clock} dimmed={gesturing} />
+          <NowHand key={clock} minutes={nowMin} clock={clock} theme={theme} dimmed={gesturing} />
         </g>
       )}
     </svg>
@@ -678,6 +691,7 @@ export default function Face({
 function SunBand({
   day,
   clock,
+  theme,
   place,
   daylight,
   moonlight,
@@ -685,6 +699,7 @@ function SunBand({
 }: {
   day: Date;
   clock: Clock;
+  theme: ThemeName;
   place: Place;
   daylight: boolean;
   moonlight: boolean;
@@ -708,8 +723,8 @@ function SunBand({
       // Overlap the neighbour: an exact butt-to-butt join leaves an
       // antialiasing seam, which is the same artefact one shade darker.
       const to = angleAt((i + 1) * step, clock) + 0.3;
-      // Both pre-composited against black. Warm but desaturated for day, and a
-      // dim violet for night — saturated colour on this canvas belongs to
+      // Washed over the theme's own ground: warm but desaturated for day,
+      // a dim violet for night — saturated colour on this canvas belongs to
       // events, and neither band may compete with an arc.
       const [r, g, b] = value > 0 ? [255, 198, 124] : [150, 132, 255];
       const k = Math.abs(value);
@@ -717,7 +732,7 @@ function SunBand({
       has[half][i] = true;
       lit[half].push({
         d: arcPath(radius, from, to),
-        stroke: `rgb(${Math.round(r * k)},${Math.round(g * k)},${Math.round(b * k)})`,
+        stroke: wash(theme, r, g, b, k),
       });
     }
 
@@ -745,7 +760,7 @@ function SunBand({
     });
 
     return lit.map((segments, half) => ({ segments, ...sweeps[half] }));
-  }, [day, clock, place, radius]);
+  }, [day, clock, place, radius, theme]);
 
   // Each half is masked by a stroke of its own that draws itself along the
   // face, from that half's own first minute and in the direction the day runs.
@@ -816,16 +831,19 @@ function SunBand({
 function ZoneRing({
   now,
   clock,
+  theme,
   zone,
   showName,
   showOffset,
 }: {
   now: Date;
   clock: Clock;
+  theme: ThemeName;
   zone: string;
   showName: boolean;
   showOffset: boolean;
 }) {
+  const P = THEME_PALETTES[theme];
   const marks = useMemo(() => {
     // Minutes the zone runs ahead of the viewer. `getTimezoneOffset` is
     // minutes *behind* UTC, hence the addition.
@@ -859,7 +877,8 @@ function ZoneRing({
           y={mark.y}
           textAnchor="middle"
           dominantBaseline="central"
-          className="fill-[#55555a] font-mono"
+          className="font-mono"
+          fill={P.numeralZone}
           fontSize={15}
           fontWeight={500}
           letterSpacing="0.04em"
@@ -885,7 +904,16 @@ function ZoneRing({
   );
 }
 
-function Ticks({ clock, intro = false }: { clock: Clock; intro?: boolean }) {
+function Ticks({
+  clock,
+  theme,
+  intro = false,
+}: {
+  clock: Clock;
+  theme: ThemeName;
+  intro?: boolean;
+}) {
+  const P = THEME_PALETTES[theme];
   // Half-hour resolution: enough texture to read the ring as a scale, sparse
   // enough that the numerals still lead.
   const ticks = [];
@@ -904,7 +932,7 @@ function Ticks({ clock, intro = false }: { clock: Clock; intro?: boolean }) {
         y1={a.y}
         x2={b.x}
         y2={b.y}
-        stroke="#fff"
+        stroke={P.tick}
         strokeOpacity={cardinal ? 0.6 : hour ? 0.26 : 0.13}
         strokeWidth={cardinal ? 2 : 1}
         strokeLinecap="round"
@@ -935,15 +963,18 @@ function Ticks({ clock, intro = false }: { clock: Clock; intro?: boolean }) {
  */
 function HourLabels({
   clock,
+  theme,
   quartersOnly = false,
   meridiem = true,
   intro = false,
 }: {
   clock: Clock;
+  theme: ThemeName;
   quartersOnly?: boolean;
   meridiem?: boolean;
   intro?: boolean;
 }) {
+  const P = THEME_PALETTES[theme];
   return (
     <g pointerEvents="none" textAnchor="middle">
       {Array.from({ length: 24 }, (_, h) => {
@@ -967,7 +998,8 @@ function HourLabels({
               x={x}
               y={y}
               dominantBaseline="central"
-              className={cn("fill-[#6d6d73]", arriving?.className)}
+              className={arriving?.className}
+              fill={P.numeralHour}
               fontSize={19.5}
               fontWeight={450}
               opacity={quartersOnly ? 0 : 1}
@@ -1477,7 +1509,18 @@ function GhostArc({
  *
  * The minute step is glided rather than jumped — see `useEasedAngle`.
  */
-function NowHand({ minutes, clock, dimmed }: { minutes: number; clock: Clock; dimmed: boolean }) {
+function NowHand({
+  minutes,
+  clock,
+  theme,
+  dimmed,
+}: {
+  minutes: number;
+  clock: Clock;
+  theme: ThemeName;
+  dimmed: boolean;
+}) {
+  const P = THEME_PALETTES[theme];
   // Eased into new geometry rather than rotated into place. A CSS rotation
   // would be cheaper, but it needs a transform origin, and `transform-box`
   // resolves percentages against a box whose own origin is the cropped
@@ -1501,9 +1544,9 @@ function NowHand({ minutes, clock, dimmed }: { minutes: number; clock: Clock; di
           x2={inner.x}
           y2={inner.y}
         >
-          <stop offset="0%" stopColor="#fff" stopOpacity="1" />
-          <stop offset="42%" stopColor="#fff" stopOpacity="0.62" />
-          <stop offset="100%" stopColor="#fff" stopOpacity="0" />
+          <stop offset="0%" stopColor={P.tick} stopOpacity="1" />
+          <stop offset="42%" stopColor={P.tick} stopOpacity="0.62" />
+          <stop offset="100%" stopColor={P.tick} stopOpacity="0" />
         </linearGradient>
       </defs>
       <line
@@ -1515,7 +1558,7 @@ function NowHand({ minutes, clock, dimmed }: { minutes: number; clock: Clock; di
         strokeWidth={DIAL.HAND_WIDTH}
         strokeLinecap="round"
       />
-      <circle cx={head.x} cy={head.y} r={DIAL.HAND_PIP} fill="#fff" />
+      <circle cx={head.x} cy={head.y} r={DIAL.HAND_PIP} fill={P.tick} />
     </g>
   );
 }

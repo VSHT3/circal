@@ -201,6 +201,7 @@ export default function Settings({
   actions,
 }: SettingsPanelProps) {
   const {
+    theme,
     clock,
     stampedZones,
     secondZone,
@@ -756,6 +757,29 @@ export default function Settings({
             <div className="no-scrollbar flex-1 overflow-y-auto p-3 [--field-label:88px]">
               <div className="columns-[320px] gap-3">
                 <Section title="Face">
+                  <FieldRow label="Theme" align="top">
+                    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
+                      <Segmented
+                        value={theme}
+                        onChange={store.setTheme}
+                        options={[
+                          { id: "midnight" as const, label: "Midnight" },
+                          { id: "ember" as const, label: "Ember" },
+                          { id: "paper" as const, label: "Paper" },
+                        ]}
+                      />
+                      <span className="label text-ink-2">Greyscale</span>
+                    </div>
+                    {/* The argument for three named presets and against a
+                    slider, in one sentence: a slider is a thousand faces
+                    nobody tested; these are three faces somebody did. Colour
+                    still belongs to events — only the greyscale they sit on
+                    moves. */}
+                    <span className="caption">
+                      Chrome comes in one of three greyscales; event colours stay put on any of them
+                    </span>
+                  </FieldRow>
+
                   <FieldRow label="Dial" align="top">
                     <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
                       <Segmented
@@ -1259,7 +1283,7 @@ export default function Settings({
                         type="button"
                         onClick={() => void addFeed()}
                         disabled={!feedUrl.trim()}
-                        className="h-8 shrink-0 rounded-[8px] border border-hairline bg-surface-2 px-3 text-[13px] text-ink transition-colors hover:bg-white/10 disabled:pointer-events-none disabled:opacity-35"
+                        className="h-8 shrink-0 rounded-[8px] border border-hairline bg-surface-2 px-3 text-[13px] text-ink transition-colors hover:bg-(--veil-10) disabled:pointer-events-none disabled:opacity-35"
                       >
                         Add
                       </button>
@@ -1433,7 +1457,7 @@ export default function Settings({
                                 href="/assistant/"
                                 target="_blank"
                                 rel="noopener"
-                                className="flex h-8 w-fit items-center gap-1.5 rounded-[8px] border border-hairline bg-surface-2 px-2.5 text-[13px] text-ink transition-colors hover:bg-white/10"
+                                className="flex h-8 w-fit items-center gap-1.5 rounded-[8px] border border-hairline bg-surface-2 px-2.5 text-[13px] text-ink transition-colors hover:bg-(--veil-10)"
                               >
                                 <ArrowUpRight size={13} strokeWidth={1.75} />
                                 Set up an assistant
@@ -1661,7 +1685,7 @@ export default function Settings({
                       href="/manifesto/"
                       target="_blank"
                       rel="noopener"
-                      className="flex h-8 w-fit items-center gap-1.5 rounded-[8px] border border-hairline bg-surface-2 px-2.5 text-[13px] text-ink transition-colors hover:bg-white/10"
+                      className="flex h-8 w-fit items-center gap-1.5 rounded-[8px] border border-hairline bg-surface-2 px-2.5 text-[13px] text-ink transition-colors hover:bg-(--veil-10)"
                     >
                       <ArrowUpRight size={13} strokeWidth={1.75} />
                       Why a day is a circle
@@ -1731,7 +1755,7 @@ function DataButton({
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        "flex h-8 items-center gap-1.5 rounded-[8px] border border-hairline bg-surface-2 px-2.5 text-[13px] transition-colors hover:bg-white/10 disabled:pointer-events-none disabled:opacity-35",
+        "flex h-8 items-center gap-1.5 rounded-[8px] border border-hairline bg-surface-2 px-2.5 text-[13px] transition-colors hover:bg-(--veil-10) disabled:pointer-events-none disabled:opacity-35",
         danger ? "text-danger" : "text-ink",
       )}
     >

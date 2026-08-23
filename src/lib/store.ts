@@ -60,6 +60,7 @@ import { applyRemove, applySplit, applyToggleDone, applyTruncate, applyUpdate } 
 import { pruneGraves, restamped } from "./merge";
 import { DEFAULT_DURATION, MIN_DURATION } from "./quickadd";
 import { REMIND_LEADS } from "./remind";
+import { DEFAULT_THEME, isThemeName, type ThemeName } from "./theme";
 import { clearedStamps, countStamped, keptEvents, movedEvents } from "./travel";
 import type { PickedPlace } from "./places";
 
@@ -180,6 +181,13 @@ export type BackupInterval = (typeof BACKUP_INTERVALS)[number];
 export const WEEK_STARTS: readonly WeekStart[] = [1, 0, 6];
 
 export interface Settings {
+  /**
+   * Which greyscale chrome wears — one of three presets, never free-form:
+   * see `lib/theme.ts`. The CSS tokens follow `<html data-theme>`, which
+   * `App` writes; the canvases read `THEME_PALETTES` directly, because
+   * `fillStyle` cannot.
+   */
+  theme: ThemeName;
   /** Which face the dial wears — see `lib/dial.ts`. */
   clock: Clock;
   /**
@@ -440,6 +448,9 @@ export interface Snapshot {
 type Persisted = Omit<Snapshot, "feeds">;
 
 export const DEFAULT_SETTINGS: Settings = {
+  // Midnight is not "a preset that happens to be first": it is the app every
+  // existing user has, so it is the default and the other two are opt-in.
+  theme: DEFAULT_THEME,
   // The 0–23 face. It is the one that matches the instrument: a revolution is
   // a day here, not half of one, so an hour has exactly one place on it and
   // `13` is where `13` is. AM/PM is a preference, and it is one click away.
@@ -836,6 +847,9 @@ function sane(settings: Settings): Settings {
     weekStart: WEEK_STARTS.includes(settings.weekStart)
       ? settings.weekStart
       : DEFAULT_SETTINGS.weekStart,
+    // A name off the list would leave `<html data-theme>` naming a preset no
+    // stylesheet block answers — chrome half-drawn in two greyscales at once.
+    theme: isThemeName(settings.theme) ? settings.theme : DEFAULT_SETTINGS.theme,
     ...waking,
   };
 }
@@ -1691,6 +1705,11 @@ export const store = {
   setClock(clock: Clock) {
     const base = fresh();
     commit(withSettings(base, { ...base.settings, clock }), false);
+  },
+
+  setTheme(theme: ThemeName) {
+    const base = fresh();
+    commit(withSettings(base, { ...base.settings, theme }), false);
   },
 
   setTotalsAt(totalsAt: TotalsPosition) {

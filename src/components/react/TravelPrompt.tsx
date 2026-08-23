@@ -102,7 +102,7 @@ export function TravelPrompt({
             <button
               type="button"
               onClick={onKeep}
-              className="h-9 w-full rounded-[9px] border border-hairline bg-surface-2 text-[13.5px] font-medium text-ink transition-colors hover:bg-white/10"
+              className="h-9 w-full rounded-[9px] border border-hairline bg-surface-2 text-[13.5px] font-medium text-ink transition-colors hover:bg-(--veil-10)"
             >
               Keep them as they are
             </button>

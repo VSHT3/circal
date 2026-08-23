@@ -57,7 +57,7 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, State> {
                 allowed to depend on any of it. */}
             <button
               type="button"
-              className="flex-1 rounded-[9px] border border-hairline bg-surface-2 px-3 py-2 text-[12px] text-ink transition-colors hover:bg-white/10"
+              className="flex-1 rounded-[9px] border border-hairline bg-surface-2 px-3 py-2 text-[12px] text-ink transition-colors hover:bg-(--veil-10)"
               onClick={() => void exportBackup(store.snapshot())}
             >
               Download backup

@@ -1,6 +1,7 @@
 /* Shared prop contracts between the shell (`App.tsx`) and its panels. */
 
 import type { RefObject } from "react";
+import type { ThemeName } from "@/lib/theme";
 import type { Clock, WeekStart } from "@/lib/time";
 import type { CalEvent, Calendar, Occurrence } from "@/lib/events";
 import type { LifeRun, LifeStage } from "@/lib/life";
@@ -195,6 +196,9 @@ export interface SidebarProps {
    * should not be able to re-render on a twenty-eighth changing.
    */
   moon: boolean;
+  /** Which greyscale the moon's two inks come from — a scalar for the same
+   *  reason `moon` is. */
+  theme: ThemeName;
   /** As `TopBarProps.weekStart` — the mini-month's grid and header follow
    *  it too. */
   weekStart: WeekStart;

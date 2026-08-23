@@ -394,6 +394,16 @@ describe("readSettings", () => {
   });
 
   it.each([
+    { name: "a preset this build carries", stored: "paper", want: "paper" },
+    { name: "a preset it does not", stored: "sepia", want: DEFAULT_SETTINGS.theme },
+    { name: "junk", stored: 7, want: DEFAULT_SETTINGS.theme },
+  ])("readSettings theme: $name → $want", ({ stored, want }) => {
+    // A restored calendar must not spend one commit looking broken: an
+    // unknown preset resets to midnight here rather than half-applying.
+    expect(readSettings({ theme: stored }).theme).toBe(want);
+  });
+
+  it.each([
     "showZoneName",
     "showZoneOffset",
     "daylight",

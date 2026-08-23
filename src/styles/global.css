@@ -33,7 +33,39 @@
   --color-danger: var(--danger);
 }
 
+/* ------------------------------------------------------------------
+ * Chrome tokens, in three greyscales.
+ *
+ * `settings.theme` names one of three presets (`lib/theme.ts`, which also
+ * carries what a stylesheet cannot reach — canvas fills and SVG strokes).
+ * `App` writes the name onto `<html data-theme>`, and every colour below
+ * follows. The first block matches both no attribute and `midnight`, so a
+ * page pre-hydration paints the app every existing user has.
+ *
+ * The veil steps are white-alpha overlays (hovers, chips, selected tracks)
+ * spelled out at each strength they are used, because their paper
+ * equivalents are *black* alpha of the same strengths — one token could
+ * not flip direction. Paper's alphas sit a point or two under midnight's,
+ * because dark ink carries further on a light ground than light ink does
+ * on a dark one.
+ * ------------------------------------------------------------------ */
 :root {
+  --radius: 0.625rem;
+
+  /* One duration + one curve for pointer-caused state. */
+  --dur: 160ms;
+  --ease: cubic-bezier(0.32, 0.72, 0, 1);
+  /* The same idea for something that changes *size* rather than state.
+     `--ease` spends two thirds of its travel in the first quarter of its
+     time, which is exactly right for a highlight arriving under a cursor and
+     exactly wrong for type dropping forty per cent: at any duration it reads
+     as a bang and then a settle. This one leaves gently and arrives gently. */
+  --ease-size: cubic-bezier(0.45, 0.05, 0.25, 1);
+}
+
+:root,
+:root[data-theme="midnight"] {
+  color-scheme: dark;
   /* Canvas. True black — the dial's outer glow needs somewhere to fall to,
      and the reference app is black, not near-black. */
   --void: #000000;
@@ -50,17 +82,77 @@
   --accent: #a3d9e4; /* default calendar colour */
   --danger: #ff5a5a;
 
-  --radius: 0.625rem;
+  --veil-05: rgb(255 255 255 / 0.05);
+  --veil-06: rgb(255 255 255 / 0.06);
+  --veil-08: rgb(255 255 255 / 0.08);
+  --veil-10: rgb(255 255 255 / 0.1);
+  --veil-15: rgb(255 255 255 / 0.15);
+  --veil-20: rgb(255 255 255 / 0.2);
+  --ring-40: rgb(255 255 255 / 0.4);
+  --chip: rgb(255 255 255 / 0.09); /* `.kbd`'s keycap */
+  --on-accent: #000000; /* text on an accent-filled control */
+  /* The centre card's halo over the dial interior. Voids of the card's own
+     ground at the opacities `CenterPanel` always used. */
+  --scrim-a: rgb(0 0 0 / 0.94);
+  --scrim-b: rgb(0 0 0 / 0.82);
+}
 
-  /* One duration + one curve for pointer-caused state. */
-  --dur: 160ms;
-  --ease: cubic-bezier(0.32, 0.72, 0, 1);
-  /* The same idea for something that changes *size* rather than state.
-     `--ease` spends two thirds of its travel in the first quarter of its
-     time, which is exactly right for a highlight arriving under a cursor and
-     exactly wrong for type dropping forty per cent: at any duration it reads
-     as a bang and then a settle. This one leaves gently and arrives gently. */
-  --ease-size: cubic-bezier(0.45, 0.05, 0.25, 1);
+:root[data-theme="ember"] {
+  color-scheme: dark;
+  --void: #151110;
+  --surface: #1f1a16;
+  --surface-2: #2a231d;
+  --hairline: rgb(255 236 214 / 0.09);
+
+  --ink: #f3ece1;
+  --ink-2: #a89b8b;
+  --ink-3: #7c7264;
+  --ink-4: #4a4238;
+
+  --accent: #a3d9e4;
+  --danger: #ff5a5a;
+
+  --veil-05: rgb(255 240 224 / 0.05);
+  --veil-06: rgb(255 240 224 / 0.06);
+  --veil-08: rgb(255 240 224 / 0.08);
+  --veil-10: rgb(255 240 224 / 0.1);
+  --veil-15: rgb(255 240 224 / 0.15);
+  --veil-20: rgb(255 240 224 / 0.2);
+  --ring-40: rgb(255 240 224 / 0.4);
+  --chip: rgb(255 240 224 / 0.08);
+  --on-accent: #000000;
+  --scrim-a: rgb(12 7 4 / 0.94);
+  --scrim-b: rgb(12 7 4 / 0.82);
+}
+
+:root[data-theme="paper"] {
+  color-scheme: light;
+  /* Ink and ground trade places. Surfaces go lighter than the page rather
+     than darker, the way paper cards do. */
+  --void: #f2efe8;
+  --surface: #faf8f3;
+  --surface-2: #ffffff;
+  --hairline: rgb(42 36 28 / 0.12);
+
+  --ink: #26221b;
+  --ink-2: #6d675c;
+  --ink-3: #948d80;
+  --ink-4: #ccc6ba;
+
+  --accent: #177078;
+  --danger: #c0392f;
+
+  --veil-05: rgb(38 34 27 / 0.04);
+  --veil-06: rgb(38 34 27 / 0.05);
+  --veil-08: rgb(38 34 27 / 0.07);
+  --veil-10: rgb(38 34 27 / 0.09);
+  --veil-15: rgb(38 34 27 / 0.13);
+  --veil-20: rgb(38 34 27 / 0.17);
+  --ring-40: rgb(38 34 27 / 0.35);
+  --chip: rgb(38 34 27 / 0.07);
+  --on-accent: #f7f5ef;
+  --scrim-a: rgb(242 239 232 / 0.96);
+  --scrim-b: rgb(242 239 232 / 0.85);
 }
 
 @theme {
@@ -71,7 +163,6 @@
 @layer base {
   html {
     @apply font-sans;
-    color-scheme: dark;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     /* The app is exactly one viewport. Nothing scrolls but lists. */
@@ -87,7 +178,7 @@
 
   ::selection {
     background: var(--accent);
-    color: #000;
+    color: var(--on-accent);
   }
 
   /* Focus is keyboard-only; the pointer never draws a ring on this canvas. */
@@ -139,7 +230,7 @@
   /* Keyboard chip. Always paired with the action it triggers, never alone. */
   .kbd {
     @apply inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-[5px] px-[3px] font-mono text-[11px] leading-none text-ink-2;
-    background: rgba(255, 255, 255, 0.09);
+    background: var(--chip);
   }
 
   /* Scrollable list that fades into its container instead of ending on a

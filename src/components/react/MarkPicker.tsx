@@ -118,15 +118,15 @@ function MarkFields({
         title={noneLabel}
         onClick={() => onChange("")}
         className={cn(
-          "grid size-[26px] shrink-0 place-items-center rounded-[7px] transition-colors hover:bg-white/8",
-          icon === "" && "bg-white/10",
+          "grid size-[26px] shrink-0 place-items-center rounded-[7px] transition-colors hover:bg-(--veil-08)",
+          icon === "" && "bg-(--veil-10)",
         )}
       >
         <CalendarMark icon="" color={color} size={14} />
       </button>
       {/* A divider, so "nothing" reads as a different kind of answer from the
           grid of glyphs under it. */}
-      <span aria-hidden className="h-4 w-px bg-white/15" />
+      <span aria-hidden className="h-4 w-px bg-(--veil-15)" />
       <input
         autoFocus={autoFocus}
         value={query}
@@ -169,8 +169,8 @@ function MarkCell({
       data-mark={name}
       onClick={onPick}
       className={cn(
-        "grid place-items-center rounded-[7px] transition-colors hover:bg-white/8",
-        selected && "bg-white/10",
+        "grid place-items-center rounded-[7px] transition-colors hover:bg-(--veil-08)",
+        selected && "bg-(--veil-10)",
         className,
       )}
     >
@@ -479,7 +479,7 @@ export function MarkPicker({
             opener.current = e.currentTarget;
             onBrowse(true);
           }}
-          className="grid size-[26px] shrink-0 place-items-center rounded-[7px] text-ink-2 transition-colors hover:bg-white/8 hover:text-ink"
+          className="grid size-[26px] shrink-0 place-items-center rounded-[7px] text-ink-2 transition-colors hover:bg-(--veil-08) hover:text-ink"
         >
           <Maximize2 size={14} strokeWidth={1.75} />
         </button>

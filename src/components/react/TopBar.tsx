@@ -101,7 +101,7 @@ export default function TopBar({
           <button
             type="button"
             onClick={actions.goToday}
-            className="h-7 rounded-[8px] px-2 text-[13px] text-ink-2 transition-colors hover:bg-white/6 hover:text-ink"
+            className="h-7 rounded-[8px] px-2 text-[13px] text-ink-2 transition-colors hover:bg-(--veil-06) hover:text-ink"
           >
             Today
           </button>

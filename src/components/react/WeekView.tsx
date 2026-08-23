@@ -289,7 +289,7 @@ export default function WeekView({
                 key={d.date.getTime()}
                 ref={i === selectedIndex ? selectedFace : undefined}
                 type="button"
-                className="absolute rounded-[14px] outline-none focus-visible:ring-1 focus-visible:ring-white/40"
+                className="absolute rounded-[14px] outline-none focus-visible:ring-1 focus-visible:ring-(--ring-40)"
                 style={{
                   left: centre.x - layout.size / 2,
                   top: centre.y - layout.size / 2 - WEEK_CAPTION_H,
@@ -338,6 +338,7 @@ export default function WeekView({
                     occurrences={d.occurrences}
                     calendars={calendars}
                     clock={settings.clock}
+                    theme={settings.theme}
                     track
                     ticks={detailed}
                     numerals={detailed ? "quarters" : "none"}

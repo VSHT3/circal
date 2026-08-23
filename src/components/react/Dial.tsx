@@ -31,6 +31,7 @@ import {
 } from "@/lib/time";
 import { INTRO_SWEEP_MS } from "@/lib/motion";
 import type { Settings } from "@/lib/store";
+import { THEME_PALETTES } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import { useElementSize, useHotkeys } from "./hooks";
 import Face, { type FaceGhost, type Grip } from "./Face";
@@ -348,6 +349,7 @@ export default function Dial({
     daylight,
     moonlight,
     secondZone,
+    theme,
     showZoneName,
     showZoneOffset,
     zoneDaylight,
@@ -488,7 +490,7 @@ export default function Dial({
    *  about to open, and drawing both would double the same fact. A drag never
    *  draws a task — a gesture with a length in it is asking for a span. */
   const about = ghost
-    ? { ...ghost, color: "#ffffff", opacity: GHOST_ALPHA, task: false }
+    ? { ...ghost, color: THEME_PALETTES[theme].ghost, opacity: GHOST_ALPHA, task: false }
     : (copying ?? drafted);
 
   /**
@@ -723,6 +725,7 @@ export default function Dial({
         occurrences={occurrences}
         calendars={calendars}
         clock={clock}
+        theme={settings.theme}
         glow
         ticks
         // Ambient keeps the four the face is navigated by: twelve 19-unit

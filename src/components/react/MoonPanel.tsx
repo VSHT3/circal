@@ -13,20 +13,11 @@
  * ------------------------------------------------------------------ */
 
 import { moonForDay, nextPhase, type MoonPhase } from "@/lib/moon";
+import { THEME_PALETTES, type ThemeName } from "@/lib/theme";
 import { daysBetween, startOfDay } from "@/lib/time";
 
 /** The disc, in the drawing's own units. */
 const DISC = { c: 50, r: 44 } as const;
-
-/**
- * The shadow is the void itself — `#000000`, the sidebar's own background.
- * Nothing of the moon is drawn but the part the sun is on: no circumference,
- * no dark limb, so a new moon is nothing at all and a crescent is a crescent
- * rather than a disc with a crescent on it. It still needs a *fill* rather
- * than a hole, because the terminator occludes the lit half by being painted
- * over it.
- */
-const SHADOW = "#000000";
 
 /**
  * The terminator, drawn rather than masked: a circle of `rx = r|1 − 2k|`
@@ -34,20 +25,21 @@ const SHADOW = "#000000";
  * with the moon when it is gibbous. `k = 0.5` collapses it to nothing,
  * which is exactly the straight edge a quarter moon has.
  */
-function Disc({ phase }: { phase: MoonPhase }) {
+function Disc({ phase, theme }: { phase: MoonPhase; theme: ThemeName }) {
+  const P = THEME_PALETTES[theme];
   const { c, r } = DISC;
   const half = phase.waxing
     ? `M ${c} ${c - r} A ${r} ${r} 0 0 1 ${c} ${c + r} Z`
     : `M ${c} ${c - r} A ${r} ${r} 0 0 0 ${c} ${c + r} Z`;
   return (
     <>
-      <path d={half} fill="#ffffff" />
+      <path d={half} fill={P.moonLit} />
       <ellipse
         cx={c}
         cy={c}
         rx={r * Math.abs(1 - 2 * phase.illumination)}
         ry={r}
-        fill={phase.illumination > 0.5 ? "#ffffff" : SHADOW}
+        fill={phase.illumination > 0.5 ? P.moonLit : P.void}
       />
     </>
   );
@@ -67,7 +59,7 @@ function nextPhaseText(day: Date, phase: MoonPhase): string {
   return `${target} in ${days} days`;
 }
 
-export default function MoonPanel({ day }: { day: Date }) {
+export default function MoonPanel({ day, theme }: { day: Date; theme: ThemeName }) {
   const phase = moonForDay(day);
   const percent = Math.round(phase.illumination * 100);
 
@@ -76,7 +68,7 @@ export default function MoonPanel({ day }: { day: Date }) {
       <span className="label text-ink-2">Moon</span>
       <div className="flex items-center gap-3">
         <svg viewBox="0 0 100 100" className="h-[62px] w-[62px]" role="presentation">
-          <Disc phase={phase} />
+          <Disc phase={phase} theme={theme} />
         </svg>
         <div className="flex min-w-0 flex-col gap-1">
           <span className="label truncate text-ink-2">{phase.name}</span>

@@ -468,6 +468,16 @@ in the direction the day runs: daylight out of dawn, night out of dusk and on
 through midnight. A half that is the same either side does not move at all.
 With **reduce motion** set, none of it moves.
 
+## Three greyscales
+
+Chrome is greyscale by rule — colour belongs to events — but _which_
+greyscale is yours: **Settings → Face → Theme** offers **Midnight** (the
+true-black original), **Ember** (the same instrument on a warm dark ground)
+and **Paper** (ink on a light page, where the elapsed ring darkens the way
+ink accumulates rather than brightening). Three named presets, never a
+theme editor: a slider is a thousand faces nobody tested. Event colours
+stay put on all three.
+
 ## Your data
 
 Events live in this browser's `localStorage` under `circal.v1`, and by default

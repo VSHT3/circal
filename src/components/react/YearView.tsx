@@ -66,14 +66,9 @@ import {
 import { MONTHS, WEEKDAYS, clamp, daysBetween, formatDayRange } from "@/lib/time";
 import { UNROLL_IN_MS, UNROLL_OUT_MS } from "@/lib/motion";
 import { cue } from "@/lib/feedback";
+import { THEME_PALETTES, type ThemeName } from "@/lib/theme";
 import { useElementSize, useHotkeys } from "./hooks";
 import { cn } from "@/lib/utils";
-
-/** The accent, spelled out — an SVG `fill` cannot read a Tailwind token. */
-const ACCENT = "#a3d9e4";
-/** An empty day's mark. At the size a year renders this is a square, which is
- *  a dot — the same thing the same day is in the life grid. */
-const EMPTY_MARK = "#3a3a3e";
 
 /**
  * How white an *empty* day goes when it is the one being pointed at. Empty,
@@ -416,6 +411,7 @@ export default function YearView({
     () => ({ sound: settings.tickSound, haptics: settings.tickHaptics }),
     [settings.tickSound, settings.tickHaptics],
   );
+  const P = THEME_PALETTES[settings.theme];
 
   /**
    * The keyboard's cursor, and it is a cursor rather than a selection: naming
@@ -446,12 +442,12 @@ export default function YearView({
       out[i] = {
         angle: dayAngle(i, days),
         outer: markRadius(count),
-        color: colors[0] ?? EMPTY_MARK,
+        color: colors[0] ?? P.emptyMark,
         count,
       };
     }
     return out;
-  }, [year, days, events, calendars]);
+  }, [year, days, events, calendars, settings.theme]);
 
   /**
    * The days the query lit, over the same `dayTally` `marks` above is built
@@ -733,7 +729,7 @@ export default function YearView({
    *  range being dragged *is* the draft about to open, and drawing both would
    *  double the same fact. */
   const lit: Pending | null =
-    range === null ? drafted : { lo: range.lo, hi: range.hi, color: "#ffffff" };
+    range === null ? drafted : { lo: range.lo, hi: range.hi, color: P.ghost };
 
   /* -------------------------------- the unroll ---------------------------- */
 
@@ -811,9 +807,9 @@ export default function YearView({
       >
         <defs>
           <radialGradient id="year-glow">
-            <stop offset="0%" stopColor="#fff" stopOpacity="0.045" />
-            <stop offset="62%" stopColor="#fff" stopOpacity="0.014" />
-            <stop offset="100%" stopColor="#fff" stopOpacity="0" />
+            <stop offset="0%" stopColor={P.ink} stopOpacity="0.045" />
+            <stop offset="62%" stopColor={P.ink} stopOpacity="0.014" />
+            <stop offset="100%" stopColor={P.ink} stopOpacity="0" />
           </radialGradient>
         </defs>
         <circle cx={DIAL.C} cy={DIAL.C} r={YEAR.DAY_INNER} fill="url(#year-glow)" />
@@ -870,6 +866,7 @@ export default function YearView({
           today={todayIndex}
           pending={lit}
           matched={found?.lit ?? null}
+          theme={settings.theme}
           at={pointerAt}
           amount={amount}
         />
@@ -963,6 +960,7 @@ function Ring({
   today,
   pending,
   matched,
+  theme,
   at,
   amount,
 }: {
@@ -984,9 +982,11 @@ function Ring({
    * available to a search.
    */
   matched: boolean[] | null;
+  theme: ThemeName;
   at: MotionValue<number>;
   amount: MotionValue<number>;
 }) {
+  const P = THEME_PALETTES[theme];
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const paint = useCallback(() => {
@@ -1038,7 +1038,7 @@ function Ring({
       ctx.beginPath();
       ctx.moveTo(inner.x, inner.y);
       ctx.lineTo(outer.x, outer.y);
-      ctx.strokeStyle = carries ? ink : searchMiss ? EMPTY_MARK : mark.color;
+      ctx.strokeStyle = carries ? ink : searchMiss ? P.emptyMark : mark.color;
       ctx.stroke();
 
       // Light instead of a colour, never over one. An empty day has nothing
@@ -1060,7 +1060,7 @@ function Ring({
             : LIT_HOVER * lift ** FALLOFF.light;
       if (white > 0.004) {
         ctx.globalAlpha = white;
-        ctx.strokeStyle = "#fff";
+        ctx.strokeStyle = P.tick;
         ctx.stroke();
         ctx.globalAlpha = 1;
       }
@@ -1069,11 +1069,11 @@ function Ring({
         const pip = face.at(...radial(YEAR.TODAY_RING, angle));
         ctx.beginPath();
         ctx.arc(pip.x, pip.y, YEAR.TODAY_PIP * face.u, 0, Math.PI * 2);
-        ctx.fillStyle = ACCENT;
+        ctx.fillStyle = P.accent;
         ctx.fill();
       }
     }
-  }, [box.width, box.height, days, marks, selected, today, pending, matched, at, amount]);
+  }, [box.width, box.height, days, marks, selected, today, pending, matched, theme, at, amount]);
 
   useMotionValueEvent(at, "change", paint);
   useMotionValueEvent(amount, "change", paint);

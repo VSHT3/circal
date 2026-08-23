@@ -1171,6 +1171,29 @@ describe("sane() via parsing a stored blob", () => {
     expect(s.store.snapshot().settings.ambientAfter).toBe(want);
   });
 
+  // A preset name is enumerated, so a hand-edited blob can carry anything.
+  // An unknown one would leave `<html data-theme>` naming a block no
+  // stylesheet answers — chrome half-drawn in two greyscales at once.
+  it.each([
+    { name: "a name off the list", stored: "sepia", want: "midnight" },
+    { name: "a non-string", stored: 7, want: "midnight" },
+    { name: "a preset it can", stored: "paper", want: "paper" },
+  ])("theme: $name → $want", async ({ stored, want }) => {
+    const storage = new MemoryStorage();
+    storage.setItem(
+      KEY,
+      JSON.stringify({
+        schema: 2,
+        events: [],
+        calendars: [],
+        feeds: {},
+        settings: { theme: stored },
+      }),
+    );
+    const s = await freshStore(storage);
+    expect(s.store.snapshot().settings.theme).toBe(want);
+  });
+
   // The backup nudge's interval, pinned the same way: an interval off the list
   // is a nudge on a schedule nothing on screen names.
   it.each([

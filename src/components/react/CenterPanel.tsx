@@ -288,7 +288,7 @@ export default function CenterPanel({
           style={{
             transform: "translate(-50%, -50%)",
             gap: `${8 * u}px`,
-            textShadow: `0 0 ${16 * u}px #000`,
+            textShadow: `0 0 ${16 * u}px var(--void)`,
           }}
         >
           <span
@@ -380,7 +380,7 @@ export default function CenterPanel({
                     // that cannot be interpolated — dropping it for one mood is a
                     // pop where everything around it glides.
                     background:
-                      "radial-gradient(closest-side, rgba(0,0,0,0.94), rgba(0,0,0,0.82) 62%, transparent)",
+                      "radial-gradient(closest-side, var(--scrim-a), var(--scrim-b) 62%, transparent)",
                     transition: `${MODE} max-height`,
                   }}
                 >
@@ -483,7 +483,7 @@ export default function CenterPanel({
                             onMouseLeave={() => onHover(null)}
                             className={cn(
                               "flex h-full w-full items-center rounded-[6px] transition-colors",
-                              hovered === occ.key && "bg-white/8",
+                              hovered === occ.key && "bg-(--veil-08)",
                               today && status === "past" && "opacity-45",
                             )}
                             style={{
@@ -517,7 +517,7 @@ export default function CenterPanel({
                                   background: color,
                                   opacity: running || lead ? 1 : 0.75,
                                   boxShadow: imminent
-                                    ? `0 0 0 ${1.2 * u}px #000, 0 0 0 ${2.4 * u}px ${color}59`
+                                    ? `0 0 0 ${1.2 * u}px var(--void), 0 0 0 ${2.4 * u}px ${color}59`
                                     : undefined,
                                   transition: `${MOOD} width, ${MOOD} height, ${MOOD} opacity`,
                                 }}
@@ -610,7 +610,7 @@ export default function CenterPanel({
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 aria-label={`Join “${occ.event.title}”`}
-                                className="shrink-0 rounded-full border border-hairline font-mono font-medium text-ink uppercase transition-colors hover:bg-white/10"
+                                className="shrink-0 rounded-full border border-hairline font-mono font-medium text-ink uppercase transition-colors hover:bg-(--veil-10)"
                                 style={{
                                   fontSize: `${9.5 * u}px`,
                                   letterSpacing: "0.1em",
@@ -630,7 +630,7 @@ export default function CenterPanel({
                                     : `Mark “${occ.event.title}” done`
                                 }
                                 onClick={() => onToggleDone(occ)}
-                                className="grid shrink-0 place-items-center rounded-full transition-colors hover:bg-white/10"
+                                className="grid shrink-0 place-items-center rounded-full transition-colors hover:bg-(--veil-10)"
                                 style={{ width: `${13 * u}px`, height: `${13 * u}px` }}
                               >
                                 {/* Filled while it stands, hollow once it is

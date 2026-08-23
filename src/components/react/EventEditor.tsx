@@ -77,7 +77,7 @@ function DayField({
   label: string;
 }) {
   return (
-    <span className="relative inline-flex min-w-0 rounded-[6px] px-1 py-0.5 transition-colors focus-within:bg-white/8 hover:bg-white/6">
+    <span className="relative inline-flex min-w-0 rounded-[6px] px-1 py-0.5 transition-colors focus-within:bg-(--veil-08) hover:bg-(--veil-06)">
       <span className="truncate">{formatRelativeDay(value)}</span>
       <input
         type="date"
@@ -641,7 +641,7 @@ export default function EventEditor({
       // string either way, so the button says the same thing to a screen
       // reader at both widths.
       aria-label="Share link"
-      className="flex shrink-0 items-center gap-1.5 rounded-[8px] px-2 py-1 text-[14px] whitespace-nowrap text-ink-2 transition-colors hover:bg-white/6 hover:text-ink"
+      className="flex shrink-0 items-center gap-1.5 rounded-[8px] px-2 py-1 text-[14px] whitespace-nowrap text-ink-2 transition-colors hover:bg-(--veil-06) hover:text-ink"
     >
       <Link2 size={14} strokeWidth={1.75} />
       <span className="hidden md:inline">Share link</span>
@@ -1096,7 +1096,7 @@ export default function EventEditor({
                     autoFocus
                     type="button"
                     onClick={onClose}
-                    className="ml-auto flex h-8 shrink-0 items-center gap-1.5 rounded-[9px] border border-hairline bg-surface-2 px-3 text-[14px] text-ink transition-colors hover:bg-white/10"
+                    className="ml-auto flex h-8 shrink-0 items-center gap-1.5 rounded-[9px] border border-hairline bg-surface-2 px-3 text-[14px] text-ink transition-colors hover:bg-(--veil-10)"
                   >
                     Close
                     <Kbd>esc</Kbd>
@@ -1108,7 +1108,7 @@ export default function EventEditor({
                     <button
                       type="button"
                       onClick={askOrDelete}
-                      className="flex shrink-0 items-center gap-1.5 rounded-[8px] px-2 py-1 text-[14px] text-danger transition-colors hover:bg-white/6"
+                      className="flex shrink-0 items-center gap-1.5 rounded-[8px] px-2 py-1 text-[14px] text-danger transition-colors hover:bg-(--veil-06)"
                     >
                       Delete
                       <Chord keys={[MOD, "⌫"]} />
@@ -1126,7 +1126,7 @@ export default function EventEditor({
                     <button
                       type="button"
                       onClick={askOrSave}
-                      className="flex h-8 items-center gap-1.5 rounded-[9px] border border-hairline bg-surface-2 px-3 text-[14px] text-ink transition-colors hover:bg-white/10"
+                      className="flex h-8 items-center gap-1.5 rounded-[9px] border border-hairline bg-surface-2 px-3 text-[14px] text-ink transition-colors hover:bg-(--veil-10)"
                     >
                       Save
                       <Chord keys={[MOD, "↵"]} />

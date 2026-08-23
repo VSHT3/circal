@@ -13,7 +13,6 @@
  * ------------------------------------------------------------------ */
 
 import {
-  dim,
   lifeDotX,
   lifeDotY,
   lifeYearRange,
@@ -22,6 +21,7 @@ import {
   type LifeSpan,
 } from "@/lib/life";
 import { dayKey } from "@/lib/time";
+import { THEME_PALETTES, washHex, type ThemeName } from "@/lib/theme";
 
 const TAU = Math.PI * 2;
 const DAY_MS = 86_400_000;
@@ -89,8 +89,7 @@ const FADE_DAYS = 7;
  *  minting one of thirty thousand. */
 export const FADE_STEPS = 32;
 
-/** The accent, as the canvas needs it — a token cannot be read by `fillStyle`. */
-export const TODAY_COLOR = "#a3d9e4";
+/* The accent a canvas needs is `THEME_PALETTES[theme].accent`, via `drawField`. */
 
 export interface Box {
   width: number;
@@ -141,7 +140,9 @@ export function drawField(
   today: Date,
   /** The days a search has lit, in their own colour, or `null` for no search. */
   found: Map<string, string> | null,
+  theme: ThemeName,
 ) {
+  const P = THEME_PALETTES[theme];
   ctx.clearRect(0, 0, box.width, box.height);
 
   // Two batches, because a hit is drawn fatter than the field it sits in and
@@ -182,7 +183,7 @@ export function drawField(
       ramp = new Array<string>(FADE_STEPS + 1);
       greys.set(level, ramp);
     }
-    return (ramp[step] ??= dim("#ffffff", (level * step) / FADE_STEPS));
+    return (ramp[step] ??= washHex(theme, P.ink, (level * step) / FADE_STEPS));
   };
   const tints = new Map<string, string[]>();
   const tint = (hex: string, step: number) => {
@@ -192,7 +193,7 @@ export function drawField(
       ramp = new Array<string>(FADE_STEPS + 1);
       tints.set(hex, ramp);
     }
-    return (ramp[step] ??= dim(hex, step / FADE_STEPS));
+    return (ramp[step] ??= washHex(theme, hex, step / FADE_STEPS));
   };
 
   for (let index = 0; index < layout.years; index++) {
@@ -222,7 +223,7 @@ export function drawField(
       const level = dayLevel(cursor.getMonth(), past, found !== null);
 
       if (at === todayMs) {
-        const base = hit ?? event ?? (found ? "" : TODAY_COLOR);
+        const base = hit ?? event ?? (found ? "" : P.accent);
         lit = { at: { x, y }, color: base ? tint(base, step) : grey(level, step) };
         continue;
       }
@@ -274,6 +275,7 @@ export function paintReveal(
   field: HTMLCanvasElement,
   progress: number,
   from: LifePoint,
+  theme: ThemeName,
 ) {
   const dpr = window.devicePixelRatio || 1;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -305,7 +307,7 @@ export function paintReveal(
   // The crest, drawn back on top: one thin accent circumference, brightest
   // when the wave leaves the dot and gone by the time it clears the box.
   ctx.globalCompositeOperation = "source-over";
-  ctx.strokeStyle = TODAY_COLOR;
+  ctx.strokeStyle = THEME_PALETTES[theme].accent;
   ctx.globalAlpha = 0.3 * (1 - progress) ** 0.55;
   ctx.lineWidth = 1.25;
   ctx.beginPath();

@@ -34,6 +34,7 @@ import {
   useStore,
 } from "@/lib/store";
 import { backupDue, exportBackup, exportIcs, importFile, importIcs } from "@/lib/backup";
+import { THEME_PALETTES } from "@/lib/theme";
 import { cue } from "@/lib/feedback";
 import { placeForZone } from "@/lib/places";
 import { refreshFeed } from "@/lib/feeds";
@@ -686,6 +687,17 @@ function Shell() {
   // no-op teardown where no project is configured, so an unconfigured build
   // fetches nothing and subscribes to nothing.
   useEffect(() => startCloud(), []);
+
+  // The greyscale chrome wears. One external system, one effect: the
+  // attribute drives every CSS token in `global.css`, and the meta colour
+  // keeps the browser's own chrome (PWA bar, tab strip) on the same ground.
+  // Canvases read `THEME_PALETTES[settings.theme]` at their own draw sites.
+  useEffect(() => {
+    document.documentElement.dataset.theme = settings.theme;
+    document
+      .querySelector('meta[name="theme-color"]')
+      ?.setAttribute("content", THEME_PALETTES[settings.theme].void);
+  }, [settings.theme]);
 
   // The Dock's calendar drop, routed through the one import the settings panel
   // already runs. The name it lands under is `fromIcs`'s own, so a filename
@@ -1671,6 +1683,7 @@ function Shell() {
           events={visible}
           calendars={calendars}
           moon={settings.moon}
+          theme={settings.theme}
           weekStart={settings.weekStart}
           actions={actions}
         />

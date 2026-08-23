@@ -52,7 +52,6 @@ import { Search, X } from "lucide-react";
 import { colorOf, occurrencesOn, scoreEvent, type CalEvent, type Calendar } from "@/lib/events";
 import {
   dayTally,
-  dim,
   formatAge,
   formatCount,
   formatLifeDate,
@@ -91,13 +90,13 @@ import { useHotkeys, useNow } from "@/components/react/hooks";
 import { DateField, IconButton, NumberField } from "@/components/react/ui/primitives";
 import {
   FADE_STEPS,
-  TODAY_COLOR,
   dayLevel,
   drawField,
   fadeStep,
   paintReveal,
   type Box,
 } from "@/components/react/lifeCanvas";
+import { THEME_PALETTES, washHex, type ThemeName } from "@/lib/theme";
 
 const EASE = [0.32, 0.72, 0, 1] as const;
 const DAY_MS = 86_400_000;
@@ -262,6 +261,7 @@ export default function LifeView({
           <LifeGrid
             stage={stage}
             flow={flow}
+            theme={settings.theme}
             today={today}
             selected={selected}
             events={events}
@@ -381,6 +381,7 @@ interface Hover extends LifePoint {
 function LifeGrid({
   stage,
   flow,
+  theme,
   today,
   selected,
   events,
@@ -402,6 +403,7 @@ function LifeGrid({
   events: CalEvent[];
   calendars: Calendar[];
   found: Map<string, string> | null;
+  theme: ThemeName;
   pending: { from: Date; to: Date; color: string } | null;
   milestones: boolean;
   loupe: boolean;
@@ -547,7 +549,7 @@ function LifeGrid({
     if (!canvas || !field) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    paintReveal(ctx, box, field, reveal.get(), originRef.current);
+    paintReveal(ctx, box, field, reveal.get(), originRef.current, theme);
   }, [box, reveal]);
 
   /* The canvases are external systems: they are written to, not rendered. */
@@ -567,7 +569,7 @@ function LifeGrid({
     const ctx = field.getContext("2d");
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    drawField(ctx, box, layout, span, density, today, found);
+    drawField(ctx, box, layout, span, density, today, found, theme);
 
     fieldRef.current = field;
     canvas.width = field.width;
@@ -1043,6 +1045,7 @@ function LifeGrid({
             span={span}
             year={active.date.getFullYear()}
             side={side}
+            theme={theme}
             today={today}
             selected={selected}
             active={active.date}
@@ -1151,7 +1154,7 @@ function MilestoneCard({
       <button
         type="button"
         onClick={onGo}
-        className="mt-3.5 h-8 w-full rounded-[8px] bg-surface-2 text-[12.5px] text-ink-2 transition-colors hover:bg-white/10 hover:text-ink"
+        className="mt-3.5 h-8 w-full rounded-[8px] bg-surface-2 text-[12.5px] text-ink-2 transition-colors hover:bg-(--veil-10) hover:text-ink"
       >
         Go to this day
       </button>
@@ -1315,6 +1318,7 @@ function Loupe({
   run,
   density,
   found,
+  theme,
   reducedMotion,
   onAim,
   onDraw,
@@ -1333,11 +1337,13 @@ function Loupe({
   run: { from: Date; to: Date; ink: string; alpha: number } | null;
   density: Map<string, string>;
   found: Map<string, string> | null;
+  theme: ThemeName;
   reducedMotion: boolean;
   onAim: (date: Date) => void;
   onDraw: (date: Date) => void;
   onCommit: () => void;
 }) {
+  const P = THEME_PALETTES[theme];
   /**
    * The dots, as elements rather than as data. A pointer move inside one year
    * re-renders this card for the rings alone, and a memoised array of 366
@@ -1365,8 +1371,7 @@ function Loupe({
       const hit = found ? found.get(key) : undefined;
       const event = found ? undefined : density.get(key);
       // Today keeps the accent only when nothing louder has claimed the dot,
-      // exactly as the field does it — the ring below is what says "today".
-      const base = hit ?? event ?? (at === todayMs && !found ? TODAY_COLOR : "");
+      const base = hit ?? event ?? (at === todayMs && !found ? P.accent : "");
       if (marked.has(key)) counted++;
 
       nodes.push(
@@ -1377,9 +1382,10 @@ function Loupe({
           r={hit ? layout.radius * 1.55 : layout.radius}
           fill={
             base
-              ? dim(base, step / FADE_STEPS)
-              : dim(
-                  "#ffffff",
+              ? washHex(theme, base, step / FADE_STEPS)
+              : washHex(
+                  theme,
+                  P.ink,
                   (dayLevel(cursor.getMonth(), at < todayMs, found !== null) * step * LOUPE_GAIN) /
                     FADE_STEPS,
                 )
@@ -1388,7 +1394,7 @@ function Loupe({
       );
     }
     return { cells: nodes, carried: counted };
-  }, [layout, span, year, today, density, found]);
+  }, [layout, span, year, today, density, found, theme]);
 
   const months = useMemo(
     () => loupeMonths(span, year, layout.weekStart),

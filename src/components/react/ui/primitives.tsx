@@ -147,8 +147,8 @@ export function IconButton({ label, active, className, ...props }: IconButtonPro
       aria-pressed={active}
       className={cn(
         "grid size-7 shrink-0 place-items-center rounded-[7px] transition-colors pointer-coarse:size-10",
-        "text-ink-2 hover:bg-white/8 hover:text-ink",
-        active && "bg-white/10 text-ink",
+        "text-ink-2 hover:bg-(--veil-08) hover:text-ink",
+        active && "bg-(--veil-10) text-ink",
         "disabled:pointer-events-none disabled:opacity-35",
         className,
       )}
@@ -185,7 +185,7 @@ export function ActionPill({
         "flex h-7 items-center gap-1.5 rounded-[8px] px-1.5 transition-colors",
         // A finger's worth of height on touch; the bar is 48 and can afford it.
         "pointer-coarse:h-10 pointer-coarse:px-2.5",
-        "text-ink-2 hover:bg-white/6 hover:text-ink",
+        "text-ink-2 hover:bg-(--veil-06) hover:text-ink",
         className,
       )}
       {...props}
@@ -216,7 +216,7 @@ export function Segmented<T extends string>({
   options: { id: T; label: string; keys?: string[] }[];
 }) {
   return (
-    <div className="flex items-center gap-0.5 rounded-[9px] bg-white/5 p-0.5">
+    <div className="flex items-center gap-0.5 rounded-[9px] bg-(--veil-05) p-0.5">
       {options.map((option) => {
         const on = option.id === value;
         return (
@@ -336,7 +336,7 @@ export function PositionField<T extends string>({
     <div
       role="group"
       aria-label={label}
-      className="grid w-fit grid-cols-3 gap-[3px] rounded-[8px] bg-white/5 p-[3px]"
+      className="grid w-fit grid-cols-3 gap-[3px] rounded-[8px] bg-(--veil-05) p-[3px]"
     >
       {options.map((option) => (
         <button
@@ -351,7 +351,7 @@ export function PositionField<T extends string>({
             // finger — and a cell whose hit area overlapped its neighbour's
             // would make the corner you get depend on DOM order.
             "size-[17px] rounded-[4px] transition-colors pointer-coarse:size-[34px]",
-            value === option.value ? "bg-ink" : "bg-white/8 hover:bg-white/20",
+            value === option.value ? "bg-ink" : "bg-(--veil-08) hover:bg-(--veil-20)",
           )}
         />
       ))}
@@ -654,7 +654,7 @@ export function TimeField({
         }
       }}
       className={cn(
-        "rounded-[6px] px-1 py-0.5 text-ink tabular-nums transition-colors hover:bg-white/6 focus:bg-white/8",
+        "rounded-[6px] px-1 py-0.5 text-ink tabular-nums transition-colors hover:bg-(--veil-06) focus:bg-(--veil-08)",
         clock === "24h" ? "w-[56px]" : "w-[76px]",
       )}
     />
@@ -771,7 +771,7 @@ export function ColorPicker({
       </div>
       {/* A divider, so "inherit the calendar" and "any colour at all" read as
           a different kind of choice from the ten literal colours. */}
-      <span aria-hidden className="w-px self-stretch bg-white/15 pointer-coarse:hidden" />
+      <span aria-hidden className="w-px self-stretch bg-(--veil-15) pointer-coarse:hidden" />
       {/* Five and five, and the five is not arbitrary: `PALETTE` is one walk
           round the hue wheel (aqua 174° through to mint 150°), so ten in two
           rows of five is that walk read the way text is read, with the wheel

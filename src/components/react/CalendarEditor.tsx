@@ -210,7 +210,7 @@ export default function CalendarEditor({
                   autoFocus
                   type="button"
                   onClick={onDelete}
-                  className="ml-auto flex h-8 items-center rounded-[9px] border border-hairline bg-surface-2 px-3 text-[14px] text-danger transition-colors hover:bg-white/10"
+                  className="ml-auto flex h-8 items-center rounded-[9px] border border-hairline bg-surface-2 px-3 text-[14px] text-danger transition-colors hover:bg-(--veil-10)"
                 >
                   {feed ? "Remove" : "Delete"}
                 </button>
@@ -229,7 +229,7 @@ export default function CalendarEditor({
                   }
                   onClick={() => setConfirming(true)}
                   className={cn(
-                    "flex items-center gap-1.5 rounded-[8px] px-2 py-1 text-[14px] text-danger transition-colors hover:bg-white/6",
+                    "flex items-center gap-1.5 rounded-[8px] px-2 py-1 text-[14px] text-danger transition-colors hover:bg-(--veil-06)",
                     "disabled:pointer-events-none disabled:opacity-35",
                   )}
                 >
@@ -248,7 +248,7 @@ export default function CalendarEditor({
                   type="button"
                   disabled={!valid}
                   onClick={() => onSave(trimmed, color, icon, lead)}
-                  className="flex h-8 items-center gap-1.5 rounded-[9px] border border-hairline bg-surface-2 px-3 text-[14px] text-ink transition-colors hover:bg-white/10 disabled:pointer-events-none disabled:opacity-35"
+                  className="flex h-8 items-center gap-1.5 rounded-[9px] border border-hairline bg-surface-2 px-3 text-[14px] text-ink transition-colors hover:bg-(--veil-10) disabled:pointer-events-none disabled:opacity-35"
                 >
                   {target ? "Save" : "Create"}
                   <Kbd>{MOD}</Kbd>
