@@ -179,6 +179,16 @@ export interface FaceProps {
    * a tick knows what minute it marks, and nothing outside here does.
    */
   intro?: boolean;
+  /**
+   * The day's last task pip was just ticked: the rim lights round once. A
+   * serial rather than a boolean, so a second firing before the first has
+   * been cleared re-keys the element instead of being swallowed. The shell
+   * owns when — once a day, never on an untick, never under reduced motion
+   * — and the face owns only what is drawn: one revolution of light on the
+   * track, leaving from the current minute and dissolving as it arrives
+   * back. `null` is off, and the default.
+   */
+  shimmer?: number | null;
 
   /* ----------------------------- the gestures ----------------------------- */
 
@@ -307,6 +317,7 @@ export default function Face({
   ghost = null,
   gesturing = false,
   intro = false,
+  shimmer = null,
   svgRef,
   onHover,
   onGrab,
@@ -599,6 +610,30 @@ export default function Face({
           </Fade>
         )}
       </AnimatePresence>
+
+      {/* Rings closed: the rim lighting round once, when the day's last task
+          pip was ticked. The same dash arithmetic the intro uses — a short
+          dash walked one full circumference by `stroke-dashoffset` — rotated
+          so it leaves from the current minute. A `<circle>`'s own path starts
+          at three o'clock and runs clockwise, hence the −90. It rides the
+          track whatever is on it (ramp or band): the day is the ring, and
+          this is the day acknowledging itself, not a fourth ring. */}
+      {shimmer !== null && (
+        <circle
+          key={shimmer}
+          cx={DIAL.C}
+          cy={DIAL.C}
+          r={DIAL.TRACK}
+          fill="none"
+          stroke={grey(theme, 0.9)}
+          strokeWidth={DIAL.TRACK_WIDTH}
+          strokeLinecap="round"
+          pathLength={1}
+          className="face-shimmer"
+          transform={`rotate(${angleAt(nowMin, clock) - 90} ${DIAL.C} ${DIAL.C})`}
+          pointerEvents="none"
+        />
+      )}
 
       {ticks && <Ticks clock={clock} theme={theme} intro={intro} />}
       {numerals !== "none" && (

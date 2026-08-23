@@ -146,6 +146,9 @@ export interface DialProps {
    * arrives once the day is round it.
    */
   intro: boolean;
+  /** The rim's once-a-day sweep, handed straight to `<Face>`. The shell owns
+   *  when it fires (see `App.toggleDone`); the dial adds nothing. */
+  shimmer: number | null;
 }
 
 /** Drag granularity. Matches what a fifteen-minute arc can actually show. */
@@ -339,6 +342,7 @@ export default function Dial({
   onPreview,
   onStepDay,
   intro,
+  shimmer,
 }: DialProps) {
   const {
     clock,
@@ -744,6 +748,7 @@ export default function Dial({
         ghost={about}
         gesturing={draw !== null || adjust !== null}
         intro={intro}
+        shimmer={shimmer}
         onHover={setHovered}
         onGrab={onArcDown}
         onRingDown={onRingDown}

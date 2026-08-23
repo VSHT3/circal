@@ -976,6 +976,28 @@ export function dayLoad(
 }
 
 /**
+ * Whether the day's work is done: it holds at least one task, and every one
+ * of them is ticked. One meaning, one reader — the shell fires the elapsed
+ * ring's once-a-day shimmer off this — so a second surface wanting the
+ * answer cannot come to a different one.
+ *
+ * Asked of `dayAgenda`'s output, so a repeating task counts per occurrence
+ * (`Occurrence.done` is already resolved there) and a subscription's task
+ * counts too: it cannot be ticked here, which is exactly why a day carrying
+ * one is not cleared. `false` for a day with no tasks at all — an empty
+ * checklist is not a finished one.
+ */
+export function dayCleared(occurrences: Occurrence[]): boolean {
+  let tasks = 0;
+  for (const occ of occurrences) {
+    if (!occ.event.task) continue;
+    if (!occ.done) return false;
+    tasks += 1;
+  }
+  return tasks > 0;
+}
+
+/**
  * What a proposed span would land on top of, in the order the day reads.
  *
  * This exists for one surface: `⌘P` commits an event with no review step, and

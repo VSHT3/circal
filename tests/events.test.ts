@@ -17,6 +17,7 @@ import {
   clashesWith,
   colorOf,
   dayAgenda,
+  dayCleared,
   dayLoad,
   firstGrapheme,
   freeGaps,
@@ -673,6 +674,43 @@ describe("dayLoad", () => {
     const only = load([{ start: "2026-03-08 09:00", end: "2026-03-08 10:00", free: true }]);
     expect(only).not.toBeNull();
     expect(only?.booked).toBe(0);
+  });
+});
+
+describe("dayCleared", () => {
+  const cleared = (events: Parameters<typeof event>[0][]) =>
+    dayCleared(dayAgenda(events.map(event), [cal], day("2026-03-08")).all);
+
+  const openTask = { start: "2026-03-08 09:00", end: "2026-03-08 09:00", task: true };
+  const doneTask = { ...openTask, doneKeys: ["2026-03-08T09:00:00"] };
+  const meeting = { start: "2026-03-08 10:00", end: "2026-03-08 11:00" };
+
+  // An empty checklist is not a finished one: a day with no tasks must not
+  // shimmer, or every meeting-only day would celebrate itself at midnight.
+  it("is false for a day with no tasks at all", () => {
+    expect.soft(cleared([])).toBe(false);
+    expect.soft(cleared([meeting])).toBe(false);
+  });
+
+  it("is false while any task stands open", () => {
+    expect.soft(cleared([openTask])).toBe(false);
+    expect.soft(cleared([doneTask, { ...openTask, start: "2026-03-08 14:00" }])).toBe(false);
+  });
+
+  // The events beside the tasks are context, not work: a ticked to-do list is
+  // cleared whatever meetings the day still holds.
+  it("is true once every task is ticked, meetings notwithstanding", () => {
+    expect.soft(cleared([doneTask])).toBe(true);
+    expect.soft(cleared([doneTask, meeting])).toBe(true);
+  });
+
+  // Per occurrence, `doneKeys`' own grain: ticking this Sunday's instance of a
+  // weekly task clears this Sunday, whatever last Sunday's pip still says.
+  it("reads a repeating task by this day's occurrence, not the series", () => {
+    const weekly = { ...doneTask, start: "2026-03-01 09:00", end: "2026-03-01 09:00" };
+    expect(cleared([{ ...weekly, repeat: "weekly", doneKeys: ["2026-03-08T09:00:00"] }])).toBe(
+      true,
+    );
   });
 });
 

@@ -16,6 +16,7 @@ import {
   clashesWith,
   colorOf,
   dayAgenda,
+  dayCleared,
   instantKey,
   repeats,
   type CalEvent,
@@ -148,6 +149,12 @@ const TOP_BAR_H = 48;
  * as a pointer that moved — so the mode would arrive and leave in one frame.
  */
 const AUTO_AMBIENT_GRACE_MS = 500;
+
+/**
+ * How long the rings-closed sweep stays mounted: `.face-shimmer`'s 1400ms,
+ * plus slack for a frame the animation has not been started on yet.
+ */
+const SHIMMER_MS = 1800;
 
 /**
  * The zone this browser is in, read once on load.
@@ -1581,16 +1588,55 @@ function Shell() {
   }, []);
 
   /**
+   * The rim's once-a-day sweep, and the days that have already had theirs.
+   * A serial so the face can re-key the element; nulled after the animation
+   * has run so the SVG does not hold an invisible circle for the rest of the
+   * session. `SHIMMER_MS` = the 1400ms `.face-shimmer` runs, plus slack —
+   * clearing mid-flight unmounts the sweep, the intro's own lesson.
+   */
+  const [shimmer, setShimmer] = useState<number | null>(null);
+  const ringsClosed = useRef(new Set<string>());
+  useEffect(() => {
+    if (shimmer === null) return;
+    const timer = window.setTimeout(() => setShimmer(null), SHIMMER_MS);
+    return () => window.clearTimeout(timer);
+  }, [shimmer]);
+
+  /**
    * A task ticked off, from the interior or from the editor.
    *
    * No `EditScope` question, and that is not an oversight: a repeating task's
    * ticks are per occurrence by construction (`doneKeys` holds the instants),
    * so "this one" is the only answer the gesture could have. Nothing to ask,
    * nothing to split.
+   *
+   * Rings closed rides on it — the one animation this app fires uninvited,
+   * budgeted at exactly one: ticking the day's last open pip sweeps a dash of
+   * light once round the track (see `.face-shimmer`). The *when* is shell
+   * policy, which is why the gate is here and not in the dial: never on an
+   * untick, never under reduced motion, and at most once per day. The
+   * once-a-day guard is a session ref, not storage — it exists against
+   * tick-untick-tick, not against tomorrow, and a reload asking for it again
+   * costs nothing anyone is counting.
    */
-  const toggleDone = useCallback((occ: Occurrence) => {
-    store.toggleDone(occ.event.id, occ.start);
-  }, []);
+  const toggleDone = useCallback(
+    (occ: Occurrence) => {
+      const ticking = !occ.done;
+      store.toggleDone(occ.event.id, occ.start);
+      if (!ticking || reducedMotion) return;
+      const key = dayKey(occ.start);
+      if (ringsClosed.current.has(key)) return;
+      // Asked of the store's own post-commit answer rather than this render's
+      // props: the snapshot already carries the tick. The feeds are in because
+      // the face draws them — a subscription's open task keeps the day open.
+      const snap = store.snapshot();
+      const visible = [...snap.events, ...Object.values(snap.feeds).flat()];
+      if (!dayCleared(dayAgenda(visible, snap.calendars, occ.start).all)) return;
+      ringsClosed.current.add(key);
+      setShimmer(Date.now());
+    },
+    [reducedMotion],
+  );
 
   /**
    * The calendar card's subject, resolved from the store rather than copied
@@ -1739,6 +1785,7 @@ function Shell() {
                   ambient={inAmbient}
                   covered={shaded}
                   intro={intro}
+                  shimmer={shimmer}
                 />
               )}
               {view === "week" && (
