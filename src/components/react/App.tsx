@@ -1869,7 +1869,7 @@ function Shell() {
                   pending={pending}
                   slots={slots}
                   onOpen={openOccurrence}
-                  onCreate={(startMin, endMin) => openDraft(startMin, endMin, day)}
+                  onCreate={(startMin, endMin, on) => openDraft(startMin, endMin, on)}
                   onAdjust={adjustOccurrence}
                   onDelete={deleteOccurrence}
                   onDuplicate={duplicateOccurrence}

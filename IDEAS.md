@@ -12,11 +12,16 @@ the end are recorded as refusals, so they are argued once instead of re-litigate
 
 ## More calendary — missing calendar table-stakes
 
-1. **Multi-day drag on the dial.** Dragging an arc past midnight currently wraps
-   within the day. Let a drag that crosses midnight step the day underneath — the
-   face rotating a day forward mid-gesture is navigation as geometry, the app's own
-   thesis. Cost: `Dial.tsx` gesture state plus the shell's `go(replace)`; the
-   accumulate-sweep rule (`wrapDelta`) already prevents the sign-flip class of bug.
+1. **Multi-day drag on the dial.** — **Shipped**. Both halves: the arc drag's
+   day-following already existed (`dayFollow`); this added the draw's. The
+   sweep is unbounded now, and the decision worth recording is _when_ the
+   face steps: not at the first midnight — the range draws whole on the
+   anchor face up to a full revolution, wrapping the top (`angleAt` is
+   linear, `arcPath` takes raw degrees, so the past you drew stays visible)
+   — but once no face can show it, onto the leading edge's day. The release
+   commits against the grab day, Escape gives the stepped days back, and
+   steps issue through a ref because two pointermoves can share one stale
+   render closure and a counter in state would step twice.
 
 2. **Travel time on events.** `Where` exists; a "leave by" pip ahead of an arc —
    walking/driving estimate typed by hand, deliberately no geo API, so the

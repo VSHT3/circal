@@ -20,7 +20,7 @@ import { VIEW_SIZE, minutesAtPoint } from "@/lib/dial";
 import { clipToDay, colorOf, type Calendar, type Occurrence } from "@/lib/events";
 import { cue, type Cue } from "@/lib/feedback";
 import { ambientLevel, type Place } from "@/lib/sun";
-import { MINUTES_PER_DAY, addDays, clamp, daysBetween, snap, startOfDay } from "@/lib/time";
+import { MINUTES_PER_DAY, addDays, daysBetween, snap, startOfDay } from "@/lib/time";
 import { INTRO_SWEEP_MS } from "@/lib/motion";
 import type { Settings } from "@/lib/store";
 import { THEME_PALETTES } from "@/lib/theme";
@@ -94,7 +94,7 @@ export interface DialProps {
    */
   covered: boolean;
   onOpen: (occ: Occurrence) => void;
-  onCreate: (startMin: number, endMin: number) => void;
+  onCreate: (startMin: number, endMin: number, on: Date) => void;
   /**
    * An existing event dragged to a new place on the face. Both deltas are
    * whole `STEP`s of minutes: equal for a move, one of them zero for a
@@ -176,15 +176,65 @@ function wrapDelta(from: number, to: number): number {
  * circle the pointer went, so a range measured from the grab can never be
  * longer than twelve hours — past that, `wrapDelta` takes the short way and
  * the range turns inside out under the pointer. Summing short hops instead
- * lets a drag run the whole revolution.
+ * lets a drag run the whole revolution — and past it, into the next day.
  */
 interface Draw {
-  /** Where the press landed, snapped. */
+  /** Where the press landed, snapped, in minutes since the anchor day's
+   *  midnight. */
   from: number;
   /** Ring position the pointer was last seen at, snapped. */
   at: number;
-  /** Signed minutes swept since the grab: clockwise positive. */
+  /**
+   * Signed minutes swept since the grab: clockwise positive. Unbounded — a
+   * drag through midnight keeps sweeping, and the day underneath steps with
+   * it, so a range is as many days long as the pointer made it.
+   */
   sweep: number;
+  /**
+   * The day the grab happened on — the axis `from` and `sweep` are measured
+   * against, fixed for the life of the gesture. The view may step away from
+   * it mid-drag; the release still commits what was drawn against this day.
+   */
+  origin: Date;
+}
+
+/** The drawn range as absolute instants: the anchor day's midnight plus the
+ *  minutes swept, elapsed arithmetic like every other drag delta here — which
+ *  is also what makes a sweep across a spring-forward land an hour early on
+ *  the wall clock, exactly as an arc dragged the same distance does. */
+function drawnOccurrence(draw: Draw): { start: number; end: number } {
+  const base = startOfDay(draw.origin).getTime();
+  const { start, end } = resolveDraw(draw);
+  return { start: base + start * 60_000, end: base + end * 60_000 };
+}
+
+/** The drawn range in minutes since the *displayed* midnight — the readout's
+ *  units, and out of range whenever the sweep has crossed midnight, which is
+ *  the fact the readout is for. `atMinutes` normalises both directions. */
+function drawnSpan(draw: Draw, day: Date): { start: number; end: number } {
+  const base = startOfDay(day).getTime();
+  const { start, end } = drawnOccurrence(draw);
+  return { start: (start - base) / 60_000, end: (end - base) / 60_000 };
+}
+
+/**
+ * How many days the view belongs from the anchor day. Zero for as long as
+ * the whole range fits one face — up to a full revolution, wrapping the top
+ * when it crosses midnight — because ring positions are day-independent, so
+ * the past you drew can stay drawn. `dayFollow`'s own rule, one gesture over:
+ * the view switches *then* rather than earlier.
+ *
+ * Past a revolution the range covers the whole anchor day and no face can
+ * show it; the view follows the leading edge — the last instant covered
+ * (`end` is exclusive, `dayCount`'s own rule) forward, the first backward —
+ * counted in real midnights rather than elapsed minutes, so a spring-forward
+ * night still steps at midnight and not an hour after it.
+ */
+function drawFollow(draw: Draw): number {
+  if (Math.abs(draw.sweep) <= MINUTES_PER_DAY) return 0;
+  const { start, end } = drawnOccurrence(draw);
+  const edge = draw.sweep > 0 ? end - 1 : start;
+  return daysBetween(startOfDay(draw.origin), startOfDay(new Date(edge)));
 }
 
 /** The two ends of a drag-to-create, in the order the day has them. */
@@ -368,6 +418,15 @@ export default function Dial({
   const [hovered, setHovered] = useState<string | null>(null);
   const [draw, setDraw] = useState<Draw | null>(null);
   const [adjust, setAdjust] = useState<Adjust | null>(null);
+  /**
+   * Days the view has moved on the draw gesture's account, kept in a ref
+   * rather than the gesture state: two pointermoves can arrive inside one
+   * render, each running against the same stale closure, and a counter in
+   * state would let both issue the same step. A ref is shared across
+   * closures and read synchronously, so the difference asked for is always
+   * measured against what has actually been asked for so far.
+   */
+  const drawShift = useRef(0);
 
   const u = Math.min(width, height) / VIEW_SIZE;
 
@@ -419,7 +478,7 @@ export default function Dial({
    */
   useHotkeys({
     escape: () => {
-      setDraw(null);
+      cancelDraw();
       cancelAdjust();
     },
   });
@@ -477,13 +536,38 @@ export default function Dial({
     return clipGhost(draggedOccurrence(adjust), day, colorOf(event, calendars), event.task);
   }, [adjust, day, calendars]);
 
-  const ghost = draw ? resolveDraw(draw) : null;
+  /**
+   * The range being drawn, on this face. While the view is still on the
+   * anchor day and the range fits one revolution, it is drawn *whole* —
+   * `angleAt` is linear and `arcPath` takes raw degrees, so an end past 1440
+   * simply wraps the top: a drag through midnight keeps its head on screen,
+   * rather than losing the past to a clip at the rim. A backward wrap is the
+   * same arc named from the other end, normalised so `start` stays on the
+   * face. Only once the view has stepped away (or the range outgrew a face)
+   * is clipping the absolute instants the honest drawing — at which point
+   * `GhostArc`'s own closed-ring and `clipToDay`'s 0…1440 branches take over.
+   */
+  const drawing = useMemo<FaceGhost | null>(() => {
+    if (!draw || draw.sweep === 0) return null;
+    const color = THEME_PALETTES[theme].ghost;
+    const wholeOnFace =
+      Math.abs(draw.sweep) <= MINUTES_PER_DAY &&
+      startOfDay(day).getTime() === startOfDay(draw.origin).getTime();
+    if (wholeOnFace) {
+      let { start, end } = resolveDraw(draw);
+      if (start < 0) {
+        start += MINUTES_PER_DAY;
+        end += MINUTES_PER_DAY;
+      }
+      return { start, end, color, opacity: GHOST_ALPHA, task: false };
+    }
+    return clipGhost(drawnOccurrence(draw), day, color, false, GHOST_ALPHA);
+  }, [draw, day, theme]);
+
   /** The pointer wins while it is down: the range being drawn *is* the draft
    *  about to open, and drawing both would double the same fact. A drag never
    *  draws a task — a gesture with a length in it is asking for a span. */
-  const about = ghost
-    ? { ...ghost, color: THEME_PALETTES[theme].ghost, opacity: GHOST_ALPHA, task: false }
-    : (copying ?? drafted);
+  const about = drawing ?? copying ?? drafted;
 
   /** Received free time, on this day's face. Memoised because it repaints the
    *  SVG, and the spans only change when a link arrives or is dismissed. */
@@ -571,7 +655,8 @@ export default function Dial({
     const m = minutesAt(e);
     if (m === null) return;
     capture(e);
-    setDraw({ from: m, at: m, sweep: 0 });
+    drawShift.current = 0;
+    setDraw({ from: m, at: m, sweep: 0, origin: day });
     detent();
   }
 
@@ -582,17 +667,19 @@ export default function Dial({
     // on an unchanged step is what makes the clicks countable, and it saves
     // the re-render the drag would otherwise do per event.
     if (at === null || at === draw.at) return;
-    // The sweep is clamped, the pointer is not: a range that has run to
-    // midnight stops there and starts following back the instant the pointer
-    // turns, rather than unwinding however far it ran past the end of the day.
-    const sweep = clamp(
-      draw.sweep + wrapDelta(draw.at, at),
-      -draw.from,
-      MINUTES_PER_DAY - draw.from,
-    );
-    const moved = sweep !== draw.sweep;
-    setDraw({ ...draw, at, sweep });
-    if (moved) detent();
+    // The sweep is unbounded, the day is not a wall: a drag through midnight
+    // keeps sweeping and `drawFollow` steps the view with it. Nothing is
+    // clamped, so nothing is banked — the pointer turning back unwinds the
+    // sweep directly, and the view steps back across midnight with it.
+    const next = { ...draw, at, sweep: draw.sweep + wrapDelta(draw.at, at) };
+    // Wanted position against the anchor day, issued as a difference through
+    // the `drawShift` ref — never measured against the `day` prop, which two
+    // pointermoves can outrun before React has committed the last step.
+    const step = drawFollow(next) - drawShift.current;
+    drawShift.current += step;
+    setDraw(next);
+    if (step !== 0) onStepDay(step);
+    detent();
   }
 
   function onRingUp() {
@@ -609,9 +696,9 @@ export default function Dial({
       // opinion about how long an event is.
       const length = settings.defaultDuration;
       const from = Math.min(draw.from, MINUTES_PER_DAY - length);
-      onCreate(from, from + length);
+      onCreate(from, from + length, draw.origin);
     } else {
-      onCreate(start, end);
+      onCreate(start, end, draw.origin);
     }
   }
 
@@ -693,6 +780,14 @@ export default function Dial({
     setAdjust(null);
   }
 
+  /** The draw's own answer to the same question: a sweep that carried the
+   *  view into tomorrow leaves tomorrow where it found it. */
+  function cancelDraw() {
+    if (!draw) return;
+    if (drawShift.current !== 0) onStepDay(-drawShift.current);
+    setDraw(null);
+  }
+
   /**
    * One gesture surface: the root <svg> holds the capture, so every move and
    * release after the press arrives here whatever the press started on, and
@@ -709,7 +804,7 @@ export default function Dial({
   }
 
   function onGestureCancel() {
-    setDraw(null);
+    cancelDraw();
     cancelAdjust();
   }
 
@@ -787,7 +882,9 @@ export default function Dial({
           totalsAt={totalsAt}
           waking={{ from: wakingFrom, to: wakingTo }}
           remindLead={remindLead}
-          drag={ghost && ghost.end > ghost.start ? ghost : adjust ? dragSpan(adjust, day) : null}
+          drag={
+            draw && draw.sweep !== 0 ? drawnSpan(draw, day) : adjust ? dragSpan(adjust, day) : null
+          }
           hovered={hovered}
           onHover={setHovered}
           onOpen={onOpen}
