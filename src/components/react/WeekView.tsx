@@ -80,6 +80,10 @@ interface WeekDay {
    *  nothing at all for them. */
   allDay: Occurrence[];
   booked: number;
+  /** What the waking window has left, `dayLoad`'s other half — the balancing
+   *  figure the readout exists to print, in the centre panel's own voice so
+   *  "free" keeps one meaning across faces. */
+  free: number;
   /** Timed events plus all-day ones: what the readout counts. */
   count: number;
   /** Free time received from a link, clipped to this face — the dial's own
@@ -151,6 +155,7 @@ export default function WeekView({
         occurrences: all,
         allDay: all.filter((occ) => occ.event.allDay),
         booked: load?.booked ?? 0,
+        free: load?.free ?? waking.to - waking.from,
         count: all.length,
         slots: arcs.length > 0 ? arcs : null,
       };
@@ -676,6 +681,7 @@ function Readout({
         <Load
           count={subject ? subject.count : week.reduce((sum, d) => sum + d.count, 0)}
           booked={subject ? subject.booked : week.reduce((sum, d) => sum + d.booked, 0)}
+          free={subject ? subject.free : week.reduce((sum, d) => sum + d.free, 0)}
         />
       )}
     </div>
@@ -693,7 +699,16 @@ function when(occ: Occurrence, clock: Clock): string {
   return span ? `${span} · ${times}` : `${times} · ${formatDuration(occ.endMin - occ.startMin)}`;
 }
 
-function Load({ count, booked }: { count: number; booked: number }) {
+/**
+ * The rest mood of the readout: what the day — or, with no face under the
+ * pointer, the week — is made of. The booked/free pair is the centre panel's
+ * totals line at strip size, same function (`dayLoad`), same two windows
+ * (whole revolution / waking), so "free" means one thing across faces; that
+ * pair is what makes the strip an instrument for balancing a week rather
+ * than seven pictures of days. The free clause yields below `sm`, where the
+ * summed sentence no longer fits beside its head.
+ */
+function Load({ count, booked, free }: { count: number; booked: number; free: number }) {
   return (
     <span className="caption tabular-nums">
       {count === 0 ? "Nothing" : count === 1 ? "1 event" : `${count} events`}
@@ -703,6 +718,10 @@ function Load({ count, booked }: { count: number; booked: number }) {
           {formatDuration(booked)} booked
         </>
       )}
+      <span aria-hidden="true" className="hidden text-ink-4 sm:inline">
+        {" · "}
+      </span>
+      <span className="hidden sm:inline">{formatDuration(free)} free</span>
     </span>
   );
 }
