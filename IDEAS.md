@@ -47,10 +47,17 @@ the end are recorded as refusals, so they are argued once instead of re-litigate
 
 ## Productive
 
-7. **Weekly totals band.** ⌘E is read-only about events; give each strip face a
-   booked/free line from `dayLoad`, `.caption` voice, no bars. The week becomes an
-   instrument for balancing a week, not only looking at one. Reuses the totals
-   line's exact vocabulary so "free" keeps one meaning.
+7. **Weekly totals band.** — **Shipped** (`68f0b59`). The strip's shared
+   readout already counted events and booked hours; this added the missing
+   half, `dayLoad`'s `free`, in the centre panel's exact vocabulary —
+   `7h 10m booked · 93h 50m free` — so "free" keeps one meaning across faces.
+   Two decisions beyond the sketch: one line under the seven faces rather
+   than seven captions (already the readout's own argument — the grid's point
+   is the comparison, and seven sentences is the loudest thing that could sit
+   under it), and the free clause yields below `sm`, where the summed week's
+   sentence no longer fits beside its head. Booked and free still measure two
+   different windows and still do not sum — the strip inherited that whole
+   sentence by calling the same function.
 
 8. **Free-slot sharing.** — **Shipped** (`d54b6dc`). As sketched: `freeGaps` +
    the share-token machinery, gaps never events, booking stays out. Decisions
@@ -172,6 +179,7 @@ the end are recorded as refusals, so they are argued once instead of re-litigate
 
 ## Shortlist by value per effort
 
-**#4 (Join verb)**, **#8 (free-slot sharing)**, **#11 (ambient clock)**,
-**#13 (rings closed)** and **#15 (theme presets)** are done — see their
-entries. The shortlist is spent; what remains above is unranked.
+**#4 (Join verb)**, **#7 (weekly totals band)**, **#8 (free-slot sharing)**,
+**#11 (ambient clock)**, **#13 (rings closed)** and **#15 (theme presets)**
+are done — see their entries. The shortlist is spent; what remains above is
+unranked.
