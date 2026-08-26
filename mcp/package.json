@@ -3,7 +3,7 @@
   "version": "0.2.1",
   "type": "module",
   "description": "MCP server for circal — read and write your calendar through its mirror file",
-  "license": "MIT",
+  "license": "AGPL-3.0-only",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/VSHT3/circal.git",

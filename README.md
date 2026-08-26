@@ -756,3 +756,9 @@ The suite covers the domain layer — recurrence against the RFC 5545 worked
 examples, ICS round-trips, the store's write/delete/move paths, and the
 worker's SSRF guard. Not the dial: that is a visual instrument and is verified
 by looking at it.
+
+## License
+
+[AGPL-3.0](./LICENSE). Run it, fork it, learn from it; a modified circal served
+to others must publish its source. The vendored Phosphor icon paths in
+`src/components/react/ui/marks.ts` remain MIT, credited there.
