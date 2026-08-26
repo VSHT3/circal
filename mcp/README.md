@@ -1,21 +1,33 @@
 # circal-mcp
 
 A stdio [MCP](https://modelcontextprotocol.io) server that reads and writes
-circal's own mirror file — the `.json` a browser tab or the macOS app keeps
-in sync on disk, through the File System Access API on the web and the
-shell's own bridge in the app (see `src/lib/mirror.ts`, `src/lib/mirrorLink.ts`
-and `mac/main.swift`'s `MirrorFile`). It imports circal's own domain layer
+the user's own circal calendar, through circal's own domain layer
 (`src/lib/events.ts`, `recur.ts`, `quickadd.ts`, `mutate.ts`, `backup.ts`, …),
 so an agent and the app can never disagree about what a legal event, an
 occurrence, or a recurrence rule is.
 
+Two transports, one tool table:
+
+- **`--file <path>`** — the mirror file, the `.json` a browser tab or the
+  macOS app keeps in sync on disk (see `src/lib/mirror.ts`,
+  `src/lib/mirrorLink.ts` and `mac/main.swift`'s `MirrorFile`).
+- **`--cloud`** — the cloud copy, the one encrypted Supabase row the app's
+  cloud sync writes (see `src/lib/cloudLink.ts`, `SYNC.md`). Sign in once
+  with `circal-mcp login`; every tool call then reads the row, decrypts it
+  **on this machine**, mutates, re-seals and swaps it back on `rev` — the
+  same compare-and-swap two browsers already use against each other, so the
+  server is simply the row's third client. Supabase still holds only
+  ciphertext: the derived key never leaves this machine, which is why this
+  server must run on the user's own hardware, never hosted.
+
 Built on `@modelcontextprotocol/server` v2, implementing MCP protocol
 revision 2026-07-28.
 
-**The browser tab does not need to be open.** The mirror file is the only
-thing this server reads or writes; if circal's tab is open and connected, it
-picks up the change and its own next write moves the file's `rev` forward
-again, the same as any second writer would.
+**The browser tab does not need to be open.** The mirror file (or the row) is
+the only thing this server reads or writes; if circal's tab is open and
+connected, it picks up the change — instantly over Realtime for the cloud
+copy — and its own next write moves the `rev` forward again, the same as any
+second writer would.
 
 ## Quick start
 
@@ -117,6 +129,35 @@ Produces the same single-file ESM bundle at `mcp/dist/circal-mcp.mjs`.
 `command`/`args` at `node` and the absolute path to that bundle instead of
 `npx`, with the same `env`/`--file` as above.
 
+## The cloud copy
+
+```sh
+circal-mcp login    # email → sign-in code → passphrase; interactive
+circal-mcp --cloud  # serve against the row
+circal-mcp logout   # withdraw this machine's key, now
+```
+
+`login` needs to know the Supabase project: `--url` and `--key` (the
+`sb_publishable_…` key — the same public pair the web app is built with), or
+the `PUBLIC_SUPABASE_URL` / `PUBLIC_SUPABASE_PUBLISHABLE_KEY` environment
+variables. It signs in with an emailed code, proves the passphrase against
+the row's own box before writing anything, and leaves a `0600` record at the
+platform config dir (`~/Library/Application Support/circal/cloud.json` on
+macOS; `CIRCAL_CLOUD_CREDENTIALS` overrides) holding the session and the
+**derived key — never the passphrase**. This is the browser's "stay
+unlocked" record in Node clothes: same authority, same threat model, one
+honest step weaker in that a file's bytes are readable where a
+non-extractable `CryptoKey`'s are not — the price of a runtime with no
+IndexedDB. Whoever can read that file can read the calendar; `logout`
+deletes it immediately.
+
+The row must already exist: this server never mints the box. Enrolment — the
+account, the passphrase, the first seal — belongs to the app's own Settings
+panel, where the passphrase's meaning is explained before it is chosen.
+
+Client config is the same as above with `--cloud` in place of
+`--file <path>`.
+
 ## What it refuses, and why
 
 - **No `CIRCAL_FILE` (or `--file <path>`).** The path is never guessed — a
@@ -134,8 +175,14 @@ Produces the same single-file ESM bundle at `mcp/dist/circal-mcp.mjs`.
 - **A repeating event with no `scope`.** `update_event`, `delete_event` and
   similar ask for `"one"`, `"future"`, or `"all"` before touching a series,
   and name the event in the refusal rather than guessing.
-- **A moved file.** Every mutation reads the file, applies the change,
-  re-reads to confirm nothing else wrote in between, then writes `rev + 1`
-  through a temp file plus rename (so a crash mid-write cannot truncate the
-  file). One retry on a conflicting write, then a refusal naming both
-  revisions.
+- **A moved document.** Every mutation reads, applies the change, and writes
+  `rev + 1` only if nothing else wrote in between — a confirm-read under an
+  advisory lock plus temp-file-and-rename for the file (so a crash mid-write
+  cannot truncate it), a conditional `update … where rev = N` for the row.
+  One retry against a fresh read, then a refusal naming both revisions.
+- **Cloud only: an account with no row yet** (enrolment is the app's job, see
+  above), **a row re-sealed under a new passphrase** (the kept key cannot
+  open it; the refusal sends you back to `circal-mcp login`, and nothing is
+  written blind), and **a document one format version ahead** — a write here
+  round-trips the whole document, so an older server writing a newer file
+  would silently drop every field it has no name for. Reads still answer.

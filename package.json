@@ -20,7 +20,7 @@
     "lint": "eslint . --cache --cache-location node_modules/.cache/eslint",
     "test": "vitest run",
     "test:watch": "vitest",
-    "build:mcp": "esbuild mcp/index.ts --bundle --platform=node --format=esm --target=node22 --outfile=mcp/dist/circal-mcp.mjs --external:@modelcontextprotocol/server --external:zod --alias:@=./src",
+    "build:mcp": "esbuild mcp/index.ts --bundle --platform=node --format=esm --target=node22 --outfile=mcp/dist/circal-mcp.mjs --external:@modelcontextprotocol/server --external:zod --external:@supabase/supabase-js --alias:@=./src",
     "mcp": "\"$npm_execpath\" run build:mcp && node mcp/dist/circal-mcp.mjs",
     "build:mac": "astro build && bash mac/build.sh",
     "mac": "\"$npm_execpath\" run build:mac && open mac/build/circal.app",

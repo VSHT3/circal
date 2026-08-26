@@ -10,7 +10,7 @@
 import type { CallToolResult, McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod/v4";
 
-import { casWrite, loadForRead, type MirrorEnv } from "./file";
+import type { Store } from "./store";
 import {
   MAX_RANGE_DAYS,
   MAX_RANGE_OCCURRENCES,
@@ -170,7 +170,7 @@ const occurrenceSchema = z.string().describe(OCCURRENCE_DESCRIPTION);
 
 /* --------------------------------- tools -------------------------------------- */
 
-export function registerTools(server: McpServer, ctx: MirrorEnv): void {
+export function registerTools(server: McpServer, store: Store): void {
   server.registerTool(
     "list_day",
     {
@@ -183,7 +183,7 @@ export function registerTools(server: McpServer, ctx: MirrorEnv): void {
     },
     async ({ date }) =>
       guarded(async () => {
-        const { contents, warning } = await loadForRead(ctx);
+        const { contents, warning } = await store.load();
         return withWarning(listDay(contents, date), warning);
       }),
   );
@@ -203,7 +203,7 @@ export function registerTools(server: McpServer, ctx: MirrorEnv): void {
     },
     async ({ from, to }) =>
       guarded(async () => {
-        const { contents, warning } = await loadForRead(ctx);
+        const { contents, warning } = await store.load();
         return withWarning(listRange(contents, from, to), warning);
       }),
   );
@@ -221,7 +221,7 @@ export function registerTools(server: McpServer, ctx: MirrorEnv): void {
     },
     async ({ query, limit }) =>
       guarded(async () => {
-        const { contents, warning } = await loadForRead(ctx);
+        const { contents, warning } = await store.load();
         return withWarning(searchEvents(contents, query, limit), warning);
       }),
   );
@@ -248,7 +248,7 @@ export function registerTools(server: McpServer, ctx: MirrorEnv): void {
     },
     async ({ date, minutes, from, to }) =>
       guarded(async () => {
-        const { contents, warning } = await loadForRead(ctx);
+        const { contents, warning } = await store.load();
         return withWarning(freeSlots(contents, date, minutes, from, to), warning);
       }),
   );
@@ -263,7 +263,7 @@ export function registerTools(server: McpServer, ctx: MirrorEnv): void {
     },
     async () =>
       guarded(async () => {
-        const { contents, warning } = await loadForRead(ctx);
+        const { contents, warning } = await store.load();
         return withWarning(listCalendars(contents), warning);
       }),
   );
@@ -277,7 +277,7 @@ export function registerTools(server: McpServer, ctx: MirrorEnv): void {
     },
     async ({ id }) =>
       guarded(async () => {
-        const { contents, warning } = await loadForRead(ctx);
+        const { contents, warning } = await store.load();
         return withWarning(describeEvent(contents, id), warning);
       }),
   );
@@ -299,7 +299,7 @@ export function registerTools(server: McpServer, ctx: MirrorEnv): void {
     },
     async ({ text, date }) =>
       guarded(() =>
-        casWrite(ctx, (contents) => {
+        store.write((contents) => {
           const outcome = performQuickAdd(contents, text, date);
           return { result: outcome.mutated, summary: outcome.message };
         }),
@@ -317,7 +317,7 @@ export function registerTools(server: McpServer, ctx: MirrorEnv): void {
     },
     async (input) =>
       guarded(() =>
-        casWrite(ctx, (contents) => {
+        store.write((contents) => {
           const outcome = performCreateEvent(contents, input);
           return { result: outcome.mutated, summary: outcome.message };
         }),
@@ -340,7 +340,7 @@ export function registerTools(server: McpServer, ctx: MirrorEnv): void {
     },
     async ({ id, scope, occurrence, patch }) =>
       guarded(() =>
-        casWrite(ctx, (contents) => {
+        store.write((contents) => {
           const outcome = performUpdateEvent(contents, id, scope, occurrence, patch);
           return { result: outcome.mutated, summary: outcome.message };
         }),
@@ -360,7 +360,7 @@ export function registerTools(server: McpServer, ctx: MirrorEnv): void {
     },
     async ({ id, scope, occurrence }) =>
       guarded(() =>
-        casWrite(ctx, (contents) => {
+        store.write((contents) => {
           const outcome = performDeleteEvent(contents, id, scope, occurrence);
           return { result: outcome.mutated, summary: outcome.message };
         }),
@@ -383,7 +383,7 @@ export function registerTools(server: McpServer, ctx: MirrorEnv): void {
     },
     async ({ id, occurrence }) =>
       guarded(() =>
-        casWrite(ctx, (contents) => {
+        store.write((contents) => {
           const outcome = performToggleDone(contents, id, occurrence);
           return { result: outcome.mutated, summary: outcome.message };
         }),
@@ -404,7 +404,7 @@ export function registerTools(server: McpServer, ctx: MirrorEnv): void {
     },
     async ({ name, color, icon }) =>
       guarded(() =>
-        casWrite(ctx, (contents) => {
+        store.write((contents) => {
           const outcome = performCreateCalendar(contents, name, color, icon);
           return { result: outcome.mutated, summary: outcome.message };
         }),

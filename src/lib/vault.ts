@@ -154,22 +154,52 @@ export async function derive(passphrase: string, payload?: string): Promise<Keye
     salt = new Uint8Array(envelope.salt);
   }
 
+  return restoreKeyed(await deriveBits(passphrase, salt), salt);
+}
+
+/**
+ * The KDF itself, spelled once: PBKDF2-SHA256 at `PBKDF2_ITERATIONS` into 32
+ * raw bytes. `derive` above goes through here, so there is exactly one place
+ * the derivation's parameters live — the argument `base64.ts` already makes
+ * about alphabet swaps, for a mistake that would cost more than a payload.
+ *
+ * Raw bytes are exported for one caller: a runtime with no IndexedDB. The
+ * browser's "stay unlocked" persists a non-extractable `CryptoKey` as an
+ * opaque handle; Node — where the MCP server lives — has nowhere to put one,
+ * so its remembered key is these bytes in a file only the user can read.
+ * The passphrase is still never stored, and PBKDF2 is one-way: the bytes
+ * open the calendar but never give the passphrase back.
+ */
+export async function deriveBits(
+  passphrase: string,
+  salt: Uint8Array<ArrayBuffer>,
+): Promise<Uint8Array<ArrayBuffer>> {
   const material = await crypto.subtle.importKey("raw", utf8.encode(passphrase), "PBKDF2", false, [
-    "deriveKey",
+    "deriveBits",
   ]);
-  const key = await crypto.subtle.deriveKey(
+  const bits = await crypto.subtle.deriveBits(
     { name: "PBKDF2", salt, iterations: PBKDF2_ITERATIONS, hash: "SHA-256" },
     material,
-    { name: "AES-GCM", length: 256 },
-    // Not extractable: nothing here needs the key's bytes, and a key that
-    // cannot be read out cannot be logged, stored or posted by mistake. It
-    // can still be *kept* — `structuredClone` and so IndexedDB take a
-    // `CryptoKey` as an opaque handle rather than as bytes — which is what
-    // makes remembering one a different question from storing a secret.
-    false,
-    ["encrypt", "decrypt"],
+    256,
   );
+  return new Uint8Array(bits);
+}
 
+/**
+ * Raw key bytes back into the `Keyed` every other caller holds. The import is
+ * `extractable: false`, so the bytes' readability ends here: whether the pair
+ * came from a passphrase this session or from bytes kept on disk, what the
+ * rest of the app touches is the same opaque handle either way — it cannot
+ * be logged, stored or posted by mistake.
+ */
+export async function restoreKeyed(
+  raw: Uint8Array<ArrayBuffer>,
+  salt: Uint8Array<ArrayBuffer>,
+): Promise<Keyed> {
+  const key = await crypto.subtle.importKey("raw", raw, { name: "AES-GCM" }, false, [
+    "encrypt",
+    "decrypt",
+  ]);
   return { key, salt };
 }
 

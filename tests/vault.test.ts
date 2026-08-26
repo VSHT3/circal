@@ -8,6 +8,8 @@ import {
   VAULT_VERSION,
   WrongPassphrase,
   derive,
+  deriveBits,
+  restoreKeyed,
   saltOf,
   unlock,
   vaultOf,
@@ -106,6 +108,20 @@ describe("seal / open — the round trip", () => {
     // The whole overhead is base64url's 4/3 over 45 bytes of envelope and
     // tag, so the ratio is a constant a caller can budget a row against.
     expect(payload.length / plaintext.length).toBeLessThan(1.4);
+  });
+
+  it("a key restored from its raw bytes opens what the derived one sealed", async () => {
+    // The MCP server's whole persistence story: Node has no IndexedDB to keep
+    // an opaque CryptoKey in, so `deriveBits` + `restoreKeyed` must land on
+    // the *same* key `derive` builds — one KDF spelling, proven by the only
+    // equality that matters, the box opening both ways round.
+    const keyed = await derive(PASSPHRASE);
+    const sealed = await vaultOf(keyed).seal("kept across a restart");
+    const raw = await deriveBits(PASSPHRASE, keyed.salt);
+    const restored = vaultOf(await restoreKeyed(raw, keyed.salt));
+    expect(await restored.open(sealed)).toBe("kept across a restart");
+    // And the other direction: the original opens what the restored one seals.
+    expect(await vaultOf(keyed).open(await restored.seal("and back"))).toBe("and back");
   });
 
   it("mints a fresh IV per seal, so one plaintext never seals twice the same", async () => {

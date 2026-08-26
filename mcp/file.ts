@@ -22,6 +22,11 @@ import {
   serialiseMirror,
   type MirrorContents,
 } from "@/lib/mirror";
+import type { Mutated, Mutator, Store } from "./store";
+
+// Re-exported so the tests and the tool table keep one import site for the
+// shape a write carries, wherever the document lives.
+export type { Mutated } from "./store";
 
 /**
  * Refused by design, not by accident: a zone mismatch, a subscription
@@ -131,7 +136,7 @@ export function zoneWarning(contents: MirrorContents): string | null {
  *  tomorrow. Reads are let through with a warning; only a write is refused,
  *  and only unless the operator has said, by setting the env var, that they
  *  know what they are doing. */
-function assertZoneAllowsMutation(contents: MirrorContents, env: NodeJS.ProcessEnv): void {
+export function assertZoneAllowsMutation(contents: MirrorContents, env: NodeJS.ProcessEnv): void {
   const here = localZone();
   if (contents.zone === "" || contents.zone === here) return;
   if (env.CIRCAL_ALLOW_ZONE_MISMATCH === "1") return;
@@ -160,7 +165,7 @@ function assertZoneAllowsMutation(contents: MirrorContents, env: NodeJS.ProcessE
  * can reason about and be right, and "my reader is too old for this file" is
  * not.
  */
-function assertVersionAllowsMutation(contents: MirrorContents): void {
+export function assertVersionAllowsMutation(contents: MirrorContents): void {
   if (contents.version <= MIRROR_VERSION) return;
   throw new RefusalError(
     `Refusing to write: the file's format is version ${contents.version} and this server ` +
@@ -178,10 +183,14 @@ export async function loadForRead(
   return { contents, warning: zoneWarning(contents) };
 }
 
-export type Mutated = Pick<
-  MirrorContents,
-  "events" | "calendars" | "settings" | "settingsAt" | "graves"
->;
+/** The file as a `Store` — the seam mcp/tools.ts talks through, so the same
+ *  tool table serves this transport and the cloud row without knowing which. */
+export function fileStore(ctx: MirrorEnv): Store {
+  return {
+    load: () => loadForRead(ctx),
+    write: <T>(mutate: Mutator<T>) => casWrite(ctx, mutate),
+  };
+}
 
 /** How long a sibling `.lock` may sit before it is presumed abandoned — a
  *  crashed writer, not a slow one. A whole write here is milliseconds, so ten
