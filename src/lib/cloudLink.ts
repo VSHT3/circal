@@ -594,6 +594,18 @@ let pollTimer = 0;
 /** Whether the Realtime channel is currently delivering rows — what lets the
  *  error-armed fallback poll stand itself down once a pass has recovered. */
 let subscribed = false;
+/**
+ * Whether any pass this session found the account's slot *empty*. The auth
+ * layer cannot refuse a mistyped address — any email silently mints a fresh
+ * account, which is an enumeration oracle refused, not an oversight — so the
+ * one visible symptom of signing in under the wrong address is a cloud copy
+ * that starts from nothing. This is that fact, kept for the session so the
+ * panel can say it; `release` drops it with the session it describes. Never
+ * cleared when the slot fills: this browser's own first write is what fills
+ * it, and "expected events? another address may hold them" stays the right
+ * diagnosis afterwards.
+ */
+let startedEmpty = false;
 
 /**
  * Read and write the remembered revision, and never fail a sync over either.
@@ -908,6 +920,7 @@ async function poll(merging = true): Promise<void> {
     fail(describe(error));
     return;
   }
+  if (found === null) startedEmpty = true;
   if (!vault) return;
   // `claim`'s own guard, for `claim`'s own reason — and it catches the read
   // side too: a row re-sealed elsewhere used to surface as `LOCKED`, telling
@@ -1145,6 +1158,7 @@ async function release(db: SupabaseClient | null): Promise<void> {
   keyed = null;
   localRev = 0;
   lastDigest = "";
+  startedEmpty = false;
   await forget();
   userId = "";
   try {
@@ -1154,6 +1168,13 @@ async function release(db: SupabaseClient | null): Promise<void> {
   }
   if (db) await db.auth.signOut();
   setStatus(OFF);
+}
+
+/** Whether this session's sign-in found no cloud copy at all — the panel's
+ *  one honest clue that the address may be the wrong one. Read at render;
+ *  every pass that could set it also moves the status the panel subscribes to. */
+export function cloudStartedEmpty(): boolean {
+  return startedEmpty;
 }
 
 export const cloud = {
@@ -1304,8 +1325,14 @@ export const cloud = {
    */
   async disconnect(): Promise<void> {
     const db = client;
+    const wasLive = status.state !== "off";
     await quiesce(db);
     await release(db);
+    // The one-live-copy rule makes this switch silent structurally — nothing
+    // else changes on screen — so the moment a copy stops being written is
+    // said out loud. The Batoni lesson: a write into a copy nobody reads
+    // looks exactly like a write that worked.
+    if (wasLive) notify("Signed out — the cloud copy stops updating; edits stay in this browser");
   },
 
   /**

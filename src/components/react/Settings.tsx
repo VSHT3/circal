@@ -21,6 +21,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
   ArrowLeft,
+  Copy,
   ArrowUpRight,
   Download,
   KeyRound,
@@ -33,7 +34,14 @@ import {
   Upload,
   X,
 } from "lucide-react";
-import { CODE_MAX, LOCKED, cloud, cloudSupported, useCloud } from "@/lib/cloudLink";
+import {
+  CODE_MAX,
+  LOCKED,
+  cloud,
+  cloudStartedEmpty,
+  cloudSupported,
+  useCloud,
+} from "@/lib/cloudLink";
 import { refreshFeed } from "@/lib/feeds";
 import { canVibrate } from "@/lib/feedback";
 import { formatCount, formatLifeDate, lifeSpan } from "@/lib/life";
@@ -465,6 +473,18 @@ export default function Settings({
       setSignIn((flow) => ({ ...flow, stage: "sent", code: "" }));
     } finally {
       setSigningIn(false);
+    }
+  }
+
+  /** The literal terminal command, one click from the card that names it —
+   *  Tier 0's own argument: assistant setup should be copy-paste, and the
+   *  `/assistant/` page is the prose home, not a required stop. */
+  async function copyCommand(command: string) {
+    try {
+      await navigator.clipboard.writeText(command);
+      notify("Command copied — paste it into a terminal");
+    } catch {
+      notify("Could not reach the clipboard — nothing was copied", "error");
     }
   }
 
@@ -1462,6 +1482,16 @@ export default function Settings({
                                 <ArrowUpRight size={13} strokeWidth={1.75} />
                                 Set up an assistant
                               </a>
+                              {/* The command the page would tell them to run,
+                                one click from the card that names the file. */}
+                              <DataButton
+                                icon={<Copy size={13} strokeWidth={1.75} />}
+                                onClick={() => void copyCommand("npx -y circal-mcp --find")}
+                              >
+                                <code className="font-mono text-[12px]">
+                                  npx -y circal-mcp --find
+                                </code>
+                              </DataButton>
                             </div>
                           </>
                         )}
@@ -1604,7 +1634,33 @@ export default function Settings({
                                   <ArrowUpRight size={13} strokeWidth={1.75} />
                                   Set up an assistant
                                 </a>
+                                {/* The cloud card's own command, `--find`'s
+                                  sibling above: sign the server in once, no
+                                  path, no flags. */}
+                                <DataButton
+                                  icon={<Copy size={13} strokeWidth={1.75} />}
+                                  onClick={() => void copyCommand("npx -y circal-mcp login")}
+                                >
+                                  <code className="font-mono text-[12px]">
+                                    npx -y circal-mcp login
+                                  </code>
+                                </DataButton>
                               </div>
+                              {/* Only while this session's sign-in found an
+                                empty slot. The auth layer cannot refuse a
+                                mistyped address — any email silently mints a
+                                fresh account — so a cloud copy that started
+                                from nothing is the one visible symptom of
+                                "wrong address", and it looks exactly like
+                                data loss to the person it happens to. Plain
+                                caption, never danger: nothing is lost. */}
+                              {cloudStartedEmpty() && (
+                                <span className="caption">
+                                  This address had no cloud copy before this sign-in. Expected
+                                  events here? They may be under a different address — any inbox
+                                  holding a &ldquo;Your circal sign-in code&rdquo; email names it
+                                </span>
+                              )}
                               {/* Only while the link is live: there is nothing
                                 to remember before a key exists, and a switch
                                 offering to keep one would be a switch about a

@@ -668,6 +668,8 @@ export const mirror = {
   },
 
   async disconnect(): Promise<void> {
+    const name = handle?.name ?? "";
+    const wasLive = status.state === "live";
     handle = null;
     localRev = 0;
     lastDigest = "";
@@ -678,6 +680,14 @@ export const mirror = {
     await nativeMirror()?.forget();
     await withStore("readwrite", (s) => s.delete(DB_KEY));
     setStatus(OFF);
+    // Said out loud because nothing else on screen changes: the file stays on
+    // disk looking exactly like the live copy it just stopped being, and an
+    // assistant pointed at it keeps writing into it without an error from
+    // either side.
+    if (wasLive)
+      notify(
+        `Mirror disconnected — ${name || "the file"} stops updating; edits stay in this browser`,
+      );
   },
 
   async syncNow(): Promise<void> {
