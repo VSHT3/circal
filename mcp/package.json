@@ -1,8 +1,8 @@
 {
   "name": "circal-mcp",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "type": "module",
-  "description": "MCP server for circal — read and write your calendar through its mirror file",
+  "description": "MCP server for circal — read and write your calendar through its mirror file or its encrypted cloud copy",
   "license": "AGPL-3.0-only",
   "repository": {
     "type": "git",
@@ -19,7 +19,7 @@
     "README.md"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
     "prepack": "cd .. && pnpm build:mcp"
