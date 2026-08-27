@@ -16,12 +16,6 @@ question — it says angle-is-time and says nothing about ⌘P, the four views, 
 this should take is `BirthPrompt`'s: one screen, at the moment it is needed, never again. Not a
 four-step carousel over the dial.
 
-**Make the assistant's setup copy-paste.** What this item used to ask for has mostly shipped since
-it was written: the cloud copy is the sync people were going looking for, `circal-mcp --cloud`
-reaches it with no file at all, and `/assistant/` teaches both routes. The residue is one copy
-change (ROADMAP Tier 0): the Mirror and Cloud cards each print their own literal terminal command,
-so setup never needs the page at all.
-
 **A whole calendar as a link — open question, not a decision.** Measured first: a thousand events
 is ~32 KB gzipped, ~43 KB as base64url. That rules out the two carriers that make the one-event
 link worth having (a chat message, a QR code — the latter caps at 2,953 bytes), and everything that

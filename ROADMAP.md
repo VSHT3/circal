@@ -16,27 +16,6 @@ the parent zone by itself.
 
 ---
 
-## Tier 0 · Trust patches (hours)
-
-Three copy-level fixes, one commit each, all cures for the same disease: everything
-reporting success while the data is somewhere else. All three failure modes were hit
-in one real session on 2026-08-27.
-
-1. **The empty-account trap speaks.** A sign-in that lands on an empty cloud copy
-   while this device holds real events says so: "expected events? you may have
-   signed in with a different address than last time." The auth layer cannot error
-   on a wrong email (any address silently mints a fresh account — refusing to would
-   be an account-enumeration oracle), so the _panel_ is the only place the mistake
-   is visible.
-2. **Switching live copies is loud.** The one-live-copy rule is well argued and
-   invisible until it bites: signing in to the cloud disconnects the mirror, and an
-   agent's write to the now-dead file is lost without a sound. One toast naming
-   what just stopped being live.
-3. **Settings prints the literal command.** The Mirror card prints its
-   `npx -y circal-mcp --find`, the Cloud card its `npx -y circal-mcp login`, so
-   assistant setup is copy-paste rather than a trip through a page. The
-   `/assistant/` page stays the prose home; the panel gets the one line.
-
 ## Tier 1 · Booking without a backend (days)
 
 The Calendly question, answered in circal's own grammar. Free-slot sharing
@@ -154,9 +133,10 @@ the shape needs a hand edit, so it is a hardening note, not a bug.
   shows up after launch. The plaintext-in-Google trade is the travel prompt's
   conversation to have then.
 - **Whole calendar as a link** — TODO.md's arithmetic already killed it.
-- **Mirror findability** (TODO.md) — mostly superseded: the cloud copy is the sync
-  people were looking for, `/assistant/` teaches both routes, and Tier 0.3 prints
-  the command. What is left of the item folds into Tier 0.
+- **Mirror findability** (TODO.md) — superseded whole: the cloud copy is the sync
+  people were looking for, `/assistant/` teaches both routes, and the Mirror and
+  Cloud cards print their own terminal commands (the trust patches, shipped
+  2026-08-27 along with the empty-slot caption and the disconnect toasts).
 - **Cloudflare's agent-readiness checklist, the rest of it.** Managed robots.txt
   and AI-crawler rules are on (the dashboard's own toggles). Markdown
   negotiation is a Pro-plan feature for a site whose whole text is four prose
