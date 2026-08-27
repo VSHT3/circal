@@ -242,10 +242,14 @@ export default function CommandPalette({
    * does this event match", so the sort is score first and nearness to the day
    * on screen second — which is exactly the old order when the query is empty,
    * because an empty query scores every candidate the same.
+   *
+   * `best` — the top row's own score — rides along so the section can be
+   * placed against Commands' best answer below, in one scale: `scoreEvent`'s
+   * title score *is* `fuzzyScore`, unpenalised.
    */
-  const eventRows: Row[] = useMemo(() => {
+  const eventHits: { rows: Row[]; best: number } = useMemo(() => {
     const feeds = new Set(calendars.filter((c) => c.feed).map((c) => c.id));
-    return events
+    const scored = events
       .map((event) => ({ event, score: scoreEvent(event, q) }))
       .filter((row): row is { event: CalEvent; score: number } => row.score !== null)
       .sort(
@@ -253,42 +257,44 @@ export default function CommandPalette({
           b.score - a.score ||
           Math.abs(a.event.start - day.getTime()) - Math.abs(b.event.start - day.getTime()),
       )
-      .slice(0, 8)
-      .map(({ event }) => ({
-        id: `event-${event.id}`,
-        mark: { icon: markOf(event, calendars, inheritMarks), color: colorOf(event, calendars) },
-        title: event.title,
-        meta: (
-          <span className="label text-ink-3">
-            {event.allDay
-              ? "ALL DAY"
-              : `${formatRelativeDay(new Date(event.start))} ${formatTimeShort(new Date(event.start), clock)}`}
-          </span>
-        ),
-        run: () => {
-          actions.goDay(new Date(event.start));
-          actions.openEvent(event);
-          onClose();
-        },
-        // A subscription is read-only in every other surface and this is not
-        // the exception: the copy would have to land in a calendar the sender
-        // does not own, which is a decision with a surprise in it.
-        alt: feeds.has(event.calendarId)
-          ? undefined
-          : {
-              label: "Duplicate",
-              run: () => {
-                // The copy opens on the original's own day. An editor over a
-                // face that cannot show what is being edited is a form.
-                actions.goDay(new Date(event.start));
-                actions.duplicateEvent(event);
-                onClose();
-              },
+      .slice(0, 8);
+    const best = scored[0]?.score ?? 0;
+    const rows = scored.map(({ event }) => ({
+      id: `event-${event.id}`,
+      mark: { icon: markOf(event, calendars, inheritMarks), color: colorOf(event, calendars) },
+      title: event.title,
+      meta: (
+        <span className="label text-ink-3">
+          {event.allDay
+            ? "ALL DAY"
+            : `${formatRelativeDay(new Date(event.start))} ${formatTimeShort(new Date(event.start), clock)}`}
+        </span>
+      ),
+      run: () => {
+        actions.goDay(new Date(event.start));
+        actions.openEvent(event);
+        onClose();
+      },
+      // A subscription is read-only in every other surface and this is not
+      // the exception: the copy would have to land in a calendar the sender
+      // does not own, which is a decision with a surprise in it.
+      alt: feeds.has(event.calendarId)
+        ? undefined
+        : {
+            label: "Duplicate",
+            run: () => {
+              // The copy opens on the original's own day. An editor over a
+              // face that cannot show what is being edited is a form.
+              actions.goDay(new Date(event.start));
+              actions.duplicateEvent(event);
+              onClose();
             },
-      }));
+          },
+    }));
+    return { rows, best };
   }, [events, q, day, calendars, clock, actions, onClose, inheritMarks]);
 
-  const commandRows: Row[] = useMemo(() => {
+  const commandHits: { rows: Row[]; best: number } = useMemo(() => {
     const base: Row[] = [
       {
         id: "cmd-new-event",
@@ -537,25 +543,38 @@ export default function CommandPalette({
     ];
     // Ranked, not filtered, and only once there is a query: with the box empty
     // this list's own order is the answer — New event first, calendars last.
-    if (!q) return base;
-    return base
+    if (!q) return { rows: base, best: 0 };
+    const scored = base
       .map((row, index) => ({ row, index, score: fuzzyScore(row.title, q) }))
       .filter((hit): hit is { row: Row; index: number; score: number } => hit.score !== null)
-      .sort((a, b) => b.score - a.score || a.index - b.index)
-      .map((hit) => hit.row);
+      .sort((a, b) => b.score - a.score || a.index - b.index);
+    return { rows: scored.map((hit) => hit.row), best: scored[0]?.score ?? 0 };
   }, [q, day, sidebarOpen, ambient, calendars, clock, actions, onClose]);
 
-  const groups: Group[] = useMemo(
-    () =>
-      [
-        { title: "Create", rows: createRows },
-        { title: "Jump", rows: jumpRows },
-        { title: "Free time", rows: freeRows },
-        { title: "Events", rows: eventRows },
-        { title: "Commands", rows: commandRows },
-      ].filter((g) => g.rows.length > 0),
-    [createRows, jumpRows, freeRows, eventRows, commandRows],
-  );
+  const groups: Group[] = useMemo(() => {
+    // The two ranked sections place themselves by their best answer, in the
+    // one scale both scores share (`fuzzyScore`; an event's title score is
+    // exactly that). Typing a command's own name must not bury it under
+    // fuzzy event matches — "new event" once sat below seven deadlines that
+    // matched only through the forgiven typo, with Enter primed on the wrong
+    // one. A tie keeps Events first, which is also the empty box's own order.
+    const ranked =
+      eventHits.best >= commandHits.best
+        ? [
+            { title: "Events", rows: eventHits.rows },
+            { title: "Commands", rows: commandHits.rows },
+          ]
+        : [
+            { title: "Commands", rows: commandHits.rows },
+            { title: "Events", rows: eventHits.rows },
+          ];
+    return [
+      { title: "Create", rows: createRows },
+      { title: "Jump", rows: jumpRows },
+      { title: "Free time", rows: freeRows },
+      ...ranked,
+    ].filter((g) => g.rows.length > 0);
+  }, [createRows, jumpRows, freeRows, eventHits, commandHits]);
 
   const flatItems = useMemo(() => groups.flatMap((g) => g.rows), [groups]);
   const indexById = useMemo(() => {
