@@ -6,7 +6,8 @@ code it constrains — so an item finishing means it leaves this file rather tha
 The instrument is finished and the calendar under it is real: RFC 5545 in and out, four views of
 one idea, a test suite in the gate. The mirror's four driven-out bugs and their residue are all
 fixed; the rationale lives in `AGENTS.md` beside the code. Nothing below adds a screen — it is a
-short list of things that finish something already started.
+short list of things that finish something already started. The _ordering_ across this file,
+`TASKS.md` and `IDEAS.md` lives in `ROADMAP.md`.
 
 ## open
 
@@ -15,11 +16,11 @@ question — it says angle-is-time and says nothing about ⌘P, the four views, 
 this should take is `BirthPrompt`'s: one screen, at the moment it is needed, never again. Not a
 four-step carousel over the dial.
 
-**Make the mirror file findable.** The sync people ask for already exists — point two machines at
-one file in a synced folder and `mirrorVerdict`'s `rev` handles both writers, `stale` refusing to
-wind a calendar backwards. Nobody finds it. The evidence is as strong as it gets: the person who
-built it went looking for temporary transfer instead. This is a discoverability item, not a feature
-one, and it is the cheapest real win on the list.
+**Make the assistant's setup copy-paste.** What this item used to ask for has mostly shipped since
+it was written: the cloud copy is the sync people were going looking for, `circal-mcp --cloud`
+reaches it with no file at all, and `/assistant/` teaches both routes. The residue is one copy
+change (ROADMAP Tier 0): the Mirror and Cloud cards each print their own literal terminal command,
+so setup never needs the page at all.
 
 **A whole calendar as a link — open question, not a decision.** Measured first: a thousand events
 is ~32 KB gzipped, ~43 KB as base64url. That rules out the two carriers that make the one-event

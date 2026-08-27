@@ -1,0 +1,148 @@
+# Roadmap
+
+**Status:** ordered plan, agreed 2026-08-27. `TODO.md` holds loose ends, `IDEAS.md` the
+brainstorm, `TASKS.md` one full spec; this file holds the _order_ and the items that
+belong to no other file. When something ships it leaves here, `TODO.md`'s own rule.
+
+Context the older files predate: the MCP server grew a second transport
+(`circal-mcp --cloud` — the encrypted Supabase row, decrypted only on the user's
+machine; `mcp/README.md`), `circal-mcp login` discovers the project from the site's
+own `/mcp.json`, `circal-mcp@0.3.0` is published, and `/assistant/` teaches both
+routes. The mirror file is no longer the only door an assistant has.
+
+---
+
+## Tier 0 · Trust patches (hours)
+
+Three copy-level fixes, one commit each, all cures for the same disease: everything
+reporting success while the data is somewhere else. All three failure modes were hit
+in one real session on 2026-08-27.
+
+1. **The empty-account trap speaks.** A sign-in that lands on an empty cloud copy
+   while this device holds real events says so: "expected events? you may have
+   signed in with a different address than last time." The auth layer cannot error
+   on a wrong email (any address silently mints a fresh account — refusing to would
+   be an account-enumeration oracle), so the _panel_ is the only place the mistake
+   is visible.
+2. **Switching live copies is loud.** The one-live-copy rule is well argued and
+   invisible until it bites: signing in to the cloud disconnects the mirror, and an
+   agent's write to the now-dead file is lost without a sound. One toast naming
+   what just stopped being live.
+3. **Settings prints the literal command.** The Mirror card prints its
+   `npx -y circal-mcp --find`, the Cloud card its `npx -y circal-mcp login`, so
+   assistant setup is copy-paste rather than a trip through a page. The
+   `/assistant/` page stays the prose home; the panel gets the one line.
+
+## Tier 1 · Booking without a backend (days)
+
+The Calendly question, answered in circal's own grammar. Free-slot sharing
+(IDEAS #8, shipped) covers publish-availability and stops: the receiver can look at
+the sender's free time but cannot act on it.
+
+The completion: **tap a hollow slot → a draft opens prefilled with that slot →
+Save writes it to the receiver's own calendar and hands them the reply** — an event
+share link (`#e=`, already exists) to message back, plus an `.ics` download for
+recipients on other calendars. The sender opens the reply, the editor seeds, Save.
+Both calendars agree and the message thread is the server.
+
+Squares with the standing refusal (IDEAS: "answering is a message, and circal has
+no channel to post one"): circal still posts nothing. The human carries the reply
+down the same road the offer arrived on. No accounts, no booking backend, no
+double-booking referee — the sender re-checks on accept, which is what "does
+Tuesday still work?" already is.
+
+Reuses: `SlotArc` + `clipToDay`, `encodeShare`/`shareFragment`, the editor's
+seed-during-first-render path, `toIcs` for the fallback file. New: one interaction
+on the strip's overlay, one compose step, copy for the notice line.
+
+## Tier 2 · Verbs in the palette (days) — IDEAS #9
+
+`move standup to 10`, `push lunch 30m`. Moved up because the MCP made it load-bearing:
+the assistant's tools and the palette should speak one grammar, and this makes the
+fastest interaction in the app not need the AI at all. `parseQuickAdd`'s
+right-to-left scanner grows verb heads; targets resolve through `fuzzyScore`;
+the scope question reuses `ScopeChoices`. One grammar, three inputs: tap, type, ask.
+
+## Tier 3 · Tasks (weeks) — TASKS.md, staged as written
+
+The big rock and the "proper calendar" gap: deadline, estimate and planned time as
+three numbers, drag a row onto the rim, auto-schedule into free gaps. Ship in the
+spec's five stages; 1–3 (model, sidebar + editor, face) are the value, 4–5 (drag,
+auto-schedule) the delight. Two amendments to the spec:
+
+- §11's MCP tools route through the `Store` seam, so they serve the file and the
+  cloud row alike without knowing which.
+- IDEAS #3 (day-shape templates) folds into stage 5 rather than shipping alone —
+  it exists to feed auto-schedule's `freeGaps`, and building it earlier is building
+  an input with no consumer.
+
+## Tier 4 · Spread the product (parallel-friendly)
+
+- **IDEAS #14, Save this face.** SVG/PNG export of a day or year. Screenshots of
+  dials are already how circal spreads; give them a verb. `window.__circalSave`
+  answers the WKWebView half already. Build first in this tier: its output is the
+  next item's artwork.
+- **`/tour/` — the missing page.** The site answers _why_ (`/manifesto/`) and _how
+  to wire an AI_ (`/assistant/`) and never _what_. One static page in the same
+  voice: the four views, AI access, sync, the mac app, the keyboard table — each
+  illustrated with a real exported face from #14, not screenshots that rot. Also
+  the whole of circal's SEO surface: the app is `client:only`, so today a crawler
+  sees nearly nothing. Linked from Settings beside the manifesto, and the future
+  onboarding card's "show me around" points here. **Not** a separate marketing
+  site, no hero section, no pricing page: `/` opening into a working dial is the
+  strongest landing page a local-first product can have, and a brochure would
+  concede the manifesto's argument.
+- **A `.mcpb` desktop extension.** One-click circal in Claude Desktop's connector
+  directory with the promise intact: the bundle runs the MCP server _locally_
+  (no terminal, no Node install, no JSON), sensitive config lands in the OS
+  keychain, and the emailed sign-in code arrives through MCP elicitation as an
+  in-chat question. The hosted-connector route (ChatGPT, Perplexity) stays
+  refused: a server that can answer "what's on Thursday" is a server holding the
+  key, and that is the one door the product is built to keep shut.
+- **`/mac/`** — only when the app bundle is actually distributed; one page, one
+  download, the four bridges in a sentence each.
+
+## Tier 5 · Ink-earners (small; between big things)
+
+- **IDEAS #12, daylight across the year ring.** Day length over a year is one
+  picture only a circular year draws; `sun.ts` ships already. Rim _background_
+  tint, so it survives the no-new-rings rule.
+- **IDEAS #2, travel time.** A hand-typed "leave by" pip ahead of an arc — the most
+  clock-face-native feature on any of these lists, one `CalEvent` field through
+  the `readEvent` checklist, and reminders get it for free.
+- **Typical-weekday ghost** (TODO.md). Past instances of the viewed weekday, faint,
+  on the same lanes. The one idea that says something the calendar does not
+  literally contain.
+- **Onboarding's teaching half** (TODO.md). One `BirthPrompt`-shaped card: ⌘P, the
+  four views, the drag. The intro animation seduces; nothing yet teaches.
+
+## Tier 6 · Chores basket
+
+Settings cleanup pass · mark pinning · the dial's `sr-only` listbox for ended
+events (the third listbox; a real a11y gap) · the all-day drag reachability fix ·
+IDEAS #10 day notes, re-evaluated after tasks land (a task's own notes may eat the
+demand) · **`AGENTS.md`'s mcp/ section refresh** — it still describes a
+mirror-file-only server ("stdio bridge onto the mirror file", "twelve Zod
+schemas") and predates the `Store` seam, the cloud transport and `login`.
+
+## Parked, with reasons
+
+- **IDEAS #19, Google write-back.** Months (foreign data model, sync tokens,
+  OAuth verification), and its own entry already says: deferred until demand
+  shows up after launch. The plaintext-in-Google trade is the travel prompt's
+  conversation to have then.
+- **Whole calendar as a link** — TODO.md's arithmetic already killed it.
+- **Mirror findability** (TODO.md) — mostly superseded: the cloud copy is the sync
+  people were looking for, `/assistant/` teaches both routes, and Tier 0.3 prints
+  the command. What is left of the item folds into Tier 0.
+- **IDEAS #6 jog-wheel, #16 editable palette, #17 density presets** — delight
+  without a driving complaint; cheap to add later, cheap to skip now.
+- **Moon position/text, a map for `location`, pomodoro** — TODO.md's own tiers,
+  unchanged.
+
+## The through-line
+
+Tiers 1–2 make circal the calendar that is fastest to _act on_: tap a slot, type a
+verb, ask an assistant — three inputs, one grammar, no server able to read any of
+it. That is a positioning no grid calendar can copy, and every later tier
+(tasks, the tour, the connector) compounds it.
