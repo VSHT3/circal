@@ -13,6 +13,8 @@ import {
   cloudStore,
   credentialsPath,
   readCredentials,
+  readProject,
+  resolveProject,
   writeCredentials,
   type CloudCredentials,
 } from "../mcp/cloud";
@@ -170,6 +172,43 @@ afterEach(async () => {
 });
 
 /* ------------------------------ credentials -------------------------------- */
+
+describe("resolveProject — which project login signs into", () => {
+  it("takes the flag pair whole, and refuses half of one", async () => {
+    await expect(
+      resolveProject(["--url", "https://p.supabase.co/", "--key", "sb_publishable_x"], {}),
+    ).resolves.toEqual({ url: "https://p.supabase.co", key: "sb_publishable_x" });
+    await expect(resolveProject(["--url", "https://p.supabase.co"], {})).rejects.toThrow(
+      /travel together/,
+    );
+  });
+
+  it("asks the site's /mcp.json when nothing names a project", async () => {
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
+      expect(String(input)).toBe("https://circal.day/mcp.json");
+      return Response.json({ url: "https://site.supabase.co", key: "sb_publishable_site" });
+    });
+    await expect(resolveProject([], {})).resolves.toEqual({
+      url: "https://site.supabase.co",
+      key: "sb_publishable_site",
+    });
+  });
+
+  it("says 'this site offers no cloud copy' for a fork's nulls, not a parse error", async () => {
+    vi.stubGlobal("fetch", async () => Response.json({ url: null, key: null }));
+    await expect(resolveProject(["--site", "https://fork.example"], {})).rejects.toThrow(
+      /does not offer a cloud copy/,
+    );
+  });
+
+  it.each([
+    { name: "nulls", value: { url: null, key: null } },
+    { name: "missing key", value: { url: "https://x.supabase.co" } },
+    { name: "not an object", value: "nope" },
+  ])("readProject answers null for $name", ({ value }) => {
+    expect(readProject(value)).toBeNull();
+  });
+});
 
 describe("the credentials record", () => {
   it("round-trips, and the env override names the path", async () => {

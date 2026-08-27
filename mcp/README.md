@@ -137,19 +137,25 @@ circal-mcp --cloud  # serve against the row
 circal-mcp logout   # withdraw this machine's key, now
 ```
 
-`login` needs to know the Supabase project: `--url` and `--key` (the
-`sb_publishable_…` key — the same public pair the web app is built with), or
-the `PUBLIC_SUPABASE_URL` / `PUBLIC_SUPABASE_PUBLISHABLE_KEY` environment
-variables. It signs in with an emailed code, proves the passphrase against
-the row's own box before writing anything, and leaves a `0600` record at the
-platform config dir (`~/Library/Application Support/circal/cloud.json` on
-macOS; `CIRCAL_CLOUD_CREDENTIALS` overrides) holding the session and the
+`login` asks the site which Supabase project it uses (`https://circal.day/mcp.json`,
+see `src/pages/mcp.json.ts`; `--site <url>` points a fork at its own
+deployment, `--url`/`--key` name a project outright). Then three prompts:
+email, the emailed sign-in code, the passphrase. The passphrase is proven
+against the row's own box before anything is written, and what is left behind
+is a `0600` record at the platform config dir
+(`~/Library/Application Support/circal/cloud.json` on macOS;
+`CIRCAL_CLOUD_CREDENTIALS` overrides) holding the session and the
 **derived key — never the passphrase**. This is the browser's "stay
 unlocked" record in Node clothes: same authority, same threat model, one
 honest step weaker in that a file's bytes are readable where a
 non-extractable `CryptoKey`'s are not — the price of a runtime with no
 IndexedDB. Whoever can read that file can read the calendar; `logout`
 deletes it immediately.
+
+Sign-in is once per machine: the session renews itself, and each rotated
+refresh token is persisted before it is spent. A browser's own session is
+deliberately never borrowed — Supabase rotates refresh tokens with reuse
+detection, so two clients sharing one session sign each other out.
 
 The row must already exist: this server never mints the box. Enrolment — the
 account, the passphrase, the first seal — belongs to the app's own Settings

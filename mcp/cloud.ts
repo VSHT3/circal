@@ -465,6 +465,66 @@ function flagValue(argv: string[], flag: string): string | undefined {
   return index >= 0 ? argv[index + 1] : undefined;
 }
 
+/** Where a deployment answers "which Supabase project am I" — see
+ *  `src/pages/mcp.json.ts`. circal's own site by default; a fork passes
+ *  `--site https://their.domain`. */
+const DEFAULT_SITE = "https://circal.day";
+
+export interface Project {
+  url: string;
+  key: string;
+}
+
+/** The site's own answer, read defensively — it is a network's word, and a
+ *  fork that never configured the cloud legitimately answers `null`s. */
+export function readProject(value: unknown): Project | null {
+  if (typeof value !== "object" || value === null) return null;
+  const body = value as Record<string, unknown>;
+  if (typeof body.url !== "string" || !body.url) return null;
+  if (typeof body.key !== "string" || !body.key) return null;
+  return { url: body.url.replace(/\/+$/, ""), key: body.key };
+}
+
+/**
+ * Which project to sign in against: an explicit flag or env pair wins, else
+ * the site is asked at `/mcp.json` — the same values the site ships inside
+ * its own bundle, now at an address a terminal can read. Nothing secret
+ * travels: the publishable key is public by design (`.env.example`).
+ */
+export async function resolveProject(argv: string[], env: NodeJS.ProcessEnv): Promise<Project> {
+  const url = (flagValue(argv, "--url") || env.PUBLIC_SUPABASE_URL || "").replace(/\/+$/, "");
+  const key = flagValue(argv, "--key") || env.PUBLIC_SUPABASE_PUBLISHABLE_KEY || "";
+  if (url && key) return { url, key };
+  if (url || key) {
+    throw new Error(
+      "circal-mcp login was given half a project: --url and --key (or the two " +
+        "PUBLIC_SUPABASE_* variables) travel together.",
+    );
+  }
+
+  const site = (flagValue(argv, "--site") || DEFAULT_SITE).replace(/\/+$/, "");
+  let response: Response;
+  try {
+    response = await fetch(`${site}/mcp.json`);
+  } catch (error) {
+    throw new Error(`could not reach ${site} to ask which project it uses`, { cause: error });
+  }
+  if (!response.ok) {
+    throw new Error(
+      `${site} did not answer /mcp.json (${response.status}) — an older deployment. ` +
+        "Pass --url and --key instead (the publishable sb_publishable_… pair the site is built with).",
+    );
+  }
+  const project = readProject(await response.json().catch(() => null));
+  if (!project) {
+    throw new Error(
+      `${site} does not offer a cloud copy (its /mcp.json names no project). ` +
+        "Pass --url and --key if you run your own.",
+    );
+  }
+  return project;
+}
+
 /**
  * Sign in, verify the passphrase against the row's own box, and leave the
  * credentials record behind. Interactive on purpose — an OTP and a passphrase
@@ -476,15 +536,7 @@ function flagValue(argv: string[], flag: string): string | undefined {
  * passphrase's meaning is explained before it is chosen).
  */
 export async function runLogin(argv: string[], env: NodeJS.ProcessEnv): Promise<void> {
-  const url = (flagValue(argv, "--url") || env.PUBLIC_SUPABASE_URL || "").replace(/\/+$/, "");
-  const key = flagValue(argv, "--key") || env.PUBLIC_SUPABASE_PUBLISHABLE_KEY || "";
-  if (!url || !key) {
-    throw new Error(
-      "circal-mcp login needs the Supabase project: pass --url and --key (the publishable " +
-        "sb_publishable_… key, the same pair the web app is built with), or set " +
-        "PUBLIC_SUPABASE_URL and PUBLIC_SUPABASE_PUBLISHABLE_KEY.",
-    );
-  }
+  const { url, key } = await resolveProject(argv, env);
 
   const email = await ask("Email: ");
   if (!email) throw new Error("an email address is required");

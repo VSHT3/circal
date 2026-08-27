@@ -30,9 +30,10 @@ Usage:
   circal-mcp --cloud         Start the server against the cloud copy
                               (sign in first with \`circal-mcp login\`)
   circal-mcp login           Sign in to the cloud copy and remember the
-                              derived key on this machine (interactive;
-                              takes --url and --key, or the PUBLIC_SUPABASE_*
-                              environment variables the web app is built with)
+                              derived key on this machine (interactive:
+                              email, emailed code, passphrase; asks circal.day
+                              which project it uses — --site <url> for a fork,
+                              or --url and --key to name one outright)
   circal-mcp logout          Forget the remembered key and session
   circal-mcp --find          Search common locations for a mirror file and
                               print a ready-to-paste client config (read-only,
