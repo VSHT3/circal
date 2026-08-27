@@ -8,7 +8,11 @@ Context the older files predate: the MCP server grew a second transport
 (`circal-mcp --cloud` — the encrypted Supabase row, decrypted only on the user's
 machine; `mcp/README.md`), `circal-mcp login` discovers the project from the site's
 own `/mcp.json`, `circal-mcp@0.3.0` is published, and `/assistant/` teaches both
-routes. The mirror file is no longer the only door an assistant has.
+routes. The mirror file is no longer the only door an assistant has. Domain
+posture (2026-08-27): DMARC moved to `p=quarantine` (SPF, DKIM and the Resend
+records on `bounce.send.circal.day` were verified aligned first) and DNSSEC is
+enabled — `circal.day` sits on Cloudflare Registrar, so the DS record reaches
+the parent zone by itself.
 
 ---
 
@@ -99,6 +103,19 @@ auto-schedule) the delight. Two amendments to the spec:
   in-chat question. The hosted-connector route (ChatGPT, Perplexity) stays
   refused: a server that can answer "what's on Thursday" is a server holding the
   key, and that is the one door the product is built to keep shut.
+- **WebMCP, natively.** A new browser standard (`document.modelContext`,
+  experimental in Chrome 146): a page registers tools an _in-browser_ agent can
+  call, so the agent drives the app instead of guessing at its DOM. This is the
+  fourth assistant door and the most circal-shaped of all of them — the agent,
+  the tools and the calendar are all in the same browser, so nothing new leaves
+  it and no key moves anywhere. One feature-detected module in the island,
+  registering the domain layer the MCP server already exposes (list a day,
+  quick-add, free slots; writes keep the same scope-question refusals). Costs a
+  lazy chunk and a careful think about which write verbs an in-page agent gets.
+  Deliberately **not** Cloudflare's dashboard toggle: that injects an
+  edge-served script into every page — a third party's code inside an
+  end-to-end-encrypted app — and its two packs (C2PA images, a same-origin
+  `/mcp` proxy) fit a product circal is not. Native or nothing.
 - **`/mac/`** — only when the app bundle is actually distributed; one page, one
   download, the four bridges in a sentence each.
 
@@ -123,7 +140,12 @@ events (the third listbox; a real a11y gap) · the all-day drag reachability fix
 IDEAS #10 day notes, re-evaluated after tasks land (a task's own notes may eat the
 demand) · **`AGENTS.md`'s mcp/ section refresh** — it still describes a
 mirror-file-only server ("stdio bridge onto the mirror file", "twelve Zod
-schemas") and predates the `Store` seam, the cloud transport and `login`.
+schemas") and predates the `Store` seam, the cloud transport and `login` ·
+**a sitemap** (`@astrojs/sitemap`, four pages — worthless alone, worth one line
+when `/tour/` gives crawlers something to find) · a hand-crafted-blob crash:
+valid JSON in `circal.v1` with fields no real build ever omitted takes the dial
+into the error boundary — the boundary behaves (backup offered, data whole) and
+the shape needs a hand edit, so it is a hardening note, not a bug.
 
 ## Parked, with reasons
 
@@ -135,6 +157,12 @@ schemas") and predates the `Store` seam, the cloud transport and `login`.
 - **Mirror findability** (TODO.md) — mostly superseded: the cloud copy is the sync
   people were looking for, `/assistant/` teaches both routes, and Tier 0.3 prints
   the command. What is left of the item folds into Tier 0.
+- **Cloudflare's agent-readiness checklist, the rest of it.** Managed robots.txt
+  and AI-crawler rules are on (the dashboard's own toggles). Markdown
+  negotiation is a Pro-plan feature for a site whose whole text is four prose
+  pages; the Level 2–3 items (API catalog, OAuth discovery, A2A agent card,
+  Web Bot Auth) describe a product with a public API, which circal is not —
+  its agent surface is MCP, deliberately. Commerce: no.
 - **IDEAS #6 jog-wheel, #16 editable palette, #17 density presets** — delight
   without a driving complaint; cheap to add later, cheap to skip now.
 - **Moon position/text, a map for `location`, pomodoro** — TODO.md's own tiers,
