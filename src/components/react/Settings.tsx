@@ -1591,6 +1591,19 @@ export default function Settings({
                                 >
                                   Sign out
                                 </DataButton>
+                                {/* The Mirror card's anchor, for the same
+                                  reason: an assistant reaches a live cloud
+                                  copy through `circal-mcp --cloud`, and setup
+                                  is a page, not an action. */}
+                                <a
+                                  href="/assistant/"
+                                  target="_blank"
+                                  rel="noopener"
+                                  className="flex h-8 w-fit items-center gap-1.5 rounded-[8px] border border-hairline bg-surface-2 px-2.5 text-[13px] text-ink transition-colors hover:bg-(--veil-10)"
+                                >
+                                  <ArrowUpRight size={13} strokeWidth={1.75} />
+                                  Set up an assistant
+                                </a>
                               </div>
                               {/* Only while the link is live: there is nothing
                                 to remember before a key exists, and a switch

@@ -2,27 +2,36 @@
 import Base from "@/layouts/Base.astro";
 
 /**
- * `/assistant/` — the on-ramp from "I connected a mirror file" to "an
- * assistant can read it". Static markup, no island, same reasoning as
+ * `/assistant/` — the on-ramp from "circal keeps a live copy of my calendar"
+ * to "an assistant can read it". Static markup, no island, same reasoning as
  * `manifesto.astro`: this is a page you read once and leave, and shipping
  * React to print a JSON snippet would cost more than the snippet.
  *
- * It cannot be smarter than the platform lets it be. A `FileSystemFileHandle`
- * exposes `.name` and nothing else — no path, by design, because a page
- * knowing where on your disk a file sits is the exact privacy leak the File
- * System Access API exists to prevent. So this page cannot look up the path
- * and cannot pre-fill it anywhere; it can only point at `circal-mcp --find`,
- * the one thing standing outside the browser that is allowed to look.
+ * Two doors, because the Settings panel keeps at most one live copy at a
+ * time: the mirror file on this computer, or the encrypted cloud copy. The
+ * server (`circal-mcp`) serves either; the page's job is to route the reader
+ * to the right one and be honest about what each costs.
  *
- * Linked from Settings → Mirror → "Set up an assistant" once a file is live,
- * and from the README. Not linked from the app shell itself: it is setup,
- * not a feature, and the instrument has nowhere to put a link to it.
+ * The file half cannot be smarter than the platform lets it be. A
+ * `FileSystemFileHandle` exposes `.name` and nothing else — no path, by
+ * design, because a page knowing where on your disk a file sits is the exact
+ * privacy leak the File System Access API exists to prevent. So this page
+ * cannot look up the path and cannot pre-fill it anywhere; it can only point
+ * at `circal-mcp --find`, the one thing standing outside the browser that is
+ * allowed to look. The cloud half needs no path at all, and its sign-in has
+ * to be a terminal's for a harder reason: the passphrase derives the key on
+ * the machine that will hold it, and no web flow may ever see it.
+ *
+ * Linked from Settings → Mirror and Settings → Cloud ("Set up an assistant")
+ * once either copy is live, and from the README. Not linked from the app
+ * shell itself: it is setup, not a feature, and the instrument has nowhere
+ * to put a link to it.
  */
 ---
 
 <Base
   title="Set up an assistant · circal"
-  description="Three steps to let an MCP-speaking assistant read and write the calendar in your mirror file."
+  description="Three steps to let an MCP-speaking assistant read and write your calendar, through its mirror file or its encrypted cloud copy."
   scroll
 >
   <main class="mx-auto w-full max-w-[36rem] px-6 pt-14 pb-24 sm:pt-20">
@@ -47,25 +56,25 @@ import Base from "@/layouts/Base.astro";
     <p class="mt-5 text-[15px] leading-[1.6] text-ink-3">Three steps, one of them in a terminal.</p>
 
     <p class="mt-10 text-[17px] leading-[1.75] text-ink-2">
-      Your calendar lives in this browser. Mirroring it writes a live copy to a file on your
-      computer, and an assistant that can read that file can answer questions about your calendar
-      and add things to it. None of it goes to the internet: the file never leaves your machine,
-      nothing on this page asks you to sign in to anything, and everything below runs on your own
-      computer. Circal's cloud copy is a separate feature, off until you switch it on, and it is
-      sealed in this browser before it goes anywhere; what that one costs is set out in Settings →
-      Cloud, where you would turn it on.
+      Your calendar lives in this browser, and circal keeps at most one live copy of it: a mirror
+      file on your computer, or the encrypted cloud copy, whichever you switched on in Settings. An
+      assistant reads and writes whichever copy you have, through a small server that runs on your
+      own machine. With the file, nothing touches the internet at all. With the cloud copy, the
+      assistant works on the same sealed record the app syncs with, and the seal holds both ways: it
+      is opened and closed on your machine, with a key made from your passphrase, and the server
+      behind it never holds anything it can read.
     </p>
 
     <div class="mt-12">
       <h2 class="label text-ink-2">What you need</h2>
       <p class="mt-3 text-[15px] leading-[1.7] text-ink-2">
-        Node.js 20 or later, from <a
+        Node.js 22 or later, from <a
           href="https://nodejs.org"
           class="text-ink underline decoration-hairline underline-offset-2 hover:decoration-ink-2"
           >nodejs.org</a
         >, and an assistant that speaks MCP: Claude Desktop, Claude Code, Cursor, VS Code and Zed
-        all do. The step below is the one that needs a terminal; there is no way around it, since it
-        is also the only thing that can find your file for you.
+        all do. One step below needs a terminal, and there is no way around it: outside the browser
+        is the only place allowed to find your file, and the only place your passphrase may go.
       </p>
     </div>
 
@@ -77,11 +86,24 @@ import Base from "@/layouts/Base.astro";
     }
     <ol class="mt-12 flex flex-col gap-10">
       <li>
-        <h2 class="label text-ink-2">Step 1 · Find your file</h2>
+        <h2 class="label text-ink-2">Step 1 · Connect the server</h2>
         <p class="mt-3 text-[15px] leading-[1.7] text-ink-2">
-          circal can't tell you where the file is. The browser only ever hands the page a handle to
-          it, never a path, on purpose: a web page is not supposed to know your filesystem layout.
-          Run this instead:
+          <span class="text-ink">Using the cloud copy?</span> Sign the server in, once per machine:
+        </p>
+        <pre
+          class="mt-4 overflow-x-auto rounded-[10px] border border-hairline bg-surface-2 p-3.5"><code class="text-[13px] leading-[1.6] text-ink font-mono">npx -y circal-mcp login</code></pre>
+        <p class="mt-3 text-[15px] leading-[1.7] text-ink-2">
+          Three prompts: your email, the code it receives, your passphrase. The passphrase is never
+          stored and never sent; the key it derives stays on this machine, in a file only your user
+          account can read, and the cloud copy stays sealed to its server exactly as before. The
+          session renews itself, so this is a one-time step. <code
+            class="font-mono text-[13px] text-ink-2">npx -y circal-mcp logout</code
+          > withdraws the key immediately.
+        </p>
+        <p class="mt-4 text-[15px] leading-[1.7] text-ink-2">
+          <span class="text-ink">Mirroring to a file instead?</span> circal can't tell you where the file
+          is. The browser only ever hands the page a handle to it, never a path, on purpose: a web page
+          is not supposed to know your filesystem layout. Run this instead:
         </p>
         <pre
           class="mt-4 overflow-x-auto rounded-[10px] border border-hairline bg-surface-2 p-3.5"><code class="text-[13px] leading-[1.6] text-ink font-mono">npx -y circal-mcp --find</code></pre>
@@ -94,18 +116,23 @@ import Base from "@/layouts/Base.astro";
       <li>
         <h2 class="label text-ink-2">Step 2 · Tell your assistant</h2>
         <p class="mt-3 text-[15px] leading-[1.7] text-ink-2">
-          Most MCP clients read a JSON file. Put this in it, with the path from Step 1 in place of
-          the placeholder:
+          Most MCP clients read a JSON file. For the cloud copy, put this in it, exactly as printed,
+          no path needed:
         </p>
         <pre
           class="mt-4 overflow-x-auto rounded-[10px] border border-hairline bg-surface-2 p-3.5"><code class="text-[13px] leading-[1.6] text-ink font-mono">{`{
   "mcpServers": {
     "circal": {
       "command": "npx",
-      "args": ["-y", "circal-mcp", "--file", "/absolute/path/to/circal.json"]
+      "args": ["-y", "circal-mcp", "--cloud"]
     }
   }
 }`}</code></pre>
+        <p class="mt-3 text-[15px] leading-[1.7] text-ink-2">
+          For a mirror file, the last two args are <code class="font-mono text-[13px] text-ink-2"
+            >"--file", "/absolute/path/to/circal.json"</code
+          > instead, with the path from Step 1 in place of the placeholder.
+        </p>
         <p class="mt-4 text-[15px] leading-[1.7] text-ink-2">
           <span class="text-ink">Claude Desktop</span> reads it from Settings → Developer → Edit Config,
           which opens <code class="font-mono text-[13px] text-ink-2"
@@ -123,7 +150,7 @@ import Base from "@/layouts/Base.astro";
           edit:
         </p>
         <pre
-          class="mt-4 overflow-x-auto rounded-[10px] border border-hairline bg-surface-2 p-3.5"><code class="text-[13px] leading-[1.6] text-ink font-mono">claude mcp add circal -- npx -y circal-mcp --file /absolute/path/to/circal.json</code></pre>
+          class="mt-4 overflow-x-auto rounded-[10px] border border-hairline bg-surface-2 p-3.5"><code class="text-[13px] leading-[1.6] text-ink font-mono">claude mcp add circal -- npx -y circal-mcp --cloud</code></pre>
       </li>
 
       <li>
@@ -174,8 +201,16 @@ import Base from "@/layouts/Base.astro";
         <li class="flex gap-2.5">
           <span class="text-ink-4" aria-hidden="true">·</span>
           <span>
-            It will not write at all if it is running in a different timezone from the one the file
-            was written in.
+            It will not write at all if it is running in a different timezone from the one your
+            calendar was written in.
+          </span>
+        </li>
+        <li class="flex gap-2.5">
+          <span class="text-ink-4" aria-hidden="true">·</span>
+          <span>
+            It will not create the cloud copy, or an account. Signing up, choosing the passphrase
+            and the first upload all belong to Settings → Cloud; the assistant only ever opens a box
+            that already exists.
           </span>
         </li>
       </ul>
@@ -184,8 +219,14 @@ import Base from "@/layouts/Base.astro";
     <div class="mt-14 border-t border-hairline pt-8">
       <h2 class="label text-ink-2">The trade</h2>
       <p class="mt-3 text-[15px] leading-[1.7] text-ink-2">
-        While the file is connected, anything on your computer that can read files can read and
+        While a mirror file is connected, anything on your computer that can read files can read and
         change your calendar. Turning the mirror off in Settings stops it.
+      </p>
+      <p class="mt-3 text-[15px] leading-[1.7] text-ink-2">
+        While the server is signed in to the cloud copy, this machine holds a key that can read and
+        change the calendar on every device on the account, so anyone who can read your files holds
+        it too. <code class="font-mono text-[13px] text-ink-2">circal-mcp logout</code> withdraws it now,
+        not at the next launch.
       </p>
     </div>
 
