@@ -16,14 +16,6 @@ the parent zone by itself.
 
 ---
 
-## Tier 2 · Verbs in the palette (days) — IDEAS #9
-
-`move standup to 10`, `push lunch 30m`. Moved up because the MCP made it load-bearing:
-the assistant's tools and the palette should speak one grammar, and this makes the
-fastest interaction in the app not need the AI at all. `parseQuickAdd`'s
-right-to-left scanner grows verb heads; targets resolve through `fuzzyScore`;
-the scope question reuses `ScopeChoices`. One grammar, three inputs: tap, type, ask.
-
 ## Tier 3 · Tasks (weeks) — TASKS.md, staged as written
 
 The big rock and the "proper calendar" gap: deadline, estimate and planned time as
@@ -127,7 +119,7 @@ the `AGENTS.md` mcp/ refresh (done — the row now names both transports, the
 
 ## The through-line
 
-Tier 2 makes circal the calendar that is fastest to _act on_: tap a slot, type a
+Typed verbs make circal the calendar that is fastest to _act on_: tap a slot, type a
 verb, ask an assistant — three inputs, one grammar, no server able to read any of
 it. That is a positioning no grid calendar can copy, and every later tier
 (tasks, the tour, the connector) compounds it.

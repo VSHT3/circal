@@ -55,11 +55,13 @@ import {
   MINUTES_PER_DAY,
   addDays,
   dayKey,
+  daysBetween,
   formatRelativeDay,
   formatTime,
   fromDayKey,
   isSameDay,
   localZone,
+  minutesOfDay,
   startOfDay,
   weekOffset,
 } from "@/lib/time";
@@ -277,6 +279,38 @@ function onOccurrence(draft: Omit<CalEvent, "id">, seedMs: number, at: number) {
   const keptDate = startOfDay(new Date(draft.start)).getTime() === seedDay;
   const shift = keptDate ? startOfDay(new Date(at)).getTime() - seedDay : 0;
   return { start: draft.start + shift, end: draft.end + shift };
+}
+
+/**
+ * An event's own instants as an `Occurrence`, so a verb typed in the palette
+ * commits through the seam a drag on the arc already uses: `adjustOccurrence`
+ * takes one of these, and with it come the scope question, the preview and the
+ * notice, none of which a second write path would inherit.
+ *
+ * The seed rather than the occurrence on screen, because the palette ranks
+ * events and its rows already speak of one by its own start — and the scope
+ * question then means what it always means, measured from the series' head.
+ */
+function seedOccurrence(event: CalEvent): Occurrence {
+  const start = new Date(event.start);
+  const end = new Date(event.end);
+  const nextMidnight = addDays(startOfDay(start), 1);
+  return {
+    key: `${event.id}@${instantKey(start)}`,
+    event,
+    start,
+    end,
+    startMin: minutesOfDay(start),
+    // As in `occurrencesOn`: an event ending exactly at midnight ends this day
+    // at 1440, not the next one at 0.
+    endMin: end >= nextMidnight ? MINUTES_PER_DAY : minutesOfDay(end),
+    continuesBefore: false,
+    continuesAfter: end > nextMidnight,
+    dayIndex: 1,
+    dayCount: daysBetween(start, new Date(Math.max(event.start, event.end - 1))) + 1,
+    done: event.doneKeys.includes(instantKey(start)),
+    lane: 0,
+  };
 }
 
 /**
@@ -1083,6 +1117,90 @@ function Shell() {
     [pending],
   );
 
+  /**
+   * An arc dragged on the dial, applied. The deltas are minutes. `"all"` puts
+   * them on the event's own instants, so the seed moves and every occurrence
+   * follows it; the other two measure from the occurrence that was actually
+   * under the pointer, and leave the rest of the series where it was.
+   *
+   * An event dragged past midnight leaves the day, and the view has usually
+   * followed it there already: the dial asks for the step itself as the drag
+   * carries the arc through. The notice is for the case where it could not —
+   * a multi-day event's clipped occurrence, whose visible ends are not the
+   * event's own instants — because an arc that leaves the face without a word
+   * reads as a deletion.
+   */
+  const commitAdjust = useCallback(
+    (occ: Occurrence, startDeltaMin: number, endDeltaMin: number, scope: EditScope) => {
+      const { id: _id, ...body } = occ.event;
+      const at = occ.start.getTime();
+      const moved = (ms: number, minutes: number) => ms + minutes * 60_000;
+      const start = moved(at, startDeltaMin);
+      const end = moved(occ.end.getTime(), endDeltaMin);
+      switch (effectiveScope(scope, occ.event.start, at)) {
+        case "all":
+          store.update(occ.event.id, {
+            start: moved(occ.event.start, startDeltaMin),
+            end: moved(occ.event.end, endDeltaMin),
+          });
+          break;
+        case "one":
+          store.create({
+            ...body,
+            ...NEVER,
+            start,
+            end,
+            seriesId: occ.event.id,
+            seriesKey: instantKey(at),
+          });
+          break;
+        case "future":
+          store.splitSeries(occ.event.id, at, { ...body, start, end });
+          break;
+      }
+      // The notice is judged by the occurrence that was under the pointer,
+      // and only when its new span no longer touches the viewed day: the
+      // toast exists for an arc that leaves this face without the view having
+      // followed it — a multi-day clipped occurrence, whose visible ends are
+      // not the event's instants, so the dial could not step the day. An edit
+      // whose arc still covers the viewed day says nothing: resizing day two
+      // of a two-day event is not a move, and a toast per drag reads as a
+      // fault. `addDays`, not 1440 minutes — a day is not always 1440 minutes.
+      const dayStart = startOfDay(day);
+      const left =
+        start >= addDays(dayStart, 1).getTime() || Math.max(end, start + 1) <= dayStart.getTime();
+      if (left) {
+        notify(`Moved to ${formatRelativeDay(new Date(start))}`);
+      }
+    },
+    [day],
+  );
+
+  /**
+   * The dial's release. A one-off is written there and then — the gesture said
+   * everything it had to say. A repeating event is asked what the drag meant,
+   * the same three ways the editor asks.
+   */
+  const adjustOccurrence = useCallback(
+    (occ: Occurrence, startDeltaMin: number, endDeltaMin: number) => {
+      if (!repeats(occ.event)) {
+        commitAdjust(occ, startDeltaMin, endDeltaMin, "all");
+        return;
+      }
+      setAsk({ kind: "move", occ, startDeltaMin, endDeltaMin });
+      // The dial drops its preview the moment the pointer lifts. Re-arming it
+      // here is what keeps the arc where the drag left it while the question
+      // is up: springing back to the old position and then jumping again on
+      // the answer reads as the gesture having failed.
+      setPreview({
+        id: occ.event.id,
+        start: occ.event.start + startDeltaMin * 60_000,
+        end: occ.event.end + endDeltaMin * 60_000,
+      });
+    },
+    [commitAdjust],
+  );
+
   const actions: ShellActions = useMemo(
     () => ({
       // Today keeps the view it was asked in. It is the middle of the `‹ Today
@@ -1204,6 +1322,26 @@ function Shell() {
             }`;
         notify(`Added “${spec.title}”${over}`);
       },
+      /**
+       * A verb typed in ⌘P, applied. The palette resolved which event and
+       * where it lands; `adjustOccurrence` is then the same seam a drag on the
+       * arc commits through, with the shift typed rather than dragged. It
+       * carries everything that path already decided: a one-off is written now,
+       * a repeating one asks its scope in the same card, the preview holds the
+       * new position while the question is up, and an event that has left the
+       * viewed day says so.
+       *
+       * A subscription is refused here as well as in the parser, for the
+       * reason `calendarRemoval` mirrors the store's own rule: the surface that
+       * offers a verb and the code that performs it must not disagree about
+       * what may be written.
+       */
+      quickEdit: (edit) => {
+        const event = visible.find((e) => e.id === edit.target.id);
+        if (!event || feedIds.has(event.calendarId)) return;
+        setPaletteOpen(false);
+        adjustOccurrence(seedOccurrence(event), edit.startDeltaMin, edit.endDeltaMin);
+      },
       undo: () => notify(store.undo() ? "Undone" : "Nothing to undo"),
       redo: () => notify(store.redo() ? "Redone" : "Nothing to redo"),
       exportIcs: () => void exportIcs(store.snapshot()),
@@ -1272,6 +1410,7 @@ function Shell() {
       day,
       go,
       openDraft,
+      adjustOccurrence,
       defaultCalendar,
       settings.defaultDuration,
       settings.wakingFrom,
@@ -1567,90 +1706,6 @@ function Shell() {
       });
     },
     [feedIds],
-  );
-
-  /**
-   * An arc dragged on the dial, applied. The deltas are minutes. `"all"` puts
-   * them on the event's own instants, so the seed moves and every occurrence
-   * follows it; the other two measure from the occurrence that was actually
-   * under the pointer, and leave the rest of the series where it was.
-   *
-   * An event dragged past midnight leaves the day, and the view has usually
-   * followed it there already: the dial asks for the step itself as the drag
-   * carries the arc through. The notice is for the case where it could not —
-   * a multi-day event's clipped occurrence, whose visible ends are not the
-   * event's own instants — because an arc that leaves the face without a word
-   * reads as a deletion.
-   */
-  const commitAdjust = useCallback(
-    (occ: Occurrence, startDeltaMin: number, endDeltaMin: number, scope: EditScope) => {
-      const { id: _id, ...body } = occ.event;
-      const at = occ.start.getTime();
-      const moved = (ms: number, minutes: number) => ms + minutes * 60_000;
-      const start = moved(at, startDeltaMin);
-      const end = moved(occ.end.getTime(), endDeltaMin);
-      switch (effectiveScope(scope, occ.event.start, at)) {
-        case "all":
-          store.update(occ.event.id, {
-            start: moved(occ.event.start, startDeltaMin),
-            end: moved(occ.event.end, endDeltaMin),
-          });
-          break;
-        case "one":
-          store.create({
-            ...body,
-            ...NEVER,
-            start,
-            end,
-            seriesId: occ.event.id,
-            seriesKey: instantKey(at),
-          });
-          break;
-        case "future":
-          store.splitSeries(occ.event.id, at, { ...body, start, end });
-          break;
-      }
-      // The notice is judged by the occurrence that was under the pointer,
-      // and only when its new span no longer touches the viewed day: the
-      // toast exists for an arc that leaves this face without the view having
-      // followed it — a multi-day clipped occurrence, whose visible ends are
-      // not the event's instants, so the dial could not step the day. An edit
-      // whose arc still covers the viewed day says nothing: resizing day two
-      // of a two-day event is not a move, and a toast per drag reads as a
-      // fault. `addDays`, not 1440 minutes — a day is not always 1440 minutes.
-      const dayStart = startOfDay(day);
-      const left =
-        start >= addDays(dayStart, 1).getTime() || Math.max(end, start + 1) <= dayStart.getTime();
-      if (left) {
-        notify(`Moved to ${formatRelativeDay(new Date(start))}`);
-      }
-    },
-    [day],
-  );
-
-  /**
-   * The dial's release. A one-off is written there and then — the gesture said
-   * everything it had to say. A repeating event is asked what the drag meant,
-   * the same three ways the editor asks.
-   */
-  const adjustOccurrence = useCallback(
-    (occ: Occurrence, startDeltaMin: number, endDeltaMin: number) => {
-      if (!repeats(occ.event)) {
-        commitAdjust(occ, startDeltaMin, endDeltaMin, "all");
-        return;
-      }
-      setAsk({ kind: "move", occ, startDeltaMin, endDeltaMin });
-      // The dial drops its preview the moment the pointer lifts. Re-arming it
-      // here is what keeps the arc where the drag left it while the question
-      // is up: springing back to the old position and then jumping again on
-      // the answer reads as the gesture having failed.
-      setPreview({
-        id: occ.event.id,
-        start: occ.event.start + startDeltaMin * 60_000,
-        end: occ.event.end + endDeltaMin * 60_000,
-      });
-    },
-    [commitAdjust],
   );
 
   /**

@@ -7,7 +7,7 @@ import type { CalEvent, Calendar, Occurrence } from "@/lib/events";
 import type { LifeRun, LifeStage } from "@/lib/life";
 import type { WeekStage } from "@/lib/week";
 import type { Settings } from "@/lib/store";
-import type { QuickAdd } from "@/lib/quickadd";
+import type { QuickAdd, QuickEdit } from "@/lib/quickadd";
 
 export type ViewMode = "day" | "week" | "year" | "life";
 
@@ -128,6 +128,14 @@ export interface ShellActions {
    * the span first, and undo covers the misfire.
    */
   quickAdd: (spec: QuickAdd) => void;
+  /**
+   * One typed verb from ⌘P — `move standup to 10`, `push lunch 30m`. The
+   * parser resolved which event and where; this is the seam a drag on the arc
+   * already commits through, with the shift typed rather than dragged, so a
+   * repeating event asks the same scope question in the same card and nothing
+   * is written until it is answered.
+   */
+  quickEdit: (edit: QuickEdit) => void;
   toggleSidebar: () => void;
   /**
    * Chrome away, dial to the window. Not exposed in the top bar: the left

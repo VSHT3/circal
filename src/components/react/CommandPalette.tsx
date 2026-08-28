@@ -9,6 +9,7 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
   ArrowLeft,
   ArrowRight,
+  CalendarClock,
   CalendarDays,
   CalendarSearch,
   Circle,
@@ -32,9 +33,18 @@ import { useFocusTrap } from "@/components/react/hooks";
 import { Kbd, MOD } from "@/components/react/ui/primitives";
 import { CalendarMark } from "@/components/react/ui/icons";
 import type { CommandPaletteProps } from "@/components/react/types";
-import { colorOf, freeGaps, markOf, scoreEvent, type CalEvent } from "@/lib/events";
+import { colorOf, freeGaps, markOf, repeats, scoreEvent, type CalEvent } from "@/lib/events";
 import { fuzzyScore } from "@/lib/fuzzy";
-import { parseDate, parseQuickAdd, parseSlot, repeatPhrase } from "@/lib/quickadd";
+import {
+  hasEditVerb,
+  parseDate,
+  parseQuickAdd,
+  parseQuickEdit,
+  parseSlot,
+  repeatPhrase,
+  type EditTarget,
+  type EditVerb,
+} from "@/lib/quickadd";
 import { dayCopies } from "@/lib/store";
 import {
   MINUTES_PER_DAY,
@@ -84,6 +94,10 @@ interface Group {
 }
 
 const CHROME_ICON_PROPS = { size: 15, strokeWidth: 1.75 as const, className: "text-ink-3" };
+
+/** What each verb is called on its row. `delay` and `reschedule` are spellings
+ *  of `push` and `move`, so the row prints the one word either reads as. */
+const VERB_LABELS: Record<EditVerb, string> = { move: "Move", push: "Push", pull: "Pull" };
 
 export default function CommandPalette({
   open,
@@ -206,6 +220,57 @@ export default function CommandPalette({
       },
     ];
   }, [query, day, now, clock, defaultDuration, actions, onClose]);
+
+  /**
+   * A verb line: `move standup to 10`, `push lunch 30m`. One event, one edit,
+   * and the same bar the create row above it meets — the row prints where the
+   * edit lands before Enter, because there is no review step after it.
+   *
+   * The corpus is the one the Events section ranks, so what a verb can reach
+   * is exactly what the palette can find. A subscription is not in it:
+   * `parseQuickEdit` drops read-only targets rather than offering a verb whose
+   * only outcome would be a refusal.
+   */
+  const editRows: Row[] = useMemo(() => {
+    // Asked before the corpus is built: most keystrokes are not a verb line,
+    // and a copy of every event per keystroke to find that out is one nobody
+    // reads.
+    if (!hasEditVerb(query)) return [];
+    const feeds = new Set(calendars.filter((c) => c.feed).map((c) => c.id));
+    const targets: EditTarget[] = events.map((event) => ({
+      id: event.id,
+      title: event.title,
+      start: event.start,
+      end: event.end,
+      allDay: event.allDay,
+      repeating: repeats(event),
+      readOnly: feeds.has(event.calendarId),
+    }));
+    const edit = parseQuickEdit(query, targets, day);
+    if (!edit) return [];
+    const start = new Date(edit.start);
+    const when = edit.target.allDay
+      ? "ALL DAY"
+      : `${formatTimeShort(start, clock)} – ${formatTimeShort(new Date(edit.end), clock)}`;
+    // The row says the question is coming: Enter on a repeating event opens the
+    // scope card rather than writing, and a keystroke whose outcome is a modal
+    // should say so before it is pressed.
+    const asks = edit.needsScope ? " · Repeats" : "";
+    return [
+      {
+        id: "edit",
+        icon: <CalendarClock {...CHROME_ICON_PROPS} />,
+        title: `${VERB_LABELS[edit.verb]} “${edit.target.title || "Untitled"}”`,
+        meta: (
+          <span className="label text-ink-3">{`${formatRelativeDay(start, now)} · ${when}${asks}`}</span>
+        ),
+        run: () => {
+          actions.quickEdit(edit);
+          onClose();
+        },
+      },
+    ];
+  }, [query, events, calendars, day, now, clock, actions, onClose]);
 
   /**
    * Free slots on the selected day. The dial already makes gaps the most
@@ -569,12 +634,18 @@ export default function CommandPalette({
             { title: "Events", rows: eventHits.rows },
           ];
     return [
-      { title: "Create", rows: createRows },
+      { title: "Edit", rows: editRows },
+      // One line names one thing. `move standup to 10` also parses as an event
+      // called "move standup to", and offering both would put two rows with
+      // one Enter between them under a sentence with a single meaning. The
+      // verb yields the other way round for free: it resolves only when a real
+      // event answers it, so `move sofa 3pm` is still a create row.
+      { title: "Create", rows: editRows.length > 0 ? [] : createRows },
       { title: "Jump", rows: jumpRows },
       { title: "Free time", rows: freeRows },
       ...ranked,
     ].filter((g) => g.rows.length > 0);
-  }, [createRows, jumpRows, freeRows, eventHits, commandHits]);
+  }, [editRows, createRows, jumpRows, freeRows, eventHits, commandHits]);
 
   const flatItems = useMemo(() => groups.flatMap((g) => g.rows), [groups]);
   const indexById = useMemo(() => {

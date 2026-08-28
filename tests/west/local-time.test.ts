@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { at, calendar, day, event, rule } from "../helpers";
+import { at, calendar, day, event, ms, rule } from "../helpers";
 import { dayCopies } from "@/lib/store";
 import {
   lifeFraction,
@@ -22,6 +22,7 @@ import {
 } from "@/lib/time";
 import { startsBetweenIn } from "@/lib/recur";
 import { keptEvents, movedEvent, travelShift } from "@/lib/travel";
+import { parseQuickEdit, type EditTarget } from "@/lib/quickadd";
 
 /* ------------------------------------------------------------------ *
  * Re-runs the zone-sensitive invariants from tests/time.test.ts under
@@ -341,5 +342,43 @@ describe("dayCopies keeps the wall clock across the US DST transitions", () => {
     expect.soft(new Date(copy.start).getHours()).toBe(0);
     expect.soft(new Date(copy.end).getHours()).toBe(0);
     expect.soft(dayKey(new Date(copy.start))).toBe("2026-11-02");
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * A verb typed in the palette lands on wall-clock days: `atMinutes` on
+ * the day it names, `addDays` for the end, never a multiple of 1440
+ * minutes. The Berlin half lives in tests/quickadd.test.ts; this is the
+ * same invariant where the offset moves the other way.
+ * ------------------------------------------------------------------ */
+
+describe("a palette verb keeps the wall clock across the US DST transitions", () => {
+  const OWN = { allDay: false, repeating: false, readOnly: false };
+  const targets = (extra: Partial<EditTarget>, from: string, to: string): EditTarget[] => [
+    { id: "e", title: "Retreat", start: ms(from), end: ms(to), ...OWN, ...extra },
+  ];
+
+  it("moves 09:00 across spring-forward and it is still 09:00", () => {
+    // LA springs forward on 2026-03-08.
+    const edit = parseQuickEdit(
+      "move retreat to 2026-03-09",
+      targets({}, "2026-03-06 09:00", "2026-03-06 10:00"),
+      day("2026-03-06"),
+    );
+    expect.soft(new Date(edit!.start).getHours()).toBe(9);
+    expect.soft(new Date(edit!.end).getHours()).toBe(10);
+    expect.soft(dayKey(new Date(edit!.start))).toBe("2026-03-09");
+  });
+
+  it("moves an all-day span across fall-back with both ends on local midnight", () => {
+    // LA falls back on 2026-11-01.
+    const edit = parseQuickEdit(
+      "move retreat to 2026-10-31",
+      targets({ allDay: true }, "2026-10-24 00:00", "2026-10-27 00:00"),
+      day("2026-10-24"),
+    );
+    expect.soft(new Date(edit!.start).getHours()).toBe(0);
+    expect.soft(new Date(edit!.end).getHours()).toBe(0);
+    expect.soft(dayKey(new Date(edit!.end))).toBe("2026-11-03");
   });
 });

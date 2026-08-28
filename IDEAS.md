@@ -81,11 +81,23 @@ the end are recorded as refusals, so they are argued once instead of re-litigate
    draft on the receiver's own calendar, and the save offers the reply — a
    `#e=` link back plus a one-event `.ics` — with the human as the channel.
 
-9. **Natural-language edits in the palette.** `move standup to 10`, `push lunch
-30m` — `parseQuickAdd` already owns the grammar's right-to-left scanner; this
-   adds verb heads and resolves the target through `fuzzyScore`. The palette
-   becomes an editor, not only a creator. Scope question (one/future/all) reuses
-   `ScopeChoices`.
+9. **Natural-language edits in the palette.** — **Shipped**. As sketched:
+   `parseQuickEdit` grows verb heads on the same right-to-left scanner,
+   targets resolve through `fuzzyScore` over the corpus the palette already
+   ranks, and the one/future/all question is `ScopeChoices` in the card a
+   drag gets. Decisions beyond the sketch: `pull` is `push` with the sign
+   flipped, one grammar for both directions (`delay`/`reschedule` are
+   spellings, not branches); `to` and `by` become filler _only_ on a verb
+   line, since a head is what makes them structural where quick-add's `to`
+   belongs to titles ("go to gym"); a verb moves and never resizes unless the
+   line names both ends (`move sync to 13:00-14:00`); all-day and
+   subscription targets are no candidates rather than refusals — the ranking
+   carries on, and the row naming what it resolved to is what keeps that
+   readable; and the commit goes through the drag's own seam
+   (`seedOccurrence` → `adjustOccurrence`), so scope is measured from the
+   seed and the preview, the notice and "nothing written until answered" all
+   come for free. A verb head stays a plain word when no event answers it:
+   `move sofa 3pm` is still a create row.
 
 10. **Day notes.** One plain-text note per day key, stored in the blob, drawn as a
     dot on the mini-month and a paragraph in the interior at rest. Journaling
@@ -199,6 +211,6 @@ the end are recorded as refusals, so they are argued once instead of re-litigate
 ## Shortlist by value per effort
 
 **#4 (Join verb)**, **#7 (weekly totals band)**, **#8 (free-slot sharing)**,
-**#11 (ambient clock)**, **#13 (rings closed)** and **#15 (theme presets)**
-are done — see their entries. The shortlist is spent; what remains above is
-unranked.
+**#9 (palette verbs)**, **#11 (ambient clock)**, **#13 (rings closed)** and
+**#15 (theme presets)** are done — see their entries. The shortlist is spent;
+what remains above is unranked.

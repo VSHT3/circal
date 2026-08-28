@@ -16,12 +16,15 @@
  * user is looking at.
  * ------------------------------------------------------------------ */
 
+import { fuzzyScore } from "@/lib/fuzzy";
 import { REPEAT_LABELS, repeatUnit, type Repeat, type WeekdayRule } from "@/lib/recur";
 import {
   MINUTES_PER_DAY,
   MONTHS,
   WEEKDAYS,
   addDays,
+  atMinutes,
+  daysBetween,
   daysInMonth,
   isSameDay,
   minutesOfDay,
@@ -609,4 +612,246 @@ export function parseQuickAdd(
     allDay: endMin - startMin >= MINUTES_PER_DAY,
     repeat,
   };
+}
+
+/* ---------------------------------- verbs ---------------------------------- */
+
+/**
+ * A candidate for a verb's target: one event as the surface asking already has
+ * it. Not a `CalEvent`, for the reason `fuzzyScore` takes two strings — this
+ * file sits beside `events.ts` rather than above it, and the seven fields
+ * below are everything a verb reads.
+ */
+export interface EditTarget {
+  id: string;
+  title: string;
+  /** Epoch ms, `end` exclusive, as everywhere. */
+  start: number;
+  end: number;
+  allDay: boolean;
+  /** The rule generates more than its seed, so the scope question comes first. */
+  repeating: boolean;
+  /** Mirrored from a subscription, so a verb refuses it rather than writing. */
+  readOnly: boolean;
+}
+
+/** `move` puts an event somewhere; `push` and `pull` shift it by a length. */
+export type EditVerb = "move" | "push" | "pull";
+
+/** One edit to one event, resolved from one line. */
+export interface QuickEdit {
+  verb: EditVerb;
+  target: EditTarget;
+  /** Where the edit lands, epoch ms, so a row can print it before Enter. */
+  start: number;
+  end: number;
+  /** The shift, in minutes: the two numbers a drag on the arc already hands
+   *  the shell, so a typed verb and a dragged one commit through one seam. */
+  startDeltaMin: number;
+  endDeltaMin: number;
+  /** The target repeats: nothing may be written until a scope is answered. */
+  needsScope: boolean;
+}
+
+/**
+ * The heads a line may open with. `reschedule` is `move` as a calendar spells
+ * it, `delay` is `push`, and `pull` is the same grammar with the sign flipped —
+ * "pull it in" is how an hour is asked for earlier.
+ */
+const MOVE_HEADS: Record<string, true> = { move: true, reschedule: true };
+const SHIFT_HEADS: Record<string, 1 | -1> = { push: 1, delay: 1, pull: -1 };
+
+/**
+ * Whether a line opens with one of them, so a caller can skip assembling a
+ * corpus for a line that cannot be an edit. The same table `parseQuickEdit`
+ * reads: a second list of verbs somewhere else is a second grammar.
+ */
+export function hasEditVerb(input: string): boolean {
+  const head = input.trim().split(/\s+/, 1)[0]?.toLowerCase() ?? "";
+  return MOVE_HEADS[head] !== undefined || SHIFT_HEADS[head] !== undefined;
+}
+
+/**
+ * `to` and `by` are connectors here and nowhere else. The verb head is what
+ * makes them structural — `move standup to 10`, `push lunch by 30m` — where in
+ * a bare quick-add line `to` belongs to titles far more often than to times.
+ */
+const EDIT_FILLER = new Set([...FILLER, "to", "by"]);
+
+/**
+ * The event a verb's name means: the best `fuzzyScore` against the titles the
+ * caller had on screen, ties going to the one nearest the day being looked at,
+ * which is the palette's own tiebreak.
+ *
+ * A subscription is not a candidate at all. It is read-only in every other
+ * surface, and a verb whose only outcome is a toasted refusal is a verb that
+ * should not be offered. Skipping a candidate is not refusing the line: the
+ * ranking carries on over the rest, so the name falls to the next target that
+ * answers it, and the caller gets `null` only when none does. The row prints
+ * the event it resolved to, which is what keeps that fall-through readable.
+ */
+function bestTarget(
+  name: string,
+  targets: EditTarget[],
+  reference: Date,
+  usable: (target: EditTarget) => boolean,
+): EditTarget | null {
+  if (!name) return null;
+  const near = reference.getTime();
+  let best: EditTarget | null = null;
+  let score = 0;
+  for (const target of targets) {
+    if (target.readOnly || !usable(target)) continue;
+    const hit = fuzzyScore(target.title, name);
+    if (hit === null) continue;
+    if (
+      best === null ||
+      hit > score ||
+      (hit === score && Math.abs(target.start - near) < Math.abs(best.start - near))
+    ) {
+      best = target;
+      score = hit;
+    }
+  }
+  return best;
+}
+
+/** One resolved edit, with the shift the shell commits it by. */
+function editing(verb: EditVerb, target: EditTarget, start: number, end: number): QuickEdit | null {
+  // A line that names where an event already is names no edit.
+  if (start === target.start && end === target.end) return null;
+  return {
+    verb,
+    target,
+    start,
+    end,
+    startDeltaMin: (start - target.start) / 60_000,
+    endDeltaMin: (end - target.end) / 60_000,
+    needsScope: target.repeating,
+  };
+}
+
+/**
+ * `move standup to 10`, `push lunch 30m` → one edit to one event, or `null`.
+ *
+ * The verb is a head on the line and the rest is the grammar quick-add already
+ * reads: a time, a date or a length, peeled off the end right to left, with
+ * whatever is left naming the target. That name is ranked with `fuzzyScore`
+ * against the titles the caller passed, so `move sup to 10` finds the standup.
+ *
+ * Three rules earn their keep:
+ *
+ * - **A verb head is not a reserved word.** `move sofa 3pm` with no event
+ *   called sofa is still an event called "move sofa", so this returns `null`
+ *   and quick-add keeps the line. The two only ever disagree when a real event
+ *   answers the verb.
+ * - **A clock needs something with a clock.** An all-day event has none, so it
+ *   is no candidate for `push`, `pull`, or a `move` that names an hour; a
+ *   `move` naming only a day still moves one. A skipped candidate leaves the
+ *   name to the next target that answers it, here as for a subscription.
+ * - **Duration is preserved.** A verb moves an event, it does not resize one —
+ *   unless the line names both ends itself (`move sync to 13:00-14:00`), which
+ *   is the one spelling that says otherwise.
+ */
+export function parseQuickEdit(
+  input: string,
+  targets: EditTarget[],
+  reference: Date,
+): QuickEdit | null {
+  // The same joining quick-add does, so `move sync to 13:00 - 14:00` is one
+  // token where `one-on-one` is left alone.
+  const tokens = input
+    .trim()
+    .replace(/(\d)\s*[-–—]\s*(\d)/g, "$1-$2")
+    .split(/\s+/)
+    .filter(Boolean);
+  const head = tokens[0]?.toLowerCase();
+  // A verb, a name and a when: nothing shorter can be an edit.
+  if (!head || tokens.length < 3) return null;
+  if (!hasEditVerb(head)) return null;
+
+  const words = tokens.slice(1);
+  let end = words.length;
+  const phrase = (from: number, to: number) => words.slice(from, to).join(" ");
+
+  /** Quick-add's own right-to-left claim, over this line's filler. */
+  function claim<T>(count: number, read: (value: string) => T | null): T | null {
+    for (let n = Math.min(count, end); n >= 1; n--) {
+      const value = read(phrase(end - n, end));
+      if (value !== null) {
+        end -= n;
+        while (end > 0 && EDIT_FILLER.has(words[end - 1].toLowerCase())) end -= 1;
+        return value;
+      }
+    }
+    return null;
+  }
+
+  const direction = SHIFT_HEADS[head];
+  if (direction !== undefined) {
+    const minutes = claim(2, (value) => {
+      const length = parseDurationToken(value);
+      return length !== null && length > 0 ? length : null;
+    });
+    if (minutes === null) return null;
+    const target = bestTarget(phrase(0, end).trim(), targets, reference, (t) => !t.allDay);
+    if (!target) return null;
+    // Milliseconds, deliberately: half an hour later is half an hour of real
+    // time, whatever the day does about summer time in between.
+    const shift = direction * minutes * 60_000;
+    return editing(
+      direction > 0 ? "push" : "pull",
+      target,
+      target.start + shift,
+      target.end + shift,
+    );
+  }
+
+  let span: Span | null = null;
+  let on: Date | null = null;
+  while (end > 0) {
+    // Time before date, as in quick-add: a bare number beside a name is an
+    // hour, so `move standup to 10` is ten o'clock and not the tenth.
+    if (span === null) {
+      const value = claim(2, parseSpan);
+      if (value !== null) {
+        span = value;
+        continue;
+      }
+    }
+    if (on === null) {
+      const value = claim(DATE_WORDS, (value) => parseDate(value, reference));
+      if (value !== null) {
+        on = startOfDay(value);
+        continue;
+      }
+    }
+    break;
+  }
+  if (span === null && on === null) return null;
+
+  const target = bestTarget(
+    phrase(0, end).trim(),
+    targets,
+    reference,
+    (t) => !t.allDay || span === null,
+  );
+  if (!target) return null;
+
+  const from = new Date(target.start);
+  const until = new Date(target.end);
+  const day = on ?? startOfDay(from);
+  const startMin = span ? span.startMin : minutesOfDay(from);
+  const nextStart = atMinutes(day, startMin);
+  // The end keeps its own place in the span: the same day shift and the same
+  // clock shift, both built as local times, so a day-long event still ends on
+  // midnight after a move across a summer-time boundary.
+  const nextEnd =
+    span?.endMin != null
+      ? atMinutes(day, span.endMin)
+      : atMinutes(
+          addDays(startOfDay(until), daysBetween(startOfDay(from), day)),
+          minutesOfDay(until) + startMin - minutesOfDay(from),
+        );
+  return editing("move", target, nextStart.getTime(), nextEnd.getTime());
 }

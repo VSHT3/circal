@@ -1,14 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { at, day } from "./helpers";
+import { at, day, ms } from "./helpers";
 import {
   DEFAULT_DURATION,
   defaultStart,
+  hasEditVerb,
   parseDate,
   parseDurationToken,
   parseQuickAdd,
+  parseQuickEdit,
   parseRepeat,
   parseSlot,
   repeatPhrase,
+  type EditTarget,
 } from "@/lib/quickadd";
 import { MINUTES_PER_DAY, dayKey } from "@/lib/time";
 
@@ -633,5 +636,237 @@ describe("parseQuickAdd reads an offset from now", () => {
       endMin: MINUTES_PER_DAY,
       allDay: true,
     });
+  });
+});
+
+/* ---------------------------------- verbs ---------------------------------- */
+
+/** One event on screen, in the shape a verb's target arrives in. */
+function target(
+  title: string,
+  from: string,
+  to: string,
+  extra: Partial<EditTarget> = {},
+): EditTarget {
+  return {
+    id: title,
+    title,
+    start: ms(from),
+    end: ms(to),
+    allDay: false,
+    repeating: false,
+    readOnly: false,
+    ...extra,
+  };
+}
+
+const STANDUP = target("Standup", "2026-08-05 09:30", "2026-08-05 09:45");
+const LUNCH = target("Lunch with Anna", "2026-08-05 12:00", "2026-08-05 13:00");
+const GYM = target("Go to gym", "2026-08-05 07:00", "2026-08-05 08:00");
+/* Repeating, so an edit to it has to ask which occurrences it reaches. */
+const REVIEW = target("Design review", "2026-08-05 15:00", "2026-08-05 16:00", {
+  repeating: true,
+});
+/* Three days, all-day: no clock of its own to move. */
+const RETREAT = target("Team retreat", "2026-08-10 00:00", "2026-08-13 00:00", { allDay: true });
+/* Mirrored from a subscription. */
+const YOGA = target("Yoga class", "2026-08-05 18:00", "2026-08-05 19:00", { readOnly: true });
+
+const TARGETS = [STANDUP, LUNCH, GYM, REVIEW, RETREAT, YOGA];
+
+/** What an edit says, in the form a failure reads in one line. */
+function moved(input: string, targets = TARGETS, reference = REFERENCE) {
+  const edit = parseQuickEdit(input, targets, reference);
+  if (!edit) return null;
+  return {
+    verb: edit.verb,
+    target: edit.target.title,
+    start: dayKey(new Date(edit.start)) + " " + new Date(edit.start).toTimeString().slice(0, 5),
+    end: dayKey(new Date(edit.end)) + " " + new Date(edit.end).toTimeString().slice(0, 5),
+    needsScope: edit.needsScope,
+  };
+}
+
+describe("parseQuickEdit moves an event", () => {
+  it("reads a verb, a name and an hour", () => {
+    expect(moved("move standup to 10")).toEqual({
+      verb: "move",
+      target: "Standup",
+      start: "2026-08-05 10:00",
+      end: "2026-08-05 10:15",
+      needsScope: false,
+    });
+  });
+
+  it("hands the shell the shift a drag would have measured", () => {
+    const edit = parseQuickEdit("move standup to 10", TARGETS, REFERENCE);
+    expect(edit).toMatchObject({ startDeltaMin: 30, endDeltaMin: 30 });
+  });
+
+  // The name is ranked, not matched: the same subsequence the palette's own
+  // rows are ranked by.
+  it.each(["move standup to 10", "move sup to 10", "move Standup to 10", "move standup 10"])(
+    "finds the target from %o",
+    (input) => {
+      expect(moved(input)).toEqual(moved("move standup to 10"));
+    },
+  );
+
+  it("keeps the clock when only a day was named", () => {
+    expect(moved("move standup to friday")).toMatchObject({
+      start: "2026-08-07 09:30",
+      end: "2026-08-07 09:45",
+    });
+  });
+
+  it("takes a day and an hour together", () => {
+    expect(moved("move standup to friday 8am")).toMatchObject({
+      start: "2026-08-07 08:00",
+      end: "2026-08-07 08:15",
+    });
+  });
+
+  // The connector is stripped from the end only, so a title with one in it
+  // keeps it: `to` is a word inside "Go to gym" and a connector after it.
+  it("leaves an inner connector inside the name", () => {
+    expect(moved("move go to gym to 11")).toMatchObject({
+      target: "Go to gym",
+      start: "2026-08-05 11:00",
+      end: "2026-08-05 12:00",
+    });
+  });
+
+  // A verb moves an event rather than resizing one, unless the line itself
+  // names both ends.
+  it("takes a range as both ends", () => {
+    expect(moved("move lunch to 13:00-14:30")).toMatchObject({
+      start: "2026-08-05 13:00",
+      end: "2026-08-05 14:30",
+    });
+  });
+
+  it("moves an all-day span by whole days, both ends on midnight", () => {
+    expect(moved("move retreat to 2026-09-14")).toMatchObject({
+      target: "Team retreat",
+      start: "2026-09-14 00:00",
+      end: "2026-09-17 00:00",
+    });
+  });
+
+  it("reads reschedule as the same verb", () => {
+    expect(moved("reschedule standup to 10")).toEqual(moved("move standup to 10"));
+  });
+});
+
+describe("parseQuickEdit shifts an event by a length", () => {
+  it.each([
+    { input: "push lunch 30m", verb: "push", start: "2026-08-05 12:30", end: "2026-08-05 13:30" },
+    { input: "push lunch by 1h", verb: "push", start: "2026-08-05 13:00", end: "2026-08-05 14:00" },
+    { input: "delay lunch 15m", verb: "push", start: "2026-08-05 12:15", end: "2026-08-05 13:15" },
+    { input: "pull lunch 30m", verb: "pull", start: "2026-08-05 11:30", end: "2026-08-05 12:30" },
+  ])("reads $input as $start", ({ input, verb, start, end }) => {
+    expect(moved(input)).toEqual({
+      verb,
+      target: "Lunch with Anna",
+      start,
+      end,
+      needsScope: false,
+    });
+  });
+
+  it("shifts both ends by the same minutes", () => {
+    expect(parseQuickEdit("push lunch 30m", TARGETS, REFERENCE)).toMatchObject({
+      startDeltaMin: 30,
+      endDeltaMin: 30,
+    });
+    expect(parseQuickEdit("pull lunch 30m", TARGETS, REFERENCE)).toMatchObject({
+      startDeltaMin: -30,
+      endDeltaMin: -30,
+    });
+  });
+
+  // The unit is what makes a length a length, here as in quick-add.
+  it.each(["push lunch 30", "push lunch to 13:00", "push lunch tomorrow"])(
+    "refuses %o",
+    (input) => {
+      expect(parseQuickEdit(input, TARGETS, REFERENCE)).toBeNull();
+    },
+  );
+
+  // An all-day event has no clock, so a length has nothing to shift.
+  it("refuses to shift an all-day event", () => {
+    expect(parseQuickEdit("push retreat 1h", TARGETS, REFERENCE)).toBeNull();
+    expect(parseQuickEdit("move retreat to 10", TARGETS, REFERENCE)).toBeNull();
+  });
+});
+
+describe("parseQuickEdit refuses what is not an edit", () => {
+  // Nothing on screen answers the name, so the line is not an edit at all.
+  it.each([
+    "move nonsense to 10",
+    "move to 10",
+    "move standup",
+    "push",
+    "standup to 10",
+    "cancel standup to 10",
+    "",
+  ])("refuses %o", (input) => {
+    expect(parseQuickEdit(input, TARGETS, REFERENCE)).toBeNull();
+  });
+
+  // The head test the palette asks before it assembles a corpus. One table,
+  // so a line this says no to can never be an edit.
+  it.each(["move standup to 10", "MOVE standup to 10", "reschedule x", "push x", "pull x"])(
+    "reads a verb head in %o",
+    (input) => {
+      expect(hasEditVerb(input)).toBe(true);
+    },
+  );
+
+  it.each(["", "moving standup to 10", "standup", "lunch 1pm", "delayed lunch 30m"])(
+    "reads no verb head in %o",
+    (input) => {
+      expect(hasEditVerb(input)).toBe(false);
+    },
+  );
+
+  // A verb head is not a reserved word: with no event answering it, the line
+  // is still an event with a name that starts "move".
+  it("leaves a quick-add line to quick-add", () => {
+    expect(parseQuickEdit("move sofa 3pm", TARGETS, REFERENCE)).toBeNull();
+    expect(shape("move sofa 3pm")).toMatchObject({ title: "move sofa", startMin: 15 * 60 });
+  });
+
+  it("refuses a line that names where the event already is", () => {
+    expect(parseQuickEdit("move standup to 9:30", TARGETS, REFERENCE)).toBeNull();
+    expect(parseQuickEdit("push lunch 0m", TARGETS, REFERENCE)).toBeNull();
+  });
+
+  // A subscription is read-only in every other surface, so it is no candidate
+  // here either. Ranking then carries on over the writable targets: the line
+  // falls to the next one answering the name, and to `null` when none does —
+  // which is this case, since nothing else on screen is a yoga class.
+  it("refuses a feed-mirrored event", () => {
+    expect(parseQuickEdit("move yoga to 19", TARGETS, REFERENCE)).toBeNull();
+    expect(parseQuickEdit("push yoga 30m", TARGETS, REFERENCE)).toBeNull();
+    // The same line against the same event, writable, is an edit.
+    const own = [{ ...YOGA, readOnly: false }];
+    expect(moved("move yoga to 19", own)).toMatchObject({ start: "2026-08-05 19:00" });
+  });
+});
+
+describe("parseQuickEdit and a repeating target", () => {
+  it("says the scope question is owed", () => {
+    expect(moved("move review to 16")).toEqual({
+      verb: "move",
+      target: "Design review",
+      start: "2026-08-05 16:00",
+      end: "2026-08-05 17:00",
+      needsScope: true,
+    });
+  });
+
+  it("says nothing is owed for a one-off", () => {
+    expect(moved("push lunch 30m")?.needsScope).toBe(false);
   });
 });
