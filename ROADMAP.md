@@ -93,16 +93,18 @@ auto-schedule) the delight. Two amendments to the spec:
 ## Tier 6 · Chores basket
 
 Settings cleanup pass · mark pinning · the dial's `sr-only` listbox for ended
-events (the third listbox; a real a11y gap) · the all-day drag reachability fix ·
-IDEAS #10 day notes, re-evaluated after tasks land (a task's own notes may eat the
-demand) · **`AGENTS.md`'s mcp/ section refresh** — it still describes a
-mirror-file-only server ("stdio bridge onto the mirror file", "twelve Zod
-schemas") and predates the `Store` seam, the cloud transport and `login` ·
-**a sitemap** (`@astrojs/sitemap`, four pages — worthless alone, worth one line
-when `/tour/` gives crawlers something to find) · a hand-crafted-blob crash:
-valid JSON in `circal.v1` with fields no real build ever omitted takes the dial
-into the error boundary — the boundary behaves (backup offered, data whole) and
-the shape needs a hand edit, so it is a hardening note, not a bug.
+events (the third listbox; a real a11y gap) · IDEAS #10 day notes, re-evaluated
+after tasks land (a task's own notes may eat the demand) · **a sitemap**
+(`@astrojs/sitemap`, four pages — worthless alone, worth one line when `/tour/`
+gives crawlers something to find) · a hand-crafted-blob crash: valid JSON in
+`circal.v1` with fields no real build ever omitted takes the dial into the
+error boundary — the boundary behaves (backup offered, data whole) and the
+shape needs a hand edit, so it is a hardening note, not a bug. Gone from this
+basket, verified rather than built: the all-day drag reachability fix (a draw's
+sweep has been unbounded since the midnight-crossing drag — a whole turn from
+any start already lands an all-day draft, driven in a browser to confirm) and
+the `AGENTS.md` mcp/ refresh (done — the row now names both transports, the
+`Store` seam, `login` and the thirteen tools).
 
 ## Parked, with reasons
 

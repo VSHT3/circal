@@ -39,12 +39,6 @@ nothing to tab to. Reaching one needs the dial's own `sr-only` listbox, the answ
 the life grid both already have. That is a real item, not a line: 365 marks and 30,000 dots each
 needed one, and a day's arcs would be the third.
 
-**Improve the all-day drag.** A full revolution makes an all-day event, but sweep is clamped to
-`[-from, 1440 - from]`, so the only place a whole turn is reachable is a drag starting at exactly
-00:00. It should be startable from anywhere on the ring. The clamp is load-bearing for the ordinary
-case — clamping sweep rather than the resulting instant is what makes a range stop dead at midnight
-instead of unwinding overshoot — so this needs a way to say "a whole day" that does not fight it.
-
 **Typical-weekday ghost.** Past instances of the viewed weekday drawn faint behind the real arcs,
 on the same lanes so it costs no radius. The one idea here that would tell you something the
 calendar does not already contain — what a Tuesday is usually like, rather than what this Tuesday
