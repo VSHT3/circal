@@ -910,6 +910,19 @@ function taskEvent(task: Task, start: number, end: number): CalEvent {
 }
 
 /**
+ * Every plan across every task, as the synthetic events the occurrences ride
+ * on — for the year ring and the life grid, which count `CalEvent`s over a
+ * span rather than walk a day. Planned time is time spent, so a day you
+ * worked on something lights up there; a bare deadline is not work, so it
+ * colours nothing — the same answer `taskOccurrences` gives the day. Hidden
+ * calendars are not filtered here: every counter downstream (`dayTally`,
+ * `lifeDensity`, `scoreEvent` callers) already asks that itself.
+ */
+export function planEvents(tasks: Task[]): CalEvent[] {
+  return tasks.flatMap((task) => task.plans.map((plan) => taskEvent(task, plan.start, plan.end)));
+}
+
+/**
  * A task's appearances on `day`, clipped to it, as `Occurrence`s: every plan
  * that overlaps the day is an arc, and a timed due date with no plan on the
  * day is a zero-width pip at its minute — what a task drew before it had

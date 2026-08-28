@@ -66,7 +66,6 @@ import {
   type Clock,
 } from "@/lib/time";
 import type { ArcLabelMode } from "@/lib/store";
-import { cn } from "@/lib/utils";
 import { EASE, INTRO_SETTLE_MS, INTRO_SWEEP_MS, MODE_MS, MOOD_MS } from "@/lib/motion";
 import { THEME_PALETTES, wash, washHex, type ThemeName } from "@/lib/theme";
 
@@ -208,6 +207,13 @@ export interface FaceProps {
   onHover?: (key: string | null) => void;
   onGrab?: (occ: Occurrence, grip: Grip, e: ReactPointerEvent<SVGPathElement>) => void;
   /**
+   * A press on a task's pip — the tick, straight through to the shell's own
+   * toggle. The pip is the checkbox: it wins the hit test over the arc under
+   * it, so ticking never starts a drag and never opens the card. Only the
+   * dial passes it; the strip stays a picture.
+   */
+  onTick?: (occ: Occurrence) => void;
+  /**
    * A press on a received free slot — the booking tap. `index` is the slot's
    * place in `slots`. Only the strip passes it: on the dial the slot's
    * footprint sits inside the drag annulus, so a hit path here would steal
@@ -347,6 +353,7 @@ export default function Face({
   svgRef,
   onHover,
   onGrab,
+  onTick,
   onRingDown,
   onPointerMove,
   onPointerUp,
@@ -725,6 +732,7 @@ export default function Face({
           intro={intro ? introDelay(occ.startMin, clock, 200) : null}
           onHover={onHover}
           onGrab={onGrab}
+          onTick={onTick}
         />
       ))}
 
@@ -1231,6 +1239,7 @@ function EventArc({
   gap,
   onHover,
   onGrab,
+  onTick,
   intro,
 }: {
   occ: Occurrence;
@@ -1258,6 +1267,8 @@ function EventArc({
   intro: CSSProperties | null;
   onHover?: (key: string | null) => void;
   onGrab?: (occ: Occurrence, grip: Grip, e: ReactPointerEvent<SVGPathElement>) => void;
+  /** A press on the pip — see `FaceProps.onTick`. */
+  onTick?: (occ: Occurrence) => void;
 }) {
   // Before the early return, so the hook order does not depend on the event: an
   // all-day occurrence draws nothing, but it still owns this component.
@@ -1266,6 +1277,17 @@ function EventArc({
   // an id. Not `occ.key`: a feed's occurrence carries its UID, and a UID is
   // any text at all — including the `#` that would break the reference.
   const labelId = useSvgId("arc-label");
+  // The tick's one-shot burst: a ring that pops off the pip when this
+  // occurrence flips to done, re-keyed by count so a tick-untick-tick fires
+  // again. Render-phase adjustment, the repo's own pattern for new props
+  // resetting local state; never on an untick — taking a tick back is not an
+  // accomplishment.
+  const [seenDone, setSeenDone] = useState(occ.done);
+  const [burst, setBurst] = useState(0);
+  if (seenDone !== occ.done) {
+    setSeenDone(occ.done);
+    if (occ.done) setBurst((n) => n + 1);
+  }
   if (occ.event.allDay) return null;
 
   const width = DIAL.ARC_WIDTH;
@@ -1294,6 +1316,15 @@ function EventArc({
   const d = dot ? arcPath(r, mid, mid + 0.001) : arcPath(r, head, tail);
   /** Where a due date's pip sits: the same point the dot path is centred on. */
   const taskPoint = polar(r, mid);
+  /** A task's occurrence, and which of its two drawings this is: a zero-width
+   *  due date is the pip alone; a plan is an arc wearing a pip at its head. */
+  const pipOnly = Boolean(occ.task) && occ.startMin === occ.endMin;
+  const planArc = Boolean(occ.task) && !pipOnly;
+  /** The pip's own centre: the due pip sits at its minute; a plan's rides the
+   *  head cap, inside the arc's own stroke — the thing that says "this arc is
+   *  work, not an appointment". A plan collapsed to a dot keeps the dot's
+   *  centre, where its cap actually is. */
+  const pipAt = planArc && !dot ? polar(r, head) : taskPoint;
   /**
    * Free time is drawn as the outline of the arc a busy event fills, and the
    * arc keeps every number it had: same lane, same radius, same painted
@@ -1301,13 +1332,14 @@ function EventArc({
    * paint at this width, `inset` and the closed-turn rule included, so
    * nothing on the face moves and no radius is spent.
    *
-   * A **task's occurrence** is deliberately never asked. A due pip has no
-   * width to leave on offer — it books nothing already, which is the whole of
-   * what free means — and its filled/hollow pair is spoken for: filled is
-   * open, hollow is done. A plan's synthetic event is always busy, so the
-   * question never reaches one.
+   * A **due pip** is deliberately never asked about `free` — it has no width
+   * to leave on offer, and its filled/hollow pair is spoken for: filled is
+   * open, hollow is done. A **done plan** takes the hollow drawing for the
+   * same vocabulary, and legally: `free` is never asked of a task, so on one
+   * the shape is unclaimed and can carry "done" without colliding — a day
+   * you have cleared reads as cleared.
    */
-  const hollow = !occ.task && occ.event.free;
+  const hollow = (!occ.task && occ.event.free) || (planArc && occ.done);
   const grown = hovered || dragging;
   /**
    * Hover thickens the outline instead of widening the band.
@@ -1414,7 +1446,7 @@ function EventArc({
       className={intro ? "intro-in" : undefined}
       style={intro ?? undefined}
     >
-      {occ.task && occ.startMin === occ.endMin ? (
+      {pipOnly ? (
         // A task is a notch in the rim, and its two states are the face's own
         // vocabulary: ink is light, so an open one is a filled pip and a done
         // one is that pip emptied out — the favicon's two shapes, at 14 units.
@@ -1448,6 +1480,42 @@ function EventArc({
           pathLength={intro ? 1 : undefined}
           className={intro ? "intro-arc" : undefined}
           style={{ transition: `stroke-width ${MOOD}, opacity ${MOOD}`, ...intro }}
+        />
+      )}
+      {planArc && (
+        // The plan's pip, at the head and inside the stroke: the tick control
+        // and the thing that says "this arc is work, not an appointment".
+        // Filled in the arc's own ink while it stands (`inkOn`, the label's
+        // strongest pairing); once done the arc hollows and the pip empties
+        // with it, a ring in the event's colour on the black inside.
+        <circle
+          cx={pipAt.x}
+          cy={pipAt.y}
+          r={occ.done ? 3.4 : 4}
+          fill={occ.done ? "none" : inkOn(color)}
+          stroke={occ.done ? color : "none"}
+          strokeWidth={2}
+          opacity={dimmed && !hovered && !dragging ? 0.42 : 1}
+          pointerEvents="none"
+          style={{ transition: `r ${MOOD}, opacity ${MOOD}` }}
+        />
+      )}
+      {occ.task && burst !== 0 && (
+        // The tick's receipt: one ring popping off the pip, once, then gone.
+        // Keyed by the serial so a re-tick replays; cleared on animation end
+        // so the SVG does not hold an invisible circle for the session.
+        // Reduced motion is honoured in the class itself.
+        <circle
+          key={burst}
+          cx={pipAt.x}
+          cy={pipAt.y}
+          r={pipOnly ? width / 2 : 6}
+          fill="none"
+          stroke={color}
+          strokeWidth={2.5}
+          pointerEvents="none"
+          className="pip-burst"
+          onAnimationEnd={() => setBurst(0)}
         />
       )}
       {label && (
@@ -1512,6 +1580,22 @@ function EventArc({
             onPointerDown={onGrab && ((e) => onGrab(occ, zone.grip, e))}
           />
         ))}
+      {onTick && occ.task && (
+        // The checkbox itself, last so it wins the whole stack: ticking is
+        // never a drag and never an open. Sized past the pip — the pip is
+        // 8 units on a plan — because a target the size of its drawing is a
+        // target nobody hits on a dial.
+        <circle
+          cx={pipAt.x}
+          cy={pipAt.y}
+          r={14}
+          fill="transparent"
+          pointerEvents="all"
+          className="cursor-pointer"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={() => onTick(occ)}
+        />
+      )}
     </g>
   );
 }

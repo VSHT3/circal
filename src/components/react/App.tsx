@@ -20,6 +20,7 @@ import {
   dayCleared,
   freeSlots,
   instantKey,
+  planEvents,
   repeats,
   type CalEvent,
   type Occurrence,
@@ -537,6 +538,17 @@ function Shell() {
     () => (Object.keys(feeds).length === 0 ? events : [...events, ...Object.values(feeds).flat()]),
     [events, feeds],
   );
+
+  /**
+   * `visible` with every plan's synthetic event beside it, for the two views
+   * that count events over a span instead of asking `dayAgenda` about a day.
+   * Planned time is time spent, so a day you worked on something lights in
+   * the year ring and the life grid; a bare deadline colours nothing.
+   */
+  const spanned = useMemo(() => {
+    const plans = planEvents(tasks);
+    return plans.length === 0 ? visible : [...visible, ...plans];
+  }, [visible, tasks]);
 
   /** `visible`, with the dragged event where the drag has it. */
   const previewed = useMemo(
@@ -2204,7 +2216,7 @@ function Shell() {
                   year={day.getFullYear()}
                   today={now}
                   selected={day}
-                  events={visible}
+                  events={spanned}
                   calendars={calendars}
                   settings={settings}
                   stage={stage}
@@ -2226,7 +2238,7 @@ function Shell() {
                   settings={settings}
                   now={now}
                   selected={day}
-                  events={visible}
+                  events={spanned}
                   calendars={calendars}
                   search={search}
                   pending={pendingDays}

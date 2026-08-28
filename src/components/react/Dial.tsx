@@ -868,6 +868,7 @@ export default function Dial({
         shimmer={shimmer}
         onHover={setHovered}
         onGrab={onArcDown}
+        onTick={onToggleDone}
         onRingDown={onRingDown}
         onPointerMove={onGestureMove}
         onPointerUp={onGestureUp}

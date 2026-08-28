@@ -396,6 +396,27 @@
       opacity: 0;
     }
   }
+
+  /* The tick's receipt: one ring popping off a task's pip and dissolving.
+     Transform-box makes scale() grow the circle about its own centre rather
+     than the face's. Under reduced motion the global clamp above collapses
+     it to a frame; the element is removed on animation end either way. */
+  .pip-burst {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: pip-burst 480ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  }
+
+  @keyframes pip-burst {
+    from {
+      opacity: 0.9;
+      transform: scale(0.6);
+    }
+    to {
+      opacity: 0;
+      transform: scale(2.4);
+    }
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

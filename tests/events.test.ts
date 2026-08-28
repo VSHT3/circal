@@ -36,6 +36,7 @@ import {
   readPerson,
   readRemindLead,
   occurrencesOn,
+  planEvents,
   taskOccurrences,
   scoreEvent,
   spanLabel,
@@ -786,6 +787,29 @@ describe("taskOccurrences and dayAgenda: tasks enter the one read path", () => {
       { start: 11 * 60, end: 12 * 60 },
     ]);
     expect.soft(dayLoad(all, DEFAULT_WAKING)?.booked).toBe(120);
+  });
+
+  it("planEvents turns every plan into a dated event; a bare deadline makes none", () => {
+    const planned = task({
+      title: "Essay",
+      due: "2026-03-13 17:00",
+      plans: [
+        plan("2026-03-08 09:00", "2026-03-08 11:00"),
+        plan("2026-03-10 09:00", "2026-03-10 10:00"),
+      ],
+    });
+    const bare = task({ title: "Renew passport", due: "2026-03-08 10:30" });
+    const out = planEvents([planned, bare]);
+    // One event per plan, wearing the task's own face — so the year ring and
+    // life grid light a worked day, and a deadline colours nothing.
+    expect.soft(out).toHaveLength(2);
+    expect.soft(out.map((e) => e.title)).toEqual(["Essay", "Essay"]);
+    expect.soft(out[0].calendarId).toBe(planned.calendarId);
+    expect.soft(out[0].start).toBe(ms("2026-03-08 09:00"));
+    expect.soft(out[0].end).toBe(ms("2026-03-08 11:00"));
+    expect.soft(out[0].allDay).toBe(false);
+    // dayTally sees a plan the way it sees a meeting.
+    expect.soft(occurrencesOn(out, [cal], march8)).toHaveLength(1);
   });
 });
 
