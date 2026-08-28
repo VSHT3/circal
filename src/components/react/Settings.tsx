@@ -17,14 +17,18 @@
  * whole card), so growth spends the width first and the scroll last.
  * ------------------------------------------------------------------ */
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
   ArrowLeft,
-  Copy,
   ArrowUpRight,
+  CalendarPlus,
+  Clock,
   Download,
+  HardDrive,
+  Info,
   KeyRound,
+  LayoutGrid,
   Link2,
   Mail,
   RefreshCw,
@@ -191,14 +195,65 @@ interface SignIn {
  *  column without its rows coming apart from their heading — `break-inside`
  *  keeps it whole. Brighter than a `FieldRow` label on purpose: a section
  *  names the rows, so it cannot sit at their weight. */
-function Section({ title, children }: { title: string; children: ReactNode }) {
+function Section({
+  title,
+  info,
+  onInfo,
+  children,
+}: {
+  title: string;
+  /** The card's explanation, shown in the info dialog behind the header's
+   *  "i". Prose lives there so the rows themselves stay controls plus a line
+   *  of status; warnings that belong to a *decision* stay on the row. */
+  info?: ReactNode;
+  onInfo?: (next: InfoText) => void;
+  children: ReactNode;
+}) {
   return (
     <section className="mb-3 break-inside-avoid overflow-hidden rounded-[12px] border border-hairline">
-      <h3 className="label border-b border-hairline px-3.5 py-2 text-ink-2">{title}</h3>
+      <div className="flex min-h-[35px] items-center justify-between border-b border-hairline pr-1 pl-3.5">
+        <h3 className="label text-ink-2">{title}</h3>
+        {info && onInfo && (
+          <IconButton label={`About ${title}`} onClick={() => onInfo({ title, body: info })}>
+            <Info size={13} strokeWidth={1.75} />
+          </IconButton>
+        )}
+      </div>
       {children}
     </section>
   );
 }
+
+/** What the info dialog is showing: a section's word and its prose. */
+interface InfoText {
+  title: string;
+  body: ReactNode;
+}
+
+/** One named explanation inside the info dialog: the row's word, then its
+ *  sentence — the glossary shape every card's `info` shares. */
+function InfoEntry({ name, children }: { name: string; children: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="label text-[12px] text-ink-2">{name}</span>
+      <span>{children}</span>
+    </div>
+  );
+}
+
+/** The panel's map: five places a setting can be found, instead of one wall
+ *  of cards. Mirror and cloud stay beside Backup under Data because their
+ *  captions reference each other; "one live copy at a time" has to be
+ *  readable from both sides. */
+const TABS = [
+  { id: "face", label: "Face", icon: Clock },
+  { id: "views", label: "Views", icon: LayoutGrid },
+  { id: "events", label: "Events", icon: CalendarPlus },
+  { id: "data", label: "Data", icon: HardDrive },
+  { id: "about", label: "About", icon: Info },
+] as const;
+
+type TabId = (typeof TABS)[number]["id"];
 
 export default function Settings({
   open,
@@ -254,6 +309,64 @@ export default function Settings({
   const dialog = useFocusTrap<HTMLDivElement>(open);
   const mirrorStatus = useMirror();
   const cloudStatus = useCloud();
+  /** Which tab is showing. Kept across open and close on purpose: the panel
+   *  stays mounted, and reopening lands where the last change was made. */
+  const [tab, setTab] = useState<TabId>("face");
+
+  /** The open info card, if any — one small dialog for every section's "i".
+   *  Dropped when the panel closes: the panel stays mounted, and a reopened
+   *  panel starting under a stale explanation would read as a fault. */
+  const [info, setInfo] = useState<InfoText | null>(null);
+  const infoCard = useRef<HTMLDivElement | null>(null);
+  if (!open && info) setInfo(null);
+
+  /** Roving tablist keyboard: arrows move selection and focus together. Safe
+   *  to claim arrows here — the shell's own ←/→ hotkeys are off while a
+   *  panel is up. */
+  function onTabKey(e: KeyboardEvent<HTMLElement>) {
+    const delta =
+      e.key === "ArrowRight" || e.key === "ArrowDown"
+        ? 1
+        : e.key === "ArrowLeft" || e.key === "ArrowUp"
+          ? -1
+          : 0;
+    if (delta === 0) return;
+    e.preventDefault();
+    const at = TABS.findIndex((t) => t.id === tab);
+    const next = TABS[(at + delta + TABS.length) % TABS.length].id;
+    setTab(next);
+    document.getElementById(`settings-tab-${next}`)?.focus();
+  }
+
+  /**
+   * The info card claims Escape and Tab on a `window` capture listener while
+   * it is up — the editor's own mechanism: the shell's Escape is a bubble
+   * listener that would close the whole panel under the card, and the panel's
+   * focus trap would walk Tab through controls behind the scrim. The card has
+   * exactly one control, so Tab has exactly one place to go. Focus is handed
+   * back to the "i" that opened it.
+   */
+  useEffect(() => {
+    if (!info) return;
+    const back = document.activeElement as HTMLElement | null;
+    infoCard.current?.focus({ preventScroll: true });
+    const onKeyDown = (e: globalThis.KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        setInfo(null);
+      } else if (e.key === "Tab") {
+        e.preventDefault();
+        e.stopPropagation();
+        infoCard.current?.querySelector("button")?.focus();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown, true);
+      if (back?.isConnected) back.focus();
+    };
+  }, [info]);
   /**
    * The sign-in flow, as one value rather than four `useState`s: it is one
    * gesture in three steps, and a stage that could disagree with the text it
@@ -476,18 +589,6 @@ export default function Settings({
     }
   }
 
-  /** The literal terminal command, one click from the card that names it —
-   *  Tier 0's own argument: assistant setup should be copy-paste, and the
-   *  `/assistant/` page is the prose home, not a required stop. */
-  async function copyCommand(command: string) {
-    try {
-      await navigator.clipboard.writeText(command);
-      notify("Command copied. Paste it into a terminal");
-    } catch {
-      notify("Could not reach the clipboard. Nothing was copied", "error");
-    }
-  }
-
   async function submitCode() {
     const code = signIn.code.trim();
     if (!code || signingIn) return;
@@ -666,9 +767,7 @@ export default function Settings({
             about the wrong thing. */}
         {cloudStatus.state !== "error" && (
           <span className="caption">
-            Set once, and typed on every new device — circal seals the copy with it and never sends
-            it. Lose it and the cloud copy is lost with it; this browser's calendar and any mirror
-            file are untouched
+            Seals the copy; never sent, never stored. Lose it and only the cloud copy is lost
           </span>
         )}
       </>
@@ -742,7 +841,7 @@ export default function Settings({
                trap needs to keep Tab inside. */
             tabIndex={-1}
             onClick={(e) => e.stopPropagation()}
-            className="flex max-h-[min(900px,92vh)] min-h-[min(560px,82vh)] w-[min(1240px,94vw)] flex-col overflow-hidden rounded-[14px] border border-hairline bg-surface shadow-[0_32px_80px_-20px_rgba(0,0,0,0.9)]"
+            className="relative flex max-h-[min(900px,92vh)] min-h-[min(560px,82vh)] w-[min(1240px,94vw)] flex-col overflow-hidden rounded-[14px] border border-hairline bg-surface shadow-[0_32px_80px_-20px_rgba(0,0,0,0.9)]"
             initial={reducedMotion ? false : { opacity: 0, scale: 0.97 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={reducedMotion ? undefined : { opacity: 0, scale: 0.97 }}
@@ -760,1029 +859,1164 @@ export default function Settings({
               </span>
             </div>
 
-            {/* Two elements, and the split is the whole of it: the scroll
-                container may not *be* the multi-column box. A multicol
-                fragments into more columns along the inline axis once its
-                content outgrows one fragmentainer, and the fragmentainer is
-                this flex item's own height — definite, because the dialog caps
-                at `min(900px,92vh)`. Chromium leaves the column height
-                unconstrained for a scroll container and grows downwards, which
-                is why this read correctly there; Firefox uses the definite
-                height and put Data, Mirror, Cloud and About in columns four and
-                five, past the right edge, with `.no-scrollbar` hiding the only
-                affordance that said so — half a settings panel, silently. An
-                inner box with auto height has no fragmentainer to overflow, so
-                the columns balance and grow in the block axis and the scroll is
-                vertical in every browser, which is what the header claims. */}
-            <div className="no-scrollbar flex-1 overflow-y-auto p-3 [--field-label:88px]">
-              <div className="columns-[320px] gap-3">
-                <Section title="Face">
-                  <FieldRow label="Theme" align="top">
-                    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
-                      <Segmented
-                        value={theme}
-                        onChange={store.setTheme}
-                        options={[
-                          { id: "midnight" as const, label: "Midnight" },
-                          { id: "ember" as const, label: "Ember" },
-                          { id: "paper" as const, label: "Paper" },
-                        ]}
+            <div className="flex min-h-0 flex-1 flex-col sm:flex-row">
+              {/* One tablist, orientation by breakpoint: a rail on the left
+                  where there is width, a bar of stacked icon-plus-word tabs
+                  under the header where there is not. Roving tabIndex; the
+                  arrows move selection and focus together. */}
+              {/* A `div`, not `nav`: `tablist` may not sit on a landmark
+                  element, and the tabs are one widget, not site navigation. */}
+              <div
+                role="tablist"
+                aria-label="Settings sections"
+                className="flex shrink-0 gap-0.5 border-b border-hairline p-2 sm:w-[150px] sm:flex-col sm:gap-1 sm:border-r sm:border-b-0"
+              >
+                {TABS.map(({ id, label, icon: Icon }) => {
+                  const on = id === tab;
+                  return (
+                    <button
+                      key={id}
+                      id={`settings-tab-${id}`}
+                      type="button"
+                      role="tab"
+                      aria-selected={on}
+                      aria-controls="settings-tab-panel"
+                      tabIndex={on ? 0 : -1}
+                      onClick={() => setTab(id)}
+                      onKeyDown={onTabKey}
+                      className={cn(
+                        "flex flex-1 flex-col items-center gap-1 rounded-[8px] px-1 py-1.5 transition-colors",
+                        "sm:h-8 sm:flex-none sm:flex-row sm:justify-start sm:gap-2 sm:px-2.5 sm:py-0 sm:pointer-coarse:h-10",
+                        on
+                          ? "bg-(--veil-05) text-ink"
+                          : "text-ink-2 hover:bg-(--veil-05) hover:text-ink",
+                      )}
+                    >
+                      <Icon
+                        size={14}
+                        strokeWidth={1.75}
+                        className={on ? "text-accent" : "text-ink-3"}
                       />
-                      <span className="label text-ink-2">Greyscale</span>
-                    </div>
-                    {/* The argument for three named presets and against a
-                    slider, in one sentence: a slider is a thousand faces
-                    nobody tested; these are three faces somebody did. Colour
-                    still belongs to events — only the greyscale they sit on
-                    moves. */}
-                    <span className="caption">
-                      Chrome comes in one of three greyscales; event colours stay put on any of them
-                    </span>
-                  </FieldRow>
+                      <span className="label text-[10px] sm:text-[11px]">{label}</span>
+                    </button>
+                  );
+                })}
+              </div>
 
-                  <FieldRow label="Dial" align="top">
-                    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
-                      <Segmented
-                        value={clock}
-                        onChange={actions.setClock}
-                        options={[
-                          { id: "12h" as const, label: "12 h" },
-                          { id: "24h" as const, label: "24 h" },
-                        ]}
-                      />
-                      {/* The face's other word: how the day is spent. Off by
-                      default, so it sits beside the face it annotates rather
-                      than in a row of its own. */}
-                      <Toggle
-                        label="Totals"
-                        name="Day totals"
-                        checked={totals}
-                        onChange={(on) => store.setToggle("totals", on)}
-                      />
-                    </div>
-                    {totals && (
-                      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
-                        <PositionField
-                          value={totalsAt}
-                          onChange={store.setTotalsAt}
-                          options={TOTALS_OPTIONS}
-                          label="Where the totals sit"
-                        />
-                        <span className="label text-ink-2">Where it sits on the face</span>
-                      </div>
-                    )}
-                    {/* Its own line: three segments will not sit beside the face
-                    and the totals switch inside 310px, and this is the one
-                    setting here that changes what an arc *is* rather than
-                    what the face is called. */}
-                    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
-                      <Segmented
-                        value={arcLabels}
-                        onChange={store.setArcLabels}
-                        options={[
-                          { id: "always" as const, label: "Always" },
-                          { id: "hover" as const, label: "Hover" },
-                          { id: "off" as const, label: "Off" },
-                        ]}
-                      />
-                      {/* Two words: "Names on arcs" wraps at this column width,
-                      and a caption on two lines beside a control on one reads
-                      as a row that has come apart. */}
-                      <span className="label text-ink-2">Arc names</span>
-                    </div>
-                  </FieldRow>
-
-                  {/* A mark lives on calendars and events, not on the dial's
-                  geometry — but whether a bare event borrows one is still a
-                  question of what an arc prints, which is the question "Arc
-                  names" answers above, so it sits here rather than opening a
-                  section of its own. Two words, because the `Life` card's own
-                  `Marks` row is about the milestone rings: one label per
-                  meaning, or the panel stops being a map. */}
-                  <FieldRow label="Event marks" align="top">
-                    <Toggle
-                      label="Inherit"
-                      name="Bare events show the calendar's mark"
-                      checked={inheritMarks}
-                      onChange={(on) => store.setToggle("inheritMarks", on)}
-                    />
-                    <span className="caption">
-                      Off, an event with no mark of its own is just its colour; on, it borrows the
-                      calendar's — sensible with one calendar per kind of thing, redundant with one
-                      calendar per person
-                    </span>
-                  </FieldRow>
-
-                  <FieldRow label="2nd ring" align={secondZone ? "top" : "center"}>
-                    <Select
-                      value={secondZone}
-                      onChange={store.setSecondZone}
-                      label="Second timezone"
-                      className="flex-1"
-                      options={ZONE_OPTIONS}
-                    />
-                    {secondZone && (
-                      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                        <Toggle
-                          label="City name"
-                          checked={showZoneName}
-                          onChange={(on) => store.setToggle("showZoneName", on)}
-                        />
-                        <Toggle
-                          label="Offset"
-                          checked={showZoneOffset}
-                          onChange={(on) => store.setToggle("showZoneOffset", on)}
-                        />
-                        {zonePlace && (
-                          <>
-                            <Toggle
-                              label="Daylight"
-                              name="Second ring daylight"
-                              checked={zoneDaylight}
-                              onChange={(on) => store.setToggle("zoneDaylight", on)}
-                            />
-                            <Toggle
-                              label="Moonlight"
-                              name="Second ring moonlight"
-                              checked={zoneMoonlight}
-                              onChange={(on) => store.setToggle("zoneMoonlight", on)}
-                            />
-                          </>
-                        )}
-                      </div>
-                    )}
-                  </FieldRow>
-
-                  <FieldRow label="Lightcycle" align="top">
-                    <Select
-                      value={place?.zone ?? ""}
-                      onChange={pickPlace}
-                      label="Place"
-                      className="flex-1"
-                      options={LIGHTCYCLE_OPTIONS}
-                    />
-                    {place && (
-                      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                        <Toggle
-                          label="Daylight"
-                          checked={daylight}
-                          onChange={(on) => store.setToggle("daylight", on)}
-                        />
-                        <Toggle
-                          label="Moonlight"
-                          checked={moonlight}
-                          onChange={(on) => store.setToggle("moonlight", on)}
-                        />
-                      </div>
-                    )}
-                    <span className="caption tabular-nums">
-                      {!place
-                        ? "Puts the day's light on the ring, in place of the elapsed trail"
-                        : sun?.polar === "day"
-                          ? "Midnight sun"
-                          : sun?.polar === "night"
-                            ? "Polar night"
-                            : sun?.sunrise != null && sun.sunset != null
-                              ? `${formatTimeShort(atMinutes(new Date(), sun.sunrise), clock)} – ${formatTimeShort(atMinutes(new Date(), sun.sunset), clock)}`
-                              : "No sunrise today"}
-                    </span>
-                  </FieldRow>
-
-                  {/* Ambient is a display mode, so what it shows is its own
-                  question — and every switch here can only take away what the
-                  working face already draws. A mode is not an argument with a
-                  choice the user already made. */}
-                  <FieldRow label="Ambient" align="top" last>
-                    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
-                      <Select
-                        value={String(ambientAfter)}
-                        onChange={(next) => store.setAmbientAfter(Number(next))}
-                        label="Start ambient after"
-                        options={AMBIENT_OPTIONS}
-                      />
-                      <span className="label text-ink-2">Start on its own</span>
-                    </div>
-                    {/* Every one of these annotates something that has to exist
-                    first, so with a bare dial the row is not empty — it is
-                    not there. An empty flex row is a gap nobody can explain.
-
-                    The two halves are ambient's own, not a view of the ones
-                    above: only the place is shared, because a person is
-                    somewhere and that is not a property of a mode. */}
-                    {(place || secondZone) && (
-                      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                        {place && (
-                          <>
-                            <Toggle
-                              label="Daylight"
-                              name="Ambient daylight"
-                              checked={ambientDaylight}
-                              onChange={(on) => store.setToggle("ambientDaylight", on)}
-                            />
-                            <Toggle
-                              label="Moonlight"
-                              name="Ambient moonlight"
-                              checked={ambientMoonlight}
-                              onChange={(on) => store.setToggle("ambientMoonlight", on)}
-                            />
-                            <Toggle
-                              label="Dusk dim"
-                              name="Dim with the lightcycle"
-                              checked={ambientDim}
-                              onChange={(on) => store.setToggle("ambientDim", on)}
-                            />
-                          </>
-                        )}
-                        {secondZone && (
-                          <Toggle
-                            label="2nd ring"
-                            name="Second ring in ambient"
-                            checked={ambientZoneRing}
-                            onChange={(on) => store.setToggle("ambientZoneRing", on)}
+              {/* Two elements, still: the scroll container may not *be* the
+                  multi-column box. With a definite height Firefox fragments a
+                  multicol scroller along the inline axis — extra columns past
+                  the right edge, `.no-scrollbar` hiding the evidence — where
+                  Chromium grows it downwards. The inner box has auto height,
+                  so there is no fragmentainer to overflow and the scroll stays
+                  vertical in every browser. Keyed by tab: the remount resets
+                  the scroll, so no tab inherits another's position. */}
+              <motion.div
+                key={tab}
+                role="tabpanel"
+                id="settings-tab-panel"
+                aria-labelledby={`settings-tab-${tab}`}
+                className="no-scrollbar min-w-0 flex-1 overflow-y-auto p-2.5 [--field-label:80px] sm:p-3 sm:[--field-label:88px]"
+                initial={reducedMotion ? false : { opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.14, ease: EASE }}
+              >
+                <div className="columns-[320px] gap-3">
+                  {tab === "face" && (
+                    <>
+                      <Section
+                        title="Theme"
+                        onInfo={setInfo}
+                        info={
+                          <p>
+                            Chrome comes in three greyscales; a slider is a thousand faces nobody
+                            tested. Event colours stay the same on all of them. Colour belongs to
+                            events; the theme only moves the ground they sit on
+                          </p>
+                        }
+                      >
+                        <FieldRow label="Chrome" last>
+                          <Segmented
+                            value={theme}
+                            onChange={store.setTheme}
+                            options={[
+                              { id: "midnight" as const, label: "Midnight" },
+                              { id: "ember" as const, label: "Ember" },
+                              { id: "paper" as const, label: "Paper" },
+                            ]}
                           />
-                        )}
-                      </div>
-                    )}
-                    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
-                      <Segmented
-                        value={ambientArcLabels}
-                        onChange={store.setAmbientArcLabels}
-                        options={[
-                          { id: "always" as const, label: "Always" },
-                          { id: "hover" as const, label: "Hover" },
-                          { id: "off" as const, label: "Off" },
-                        ]}
-                      />
-                      <span className="label text-ink-2">Arc names</span>
-                    </div>
-                    <span className="caption">
-                      Chrome away, dial to the window — <Kbd>F</Kbd>, or <Kbd>⇧F</Kbd> for the whole
-                      screen
-                    </span>
-                  </FieldRow>
-                </Section>
+                        </FieldRow>
+                      </Section>
 
-                {/* Its own card rather than a row inside Face: it is not
-                  really about the dial, it is the mini-month and the life
-                  grid's columns too, and filing it under Face would leave
-                  the other two surfaces owning something they cannot see. */}
-                <Section title="Week">
-                  <FieldRow label="Starts on" align="top" last>
-                    <Segmented
-                      value={String(weekStart) as "1" | "0" | "6"}
-                      onChange={(next) => store.setWeekStart(Number(next) as WeekStart)}
-                      options={[
-                        { id: "1" as const, label: "MON" },
-                        { id: "0" as const, label: "SUN" },
-                        { id: "6" as const, label: "SAT" },
-                      ]}
-                    />
-                    <span className="caption">
-                      Moves the strip, the mini-month and the life grid's columns together — the
-                      three surfaces read one setting so they cannot disagree about where a week
-                      starts
-                    </span>
-                  </FieldRow>
-                </Section>
-
-                {/* Also its own card: working hours are not a face setting
-                  either, and the two rows they touch — the totals line and
-                  the palette's slot search — are both elsewhere. */}
-                <Section title="Day">
-                  <FieldRow label="Hours" align="top" last>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <TimeField
-                        label="Waking hours start"
-                        clock={clock}
-                        value={atMinutes(new Date(), wakingFrom)}
-                        onCommit={(minutes) => store.setWaking(minutes, wakingTo)}
-                      />
-                      <span className="text-ink-3">–</span>
-                      <TimeField
-                        label="Waking hours end"
-                        clock={clock}
-                        value={atMinutes(new Date(), wakingTo)}
-                        onCommit={(minutes) => store.setWaking(wakingFrom, minutes)}
-                      />
-                    </div>
-                    <span className="caption">
-                      What free time is measured against — the dial's totals line and the palette's
-                      slot search both mean the same thing by "free" because they read this
-                    </span>
-                  </FieldRow>
-                </Section>
-
-                {/* Its own card, because the sidebar is its own surface. The
-                  moon is the one thing in this app that draws something the
-                  calendar does not contain, and filing it under Face would
-                  claim it is on the dial — the one place the "do not add a
-                  ring" rule says it may never be. */}
-                <Section title="Sidebar">
-                  <FieldRow label="Moon" align="top" last>
-                    <Toggle
-                      label="Phase"
-                      name="Moon phase in the sidebar"
-                      checked={moon}
-                      onChange={(on) => store.setToggle("moon", on)}
-                    />
-                    <span className="caption">
-                      The phase of the selected day, drawn as the astronomy: one disc, the
-                      terminator as an ellipse over it, no outline
-                    </span>
-                  </FieldRow>
-                </Section>
-
-                {/* What ⌘N and a quick-add line start from. Its own card rather
-                  than a row inside Face, because neither of these is anything
-                  the dial draws — they are what the app assumes when you have
-                  not said. */}
-                <Section title="New event">
-                  <FieldRow label="Length">
-                    <NumberField
-                      label="Default event length"
-                      value={defaultDuration}
-                      onChange={store.setDefaultDuration}
-                      suffix="min"
-                      min={MIN_DURATION}
-                      max={MINUTES_PER_DAY}
-                    />
-                  </FieldRow>
-                  <FieldRow label="Calendar" align="top" last>
-                    <Select
-                      label="Calendar for new events"
-                      value={defaultCalendar}
-                      onChange={store.setDefaultCalendar}
-                      options={[
-                        { value: "", label: "First one" },
-                        ...calendars
-                          .filter((c) => !c.feed)
-                          .map((c) => ({ value: c.id, label: c.name })),
-                      ]}
-                    />
-                    <span className="caption">
-                      Where {MOD}N, a drag on the dial and a quick-add line put an event. A
-                      subscription is never offered: its events are a mirror
-                    </span>
-                  </FieldRow>
-                </Section>
-
-                <Section title="Year">
-                  <FieldRow label="Quote" align="top" last>
-                    <input
-                      type="text"
-                      value={yearQuote}
-                      onChange={(e) => store.setYearQuote(e.target.value)}
-                      maxLength={YEAR_QUOTE_MAX}
-                      placeholder="Say something"
-                      aria-label="The line under the year ring"
-                      className="h-8 w-full min-w-0 rounded-[8px] bg-surface-2 px-2 text-[13px] text-ink placeholder:text-ink-3"
-                    />
-                    <span className="caption">
-                      Printed in the middle of the ring, under the year. Empty leaves it bare
-                    </span>
-                  </FieldRow>
-                </Section>
-
-                <Section title="Life">
-                  <FieldRow label="Span" align="top">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <DateField
-                        label="Date of birth"
-                        value={birth}
-                        onChange={(next) => store.setLife(next, lifeExpectancy)}
-                        min="1900-01-01"
-                        max={dayKey(new Date())}
-                        className="w-[150px]"
+                      <Section
+                        title="Dial"
+                        onInfo={setInfo}
+                        info={
+                          <>
+                            <InfoEntry name="Totals">
+                              Booked and free hours, printed on the face. Booked counts the whole
+                              day; free only your waking hours.
+                            </InfoEntry>
+                            <InfoEntry name="Arc names">
+                              When an event's name is drawn along its arc.
+                            </InfoEntry>
+                            <InfoEntry name="Event marks">
+                              On, an event with no mark of its own borrows its calendar's. Sensible
+                              with one calendar per kind of thing; redundant with one per person.
+                            </InfoEntry>
+                          </>
+                        }
                       >
-                        <span className="truncate tabular-nums">
-                          {birthDate ? formatLifeDate(birthDate) : "Not set"}
-                        </span>
-                      </DateField>
-                      <NumberField
-                        label="Life expectancy in years"
-                        value={lifeExpectancy}
-                        onChange={(next) => store.setLife(birth, next)}
-                        suffix="years"
-                        min={LIFE_EXPECTANCY_RANGE.min}
-                        max={LIFE_EXPECTANCY_RANGE.max}
-                      />
-                    </div>
-                    <span className="caption tabular-nums">
-                      {span
-                        ? `${formatCount(span.days)} days — one dot each, ending around ${formatLifeDate(span.death)}`
-                        : "One dot per day for a whole life. The date is asked for once and kept with your own calendar, nowhere else"}
-                    </span>
-                  </FieldRow>
-                  <FieldRow label="Marks" align="top">
-                    <Toggle
-                      label="Milestones"
-                      checked={milestones}
-                      onChange={(on) => store.setToggle("milestones", on)}
-                    />
-                    <span className="caption">
-                      Rings the round days: the ten-thousandth, the twenty-thousandth, the midpoint.
-                      Click one for what it means
-                    </span>
-                  </FieldRow>
-                  <FieldRow label="Loupe" align="top" last>
-                    <Toggle
-                      label="Magnify the year"
-                      checked={lifeLoupe}
-                      onChange={(on) => store.setToggle("lifeLoupe", on)}
-                    />
-                    <span className="caption">
-                      Point at a day and its whole year comes up on a card, large enough to read and
-                      to drag a range across. The eighty years stay where they are
-                    </span>
-                  </FieldRow>
-                </Section>
+                        <FieldRow label="Clock">
+                          <Segmented
+                            value={clock}
+                            onChange={actions.setClock}
+                            options={[
+                              { id: "12h" as const, label: "12 h" },
+                              { id: "24h" as const, label: "24 h" },
+                            ]}
+                          />
+                        </FieldRow>
+                        <FieldRow label="Totals">
+                          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
+                            <Toggle
+                              label="On"
+                              name="Day totals"
+                              checked={totals}
+                              onChange={(on) => store.setToggle("totals", on)}
+                            />
+                            {totals && (
+                              <PositionField
+                                value={totalsAt}
+                                onChange={store.setTotalsAt}
+                                options={TOTALS_OPTIONS}
+                                label="Where the totals sit"
+                              />
+                            )}
+                          </div>
+                        </FieldRow>
+                        <FieldRow label="Arc names">
+                          <Segmented
+                            value={arcLabels}
+                            onChange={store.setArcLabels}
+                            options={[
+                              { id: "always" as const, label: "Always" },
+                              { id: "hover" as const, label: "Hover" },
+                              { id: "off" as const, label: "Off" },
+                            ]}
+                          />
+                        </FieldRow>
+                        {/* "Event marks", not "Marks": the Life card has a
+                          Marks row of its own, about milestone rings. One
+                          label per meaning, or the panel stops being a map. */}
+                        <FieldRow label="Event marks" last>
+                          <Toggle
+                            label="Inherit"
+                            name="Bare events show the calendar's mark"
+                            checked={inheritMarks}
+                            onChange={(on) => store.setToggle("inheritMarks", on)}
+                          />
+                        </FieldRow>
+                      </Section>
 
-                <Section title="Reminders">
-                  <FieldRow label="Notify" align="top" last>
-                    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
-                      <Toggle
-                        label="On"
-                        name="Notify before an event starts"
-                        checked={remind}
-                        onChange={(on) => void toggleRemind(on)}
-                      />
-                      {remind && (
-                        <Select
-                          value={String(remindLead)}
-                          onChange={(next) => store.setRemindLead(Number(next))}
-                          label="How much warning"
-                          options={REMIND_OPTIONS}
-                        />
-                      )}
-                    </div>
-                    {/* Said out loud, because the absence is the interesting
-                      part: a calendar that never tells you anything is a
-                      viewer, and the reason this one only speaks while it is
-                      open is the reason nothing here runs on a server.
-                      Leaving that to be discovered is how a missed meeting
-                      becomes a bug report. The clause used to be "nothing
-                      here leaves this browser", which the cloud copy three
-                      cards down made false — a signed-in row is somewhere
-                      else, and none of it runs circal's code. */}
-                    <span className="caption">
-                      Only while circal is open, in this tab. Reminders with it closed would need a
-                      server pushing them at you, and circal runs nowhere but this browser
-                    </span>
-                  </FieldRow>
-                </Section>
+                      <Section
+                        title="Rings"
+                        onInfo={setInfo}
+                        info={
+                          <>
+                            <InfoEntry name="2nd ring">
+                              Another timezone's hours on a ring of their own, measured against your
+                              clock, with that place's own daylight.
+                            </InfoEntry>
+                            <InfoEntry name="Lightcycle">
+                              Your place's daylight and moonlight on the rim, in place of the
+                              elapsed trail.
+                            </InfoEntry>
+                          </>
+                        }
+                      >
+                        <FieldRow label="2nd ring" align={secondZone ? "top" : "center"}>
+                          <Select
+                            value={secondZone}
+                            onChange={store.setSecondZone}
+                            label="Second timezone"
+                            className="flex-1"
+                            options={ZONE_OPTIONS}
+                          />
+                          {secondZone && (
+                            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                              <Toggle
+                                label="City name"
+                                checked={showZoneName}
+                                onChange={(on) => store.setToggle("showZoneName", on)}
+                              />
+                              <Toggle
+                                label="Offset"
+                                checked={showZoneOffset}
+                                onChange={(on) => store.setToggle("showZoneOffset", on)}
+                              />
+                              {zonePlace && (
+                                <>
+                                  <Toggle
+                                    label="Daylight"
+                                    name="Second ring daylight"
+                                    checked={zoneDaylight}
+                                    onChange={(on) => store.setToggle("zoneDaylight", on)}
+                                  />
+                                  <Toggle
+                                    label="Moonlight"
+                                    name="Second ring moonlight"
+                                    checked={zoneMoonlight}
+                                    onChange={(on) => store.setToggle("zoneMoonlight", on)}
+                                  />
+                                </>
+                              )}
+                            </div>
+                          )}
+                        </FieldRow>
 
-                <Section title="Feedback">
-                  {/* No caption: two switches whose labels are the whole of what
-                  they do, and the app demonstrates the rest the moment either
-                  is on. */}
-                  <FieldRow label="Cues" align="top" last>
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                      <Toggle
-                        label="Sound"
-                        checked={tickSound}
-                        onChange={(on) => store.setToggle("tickSound", on)}
-                      />
-                      {vibrates && (
-                        <Toggle
-                          label="Vibration"
-                          checked={tickHaptics}
-                          onChange={(on) => store.setToggle("tickHaptics", on)}
-                        />
-                      )}
-                    </div>
-                  </FieldRow>
-                </Section>
+                        <FieldRow label="Lightcycle" align={place ? "top" : "center"} last>
+                          <Select
+                            value={place?.zone ?? ""}
+                            onChange={pickPlace}
+                            label="Place"
+                            className="flex-1"
+                            options={LIGHTCYCLE_OPTIONS}
+                          />
+                          {place && (
+                            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                              <Toggle
+                                label="Daylight"
+                                checked={daylight}
+                                onChange={(on) => store.setToggle("daylight", on)}
+                              />
+                              <Toggle
+                                label="Moonlight"
+                                checked={moonlight}
+                                onChange={(on) => store.setToggle("moonlight", on)}
+                              />
+                            </div>
+                          )}
+                          {place && (
+                            <span className="caption tabular-nums">
+                              {sun?.polar === "day"
+                                ? "Midnight sun"
+                                : sun?.polar === "night"
+                                  ? "Polar night"
+                                  : sun?.sunrise != null && sun.sunset != null
+                                    ? `${formatTimeShort(atMinutes(new Date(), sun.sunrise), clock)} – ${formatTimeShort(atMinutes(new Date(), sun.sunset), clock)}`
+                                    : "No sunrise today"}
+                            </span>
+                          )}
+                        </FieldRow>
+                      </Section>
 
-                <Section title="Data">
-                  <FieldRow label="Feeds" align="top">
-                    {subscriptions.length === 0 && (
-                      <span className="caption">
-                        Paste a public ICS link — read-only, refreshed on launch
-                      </span>
-                    )}
-                    {subscriptions.map((calendar) => (
-                      <div key={calendar.id} className="flex items-center gap-2">
-                        <CalendarMark icon={calendar.icon} color={calendar.color} size={14} />
-                        <span className="flex min-w-0 flex-1 flex-col">
-                          <span className="truncate text-[13px] text-ink">{calendar.name}</span>
-                          <span
-                            className={feedMetaClass(calendar.feed?.error)}
-                            title={calendar.feed?.error || calendar.feed?.url}
-                          >
-                            {pulling === calendar.id
-                              ? "PULLING…"
-                              : calendar.feed?.error || relativeAge(calendar.feed?.fetchedAt ?? 0)}
+                      {/* Ambient is a display mode, so what it shows is its own
+                        question — and every switch here can only take away what
+                        the working face already draws. */}
+                      <Section
+                        title="Ambient"
+                        onInfo={setInfo}
+                        info={
+                          <>
+                            <InfoEntry name="Ambient">
+                              Chrome away, dial to the window. A display mode: its switches only
+                              take away what the working face already draws.
+                            </InfoEntry>
+                            <InfoEntry name="Starts">
+                              After this long with no input, the dial goes ambient on its own.
+                            </InfoEntry>
+                          </>
+                        }
+                      >
+                        <FieldRow label="Starts" align="top">
+                          <Select
+                            value={String(ambientAfter)}
+                            onChange={(next) => store.setAmbientAfter(Number(next))}
+                            label="Start ambient after"
+                            options={AMBIENT_OPTIONS}
+                          />
+                          <span className="caption">
+                            Chrome away, dial to the window. <Kbd>F</Kbd>, or <Kbd>⇧F</Kbd> for the
+                            whole screen
                           </span>
-                        </span>
-                        <IconButton
-                          label={`Refresh ${calendar.name}`}
-                          onClick={() => pull(calendar)}
-                        >
-                          <RefreshCw size={13} strokeWidth={1.75} />
-                        </IconButton>
-                        <IconButton
-                          label={`Remove ${calendar.name}`}
-                          onClick={() => store.removeCalendar(calendar.id)}
-                        >
-                          <Trash2 size={13} strokeWidth={1.75} />
-                        </IconButton>
-                      </div>
-                    ))}
-                    <div className="flex flex-wrap items-center gap-2">
-                      <TextField
-                        type="url"
-                        inputMode="url"
-                        value={feedUrl}
-                        onChange={setFeedUrl}
-                        onEnter={() => void addFeed()}
-                        label="Feed URL"
-                        placeholder="https://…/basic.ics"
-                        className="flex-1 basis-[140px]"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => void addFeed()}
-                        disabled={!feedUrl.trim()}
-                        className="h-8 shrink-0 rounded-[8px] border border-hairline bg-surface-2 px-3 text-[13px] text-ink transition-colors hover:bg-(--veil-10) disabled:pointer-events-none disabled:opacity-35"
-                      >
-                        Add
-                      </button>
-                    </div>
-                  </FieldRow>
+                        </FieldRow>
+                        {/* Every one of these annotates something that has to
+                          exist first, so with a bare dial the row is not empty —
+                          it is not there. */}
+                        {(place || secondZone) && (
+                          <FieldRow label="Shows" align="top">
+                            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                              {place && (
+                                <>
+                                  <Toggle
+                                    label="Daylight"
+                                    name="Ambient daylight"
+                                    checked={ambientDaylight}
+                                    onChange={(on) => store.setToggle("ambientDaylight", on)}
+                                  />
+                                  <Toggle
+                                    label="Moonlight"
+                                    name="Ambient moonlight"
+                                    checked={ambientMoonlight}
+                                    onChange={(on) => store.setToggle("ambientMoonlight", on)}
+                                  />
+                                  <Toggle
+                                    label="Dusk dim"
+                                    name="Dim with the lightcycle"
+                                    checked={ambientDim}
+                                    onChange={(on) => store.setToggle("ambientDim", on)}
+                                  />
+                                </>
+                              )}
+                              {secondZone && (
+                                <Toggle
+                                  label="2nd ring"
+                                  name="Second ring in ambient"
+                                  checked={ambientZoneRing}
+                                  onChange={(on) => store.setToggle("ambientZoneRing", on)}
+                                />
+                              )}
+                            </div>
+                          </FieldRow>
+                        )}
+                        <FieldRow label="Arc names" last>
+                          <Segmented
+                            value={ambientArcLabels}
+                            onChange={store.setAmbientArcLabels}
+                            options={[
+                              { id: "always" as const, label: "Always" },
+                              { id: "hover" as const, label: "Hover" },
+                              { id: "off" as const, label: "Off" },
+                            ]}
+                          />
+                        </FieldRow>
+                      </Section>
 
-                  {/* Only when there is something to say: after the travel
-                    notice was answered with "move", or on a browser that never
-                    travelled, nothing carries a stamp and a row offering to
-                    clear nothing is worse than no row. */}
-                  {stampCount > 0 && (
-                    <FieldRow label="Zones" align="top">
-                      {/* The place is in the verb, not only in the sentence:
-                        "Clear 24 Berlin stamps" says what is about to happen
-                        where a bare number does not. Two journeys kept in a
-                        row name two places, and then the number leads and the
-                        caption carries them. */}
-                      <DataButton
-                        icon={<RotateCcw size={13} strokeWidth={1.75} />}
-                        onClick={clearStamps}
+                      <Section
+                        title="Feedback"
+                        onInfo={setInfo}
+                        info={
+                          <>
+                            <InfoEntry name="Sound">
+                              A click as a drag crosses a step; a sound per key.
+                            </InfoEntry>
+                            <InfoEntry name="Vibration">
+                              The same cues as a pulse. Offered only where the device has a motor.
+                            </InfoEntry>
+                          </>
+                        }
                       >
-                        Clear {stampCount} {stampPlaces.length === 1 ? `${stampPlaces[0]} ` : ""}
-                        stamp{stampCount === 1 ? "" : "s"}
-                      </DataButton>
-                      {/* Says what the scope actually is, including the part it
-                        cannot tell apart: an imported .ics event naming one of
-                        these same cities is indistinguishable from a stamped
-                        one, and promising precision this does not have would
-                        be worse than naming the edge. */}
-                      <span className="caption">
-                        Kept when this browser arrived from {stampPlaces.join(", ")}. Clearing makes
-                        them floating again, drawn on whatever clock this browser is having — an
-                        imported event naming the same place is cleared with them
-                      </span>
-                    </FieldRow>
+                        <FieldRow label="Cues" align="top" last>
+                          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                            <Toggle
+                              label="Sound"
+                              checked={tickSound}
+                              onChange={(on) => store.setToggle("tickSound", on)}
+                            />
+                            {vibrates && (
+                              <Toggle
+                                label="Vibration"
+                                checked={tickHaptics}
+                                onChange={(on) => store.setToggle("tickHaptics", on)}
+                              />
+                            )}
+                          </div>
+                        </FieldRow>
+                      </Section>
+                    </>
                   )}
 
-                  <FieldRow label="Backup" align="top">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <DataButton
-                        icon={<Download size={13} strokeWidth={1.75} />}
-                        onClick={actions.exportIcs}
+                  {tab === "views" && (
+                    <>
+                      <Section
+                        title="Week"
+                        onInfo={setInfo}
+                        info={
+                          <p>
+                            One setting moves the week strip, the mini-month and the life grid's
+                            columns together, so no surface can disagree about where a week starts
+                          </p>
+                        }
                       >
-                        Export .ics
-                      </DataButton>
-                      <DataButton
-                        icon={<Download size={13} strokeWidth={1.75} />}
-                        onClick={actions.exportBackup}
-                      >
-                        Backup .json
-                      </DataButton>
-                      <DataButton
-                        icon={<Upload size={13} strokeWidth={1.75} />}
-                        onClick={actions.importFile}
-                      >
-                        Import…
-                      </DataButton>
-                    </div>
-                    <span className="caption">
-                      Events live in this browser. With no live copy connected below, a backup is
-                      the only one that survives it
-                    </span>
-                  </FieldRow>
+                        <FieldRow label="Starts on" last>
+                          <Segmented
+                            value={String(weekStart) as "1" | "0" | "6"}
+                            onChange={(next) => store.setWeekStart(Number(next) as WeekStart)}
+                            options={[
+                              { id: "1" as const, label: "MON" },
+                              { id: "0" as const, label: "SUN" },
+                              { id: "6" as const, label: "SAT" },
+                            ]}
+                          />
+                        </FieldRow>
+                      </Section>
 
-                  <FieldRow label="Nudge" align="top" last>
-                    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
-                      <Toggle
-                        label="On"
-                        name="Warn when a backup is overdue"
-                        checked={backupNudge}
-                        onChange={(on) => store.setToggle("backupNudge", on)}
-                      />
-                      {backupNudge && (
-                        <Select
-                          value={String(backupInterval)}
-                          onChange={(next) => store.setBackupInterval(Number(next))}
-                          label="How long between backups"
-                          options={BACKUP_OPTIONS}
-                        />
-                      )}
-                    </div>
-                    {/* Said here because the nudge itself is one quiet line with
-                      no room to explain why it only speaks in some browsers: a
-                      live mirror is the better answer where it exists, and this
-                      warning stands in for it where it cannot. */}
-                    <span className="caption">
-                      On the main screen, when no backup has been saved in a while. Silent while a
-                      mirror file or the cloud copy is connected below — that copy is already live
-                    </span>
-                  </FieldRow>
-                </Section>
+                      <Section
+                        title="Year"
+                        onInfo={setInfo}
+                        info={
+                          <p>
+                            A line of yours, printed inside the ring under the year. Empty leaves it
+                            bare, and it shows only at rest; pointing at a day replaces it with that
+                            day's readout
+                          </p>
+                        }
+                      >
+                        <FieldRow label="Quote" last>
+                          <input
+                            type="text"
+                            value={yearQuote}
+                            onChange={(e) => store.setYearQuote(e.target.value)}
+                            maxLength={YEAR_QUOTE_MAX}
+                            placeholder="Say something"
+                            aria-label="The line under the year ring"
+                            className="h-8 w-full min-w-0 rounded-[8px] bg-surface-2 px-2 text-[13px] text-ink placeholder:text-ink-3"
+                          />
+                        </FieldRow>
+                      </Section>
 
-                {/* Same subject as Data/Backup above — the only copy of the
-                  user's calendar — but this copy is *live*: a file on disk
-                  the app keeps in sync rather than a snapshot taken once and
-                  set aside. That is also what makes it the one surface an
-                  outside program (an AI assistant, a script) can read and
-                  write without circal growing a server. */}
-                <Section title="Mirror">
-                  <FieldRow label="File" align="top" last>
-                    {!canMirror ? (
-                      <span className="caption">
-                        This browser can't hold a file handle for a live mirror — Export above still
-                        works
-                      </span>
-                    ) : (
-                      <>
-                        {/* `DataButton`, not `ActionPill` — the pill is the top
-                          bar's vocabulary, where `label` is only ever the
-                          aria-label and an icon is the whole control. In a
-                          settings row that renders as a bare glyph with no
-                          words on it, which is a poor thing for the one
-                          button that turns a feature on. These sit directly
-                          under Export/Backup/Import and speak the same way. */}
-                        {mirrorStatus.state === "off" && (
+                      <Section
+                        title="Life"
+                        onInfo={setInfo}
+                        info={
                           <>
-                            <DataButton
-                              icon={<Link2 size={13} strokeWidth={1.75} />}
-                              onClick={() => void mirror.connect()}
-                              disabled={cloudEngaged}
+                            <InfoEntry name="Span">
+                              Birth date to life expectancy, one dot per day. The date stays in this
+                              browser, with your calendar.
+                            </InfoEntry>
+                            <InfoEntry name="Marks">
+                              Rings the round days: the ten-thousandth, the twenty-thousandth, the
+                              midpoint. Click one for what it means.
+                            </InfoEntry>
+                            <InfoEntry name="Loupe">
+                              Point at a day and its whole year comes up on a card, big enough to
+                              read and to drag a range across.
+                            </InfoEntry>
+                          </>
+                        }
+                      >
+                        <FieldRow label="Span" align="top">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <DateField
+                              label="Date of birth"
+                              value={birth}
+                              onChange={(next) => store.setLife(next, lifeExpectancy)}
+                              min="1900-01-01"
+                              max={dayKey(new Date())}
+                              className="w-[150px]"
                             >
-                              Connect a file…
-                            </DataButton>
-                            <span className="caption">
-                              Circal keeps a live .json copy in a file you choose. That file is a
-                              backup that survives "Clear site data", and it's the file a local AI
-                              assistant reads and writes
-                            </span>
-                          </>
-                        )}
-                        {mirrorStatus.state === "prompt" && (
-                          <>
-                            <DataButton
-                              icon={<Link2 size={13} strokeWidth={1.75} />}
-                              onClick={() => void mirror.reconnect()}
-                              disabled={cloudEngaged}
-                            >
-                              Resume
-                            </DataButton>
-                            <span className="caption truncate">{mirrorStatus.name}</span>
-                          </>
-                        )}
-                        {mirrorStatus.state === "live" && (
-                          <>
-                            <span className="flex min-w-0 flex-col">
-                              <span className="truncate text-[13px] text-ink">
-                                {mirrorStatus.name}
+                              <span className="truncate tabular-nums">
+                                {birthDate ? formatLifeDate(birthDate) : "Not set"}
                               </span>
-                              <span className="caption tabular-nums">
-                                synced {mirrorAge(mirrorStatus.at)}
-                              </span>
-                            </span>
-                            <div className="flex flex-wrap items-center gap-2">
-                              <DataButton
-                                icon={<RefreshCw size={13} strokeWidth={1.75} />}
-                                onClick={() => void mirror.syncNow()}
-                              >
-                                Sync now
-                              </DataButton>
-                              <DataButton
-                                icon={<Unlink2 size={13} strokeWidth={1.75} />}
-                                onClick={() => void mirror.disconnect()}
-                              >
-                                Disconnect
-                              </DataButton>
-                              {/* Anchor, not button — an assistant reads this
-                                file once it is live, and setup is a page,
-                                not an action. Opens in a new tab for the
-                                same reason as the Manifesto link below. */}
-                              <a
-                                href="/assistant/"
-                                target="_blank"
-                                rel="noopener"
-                                className="flex h-8 w-fit items-center gap-1.5 rounded-[8px] border border-hairline bg-surface-2 px-2.5 text-[13px] text-ink transition-colors hover:bg-(--veil-10)"
-                              >
-                                <ArrowUpRight size={13} strokeWidth={1.75} />
-                                Set up an assistant
-                              </a>
-                              {/* The command the page would tell them to run,
-                                one click from the card that names the file. */}
-                              <DataButton
-                                icon={<Copy size={13} strokeWidth={1.75} />}
-                                onClick={() => void copyCommand("npx -y circal-mcp --find")}
-                              >
-                                <code className="font-mono text-[12px]">
-                                  npx -y circal-mcp --find
-                                </code>
-                              </DataButton>
-                            </div>
-                          </>
-                        )}
-                        {mirrorStatus.state === "error" && (
-                          <>
-                            {/* Plain `.caption`, not `text-danger`: a link that
-                              is down is not a destructive action, and the
-                              calendar is whole in `localStorage` either way.
-                              It was red until the cloud half arrived beside it
-                              printing the same kind of sentence in grey, and
-                              two neighbouring sections disagreeing about
-                              whether this is an emergency is worse than either
-                              answer. `feedMetaClass` keeps its red for a
-                              different claim — a subscription that is failing
-                              is showing stale events right now. */}
-                            <span className="caption">{mirrorStatus.message}</span>
-                            <div className="flex flex-wrap items-center gap-2">
-                              <DataButton
-                                icon={<Link2 size={13} strokeWidth={1.75} />}
-                                onClick={() => void mirror.reconnect()}
-                                disabled={cloudEngaged}
-                              >
-                                Resume
-                              </DataButton>
-                              <DataButton
-                                icon={<Unlink2 size={13} strokeWidth={1.75} />}
-                                onClick={() => void mirror.disconnect()}
-                              >
-                                Disconnect
-                              </DataButton>
-                            </div>
-                          </>
-                        )}
-                        {/* Why the verb above is dead rather than missing: the
-                          handle is still remembered and Disconnect is still
-                          the way out of it, so hiding the row would trap a
-                          reader who arrived with both remembered. Said once
-                          for all four states, since it is true of all four. */}
-                        {cloudEngaged && (
-                          <span className="caption">
-                            One live copy at a time — sign out of the cloud copy below to mirror to
-                            a file instead
+                            </DateField>
+                            <NumberField
+                              label="Life expectancy in years"
+                              value={lifeExpectancy}
+                              onChange={(next) => store.setLife(birth, next)}
+                              suffix="years"
+                              min={LIFE_EXPECTANCY_RANGE.min}
+                              max={LIFE_EXPECTANCY_RANGE.max}
+                            />
+                          </div>
+                          <span className="caption tabular-nums">
+                            {span
+                              ? `${formatCount(span.days)} days, one dot each, ending around ${formatLifeDate(span.death)}`
+                              : "One dot per day for a whole life"}
                           </span>
-                        )}
-                        {/* Said plainly, once, regardless of state: a file
-                          circal keeps open for an assistant to write is a
-                          file anything that can read it can write to, and
-                          that is a property of the feature, not a warning
-                          that goes away once you already trust it. */}
-                        <span className="caption">
-                          While the file is connected, anything that can read it can read and change
-                          your calendar
-                        </span>
-                      </>
-                    )}
-                  </FieldRow>
-                </Section>
+                        </FieldRow>
+                        <FieldRow label="Marks">
+                          <Toggle
+                            label="Milestones"
+                            checked={milestones}
+                            onChange={(on) => store.setToggle("milestones", on)}
+                          />
+                        </FieldRow>
+                        <FieldRow label="Loupe" last>
+                          <Toggle
+                            label="Magnify the year"
+                            checked={lifeLoupe}
+                            onChange={(on) => store.setToggle("lifeLoupe", on)}
+                          />
+                        </FieldRow>
+                      </Section>
 
-                {/* Absent, not disabled and not explained, where no project is
-                  configured: `SYNC.md` opens Phase 2 with "the app must be
-                  byte-identical for somebody who never signs in", and a fork
-                  that never set the two env vars is that person a step
-                  earlier. The Mirror section above is the sibling this reads
-                  as — same subject, same verbs, one transport over. */}
-                {canCloud && (
-                  <Section title="Cloud">
-                    <FieldRow label="Account" align="top" last>
-                      {mirrorEngaged ? (
-                        <>
-                          <span className="caption">
-                            One live copy at a time — disconnect the mirror file above to sync
-                            through the cloud instead
-                          </span>
-                          {/* The retreat, and only where there is something to
-                            retreat from: a session remembered from before the
-                            file was picked is the one way both are held at
-                            once, and it has to be droppable from here. */}
-                          {cloudEngaged && (
-                            <DataButton
-                              icon={<Unlink2 size={13} strokeWidth={1.75} />}
-                              onClick={() => void signOut()}
-                            >
-                              Sign out
-                            </DataButton>
-                          )}
-                        </>
-                      ) : (
-                        <>
-                          {cloudStatus.state === "off" && (
-                            <>
-                              {cloudFields()}
-                              <span className="caption">
-                                One encrypted copy of this calendar on a server, so another device
-                                can read it. Signing in is a code by email, never a link to click
-                              </span>
-                            </>
-                          )}
-                          {/* The transport's own sentence, printed rather than
-                            paraphrased — it is the one place either state has
-                            anything to say, and a second wording of "a code is
-                            on its way" is a second vocabulary to drift. */}
-                          {(cloudStatus.state === "prompt" || cloudStatus.state === "error") &&
-                            cloudStatus.message && (
-                              <span className="caption">{cloudStatus.message}</span>
+                      {/* The moon is the one thing here that draws something the
+                        calendar does not contain, and it lives in the sidebar —
+                        never on the dial. */}
+                      <Section
+                        title="Sidebar"
+                        onInfo={setInfo}
+                        info={
+                          <p>
+                            The selected day's moon, drawn as the astronomy: one disc, the
+                            terminator over it. Arrow through a week and it walks with you
+                          </p>
+                        }
+                      >
+                        <FieldRow label="Moon" last>
+                          <Toggle
+                            label="Phase"
+                            name="Moon phase in the sidebar"
+                            checked={moon}
+                            onChange={(on) => store.setToggle("moon", on)}
+                          />
+                        </FieldRow>
+                      </Section>
+                    </>
+                  )}
+
+                  {tab === "events" && (
+                    <>
+                      <Section
+                        title="New event"
+                        onInfo={setInfo}
+                        info={
+                          <>
+                            <InfoEntry name="Length">
+                              The span a new event starts with when nothing names one.
+                            </InfoEntry>
+                            <InfoEntry name="Calendar">
+                              Where {MOD}N, a drag on the dial and a quick-add line put an event.
+                              Subscriptions are read-only and never offered.
+                            </InfoEntry>
+                          </>
+                        }
+                      >
+                        <FieldRow label="Length">
+                          <NumberField
+                            label="Default event length"
+                            value={defaultDuration}
+                            onChange={store.setDefaultDuration}
+                            suffix="min"
+                            min={MIN_DURATION}
+                            max={MINUTES_PER_DAY}
+                          />
+                        </FieldRow>
+                        <FieldRow label="Calendar" last>
+                          <Select
+                            label="Calendar for new events"
+                            value={defaultCalendar}
+                            onChange={store.setDefaultCalendar}
+                            options={[
+                              { value: "", label: "First one" },
+                              ...calendars
+                                .filter((c) => !c.feed)
+                                .map((c) => ({ value: c.id, label: c.name })),
+                            ]}
+                          />
+                        </FieldRow>
+                      </Section>
+
+                      <Section
+                        title="Day"
+                        onInfo={setInfo}
+                        info={
+                          <p>
+                            What "free" means here: the dial's totals line and the palette's slot
+                            search both measure free time against these hours
+                          </p>
+                        }
+                      >
+                        <FieldRow label="Hours" last>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <TimeField
+                              label="Waking hours start"
+                              clock={clock}
+                              value={atMinutes(new Date(), wakingFrom)}
+                              onCommit={(minutes) => store.setWaking(minutes, wakingTo)}
+                            />
+                            <span className="text-ink-3">–</span>
+                            <TimeField
+                              label="Waking hours end"
+                              clock={clock}
+                              value={atMinutes(new Date(), wakingTo)}
+                              onCommit={(minutes) => store.setWaking(wakingFrom, minutes)}
+                            />
+                          </div>
+                        </FieldRow>
+                      </Section>
+
+                      <Section
+                        title="Reminders"
+                        onInfo={setInfo}
+                        info={
+                          <p>
+                            Reminders fire only while circal is open: with the tab closed they would
+                            need a server pushing them at you, and circal runs nowhere but this
+                            browser. All-day events never fire; timed tasks do
+                          </p>
+                        }
+                      >
+                        <FieldRow label="Notify" align="top" last>
+                          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
+                            <Toggle
+                              label="On"
+                              name="Notify before an event starts"
+                              checked={remind}
+                              onChange={(on) => void toggleRemind(on)}
+                            />
+                            {remind && (
+                              <Select
+                                value={String(remindLead)}
+                                onChange={(next) => store.setRemindLead(Number(next))}
+                                label="How much warning"
+                                options={REMIND_OPTIONS}
+                              />
                             )}
-                          {cloudStatus.state === "prompt" && cloudFields()}
-                          {cloudStatus.state === "live" && (
-                            <>
-                              <span className="flex min-w-0 flex-col">
+                          </div>
+                          <span className="caption">Only while circal is open, in this tab</span>
+                        </FieldRow>
+                      </Section>
+                    </>
+                  )}
+
+                  {tab === "data" && (
+                    <>
+                      <Section
+                        title="Data"
+                        onInfo={setInfo}
+                        info={
+                          <>
+                            <InfoEntry name="Feeds">
+                              Public ICS subscriptions, mirrored read-only and refreshed on launch.
+                            </InfoEntry>
+                            <InfoEntry name="Backup">
+                              Events live in this browser, and "Clear site data" erases them.
+                              Without a live mirror or cloud copy, a backup is the only copy that
+                              survives it.
+                            </InfoEntry>
+                            <InfoEntry name="Nudge">
+                              A line on the main screen when no backup has been saved in a while.
+                              Silent while a mirror or cloud copy is live; that copy already is one.
+                            </InfoEntry>
+                          </>
+                        }
+                      >
+                        <FieldRow label="Feeds" align="top">
+                          {subscriptions.length === 0 && (
+                            <span className="caption">
+                              Paste a public ICS link. Read-only, refreshed on launch
+                            </span>
+                          )}
+                          {subscriptions.map((calendar) => (
+                            <div key={calendar.id} className="flex items-center gap-2">
+                              <CalendarMark icon={calendar.icon} color={calendar.color} size={14} />
+                              <span className="flex min-w-0 flex-1 flex-col">
                                 <span className="truncate text-[13px] text-ink">
-                                  {cloudStatus.name}
+                                  {calendar.name}
                                 </span>
-                                <span className="caption tabular-nums">
-                                  synced {mirrorAge(cloudStatus.at)}
+                                <span
+                                  className={feedMetaClass(calendar.feed?.error)}
+                                  title={calendar.feed?.error || calendar.feed?.url}
+                                >
+                                  {pulling === calendar.id
+                                    ? "PULLING…"
+                                    : calendar.feed?.error ||
+                                      relativeAge(calendar.feed?.fetchedAt ?? 0)}
                                 </span>
                               </span>
-                              <div className="flex flex-wrap items-center gap-2">
+                              <IconButton
+                                label={`Refresh ${calendar.name}`}
+                                onClick={() => pull(calendar)}
+                              >
+                                <RefreshCw size={13} strokeWidth={1.75} />
+                              </IconButton>
+                              <IconButton
+                                label={`Remove ${calendar.name}`}
+                                onClick={() => store.removeCalendar(calendar.id)}
+                              >
+                                <Trash2 size={13} strokeWidth={1.75} />
+                              </IconButton>
+                            </div>
+                          ))}
+                          <div className="flex flex-wrap items-center gap-2">
+                            <TextField
+                              type="url"
+                              inputMode="url"
+                              value={feedUrl}
+                              onChange={setFeedUrl}
+                              onEnter={() => void addFeed()}
+                              label="Feed URL"
+                              placeholder="https://…/basic.ics"
+                              className="flex-1 basis-[140px]"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => void addFeed()}
+                              disabled={!feedUrl.trim()}
+                              className="h-8 shrink-0 rounded-[8px] border border-hairline bg-surface-2 px-3 text-[13px] text-ink transition-colors hover:bg-(--veil-10) disabled:pointer-events-none disabled:opacity-35"
+                            >
+                              Add
+                            </button>
+                          </div>
+                        </FieldRow>
+
+                        {/* Only when there is something to say: after the travel
+                          notice was answered with "move", or on a browser that
+                          never travelled, nothing carries a stamp and a row
+                          offering to clear nothing is worse than no row. */}
+                        {stampCount > 0 && (
+                          <FieldRow label="Zones" align="top">
+                            {/* The place is in the verb, not only in the
+                              sentence: "Clear 24 Berlin stamps" says what is
+                              about to happen where a bare number does not. */}
+                            <DataButton
+                              icon={<RotateCcw size={13} strokeWidth={1.75} />}
+                              onClick={clearStamps}
+                            >
+                              Clear {stampCount}{" "}
+                              {stampPlaces.length === 1 ? `${stampPlaces[0]} ` : ""}
+                              stamp{stampCount === 1 ? "" : "s"}
+                            </DataButton>
+                            {/* Says what the scope actually is, including the
+                              part it cannot tell apart: an imported .ics event
+                              naming one of these cities is indistinguishable
+                              from a stamped one. */}
+                            <span className="caption">
+                              Stamped when this browser arrived from {stampPlaces.join(", ")}.
+                              Cleared, they follow this browser's clock again; an imported event
+                              naming the same place is cleared with them
+                            </span>
+                          </FieldRow>
+                        )}
+
+                        <FieldRow label="Backup">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <DataButton
+                              icon={<Download size={13} strokeWidth={1.75} />}
+                              onClick={actions.exportIcs}
+                            >
+                              Export .ics
+                            </DataButton>
+                            <DataButton
+                              icon={<Download size={13} strokeWidth={1.75} />}
+                              onClick={actions.exportBackup}
+                            >
+                              Backup .json
+                            </DataButton>
+                            <DataButton
+                              icon={<Upload size={13} strokeWidth={1.75} />}
+                              onClick={actions.importFile}
+                            >
+                              Import…
+                            </DataButton>
+                          </div>
+                        </FieldRow>
+
+                        <FieldRow label="Nudge" last>
+                          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
+                            <Toggle
+                              label="On"
+                              name="Warn when a backup is overdue"
+                              checked={backupNudge}
+                              onChange={(on) => store.setToggle("backupNudge", on)}
+                            />
+                            {backupNudge && (
+                              <Select
+                                value={String(backupInterval)}
+                                onChange={(next) => store.setBackupInterval(Number(next))}
+                                label="How long between backups"
+                                options={BACKUP_OPTIONS}
+                              />
+                            )}
+                          </div>
+                        </FieldRow>
+                      </Section>
+
+                      {/* Same subject as Backup above — the only copy of the
+                        user's calendar — but this copy is *live*: a file on
+                        disk the app keeps in sync. It is also the one surface
+                        an outside program (an AI assistant, a script) can read
+                        and write without circal growing a server. */}
+                      <Section
+                        title="Mirror"
+                        onInfo={setInfo}
+                        info={
+                          <>
+                            <InfoEntry name="Mirror">
+                              A live .json copy of the calendar in a file you choose, kept in sync
+                              as you edit. It survives "Clear site data", and a local AI assistant
+                              can read and write it; "Set up an assistant" walks through that.
+                            </InfoEntry>
+                            <InfoEntry name="One live copy">
+                              One live copy at a time: while the cloud copy is signed in, the file
+                              waits, and the other way round.
+                            </InfoEntry>
+                          </>
+                        }
+                      >
+                        <FieldRow label="File" align="top" last>
+                          {!canMirror ? (
+                            <span className="caption">
+                              This browser can't hold a file handle for a live mirror; a .json
+                              backup still works
+                            </span>
+                          ) : (
+                            <>
+                              {/* `DataButton`, not `ActionPill` — the pill is
+                                the top bar's vocabulary, where an icon is the
+                                whole control. These sit beside
+                                Export/Backup/Import and speak the same way. */}
+                              {mirrorStatus.state === "off" && (
                                 <DataButton
-                                  icon={<RefreshCw size={13} strokeWidth={1.75} />}
-                                  onClick={() => void cloud.syncNow()}
+                                  icon={<Link2 size={13} strokeWidth={1.75} />}
+                                  onClick={() => void mirror.connect()}
+                                  disabled={cloudEngaged}
                                 >
-                                  Sync now
+                                  Connect a file…
                                 </DataButton>
-                                <DataButton
-                                  icon={<Unlink2 size={13} strokeWidth={1.75} />}
-                                  onClick={() => void signOut()}
-                                >
-                                  Sign out
-                                </DataButton>
-                                {/* The Mirror card's anchor, for the same
-                                  reason: an assistant reaches a live cloud
-                                  copy through `circal-mcp --cloud`, and setup
-                                  is a page, not an action. */}
-                                <a
-                                  href="/assistant/"
-                                  target="_blank"
-                                  rel="noopener"
-                                  className="flex h-8 w-fit items-center gap-1.5 rounded-[8px] border border-hairline bg-surface-2 px-2.5 text-[13px] text-ink transition-colors hover:bg-(--veil-10)"
-                                >
-                                  <ArrowUpRight size={13} strokeWidth={1.75} />
-                                  Set up an assistant
-                                </a>
-                                {/* The cloud card's own command, `--find`'s
-                                  sibling above: sign the server in once, no
-                                  path, no flags. */}
-                                <DataButton
-                                  icon={<Copy size={13} strokeWidth={1.75} />}
-                                  onClick={() => void copyCommand("npx -y circal-mcp login")}
-                                >
-                                  <code className="font-mono text-[12px]">
-                                    npx -y circal-mcp login
-                                  </code>
-                                </DataButton>
-                              </div>
-                              {/* Only while this session's sign-in found an
-                                empty slot. The auth layer cannot refuse a
-                                mistyped address — any email silently mints a
-                                fresh account — so a cloud copy that started
-                                from nothing is the one visible symptom of
-                                "wrong address", and it looks exactly like
-                                data loss to the person it happens to. Plain
-                                caption, never danger: nothing is lost. */}
-                              {cloudStartedEmpty() && (
+                              )}
+                              {mirrorStatus.state === "prompt" && (
+                                <>
+                                  <DataButton
+                                    icon={<Link2 size={13} strokeWidth={1.75} />}
+                                    onClick={() => void mirror.reconnect()}
+                                    disabled={cloudEngaged}
+                                  >
+                                    Resume
+                                  </DataButton>
+                                  <span className="caption truncate">{mirrorStatus.name}</span>
+                                </>
+                              )}
+                              {mirrorStatus.state === "live" && (
+                                <>
+                                  <span className="flex min-w-0 flex-col">
+                                    <span className="truncate text-[13px] text-ink">
+                                      {mirrorStatus.name}
+                                    </span>
+                                    <span className="caption tabular-nums">
+                                      synced {mirrorAge(mirrorStatus.at)}
+                                    </span>
+                                  </span>
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <DataButton
+                                      icon={<RefreshCw size={13} strokeWidth={1.75} />}
+                                      onClick={() => void mirror.syncNow()}
+                                    >
+                                      Sync now
+                                    </DataButton>
+                                    <DataButton
+                                      icon={<Unlink2 size={13} strokeWidth={1.75} />}
+                                      onClick={() => void mirror.disconnect()}
+                                    >
+                                      Disconnect
+                                    </DataButton>
+                                    {/* Anchor, not button — an assistant reads
+                                      this file once it is live, and setup is a
+                                      page, not an action. */}
+                                    <a
+                                      href="/assistant/"
+                                      target="_blank"
+                                      rel="noopener"
+                                      className="flex h-8 w-fit items-center gap-1.5 rounded-[8px] border border-hairline bg-surface-2 px-2.5 text-[13px] text-ink transition-colors hover:bg-(--veil-10)"
+                                    >
+                                      <ArrowUpRight size={13} strokeWidth={1.75} />
+                                      Set up an assistant
+                                    </a>
+                                  </div>
+                                </>
+                              )}
+                              {mirrorStatus.state === "error" && (
+                                <>
+                                  {/* Plain `.caption`, not `text-danger`: a link
+                                    that is down is not a destructive action, and
+                                    the calendar is whole in `localStorage`
+                                    either way. */}
+                                  <span className="caption">{mirrorStatus.message}</span>
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <DataButton
+                                      icon={<Link2 size={13} strokeWidth={1.75} />}
+                                      onClick={() => void mirror.reconnect()}
+                                      disabled={cloudEngaged}
+                                    >
+                                      Resume
+                                    </DataButton>
+                                    <DataButton
+                                      icon={<Unlink2 size={13} strokeWidth={1.75} />}
+                                      onClick={() => void mirror.disconnect()}
+                                    >
+                                      Disconnect
+                                    </DataButton>
+                                  </div>
+                                </>
+                              )}
+                              {/* Why the verb above is dead rather than missing:
+                                the handle is still remembered and Disconnect is
+                                still the way out of it. */}
+                              {cloudEngaged && (
                                 <span className="caption">
-                                  This address had no cloud copy before this sign-in. Expected
-                                  events here? They may be under a different address — any inbox
-                                  holding a &ldquo;Your circal sign-in code&rdquo; email names it
+                                  One live copy at a time. Sign out of the cloud copy to mirror to a
+                                  file instead
                                 </span>
                               )}
-                              {/* Only while the link is live: there is nothing
-                                to remember before a key exists, and a switch
-                                offering to keep one would be a switch about a
-                                thing that has not happened. The caption is the
-                                whole of the decision — the passphrase is not
-                                what is kept, and what is kept carries *write*
-                                authority over every device on the account,
-                                which is the half a user would otherwise
-                                assume away. */}
-                              <Toggle
-                                label="Stay unlocked"
-                                name="Remember the key for the cloud copy on this device"
-                                checked={remembering}
-                                onChange={(on) => void setRemember(on)}
-                              />
+                              {/* Said plainly, once, regardless of state: a
+                                property of the feature, not a warning that goes
+                                away once you already trust it. */}
                               <span className="caption">
-                                The passphrase is never stored; the key it derives is. Anyone with
-                                this device and browser profile can then read and change the
-                                calendar on every device on the account
+                                Anything that can read the file can change your calendar
                               </span>
-                              {/* The other intention, and deliberately not
-                                behind Sign out: one press is "not on this
-                                device", this one is "not at all". Two presses,
-                                the editor's own shape — a `pending` flag swaps
-                                the verb for the confirm and a Cancel beside it
-                                — rather than a confirm widget this panel does
-                                not otherwise have. The reassurance sits on the
-                                second press because that is where somebody
-                                hesitates, and it says the two things a person
-                                fears here: the calendar is not what is being
-                                deleted, and this is not account erasure.
-                                `deleteStrip` is shared with the locked branch,
-                                where it is the way out of a lost passphrase. */}
-                              {deleteStrip}
                             </>
                           )}
-                          {/* Two failures, two remedies, and the panel picks
-                            between them off facts it already has rather than
-                            off a second reading of the message: a locked box
-                            wants the passphrase again (`cloudLocked`), and so
-                            does a link that never completed a pass at all
-                            (`at` still 0, so `unlock` itself is what failed).
-                            Anything else has a key in memory and a row it
-                            merely could not reach — a paused project — where
-                            retyping a passphrase would be busywork and the
-                            retry is the whole of the fix. Neither sentence is
-                            about lost data and neither is printed in danger
-                            colour: nothing here is destructive. */}
-                          {cloudStatus.state === "error" &&
-                            (cloudLocked || !cloudStatus.at ? (
-                              cloudFields()
-                            ) : (
-                              <div className="flex flex-wrap items-center gap-2">
-                                <DataButton
-                                  icon={<RefreshCw size={13} strokeWidth={1.75} />}
-                                  onClick={() => void cloud.syncNow()}
-                                >
-                                  Try again
-                                </DataButton>
-                                <DataButton
-                                  icon={<Unlink2 size={13} strokeWidth={1.75} />}
-                                  onClick={() => void signOut()}
-                                >
-                                  Sign out
-                                </DataButton>
-                              </div>
-                            ))}
-                          {/* Said plainly, once, in every state — the mirror's
-                            own argument one transport over: an account is a
-                            thing somebody else knows about you, and that is a
-                            property of the feature rather than a warning that
-                            stops being true once you trust it. */}
-                          <span className="caption">
-                            Whoever runs the project knows the email you sign in with; encrypting
-                            the calendar does not change that
-                          </span>
-                        </>
-                      )}
-                    </FieldRow>
-                  </Section>
-                )}
+                        </FieldRow>
+                      </Section>
 
-                <Section title="About">
-                  <FieldRow label="Manifesto" align="top" last={!!reducedMotion}>
-                    {/* An anchor rather than a button: it is a real page, so
-                      middle-click and "open in new tab" have to work. It opens
-                      in one deliberately — installed standalone there is no
-                      back button, and navigating away would also cost a reload
-                      of a clock that is currently running. */}
-                    <a
-                      href="/manifesto/"
-                      target="_blank"
-                      rel="noopener"
-                      className="flex h-8 w-fit items-center gap-1.5 rounded-[8px] border border-hairline bg-surface-2 px-2.5 text-[13px] text-ink transition-colors hover:bg-(--veil-10)"
-                    >
-                      <ArrowUpRight size={13} strokeWidth={1.75} />
-                      Why a day is a circle
-                    </a>
-                    <span className="caption">
-                      One page on what this is, and what it will not become
-                    </span>
-                  </FieldRow>
-                  {/* Nothing to offer a reader whose system has asked for no
-                    motion: the sweep is the whole of it, and a button that
-                    plays nothing is worse than an absent one. */}
-                  {!reducedMotion && (
-                    <FieldRow label="Intro" align="top" last>
-                      <DataButton
-                        icon={<RotateCcw size={13} strokeWidth={1.75} />}
-                        onClick={actions.replayIntro}
-                      >
-                        Play again
-                      </DataButton>
-                      <span className="caption">
-                        One revolution, the day arriving in day order. Shown once, on the first
-                        visit
-                      </span>
-                    </FieldRow>
+                      {/* Absent, not disabled and not explained, where no
+                        project is configured: a fork that never set the two env
+                        vars should not learn from this panel that the feature
+                        exists. */}
+                      {canCloud && (
+                        <Section
+                          title="Cloud"
+                          onInfo={setInfo}
+                          info={
+                            <>
+                              <InfoEntry name="Cloud copy">
+                                One encrypted copy of this calendar on a server, so another device
+                                can read it. Signing in is a code by email, never a link to click.
+                              </InfoEntry>
+                              <InfoEntry name="Passphrase">
+                                Set once, typed on every new device. It seals the copy in this
+                                browser and is never sent; lose it and the cloud copy is lost, this
+                                browser's calendar is not.
+                              </InfoEntry>
+                              <InfoEntry name="Stay unlocked">
+                                Keeps the derived key on this device, never the passphrase. Anyone
+                                with this device and browser profile can then read and change the
+                                calendar on every device on the account.
+                              </InfoEntry>
+                              <InfoEntry name="Privacy">
+                                Whoever runs the project knows the email you sign in with;
+                                encrypting the calendar does not change that.
+                              </InfoEntry>
+                            </>
+                          }
+                        >
+                          <FieldRow label="Account" align="top" last>
+                            {mirrorEngaged ? (
+                              <>
+                                <span className="caption">
+                                  One live copy at a time. Disconnect the mirror file to sync
+                                  through the cloud instead
+                                </span>
+                                {/* The retreat, and only where there is
+                                  something to retreat from: a session
+                                  remembered from before the file was picked is
+                                  the one way both are held at once. */}
+                                {cloudEngaged && (
+                                  <DataButton
+                                    icon={<Unlink2 size={13} strokeWidth={1.75} />}
+                                    onClick={() => void signOut()}
+                                  >
+                                    Sign out
+                                  </DataButton>
+                                )}
+                              </>
+                            ) : (
+                              <>
+                                {cloudStatus.state === "off" && (
+                                  <>
+                                    {cloudFields()}
+                                    <span className="caption">
+                                      An encrypted copy on a server, for your other devices
+                                    </span>
+                                  </>
+                                )}
+                                {/* The transport's own sentence, printed rather
+                                  than paraphrased — a second wording is a second
+                                  vocabulary to drift. */}
+                                {(cloudStatus.state === "prompt" ||
+                                  cloudStatus.state === "error") &&
+                                  cloudStatus.message && (
+                                    <span className="caption">{cloudStatus.message}</span>
+                                  )}
+                                {cloudStatus.state === "prompt" && cloudFields()}
+                                {cloudStatus.state === "live" && (
+                                  <>
+                                    <span className="flex min-w-0 flex-col">
+                                      <span className="truncate text-[13px] text-ink">
+                                        {cloudStatus.name}
+                                      </span>
+                                      <span className="caption tabular-nums">
+                                        synced {mirrorAge(cloudStatus.at)}
+                                      </span>
+                                    </span>
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <DataButton
+                                        icon={<RefreshCw size={13} strokeWidth={1.75} />}
+                                        onClick={() => void cloud.syncNow()}
+                                      >
+                                        Sync now
+                                      </DataButton>
+                                      <DataButton
+                                        icon={<Unlink2 size={13} strokeWidth={1.75} />}
+                                        onClick={() => void signOut()}
+                                      >
+                                        Sign out
+                                      </DataButton>
+                                      {/* The Mirror card's anchor, for the same
+                                        reason: setup is a page, not an
+                                        action. */}
+                                      <a
+                                        href="/assistant/"
+                                        target="_blank"
+                                        rel="noopener"
+                                        className="flex h-8 w-fit items-center gap-1.5 rounded-[8px] border border-hairline bg-surface-2 px-2.5 text-[13px] text-ink transition-colors hover:bg-(--veil-10)"
+                                      >
+                                        <ArrowUpRight size={13} strokeWidth={1.75} />
+                                        Set up an assistant
+                                      </a>
+                                    </div>
+                                    {/* Only while this session's sign-in found an
+                                      empty slot. The auth layer cannot refuse a
+                                      mistyped address — any email silently mints
+                                      a fresh account — so a copy that started
+                                      from nothing is the one visible symptom of
+                                      "wrong address". Plain caption, never
+                                      danger: nothing is lost. */}
+                                    {cloudStartedEmpty() && (
+                                      <span className="caption">
+                                        This address had no cloud copy before this sign-in. Expected
+                                        events here? They may be under a different address; any
+                                        inbox holding a &ldquo;Your circal sign-in code&rdquo; email
+                                        names it
+                                      </span>
+                                    )}
+                                    {/* Only while the link is live: there is
+                                      nothing to remember before a key exists.
+                                      What is kept carries *write* authority over
+                                      every device on the account — the card's
+                                      info spells that out. */}
+                                    <Toggle
+                                      label="Stay unlocked"
+                                      name="Remember the key for the cloud copy on this device"
+                                      checked={remembering}
+                                      onChange={(on) => void setRemember(on)}
+                                    />
+                                    {/* The other intention, and deliberately not
+                                      behind Sign out: one press is "not on this
+                                      device", this one is "not at all".
+                                      `deleteStrip` is shared with the locked
+                                      branch, where it is the way out of a lost
+                                      passphrase. */}
+                                    {deleteStrip}
+                                  </>
+                                )}
+                                {/* Two failures, two remedies: a locked box
+                                  wants the passphrase again, and so does a link
+                                  that never completed a pass (`at` still 0).
+                                  Anything else has a key in memory and a row it
+                                  merely could not reach, where the retry is the
+                                  whole of the fix. */}
+                                {cloudStatus.state === "error" &&
+                                  (cloudLocked || !cloudStatus.at ? (
+                                    cloudFields()
+                                  ) : (
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <DataButton
+                                        icon={<RefreshCw size={13} strokeWidth={1.75} />}
+                                        onClick={() => void cloud.syncNow()}
+                                      >
+                                        Try again
+                                      </DataButton>
+                                      <DataButton
+                                        icon={<Unlink2 size={13} strokeWidth={1.75} />}
+                                        onClick={() => void signOut()}
+                                      >
+                                        Sign out
+                                      </DataButton>
+                                    </div>
+                                  ))}
+                              </>
+                            )}
+                          </FieldRow>
+                        </Section>
+                      )}
+                    </>
                   )}
-                </Section>
-              </div>
+
+                  {tab === "about" && (
+                    <Section title="About">
+                      <FieldRow label="Manifesto" align="top" last={!!reducedMotion}>
+                        {/* An anchor rather than a button: it is a real page, so
+                          middle-click and "open in new tab" have to work. It
+                          opens in one deliberately — installed standalone there
+                          is no back button, and navigating away would cost a
+                          reload of a running clock. */}
+                        <a
+                          href="/manifesto/"
+                          target="_blank"
+                          rel="noopener"
+                          className="flex h-8 w-fit items-center gap-1.5 rounded-[8px] border border-hairline bg-surface-2 px-2.5 text-[13px] text-ink transition-colors hover:bg-(--veil-10)"
+                        >
+                          <ArrowUpRight size={13} strokeWidth={1.75} />
+                          Why a day is a circle
+                        </a>
+                        <span className="caption">
+                          One page on what this is, and what it will not become
+                        </span>
+                      </FieldRow>
+                      {/* Nothing to offer a reader whose system has asked for no
+                        motion: the sweep is the whole of it, and a button that
+                        plays nothing is worse than an absent one. */}
+                      {!reducedMotion && (
+                        <FieldRow label="Intro" align="top" last>
+                          <DataButton
+                            icon={<RotateCcw size={13} strokeWidth={1.75} />}
+                            onClick={actions.replayIntro}
+                          >
+                            Play again
+                          </DataButton>
+                          <span className="caption">
+                            One revolution, the day arriving in day order. Shown once, on the first
+                            visit
+                          </span>
+                        </FieldRow>
+                      )}
+                    </Section>
+                  )}
+                </div>
+              </motion.div>
             </div>
+
+            {/* The info card: a section's prose, on demand. Inside the dialog
+                rather than a portal, so the panel's own focus trap still bounds
+                Tab; the capture listener above owns Escape while it is up. */}
+            {info && (
+              <motion.div
+                className="absolute inset-0 z-10 flex items-center justify-center bg-black/50 p-4"
+                onClick={() => setInfo(null)}
+                role="presentation"
+                initial={reducedMotion ? false : { opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: 0.14, ease: EASE }}
+              >
+                <motion.div
+                  ref={infoCard}
+                  role="dialog"
+                  aria-label={info.title}
+                  tabIndex={-1}
+                  onClick={(e) => e.stopPropagation()}
+                  className="no-scrollbar max-h-full w-[min(480px,100%)] overflow-y-auto rounded-[12px] border border-hairline bg-surface-2 shadow-[0_24px_60px_-16px_rgba(0,0,0,0.8)]"
+                  initial={reducedMotion ? false : { opacity: 0, scale: 0.97 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ duration: 0.16, ease: EASE }}
+                >
+                  <div className="flex min-h-[40px] items-center justify-between border-b border-hairline pr-1.5 pl-4">
+                    <h3 className="label text-[12px] text-ink-2">{info.title}</h3>
+                    <IconButton label="Close" onClick={() => setInfo(null)}>
+                      <X size={14} strokeWidth={1.75} />
+                    </IconButton>
+                  </div>
+                  {/* 15px ink, not `.caption`: this prose is the dialog's whole
+                      content, so it reads at body size, not at the annotation
+                      size that was hard to read at this remove. */}
+                  <div className="flex flex-col gap-4 px-4 pt-3.5 pb-4.5 text-[15px] leading-relaxed text-ink">
+                    {info.body}
+                  </div>
+                </motion.div>
+              </motion.div>
+            )}
           </motion.div>
         </motion.div>
       )}
