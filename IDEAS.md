@@ -1,5 +1,7 @@
 # Ideas: beyond TASKS.md
 
+when i import an event from ical, it should take me there
+
 **Status:** brainstorm, not approved. Written 2026-08-23, after the cloud-sync audit.
 
 Every idea here is filtered through the rules the repo already holds: chrome stays
