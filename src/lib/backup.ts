@@ -494,7 +494,7 @@ export function importBackup(text: string) {
     return;
   }
   store.restore(read);
-  notify(`Restored ${read.events.length} events — ⌘Z to undo`);
+  notify(`Restored ${read.events.length} events`);
 }
 
 export function importIcs(text: string, filename: string) {
@@ -562,7 +562,7 @@ export function importIcs(text: string, filename: string) {
       };
     }),
   );
-  notify(`Imported ${events.length} events into “${label}” — ⌘Z to undo`);
+  notify(`Imported ${events.length} events into “${label}”`);
 }
 
 /**

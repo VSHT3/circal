@@ -760,7 +760,7 @@ async function absorb(document: MirrorContents): Promise<void> {
   clearTimeout(settleTimer);
   rememberRev();
   setStatus({ state: "live", message: "", at: Date.now() });
-  notify("Calendar updated from the cloud copy — ⌘Z to undo");
+  notify("Calendar updated from the cloud copy");
 }
 
 /**
@@ -1332,7 +1332,7 @@ export const cloud = {
     // else changes on screen — so the moment a copy stops being written is
     // said out loud. The Batoni lesson: a write into a copy nobody reads
     // looks exactly like a write that worked.
-    if (wasLive) notify("Signed out — the cloud copy stops updating; edits stay in this browser");
+    if (wasLive) notify("Signed out. The cloud copy stops updating; edits stay in this browser");
   },
 
   /**
@@ -1385,7 +1385,7 @@ export const cloud = {
       fail(UNSURE);
       return;
     }
-    notify("Cloud copy deleted — this browser's calendar is untouched");
+    notify("Cloud copy deleted. This browser's calendar is untouched");
   },
 };
 
@@ -1481,7 +1481,7 @@ export function startCloud(): () => void {
           localRev = 0;
           lastDigest = "";
           setStatus(OFF);
-          notify("Cloud sync signed out — the session expired. Sign in again to resume");
+          notify("Cloud sync signed out. The session expired; sign in again to resume");
         })();
       }).data.subscription;
       const who = await account(db);

@@ -407,7 +407,7 @@ export default function Settings({
   function clearStamps() {
     const cleared = store.clearEventZones();
     if (cleared > 0) {
-      notify(`${cleared} event${cleared === 1 ? "" : "s"} floating again · ${MOD}Z to undo`);
+      notify(`${cleared} event${cleared === 1 ? "" : "s"} floating again`);
     }
   }
 
@@ -482,9 +482,9 @@ export default function Settings({
   async function copyCommand(command: string) {
     try {
       await navigator.clipboard.writeText(command);
-      notify("Command copied — paste it into a terminal");
+      notify("Command copied. Paste it into a terminal");
     } catch {
-      notify("Could not reach the clipboard — nothing was copied", "error");
+      notify("Could not reach the clipboard. Nothing was copied", "error");
     }
   }
 

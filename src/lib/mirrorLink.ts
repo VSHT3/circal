@@ -298,7 +298,7 @@ async function absorb(contents: MirrorContents): Promise<void> {
   await remember();
   setStatus({ state: "live", message: "", at: Date.now() });
   if (settled) return;
-  notify(`Calendar updated from ${handle?.name ?? "the mirror file"} — ⌘Z to undo`);
+  notify(`Calendar updated from ${handle?.name ?? "the mirror file"}`);
 }
 
 /**
@@ -686,7 +686,7 @@ export const mirror = {
     // either side.
     if (wasLive)
       notify(
-        `Mirror disconnected — ${name || "the file"} stops updating; edits stay in this browser`,
+        `Mirror disconnected. ${name || "The file"} stops updating; edits stay in this browser`,
       );
   },
 

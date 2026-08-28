@@ -86,7 +86,6 @@ import {
   useTypingSound,
   useWakeLock,
 } from "./hooks";
-import { MOD } from "./ui/primitives";
 import { ErrorBoundary } from "./ErrorBoundary";
 import type {
   AmbientMode,
@@ -849,11 +848,7 @@ function Shell() {
         ? store.moveEventsToZone(travel.from, travel.to)
         : store.keepEventsInZone(travel.from, travel.to);
       const events = `${count} event${count === 1 ? "" : "s"}`;
-      notify(
-        move
-          ? `Moved ${events} to ${place} time · ${MOD}Z to undo`
-          : `${events} keep ${place} time · ${MOD}Z to undo`,
-      );
+      notify(move ? `Moved ${events} to ${place} time` : `${events} keep ${place} time`);
     },
     [travel],
   );
@@ -959,7 +954,7 @@ function Shell() {
   const shareEvent = useCallback((draft: Omit<CalEvent, "id">) => {
     const encoded = encodeShare(draft);
     if (!encoded.ok) {
-      notify("Too long to share as a link — export it as .ics instead", "error");
+      notify("Too long to share as a link. Export it as .ics instead", "error");
       return;
     }
     const link = `${window.location.origin}${window.location.pathname}${shareFragment(encoded.token)}`;
@@ -971,10 +966,10 @@ function Shell() {
       try {
         await navigator.clipboard.writeText(link);
       } catch {
-        notify("Could not reach the clipboard — nothing was copied", "error");
+        notify("Could not reach the clipboard. Nothing was copied", "error");
         return;
       }
-      notify("Link copied — anyone with the link can add this event");
+      notify("Link copied. Anyone with the link can add this event");
     })();
   }, []);
 
@@ -1095,7 +1090,7 @@ function Shell() {
         notify(
           count === 0
             ? "Nothing to copy from that day"
-            : `Copied ${events} from ${formatRelativeDay(from)} — ${MOD}Z to undo`,
+            : `Copied ${events} from ${formatRelativeDay(from)}`,
         );
       },
       newEvent: () => {
@@ -1156,7 +1151,7 @@ function Shell() {
           : ` over “${first.event.title || "Untitled"}”${
               rest > 0 ? ` and ${rest} other${rest === 1 ? "" : "s"}` : ""
             }`;
-        notify(`Added “${spec.title}”${over} — ${MOD}Z to undo`);
+        notify(`Added “${spec.title}”${over}`);
       },
       undo: () => notify(store.undo() ? "Undone" : "Nothing to undo"),
       redo: () => notify(store.redo() ? "Redone" : "Nothing to redo"),
@@ -1199,10 +1194,10 @@ function Shell() {
           try {
             await navigator.clipboard.writeText(link);
           } catch {
-            notify("Could not reach the clipboard — nothing was copied", "error");
+            notify("Could not reach the clipboard. Nothing was copied", "error");
             return;
           }
-          notify("Link copied — anyone with the link can see when you're free");
+          notify("Link copied. Anyone with the link can see when you're free");
         })();
       },
       /**
@@ -1571,7 +1566,7 @@ function Shell() {
       const left =
         start >= addDays(dayStart, 1).getTime() || Math.max(end, start + 1) <= dayStart.getTime();
       if (left) {
-        notify(`Moved to ${formatRelativeDay(new Date(start))} — ${MOD}Z to undo`);
+        notify(`Moved to ${formatRelativeDay(new Date(start))}`);
       }
     },
     [day],
@@ -1626,7 +1621,7 @@ function Shell() {
           break;
       }
       cue("deleted", channels);
-      notify(`Deleted “${occ.event.title || "Untitled"}” — ${MOD}Z to undo`);
+      notify(`Deleted “${occ.event.title || "Untitled"}”`);
     },
     [channels],
   );
@@ -1663,7 +1658,7 @@ function Shell() {
       if (feedIds.has(occ.event.calendarId)) return;
       store.create(duplicateOf(occ.event, deltaMin * 60_000));
       cue("created", channels);
-      notify(`Duplicated “${occ.event.title || "Untitled"}” — ${MOD}Z to undo`);
+      notify(`Duplicated “${occ.event.title || "Untitled"}”`);
     },
     [feedIds, channels],
   );
@@ -1787,8 +1782,8 @@ function Shell() {
     cue("deleted", channels);
     notify(
       gone.moved > 0
-        ? `Removed “${editedCalendar.name}” — ${gone.moved} event${gone.moved === 1 ? "" : "s"} moved to ${gone.into?.name} · ${MOD}Z to undo`
-        : `Removed “${editedCalendar.name}” — ${MOD}Z to undo`,
+        ? `Removed “${editedCalendar.name}”. ${gone.moved} event${gone.moved === 1 ? "" : "s"} moved to ${gone.into?.name}`
+        : `Removed “${editedCalendar.name}”`,
     );
   }, [editedCalendar, channels]);
 

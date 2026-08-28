@@ -1218,7 +1218,7 @@ function migrateFeeds(legacy: Record<string, unknown>, base: Persisted) {
     // will do this again until something gives. Same failure `write` reports
     // and the same reason for reporting it: a storage refusal the user cannot
     // see is one they cannot act on.
-    notify("Not saved — this browser is refusing to store data", "error");
+    notify("Not saved. This browser is refusing to store data", "error");
   }
 }
 
@@ -1269,7 +1269,7 @@ function load(): Snapshot {
     // But an empty dial is what this app looks like on its first run, so
     // saying nothing here is indistinguishable from the calendar having been
     // eaten — the same argument the error boundary makes, one layer down.
-    notify("Saved data could not be read — starting empty", "error");
+    notify("Saved data could not be read. Starting empty", "error");
     return EMPTY;
   }
 }
@@ -1384,7 +1384,7 @@ function write(next: Snapshot) {
     // in-memory snapshot, but nothing here will survive the reload — and that
     // is exactly the failure the user has to hear about, because the UI is
     // otherwise indistinguishable from a successful save.
-    notify("Not saved — this browser is refusing to store data", "error");
+    notify("Not saved. This browser is refusing to store data", "error");
   }
   emit();
 }
