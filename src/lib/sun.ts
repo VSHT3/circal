@@ -123,23 +123,6 @@ export function sunTimes(day: Date, place: Place): SunDay {
   return { dawn, sunrise, sunset, dusk, polar };
 }
 
-/**
- * Minutes the sun spends above the horizon on `day`, at `place`.
- *
- * The one number a whole year of days can be compared by, which is what the
- * year ring tints its rim with. Derived from `sunTimes` rather than a second
- * solar evaluation: one ephemeris, so the ring and the dial's band can never
- * disagree about a day. Clamped because `sunTimes` deliberately does not clip
- * to the viewer's zone, and a place far east or west can hand back a pair
- * whose difference runs a few minutes past a whole day.
- */
-export function dayLength(day: Date, place: Place): number {
-  const { sunrise, sunset, polar } = sunTimes(day, place);
-  if (polar !== null) return polar === "day" ? MINUTES_PER_DAY : 0;
-  if (sunrise === null || sunset === null) return 0;
-  return clamp(sunset - sunrise, 0, MINUTES_PER_DAY);
-}
-
 /* ------------------------------- the curve -------------------------------- */
 
 /**

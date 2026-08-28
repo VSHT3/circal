@@ -110,21 +110,11 @@ the end are recorded as refusals, so they are argued once instead of re-litigate
     was written: `F`/`⇧F` (fullscreen), auto-arrival after `ambientAfter`, wake
     lock, parked cursor, headline-only card, lightcycle dim. Nothing left to do.
 
-12. **Daylight across the year, on the year ring.** — **Shipped**. As sketched:
-    the rim's own background between `DAY_INNER` and `DAY_OUTER`, behind the day
-    marks, in the lightcycle band's palette heavily dimmed. No new ring, no
-    interior figure. Decisions beyond the sketch: the tint reads the _swing_ from
-    a twelve-hour day, clamped at six hours either side, so an equinox and the
-    equator draw nothing at all and a polar year is the strongest it goes — a
-    scale normalised to each place's own extremes would have amplified the
-    tropics into a season they do not have. Warm above, violet below, at a level
-    under an empty day's mark: hue rather than lightness, because lightness has
-    the opposite direction on paper. `LIGHTCYCLE` moved into `theme.ts` now that
-    two faces speak it, and `sun.ts` gained `dayLength`, one ephemeris for the
-    ring and the dial's band both. It is SVG under the marks canvas, memoised per
-    (year, place, theme): the marks repaint every frame off two springs and this
-    answer changes once a year. No place set, no tint, exactly as the dial's rim
-    has no band.
+12. **Daylight across the year, on the year ring.** — **Built and removed**. It
+    shipped as the rim's own background tint, then read on the face as a glow
+    smear behind the ring rather than as data about the days it sat behind, so it
+    came out again. The rim background was the last place left to try, the
+    interior figure having been refused before it; the idea is done.
 
 13. **Rings closed.** — **Shipped** (`e2cad30`). One dash of light walked once
     round the track when the day's last open pip is ticked — the intro's own

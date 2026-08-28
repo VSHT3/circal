@@ -3,7 +3,6 @@ import { readFileSync } from "node:fs";
 import "./helpers";
 import {
   DEFAULT_THEME,
-  LIGHTCYCLE,
   THEMES,
   THEME_PALETTES,
   isThemeName,
@@ -303,32 +302,6 @@ describe("global.css token blocks", () => {
     // today-pip must not disagree about what the app's voice sounds like.
     for (const theme of THEMES) {
       expect(token(tokenBlock(theme), "accent").toLowerCase()).toBe(THEME_PALETTES[theme].accent);
-    }
-  });
-});
-
-/* -------------------------------- lightcycle ------------------------------- */
-
-describe("LIGHTCYCLE", () => {
-  it("is the dial band's own pair, warm for sun and violet for night", () => {
-    // Two faces speak it now — the dial's rim and the year ring's daylight
-    // tint — and a second spelling is two chances for them to disagree.
-    expect(LIGHTCYCLE.day).toEqual([255, 198, 124]);
-    expect(LIGHTCYCLE.night).toEqual([150, 132, 255]);
-  });
-
-  it("washes to a tint quieter than an empty day's mark, in every theme", () => {
-    // The year ring draws it as the rim's background, behind marks that must
-    // stay louder. 0.11 is that face's solstice level.
-    for (const theme of THEMES) {
-      const ground = THEME_PALETTES[theme].void;
-      const empty = contrast(THEME_PALETTES[theme].emptyMark, ground);
-      for (const [r, g, b] of [LIGHTCYCLE.day, LIGHTCYCLE.night]) {
-        const tint = wash(theme, r, g, b, 0.11);
-        const [tr, tg, tb] = rgbChannels(tint);
-        const hex = `#${[tr, tg, tb].map((c) => c.toString(16).padStart(2, "0")).join("")}`;
-        expect(contrast(hex, ground)).toBeLessThan(empty);
-      }
     }
   });
 });

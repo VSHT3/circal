@@ -68,7 +68,7 @@ import {
 import type { ArcLabelMode } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { EASE, INTRO_SETTLE_MS, INTRO_SWEEP_MS, MODE_MS, MOOD_MS } from "@/lib/motion";
-import { LIGHTCYCLE, THEME_PALETTES, wash, washHex, type ThemeName } from "@/lib/theme";
+import { THEME_PALETTES, wash, washHex, type ThemeName } from "@/lib/theme";
 
 /**
  * What a press on an arc took hold of: one of its two ends, all of it, or —
@@ -814,7 +814,7 @@ function SunBand({
       // Washed over the theme's own ground: warm but desaturated for day,
       // a dim violet for night — saturated colour on this canvas belongs to
       // events, and neither band may compete with an arc.
-      const [r, g, b] = value > 0 ? LIGHTCYCLE.day : LIGHTCYCLE.night;
+      const [r, g, b] = value > 0 ? [255, 198, 124] : [150, 132, 255];
       const k = Math.abs(value);
       const half = value > 0 ? 0 : 1;
       has[half][i] = true;
