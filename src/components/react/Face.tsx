@@ -212,9 +212,10 @@ export interface FaceProps {
   /**
    * A press on a received free slot — the booking tap. `index` is the slot's
    * place in `slots`. Only the strip passes it: on the dial the slot's
-   * footprint sits inside the drag annulus, where drawing over the gap is
-   * that face's own booking gesture, and a tap target there would steal the
-   * draw's start on exactly the minutes being offered.
+   * footprint sits inside the drag annulus, so a hit path here would steal
+   * the draw's start on exactly the minutes being offered — the dial answers
+   * the same tap in `onRingUp`'s zero-sweep branch instead, where a click
+   * and a drawn sweep are already told apart.
    */
   onSlot?: (index: number) => void;
   /** A press on the drag annulus. The annulus exists only when this does. */

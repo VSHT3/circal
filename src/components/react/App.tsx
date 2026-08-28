@@ -1928,6 +1928,7 @@ function Shell() {
                   zonePlace={zonePlace}
                   pending={pending}
                   slots={slots}
+                  onBookSlot={bookSlot}
                   onOpen={openOccurrence}
                   onCreate={(startMin, endMin, on) => openDraft(startMin, endMin, on)}
                   onAdjust={adjustOccurrence}
@@ -2017,12 +2018,7 @@ function Shell() {
               />
             )}
             {showSlots && slots && (
-              <SlotsNotice
-                key="slots"
-                slots={slots}
-                bookable={view === "week"}
-                onDismiss={() => setSlots(null)}
-              />
+              <SlotsNotice key="slots" slots={slots} onDismiss={() => setSlots(null)} />
             )}
             {showNudge && (
               <BackupNudge

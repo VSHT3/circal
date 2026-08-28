@@ -78,6 +78,14 @@ export interface DialProps {
    */
   slots: { start: number; end: number }[] | null;
   /**
+   * A click (a press that never moved) landing inside one of those slots:
+   * the booking tap, this face's spelling. The strip's is a hit path on the
+   * outline; here the ring already owns the press, so the answer lives in
+   * `onRingUp`'s zero-sweep branch — a drawn sweep keeps meaning exactly
+   * what was drawn, over a slot or not.
+   */
+  onBookSlot: (slot: { start: number; end: number }) => void;
+  /**
    * Ambient: the chrome is gone and the face is the whole window, so the dial
    * stops being a surface you work on and becomes one you glance at from
    * across a room. It changes what is drawn, never how it is drawn — four
@@ -372,6 +380,7 @@ export default function Dial({
   zonePlace,
   pending,
   slots,
+  onBookSlot,
   ambient,
   covered,
   onOpen,
@@ -690,10 +699,23 @@ export default function Dial({
     // being a draft in a modal, and the knock-and-tick is that handover.
     say("opened");
     if (end - start < STEP) {
-      // A press that never moved named a minute and no length, so it takes the
-      // one every other route takes — ⌘N's and quick-add's. It was its own
-      // constant here, which made the dial the one surface with a private
-      // opinion about how long an event is.
+      // A press that never moved, landing inside a received free slot, books
+      // the whole slot — the outline says "book over me", and a tap is how
+      // every face answers it. Clipped against the *anchor* day, as the
+      // ghost is: for a click the two are the same day, and the anchor is
+      // the one the press was actually read on.
+      const tapped = slots?.find((span) => {
+        const arc = clipToDay(span, draw.origin);
+        return arc && draw.from >= arc.start && draw.from < arc.end;
+      });
+      if (tapped) {
+        onBookSlot(tapped);
+        return;
+      }
+      // Otherwise it named a minute and no length, so it takes the one every
+      // other route takes — ⌘N's and quick-add's. It was its own constant
+      // here, which made the dial the one surface with a private opinion
+      // about how long an event is.
       const length = settings.defaultDuration;
       const from = Math.min(draw.from, MINUTES_PER_DAY - length);
       onCreate(from, from + length, draw.origin);

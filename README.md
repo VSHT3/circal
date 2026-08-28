@@ -198,14 +198,16 @@ overlay is gone on reload, and the same disclosure applies — encoded, not
 encrypted, so anyone
 holding the link can see when you are free.
 
-**Booking one closes the loop, with no server in between.** Tap a hollow slot
-on the strip and a draft opens covering exactly that gap; name it, trim it if
-you like, Save — it lands on _your_ calendar, and a line appears offering the
-reply: the saved event as a link to message back (their circal opens it
-straight into an editor, one Save and both calendars agree) or as an `.ics`
-file for a sender on any other calendar. circal posts nothing on your behalf;
-the message thread the offer arrived on is the server. The sender re-checks on
-accept, which is what "does Tuesday still work?" already is.
+**Booking one closes the loop, with no server in between.** Click a hollow
+slot — on the week strip or on the day's own dial — and a draft opens
+covering exactly that gap; name it, trim it if you like, Save — it lands on
+_your_ calendar, and a line appears offering the reply: the saved event as a
+link to message back (their circal opens it straight into an editor, one Save
+and both calendars agree) or as an `.ics` file for a sender on any other
+calendar. On the dial you can also just draw over the gap, as with any range.
+circal posts nothing on your behalf; the message thread the offer arrived on
+is the server. The sender re-checks on accept, which is what "does Tuesday
+still work?" already is.
 
 ## The middle of the face
 
