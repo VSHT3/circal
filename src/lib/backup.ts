@@ -110,6 +110,22 @@ export async function exportIcs(snapshot: Snapshot) {
   if (saved) notify(`Exported ${snapshot.events.length} events`);
 }
 
+/**
+ * One event as an `.ics` file — the booking reply's fallback, for a sender
+ * who reads their calendar somewhere other than circal. The event travels
+ * alone: the receiver is answering an offer, not exporting a calendar. The
+ * filename is `exportIcs`'s own spelling, dated by the event rather than by
+ * today, because the event's day is the one fact the recipient files it under.
+ */
+export async function exportEventIcs(event: CalEvent) {
+  const saved = await download(
+    `circal-${dayKey(new Date(event.start))}.ics`,
+    "text/calendar",
+    toIcs([event], "circal"),
+  );
+  if (saved) notify("Saved as an .ics file");
+}
+
 export async function exportBackup(snapshot: Snapshot) {
   const backup: Backup = {
     app: "circal",

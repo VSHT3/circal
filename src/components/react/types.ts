@@ -92,6 +92,12 @@ export interface EditorTarget {
    */
   occurrenceStart?: number;
   /**
+   * The draft was seeded by tapping a received free slot, so its save is only
+   * half the transaction: the shell answers it with the reply notice — the
+   * event as a link and as an `.ics` — which is what the sender is owed back.
+   */
+  booking?: boolean;
+  /**
    * The draft as the open modal currently has it — where it sits and what
    * colour it is, so a face behind the editor can draw the event that does not
    * exist yet. Unset until the first change, which is why every reader falls
@@ -371,6 +377,14 @@ export interface WeekViewProps {
    * week is read at one glance instead of seven arrow presses.
    */
   slots: { start: number; end: number }[] | null;
+  /**
+   * A tap on one of those slots: the booking half of the exchange. The shell
+   * opens a draft covering exactly that gap — through the editor, nothing
+   * written until Save — and the save mints the reply the receiver messages
+   * back. The strip alone offers the tap: on the dial the slot's footprint
+   * sits inside the drag annulus, where drawing over the gap already books it.
+   */
+  onBookSlot: (slot: { start: number; end: number }) => void;
   /**
    * A drag across the strip: an all-day event running `days` days from
    * `from`, both ends inclusive — the ring's and the grid's own gesture, at

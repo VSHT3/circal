@@ -76,6 +76,10 @@ the end are recorded as refusals, so they are argued once instead of re-litigate
    read as the receiver's own events — and one quiet line naming whose the
    overlay is and how to take it down. Nothing is ever
    written: the fragment is consumed on arrival, a reload starts clean.
+   "Booking stays out" was half right — the _backend_ stays out: the
+   completion (ROADMAP Tier 1) later gave the strip's slots a tap that opens a
+   draft on the receiver's own calendar, and the save offers the reply — a
+   `#e=` link back plus a one-event `.ics` — with the human as the channel.
 
 9. **Natural-language edits in the palette.** `move standup to 10`, `push lunch
 30m` — `parseQuickAdd` already owns the grammar's right-to-left scanner; this

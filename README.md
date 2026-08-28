@@ -192,11 +192,20 @@ hours, at least half an hour wide, starting from right now rather than from a
 week's official Monday. Opened in any circal, the link lands on the week
 strip with the free stretches drawn as hollow outlines under that person's
 own days — the same empty band a free event draws, "open" rather than
-"booked" — with a line at the top saying it is someone else's free time and
-which days it covers, and a way to take it down. Nothing is written: the
+"booked" — with a line at the top saying it is someone else's free time, and
+a way to take it down. Nothing is written: the
 overlay is gone on reload, and the same disclosure applies — encoded, not
 encrypted, so anyone
 holding the link can see when you are free.
+
+**Booking one closes the loop, with no server in between.** Tap a hollow slot
+on the strip and a draft opens covering exactly that gap; name it, trim it if
+you like, Save — it lands on _your_ calendar, and a line appears offering the
+reply: the saved event as a link to message back (their circal opens it
+straight into an editor, one Save and both calendars agree) or as an `.ics`
+file for a sender on any other calendar. circal posts nothing on your behalf;
+the message thread the offer arrived on is the server. The sender re-checks on
+accept, which is what "does Tuesday still work?" already is.
 
 ## The middle of the face
 

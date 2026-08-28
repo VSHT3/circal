@@ -35,7 +35,14 @@ import {
   useLastBackup,
   useStore,
 } from "@/lib/store";
-import { backupDue, exportBackup, exportIcs, importFile, importIcs } from "@/lib/backup";
+import {
+  backupDue,
+  exportBackup,
+  exportEventIcs,
+  exportIcs,
+  importFile,
+  importIcs,
+} from "@/lib/backup";
 import { THEME_PALETTES } from "@/lib/theme";
 import { cue } from "@/lib/feedback";
 import { placeForZone } from "@/lib/places";
@@ -99,6 +106,7 @@ import type {
 import CalendarEditor from "./CalendarEditor";
 import { BackupNudge } from "./BackupNudge";
 import { SlotsNotice } from "./SlotsNotice";
+import { ReplyNotice } from "./ReplyNotice";
 import { TravelPrompt } from "./TravelPrompt";
 import CommandPalette from "./CommandPalette";
 import Dial, { type DragPreview } from "./Dial";
@@ -371,6 +379,13 @@ function Shell() {
   const [slots, setSlots] = useState<SlotSpan[] | null>(() =>
     receivedSlots?.ok ? receivedSlots.slots : null,
   );
+  /**
+   * A booked slot's saved event, until its reply is dismissed — the other
+   * half of the exchange. Session state for the overlay's own reason: the
+   * reply is a hand-over, not data, and the event itself is already safe in
+   * the store.
+   */
+  const [reply, setReply] = useState<CalEvent | null>(null);
   const [location, setLocation] = useState<ViewLocation>(() => {
     // The event lands on the day it names, whatever view the link asked for:
     // an editor over a face that cannot show what is being edited is a form.
@@ -884,13 +899,21 @@ function Shell() {
     useCallback(() => setAmbient("auto"), []),
   );
   /**
+   * The booking's reply, first in the queue for the top edge: it exists
+   * because of something the user just did, where the other two lines arrived
+   * on their own. On every view — a receiver who books and then wanders to
+   * the year ring is still owed the hand-over.
+   */
+  const showReply = reply !== null && !shaded && !inAmbient;
+  /**
    * The received free time's own line, only where its ghosts are drawn — the
    * dial and the strip; the year ring and the life grid draw no slot, and a
    * notice about arcs a view cannot show is an accusation of a bug. It takes
    * the top edge whole while it stands: two notices side by side is a status
    * bar, so the backup nudge waits its turn below.
    */
-  const showSlots = slots !== null && !shaded && !inAmbient && (view === "day" || view === "week");
+  const showSlots =
+    slots !== null && !shaded && !inAmbient && !showReply && (view === "day" || view === "week");
   /**
    * Whether the backup nudge is on screen. On every view, not the dial alone:
    * this is the one message in the app that must not be missable — it is the
@@ -911,6 +934,7 @@ function Shell() {
     !shaded &&
     !inAmbient &&
     !showSlots &&
+    !showReply &&
     mirrorStatus.state !== "live" &&
     cloudStatus.state !== "live" &&
     backupDue(lastBackup, settings.backupInterval, now.getTime());
@@ -933,6 +957,33 @@ function Shell() {
       // surface and it wants the chrome it was designed beside.
       setAmbient("off");
       setEditor({ id: null, draft: draftEvent(on, startMin, endMin, defaultCalendar) });
+    },
+    [defaultCalendar],
+  );
+
+  /**
+   * A tapped slot from a received link, as a draft covering exactly that gap.
+   *
+   * Through the editor rather than written, for ⌘P-duplicate's own reason:
+   * nothing is committed until Save, Escape leaves no orphan, and the
+   * receiver picks the title and the calendar. The instants are the slot's
+   * own rather than re-derived from minutes — a slot is an absolute span two
+   * people are meant to share (`share.ts`'s rule for the payload), and it
+   * already sits inside one local day. `booking` is what makes the save mint
+   * the reply.
+   */
+  const bookSlot = useCallback(
+    (span: SlotSpan) => {
+      setAmbient("off");
+      setEditor({
+        id: null,
+        booking: true,
+        draft: {
+          ...draftEvent(startOfDay(new Date(span.start)), 0, 60, defaultCalendar),
+          start: span.start,
+          end: span.end,
+        },
+      });
     },
     [defaultCalendar],
   );
@@ -1429,7 +1480,12 @@ function Shell() {
     (draft: Omit<CalEvent, "id">, scope: EditScope) => {
       if (!editor) return;
       if (!editor.id) {
-        store.create(draft);
+        const created = store.create(draft);
+        // A booking is only half done at the save: the sender is owed the
+        // reply, and this is what offers it. The event *as saved*, not the
+        // slot — the receiver may have trimmed the gap in the editor, and the
+        // reply must say what was actually booked.
+        if (editor.booking) setReply(created);
         // Only for a new event. Saving an edit changes something that already
         // existed; this cue is for the one moment something starts to.
         cue("created", channels);
@@ -1898,6 +1954,7 @@ function Shell() {
                   onOpenEvent={openOccurrence}
                   pending={pendingDays}
                   slots={slots}
+                  onBookSlot={bookSlot}
                   // The strip's own span drag, handed to the same function the
                   // ring and the grid use: which face drew the run is not
                   // something the editor can tell, and must not be.
@@ -1951,8 +2008,21 @@ function Shell() {
               carry it. Its own presence, so it animates away when a backup
               clears it or a modal opens over it. */}
           <AnimatePresence>
+            {showReply && reply && (
+              <ReplyNotice
+                key="reply"
+                onCopy={() => shareEvent(reply)}
+                onIcs={() => void exportEventIcs(reply)}
+                onDismiss={() => setReply(null)}
+              />
+            )}
             {showSlots && slots && (
-              <SlotsNotice key="slots" slots={slots} onDismiss={() => setSlots(null)} />
+              <SlotsNotice
+                key="slots"
+                slots={slots}
+                bookable={view === "week"}
+                onDismiss={() => setSlots(null)}
+              />
             )}
             {showNudge && (
               <BackupNudge

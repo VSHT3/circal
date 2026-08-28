@@ -87,8 +87,10 @@ interface WeekDay {
   /** Timed events plus all-day ones: what the readout counts. */
   count: number;
   /** Free time received from a link, clipped to this face — the dial's own
-   *  overlay at strip size, so the whole shared week is read at once. */
-  slots: FaceGhost[] | null;
+   *  overlay at strip size, so the whole shared week is read at once. `at` is
+   *  the slot's place in the payload, so a tap can hand back the *original*
+   *  span rather than the day's clipped minutes. */
+  slots: (FaceGhost & { at: number })[] | null;
 }
 
 /** What the pointer is on: a face, and possibly one arc of it. */
@@ -116,6 +118,7 @@ export default function WeekView({
   onOpenEvent,
   pending,
   slots,
+  onBookSlot,
   onCreateSpan,
 }: WeekViewProps) {
   const reducedMotion = useReducedMotion();
@@ -143,10 +146,10 @@ export default function WeekView({
     return weekDays(fromDayKey(fromKey)).map((date) => {
       const { all } = dayAgenda(events, calendars, date);
       const load = dayLoad(all, waking);
-      const arcs = (slots ?? []).flatMap((span) => {
+      const arcs = (slots ?? []).flatMap((span, at) => {
         const arc = clipToDay(span, date);
         return arc && arc.end > arc.start
-          ? [{ ...arc, color: slotInk, opacity: SLOT_ALPHA, task: false }]
+          ? [{ ...arc, color: slotInk, opacity: SLOT_ALPHA, task: false, at }]
           : [];
       });
       return {
@@ -407,6 +410,13 @@ export default function WeekView({
                     clock={settings.clock}
                     theme={settings.theme}
                     slots={d.slots}
+                    // The booking tap: `at` points back into the payload, so
+                    // the draft covers the slot's own instants rather than
+                    // this face's clipped minutes.
+                    onSlot={(i) => {
+                      const arc = d.slots?.[i];
+                      if (arc && slots) onBookSlot(slots[arc.at]);
+                    }}
                     track
                     ticks={detailed}
                     numerals={detailed ? "quarters" : "none"}

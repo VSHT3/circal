@@ -209,6 +209,14 @@ export interface FaceProps {
   svgRef?: Ref<SVGSVGElement>;
   onHover?: (key: string | null) => void;
   onGrab?: (occ: Occurrence, grip: Grip, e: ReactPointerEvent<SVGPathElement>) => void;
+  /**
+   * A press on a received free slot — the booking tap. `index` is the slot's
+   * place in `slots`. Only the strip passes it: on the dial the slot's
+   * footprint sits inside the drag annulus, where drawing over the gap is
+   * that face's own booking gesture, and a tap target there would steal the
+   * draw's start on exactly the minutes being offered.
+   */
+  onSlot?: (index: number) => void;
   /** A press on the drag annulus. The annulus exists only when this does. */
   onRingDown?: (e: ReactPointerEvent<SVGCircleElement>) => void;
   onPointerMove?: (e: ReactPointerEvent<SVGSVGElement>) => void;
@@ -227,6 +235,11 @@ const GRIP_REACH = 18;
 /** Hit width of a grip. Narrower than the body's, because half of it is the
  *  cap's reach past the tip and that reach is inward too. */
 const GRIP_WIDTH = DIAL.ARC_WIDTH + 8;
+/** Width of a slot's hit stroke — twice an arc's margin, because the strip is
+ *  the one face that takes this tap, at roughly a fifth of dial scale, and
+ *  nothing else at the lane is tappable there: generosity costs only day-run
+ *  starts on those pixels, where a hairline nobody can hit costs the verb. */
+const SLOT_HIT = DIAL.ARC_WIDTH + 36;
 /**
  * The ambient hand's minute step. Longer than a pointer's beat, because it is
  * covering a quarter of a degree rather than 27 units and a move that short
@@ -328,6 +341,7 @@ export default function Face({
   dragging = null,
   ghost = null,
   slots = null,
+  onSlot,
   gesturing = false,
   intro = false,
   shimmer = null,
@@ -687,6 +701,7 @@ export default function Face({
               end={slot.end}
               color={slot.color}
               opacity={slot.opacity}
+              onPress={onSlot && (() => onSlot(i))}
             />
           ),
       )}
@@ -1579,7 +1594,9 @@ function GhostArc({
  * so the fill is withheld: an empty band at the lane says "open", not
  * "booked". Same footprint arithmetic as `GhostArc` above — `hollowPath`
  * keeps `capInset`'s promise, and its own closed-turn branch answers a slot
- * that covers the whole revolution.
+ * that covers the whole revolution. With `onPress` the outline is also a
+ * target: "book over me" gains its verb, and the hit stroke is generous
+ * because the strip draws this at a fifth of dial scale.
  */
 function SlotArc({
   clock,
@@ -1587,27 +1604,59 @@ function SlotArc({
   end,
   color,
   opacity,
+  onPress,
 }: {
   clock: Clock;
   start: number;
   end: number;
   color: string;
   opacity: number;
+  /** The booking tap, where a caller offers one — see `FaceProps.onSlot`. */
+  onPress?: () => void;
 }) {
+  // Hover thickens the outline, the free arc's own answer (see `EventArc`):
+  // the outline's width lives in its path data, so weight is the channel
+  // that can transition. Local state, because a slot is not an occurrence
+  // and the face's `hovered` key vocabulary has no name for it.
+  const [hot, setHot] = useState(false);
   const stroke = {
     fill: "none",
     stroke: color,
     strokeOpacity: opacity,
-    strokeWidth: ARC_HAIRLINE,
+    strokeWidth: onPress && hot ? ARC_HAIRLINE * 2 : ARC_HAIRLINE,
     pointerEvents: "none",
+    style: { transition: `stroke-width ${MOOD}` },
   } as const;
-  if (end - start >= MINUTES_PER_DAY) {
-    return <path d={hollowPath(DIAL.LANE, 0, 360)} {...stroke} />;
-  }
-  const inset = capInset(DIAL.LANE);
-  const from = angleAt(start, clock) + inset;
-  const to = Math.max(from, angleAt(end, clock) - inset);
-  return <path d={hollowPath(DIAL.LANE, from, to)} {...stroke} />;
+  const whole = end - start >= MINUTES_PER_DAY;
+  const inset = whole ? 0 : capInset(DIAL.LANE);
+  const from = whole ? 0 : angleAt(start, clock) + inset;
+  const to = whole ? 360 : Math.max(from, angleAt(end, clock) - inset);
+  const d = hollowPath(DIAL.LANE, from, to);
+  if (!onPress) return <path d={d} {...stroke} />;
+  return (
+    <g>
+      <path d={d} {...stroke} />
+      <path
+        d={arcPath(DIAL.LANE, from, to)}
+        fill="none"
+        stroke="transparent"
+        strokeWidth={SLOT_HIT}
+        strokeLinecap="round"
+        pointerEvents="stroke"
+        className="cursor-pointer"
+        onPointerEnter={() => setHot(true)}
+        onPointerLeave={() => setHot(false)}
+        // The press must not fall through to the face beneath: on the strip
+        // that press begins a day run, and a tap that also selected the day
+        // would answer two questions with one gesture.
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation();
+          onPress();
+        }}
+      />
+    </g>
+  );
 }
 
 /**

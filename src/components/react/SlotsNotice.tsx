@@ -18,10 +18,15 @@ import { ActionPill } from "@/components/react/ui/primitives";
 
 export function SlotsNotice({
   slots,
+  bookable,
   onDismiss,
 }: {
   /** Sorted ascending — `decodeSlots` refuses anything else. */
   slots: { start: number; end: number }[];
+  /** Whether this view takes the booking tap — true on the strip, where a
+   *  slot is a target, false on the dial, where drawing over the gap is the
+   *  booking gesture and a tap hint would promise a press that does nothing. */
+  bookable: boolean;
   onDismiss: () => void;
 }) {
   const reducedMotion = useReducedMotion();
@@ -40,7 +45,8 @@ export function SlotsNotice({
     >
       <div className="pointer-events-auto flex max-w-full items-center gap-2 rounded-[10px] border border-hairline bg-surface px-3 py-1.5">
         <span className="caption truncate">
-          Someone's free time, from a link · {formatDayRange(from, to)}
+          Someone's free time, from a link ·{" "}
+          {bookable ? "tap a slot to book it" : formatDayRange(from, to)}
         </span>
         <ActionPill icon={<X size={14} strokeWidth={1.75} />} label="Hide" onClick={onDismiss} />
       </div>

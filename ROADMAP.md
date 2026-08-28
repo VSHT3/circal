@@ -16,28 +16,6 @@ the parent zone by itself.
 
 ---
 
-## Tier 1 · Booking without a backend (days)
-
-The Calendly question, answered in circal's own grammar. Free-slot sharing
-(IDEAS #8, shipped) covers publish-availability and stops: the receiver can look at
-the sender's free time but cannot act on it.
-
-The completion: **tap a hollow slot → a draft opens prefilled with that slot →
-Save writes it to the receiver's own calendar and hands them the reply** — an event
-share link (`#e=`, already exists) to message back, plus an `.ics` download for
-recipients on other calendars. The sender opens the reply, the editor seeds, Save.
-Both calendars agree and the message thread is the server.
-
-Squares with the standing refusal (IDEAS: "answering is a message, and circal has
-no channel to post one"): circal still posts nothing. The human carries the reply
-down the same road the offer arrived on. No accounts, no booking backend, no
-double-booking referee — the sender re-checks on accept, which is what "does
-Tuesday still work?" already is.
-
-Reuses: `SlotArc` + `clipToDay`, `encodeShare`/`shareFragment`, the editor's
-seed-during-first-render path, `toIcs` for the fallback file. New: one interaction
-on the strip's overlay, one compose step, copy for the notice line.
-
 ## Tier 2 · Verbs in the palette (days) — IDEAS #9
 
 `move standup to 10`, `push lunch 30m`. Moved up because the MCP made it load-bearing:
@@ -150,7 +128,7 @@ the shape needs a hand edit, so it is a hardening note, not a bug.
 
 ## The through-line
 
-Tiers 1–2 make circal the calendar that is fastest to _act on_: tap a slot, type a
+Tier 2 makes circal the calendar that is fastest to _act on_: tap a slot, type a
 verb, ask an assistant — three inputs, one grammar, no server able to read any of
 it. That is a positioning no grid calendar can copy, and every later tier
 (tasks, the tour, the connector) compounds it.
