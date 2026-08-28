@@ -1538,14 +1538,12 @@ function Shell() {
       const moved = (ms: number, minutes: number) => ms + minutes * 60_000;
       const start = moved(at, startDeltaMin);
       const end = moved(occ.end.getTime(), endDeltaMin);
-      // What the write actually landed on, which is what the notice is about:
-      // the series' own seed for a whole-series move, this occurrence for the
-      // two that only touch one.
-      let landed = start;
       switch (effectiveScope(scope, occ.event.start, at)) {
         case "all":
-          landed = moved(occ.event.start, startDeltaMin);
-          store.update(occ.event.id, { start: landed, end: moved(occ.event.end, endDeltaMin) });
+          store.update(occ.event.id, {
+            start: moved(occ.event.start, startDeltaMin),
+            end: moved(occ.event.end, endDeltaMin),
+          });
           break;
         case "one":
           store.create({
@@ -1561,8 +1559,19 @@ function Shell() {
           store.splitSeries(occ.event.id, at, { ...body, start, end });
           break;
       }
-      if (!isSameDay(new Date(landed), day)) {
-        notify(`Moved to ${formatRelativeDay(new Date(landed))} — ${MOD}Z to undo`);
+      // The notice is judged by the occurrence that was under the pointer,
+      // and only when its new span no longer touches the viewed day: the
+      // toast exists for an arc that leaves this face without the view having
+      // followed it — a multi-day clipped occurrence, whose visible ends are
+      // not the event's instants, so the dial could not step the day. An edit
+      // whose arc still covers the viewed day says nothing: resizing day two
+      // of a two-day event is not a move, and a toast per drag reads as a
+      // fault. `addDays`, not 1440 minutes — a day is not always 1440 minutes.
+      const dayStart = startOfDay(day);
+      const left =
+        start >= addDays(dayStart, 1).getTime() || Math.max(end, start + 1) <= dayStart.getTime();
+      if (left) {
+        notify(`Moved to ${formatRelativeDay(new Date(start))} — ${MOD}Z to undo`);
       }
     },
     [day],
