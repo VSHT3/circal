@@ -72,7 +72,7 @@ export interface CenterPanelProps {
   hovered: string | null;
   onHover: (key: string | null) => void;
   onOpen: (occ: Occurrence) => void;
-  /** Tick a task off, or back on. Only ever called for `occ.event.task`. */
+  /** Tick a task off, or back on. Only ever called for `occ.task`. */
   onToggleDone: (occ: Occurrence) => void;
 }
 
@@ -166,9 +166,11 @@ export default function CenterPanel({
    * its row leaves the readout saying what it was saying.
    */
   const peeked = occurrences.find((occ) => occ.key === hovered && !occ.event.allDay) ?? null;
-  /** And of those, the ones that are a moment rather than a span. A task has
+  /** And of those, the ones that are a moment rather than a span — a due
+   *  date's pip. A plan is a span and prints like one; the bare deadline has
    *  one instant, so `01:15 – 01:15 · 0m` is three ways of saying nothing. */
-  const peekedTask = peeked?.event.task ? peeked : null;
+  const peekedTask =
+    peeked?.task && peeked.start.getTime() === peeked.end.getTime() ? peeked : null;
   /**
    * The clock the arc under the pointer was written on, when it is not this
    * one. Every printed time in this app is the viewer's own — a stamped event
@@ -620,7 +622,7 @@ export default function CenterPanel({
                                 Join
                               </a>
                             )}
-                            {occ.event.task && (
+                            {occ.task && (
                               <button
                                 type="button"
                                 aria-pressed={occ.done}

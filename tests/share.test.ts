@@ -84,7 +84,6 @@ describe("encodeShare / decodeShare — what travels", () => {
     expect.soft(draft.icon).toBe("barbell");
     expect.soft(draft.free).toBe(true);
     expect.soft(draft.allDay).toBe(false);
-    expect.soft(draft.task).toBe(false);
   });
 
   it("carries the whole rule, not just the frequency", () => {
@@ -189,16 +188,14 @@ describe("encodeShare — all-day events travel as days", () => {
   });
 });
 
-describe("encodeShare — a task keeps its one instant", () => {
-  it("survives the round trip its zero width would otherwise fail", () => {
-    // `readEvent` lets `end === start` through for a task alone, and the flag
-    // is read before the instants for exactly this reason.
-    const draft = roundTrip(
-      event({ start: "2026-03-08 01:15", end: "2026-03-08 01:15", task: true }),
-    );
-    expect.soft(draft.task).toBe(true);
-    expect.soft(draft.start).toBeSameInstantAs("2026-03-08 01:15");
-    expect.soft(draft.end).toBe(draft.start);
+describe("decodeShare — the retired task bit stays retired", () => {
+  it("refuses an old task link rather than reading it as an event of no width", () => {
+    // Bit 2 spelled `TASK` while a task was an event. Its record carries a
+    // zero length, which `readEvent` now refuses — an unreadable link, never
+    // a silent zero-width event, and never a free event from a reused bit.
+    const seconds = Math.floor(ms("2026-03-08 01:15") / 1000).toString(36);
+    const record = ["2", seconds, "0", "Old task", "", "", "", "", "", "", ""].join("~");
+    expect(decodeShare(forge(record), CALENDAR)).toEqual({ ok: false, reason: "unreadable" });
   });
 });
 
@@ -211,7 +208,6 @@ describe("encodeShare — the fields that deliberately do not travel", () => {
     organizer: { name: "Ada Lovelace", address: "ada@example.com" },
     attendees: [attendee("grace@example.com", "accepted", "Grace Hopper")],
     attendeeCount: 12,
-    doneKeys: ["2026-03-08T09:00:00"],
     seriesId: "series-1",
     seriesKey: "2026-03-08T09:00:00",
     remindLead: REMIND_SILENT,
@@ -233,7 +229,6 @@ describe("encodeShare — the fields that deliberately do not travel", () => {
     { name: "the organiser", field: "organizer", expected: null },
     { name: "the guest list", field: "attendees", expected: [] },
     { name: "the guest count", field: "attendeeCount", expected: 0 },
-    { name: "the ticks against work the sender did", field: "doneKeys", expected: [] },
     { name: "the series it overrode", field: "seriesId", expected: "" },
     { name: "the instance it replaced", field: "seriesKey", expected: "" },
   ] as const)("drops $name", ({ field, expected }) => {

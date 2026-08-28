@@ -2,9 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } fr
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { attendee, calendar, day, event, ms, resetIds } from "./helpers";
+import { attendee, calendar, day, event, ms, resetIds, task } from "./helpers";
 import { DEFAULT_SETTINGS, type Settings } from "@/lib/store";
 import { MIRROR_VERSION, localZone, serialiseMirror, type MirrorContents } from "@/lib/mirror";
+import type { Task } from "@/lib/tasks";
 import { DEFAULT_WAKING, type CalEvent, type Calendar } from "@/lib/events";
 import { instantKey } from "@/lib/recur";
 import { RefusalError } from "../mcp/file";
@@ -55,6 +56,7 @@ const feed = (over: Partial<Calendar> = {}) =>
 function contents(over: Partial<MirrorContents> = {}): MirrorContents {
   return {
     events: [],
+    tasks: [],
     calendars: [calendar({ id: CAL })],
     settings: DEFAULT_SETTINGS,
     settingsAt: ms("2026-03-08 09:00"),
@@ -263,12 +265,10 @@ describe("buildEventRecord invents nothing the arguments did not say", () => {
     expect.soft(record.start).toBe(ms("2026-03-08 00:00"));
   });
 
-  it("a task is an instant and needs a start of its own", () => {
-    const record = build({ date: "2026-03-08", start: "07:15", task: true });
-    expect.soft(record.task).toBe(true);
-    expect.soft(record.start).toBe(ms("2026-03-08 07:15"));
-    expect.soft(record.end).toBe(record.start);
-    expect.soft(() => build({ date: "2026-03-08", task: true })).toThrow(/a task needs "start"/);
+  it("a task routes to the task list — see performCreateEvent's own cases", () => {
+    // `buildEventRecord` never sees `task: true`; with no time named it reads
+    // as an all-day event, which is what the field's absence has always meant.
+    expect(build({ date: "2026-03-08" }).allDay).toBe(true);
   });
 
   it("a time that is not a time is refused with the field that carried it", () => {
@@ -677,22 +677,25 @@ describe("describeEvent", () => {
     expect(describeEvent(c, "o")).toContain("Overrides one occurrence of id=parent");
   });
 
-  it("a task reports how many occurrences are ticked; an event says nothing about done", () => {
+  it("a task's id answers with the task itself — one id space for the caller", () => {
     const c = contents({
-      events: [
-        event({
+      tasks: [
+        task({
           id: "t",
           calendarId: CAL,
-          task: true,
-          start: "2026-03-08 07:00",
-          end: "2026-03-08 07:00",
-          doneKeys: ["2026-03-08T07:00:00"],
+          title: "Water the plants",
+          due: "2026-03-08 07:00",
+          done: true,
+          estimate: 30,
         }),
-        event({ id: "p", calendarId: CAL }),
       ],
+      events: [event({ id: "p", calendarId: CAL })],
     });
-    expect.soft(describeEvent(c, "t")).toContain("Done: 1 occurrence ticked");
-    expect.soft(describeEvent(c, "p")).not.toContain("Done:");
+    const described = describeEvent(c, "t");
+    expect.soft(described).toContain("Water the plants  (task, id=t)");
+    expect.soft(described).toContain("Status: done");
+    expect.soft(described).toContain("Estimate: 30m");
+    expect.soft(describeEvent(c, "p")).not.toContain("Status:");
   });
 });
 
@@ -760,6 +763,37 @@ describe("performCreateEvent", () => {
     expect.soft(mutated.events[0]!.id).toBeTruthy();
     expect.soft(mutated.events[0]!.title).toBe("Call");
   });
+
+  it("task: true creates a Task with a timed deadline, not an event", () => {
+    const { mutated, message } = performCreateEvent(contents(), {
+      title: "Renew passport",
+      date: "2026-03-08",
+      start: "07:15",
+      task: true,
+    });
+    expect.soft(mutated.events).toHaveLength(0);
+    expect.soft(mutated.tasks).toHaveLength(1);
+    expect.soft(mutated.tasks[0]!.due).toBe(ms("2026-03-08 07:15"));
+    expect.soft(mutated.tasks[0]!.dueAllDay).toBe(false);
+    expect.soft(mutated.tasks[0]!.done).toBe(false);
+    expect.soft(message).toContain("(task)");
+  });
+
+  it("a task with no start is due on the day, no time on it", () => {
+    const { mutated } = performCreateEvent(contents(), {
+      title: "Renew passport",
+      date: "2026-03-08",
+      task: true,
+    });
+    expect.soft(mutated.tasks[0]!.dueAllDay).toBe(true);
+    expect.soft(mutated.tasks[0]!.due).toBe(ms("2026-03-08 00:00"));
+  });
+
+  it("a task still needs a date — everything in circal has a day", () => {
+    expect(() => performCreateEvent(contents(), { title: "x", task: true })).toThrow(
+      /a task needs "date"/,
+    );
+  });
 });
 
 describe("performUpdateEvent threads the scope through to the right mutation", () => {
@@ -776,6 +810,13 @@ describe("performUpdateEvent threads the scope through to the right mutation", (
   it("refuses an id it does not have", () => {
     expect(() => performUpdateEvent(contents(), "ghost", "all", undefined, {})).toThrow(
       /no event with id "ghost"/,
+    );
+  });
+
+  it("names a task's id for what it is rather than pretending it is missing", () => {
+    const withTask = contents({ tasks: [task({ id: "t1", calendarId: CAL })] });
+    expect(() => performUpdateEvent(withTask, "t1", "all", undefined, { title: "x" })).toThrow(
+      /is a task/,
     );
   });
 
@@ -907,56 +948,44 @@ describe("performDeleteEvent deletes exactly as much as the scope allowed", () =
   });
 });
 
-describe("performToggleDone ticks one occurrence at a time", () => {
-  const task = event({
-    id: "t1",
-    calendarId: CAL,
-    title: "Water the plants",
-    task: true,
-    repeat: "daily",
-    start: "2026-03-08 07:00",
-    end: "2026-03-08 07:00",
-  });
-  const c = (over: Partial<CalEvent> = {}) => contents({ events: [{ ...task, ...over }] });
+describe("performToggleDone ticks a task whole", () => {
+  const c = (over: Partial<Task> = {}) =>
+    contents({
+      tasks: [
+        task({
+          id: "t1",
+          calendarId: CAL,
+          title: "Water the plants",
+          due: "2026-03-08 07:00",
+          ...over,
+        }),
+      ],
+    });
 
   it("refuses an id it does not have", () => {
     expect(() => performToggleDone(contents(), "ghost", undefined)).toThrow(RefusalError);
   });
 
-  it("refuses an event that is not a task", () => {
+  it("refuses an event's id by saying what it is, not that it is missing", () => {
     const plain = contents({ events: [event({ id: "p", calendarId: CAL, title: "Meeting" })] });
-    expect(() => performToggleDone(plain, "p", undefined)).toThrow(/"Meeting" is not a task/);
+    expect(() => performToggleDone(plain, "p", undefined)).toThrow(/is an event, not a task/);
   });
 
-  it("refuses a subscription's task", () => {
-    const feedContents = contents({
-      calendars: [calendar({ id: CAL }), feed()],
-      events: [{ ...task, id: "h", calendarId: FEED }],
-    });
-    expect(() => performToggleDone(feedContents, "h", undefined)).toThrow(/read-only/);
-  });
-
-  it("ticks only the occurrence it was given, never the series", () => {
-    const { mutated, message } = performToggleDone(c(), "t1", "2026-03-11");
-    expect.soft(mutated.events[0]!.doneKeys).toEqual([instantKey(ms("2026-03-11 07:00"))]);
-    expect.soft(message).toBe('Completed "Water the plants" on 2026-03-11.');
-  });
-
-  it("a repeating task takes no scope: no occurrence means the seed", () => {
+  it("ticks the task and stamps it, and the message says which way it went", () => {
     const { mutated, message } = performToggleDone(c(), "t1", undefined);
-    expect.soft(mutated.events[0]!.doneKeys).toEqual([instantKey(ms("2026-03-08 07:00"))]);
-    expect.soft(message).toContain("on 2026-03-08.");
+    expect.soft(mutated.tasks[0]!.done).toBe(true);
+    expect.soft(mutated.tasks[0]!.updatedAt).toBeGreaterThan(0);
+    expect.soft(message).toBe('Completed "Water the plants".');
   });
 
-  it("a ticked occurrence is reopened, and the message says which way it went", () => {
-    const already = c({ doneKeys: [instantKey(ms("2026-03-11 07:00"))] });
-    const { mutated, message } = performToggleDone(already, "t1", "2026-03-11");
-    expect.soft(mutated.events[0]!.doneKeys).toEqual([]);
-    expect.soft(message).toBe('Reopened "Water the plants" on 2026-03-11.');
+  it("reopens a ticked one", () => {
+    const { mutated, message } = performToggleDone(c({ done: true }), "t1", undefined);
+    expect.soft(mutated.tasks[0]!.done).toBe(false);
+    expect.soft(message).toBe('Reopened "Water the plants".');
   });
 
-  it("refuses an occurrence argument it cannot read", () => {
-    expect(() => performToggleDone(c(), "t1", "next tuesday")).toThrow(RefusalError);
+  it("accepts and ignores an occurrence argument — nothing left to disambiguate", () => {
+    expect(performToggleDone(c(), "t1", "2026-03-11").mutated.tasks[0]!.done).toBe(true);
   });
 });
 
@@ -1009,6 +1038,7 @@ describe("--find reports the mirror files it can actually read", () => {
     serialiseMirror(
       {
         events,
+        tasks: [],
         calendars: [calendar({ id: CAL })],
         settings: DEFAULT_SETTINGS,
         settingsAt: 0,

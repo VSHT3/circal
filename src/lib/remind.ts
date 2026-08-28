@@ -7,7 +7,16 @@
  * module knows nothing of the DOM and never mutates its inputs.
  * ------------------------------------------------------------------ */
 
-import { REMIND_SILENT, ownLead, occurrencesOn, type Calendar, type CalEvent } from "./events";
+import {
+  REMIND_INHERIT,
+  REMIND_SILENT,
+  occurrencesOn,
+  ownLead,
+  taskOccurrences,
+  type CalEvent,
+  type Calendar,
+} from "./events";
+import type { Task } from "./tasks";
 import { formatDuration, formatTimeShort, startOfDay, type Clock } from "./time";
 
 const MINUTE_MS = 60_000;
@@ -67,13 +76,22 @@ export function leadOf(
 }
 
 export interface Reminder {
-  /** The occurrence's own key — one notification per occurrence, ever. */
+  /** The subject's own key — one notification per occurrence, ever. */
   key: string;
-  event: CalEvent;
+  /** What the notification is called, resolved by the builder so a task and
+   *  an event print through one path. */
+  title: string;
   start: Date;
   /** Whole minutes from `now` to `start`, as `leadOf` resolved it. `0` means
    *  it is starting. */
   lead: number;
+  /** `"starts"` for an event or a task's plan; `"due"` for a deadline — one
+   *  word, and it is the difference between being told to do something and
+   *  being told to be somewhere. */
+  kind: "starts" | "due";
+  /** What clicking the notification opens. Exactly one of the two is set. */
+  event: CalEvent | null;
+  task: Task | null;
 }
 
 /**
@@ -98,6 +116,7 @@ export interface Reminder {
 export function dueReminders(
   events: CalEvent[],
   calendars: Calendar[],
+  tasks: Task[],
   now: Date,
   defaultLead: number,
   fired: ReadonlySet<string>,
@@ -134,13 +153,8 @@ export function dueReminders(
       const lead = leadOf(occ.event, calendars, defaultLead);
       if (lead === null) continue;
       // No minute, so no "ten minutes before" — an all-day event has nothing
-      // for a lead time to count down to. A dated task does have one, and is
-      // the thing most worth being nudged toward: the whole reason to give a
-      // to-do a time is to be told when it arrives.
+      // for a lead time to count down to.
       if (occ.event.allDay) continue;
-      // Except once it is ticked off. A reminder for something already done
-      // is the one notification guaranteed to be wrong.
-      if (occ.done) continue;
       // The tail of a multi-day event does not start on this day; only the
       // day `start` actually falls on may raise it, or a five-day trip fires
       // once per day it is drawn on. Occurrences hidden by their calendar
@@ -153,8 +167,66 @@ export function dueReminders(
       if (raiseAt < minute || raiseAt >= minute + MINUTE_MS) continue;
 
       seen.add(occ.key);
-      out.push({ key: occ.key, event: occ.event, start: occ.start, lead });
+      out.push({
+        key: occ.key,
+        title: occ.event.title || "Untitled",
+        start: occ.start,
+        lead,
+        kind: "starts",
+        event: occ.event,
+        task: null,
+      });
     }
+  }
+
+  // Tasks need no recurrence walk: a deadline and a plan are bare instants,
+  // so each is tested against the window directly. The lead is the calendar's
+  // or the setting's — a task names none of its own in v1 — through the same
+  // `leadOf`, so the two models cannot disagree about precedence.
+  const hidden = new Set(calendars.filter((c) => !c.visible).map((c) => c.id));
+  for (const task of tasks) {
+    // A reminder for something already done is the one notification
+    // guaranteed to be wrong.
+    if (task.done) continue;
+    if (hidden.has(task.calendarId)) continue;
+    const lead = leadOf(
+      { remindLead: REMIND_INHERIT, calendarId: task.calendarId },
+      calendars,
+      defaultLead,
+    );
+    if (lead === null) continue;
+    const window = (at: number) => {
+      const raiseAt = at - lead * MINUTE_MS;
+      return raiseAt >= minute && raiseAt < minute + MINUTE_MS;
+    };
+    // A plan fires at its start — the thing actually on the clock.
+    for (const plan of task.plans) {
+      const key = `${task.id}@plan:${plan.start}`;
+      if (fired.has(key) || !window(plan.start)) continue;
+      out.push({
+        key,
+        title: task.title || "Untitled",
+        start: new Date(plan.start),
+        lead,
+        kind: "starts",
+        event: null,
+        task,
+      });
+    }
+    // A timed deadline fires too; an all-day one fires nothing, as an all-day
+    // event does not — there is no minute for a lead to count down to.
+    if (task.dueAllDay) continue;
+    const key = `${task.id}@due`;
+    if (fired.has(key) || !window(task.due)) continue;
+    out.push({
+      key,
+      title: task.title || "Untitled",
+      start: new Date(task.due),
+      lead,
+      kind: "due",
+      event: null,
+      task,
+    });
   }
 
   out.sort((a, b) => a.start.getTime() - b.start.getTime());
@@ -164,13 +236,11 @@ export function dueReminders(
 /** What the notification says. */
 export function reminderText(reminder: Reminder, clock: Clock): { title: string; body: string } {
   // An empty notification title renders as the page origin instead, which
-  // reads as more alarming than a placeholder ever would.
-  const title = reminder.event.title || "Untitled";
-  // A task is *due*; an event *starts*. One word, and it is the difference
-  // between being told to do something and being told to be somewhere.
-  const verb = reminder.event.task ? "Due now" : "Starts now";
+  // reads as more alarming than a placeholder ever would — the builder
+  // already resolved that.
+  const verb = reminder.kind === "due" ? "Due now" : "Starts now";
   const when = reminder.lead === 0 ? verb : `in ${formatDuration(reminder.lead)}`;
-  return { title, body: `${when} · ${formatTimeShort(reminder.start, clock)}` };
+  return { title: reminder.title, body: `${when} · ${formatTimeShort(reminder.start, clock)}` };
 }
 
 /* -------------------------------------------------------------------------- *
@@ -197,11 +267,16 @@ export function reminderText(reminder: Reminder, clock: Clock): { title: string;
 export function titleCountdown(
   events: CalEvent[],
   calendars: Calendar[],
+  tasks: Task[],
   now: Date,
 ): string | null {
-  const next = occurrencesOn(events, calendars, startOfDay(now)).find(
-    (occ) => !occ.event.allDay && occ.end.getTime() > now.getTime(),
-  );
+  const day = startOfDay(now);
+  // Tasks are in the pool for the reason they are on the face: a deadline at
+  // six is the next thing today. Merged in start order, `dayAgenda`'s own
+  // sort; a ticked one is not the next thing and is skipped.
+  const next = [...occurrencesOn(events, calendars, day), ...taskOccurrences(tasks, calendars, day)]
+    .sort((a, b) => a.start.getTime() - b.start.getTime() || a.end.getTime() - b.end.getTime())
+    .find((occ) => !occ.event.allDay && !occ.done && occ.end.getTime() > now.getTime());
   if (!next) return null;
   const title = next.event.title || "Untitled";
   const minutes = Math.floor((next.start.getTime() - now.getTime()) / MINUTE_MS);

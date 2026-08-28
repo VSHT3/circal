@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import "./helpers";
-import { MemoryStorage, attendee, calendar, event, ms } from "./helpers";
-import { readEvent, readSettings, readCalendar, backupDue } from "@/lib/backup";
+import { MemoryStorage, attendee, calendar, event, ms, plan, task } from "./helpers";
+import { readEvent, readSettings, readCalendar, readTask, backupDue } from "@/lib/backup";
 import { DEFAULT_SETTINGS } from "@/lib/store";
 import {
   ATTENDEE_MAX,
@@ -667,6 +667,68 @@ describe("readCalendar", () => {
   });
 });
 
+/* --------------------------------- readTask -------------------------------- */
+
+describe("readTask", () => {
+  const baseTask = { id: "t1", due: ms("2026-03-08 18:30") };
+
+  it.each([
+    { name: "a non-object", value: "not a task" },
+    { name: "null", value: null },
+    { name: "missing id", value: { due: ms("2026-03-08 18:30") } },
+    { name: "empty id", value: { id: "", due: ms("2026-03-08 18:30") } },
+    // Everything in circal has a day: a task with no readable deadline is a
+    // record no surface could ever find.
+    { name: "missing due", value: { id: "t1" } },
+    { name: "a string due", value: { id: "t1", due: "friday" } },
+    { name: "a NaN due", value: { id: "t1", due: NaN } },
+  ])("drops $name", ({ value }) => {
+    expect(readTask(value)).toBeNull();
+  });
+
+  it("fills the fields a minimal record leaves out, each with its own default", () => {
+    const read = readTask(baseTask)!;
+    expect.soft(read.title).toBe("Untitled");
+    expect.soft(read.dueAllDay).toBe(false);
+    expect.soft(read.estimate).toBeNull();
+    expect.soft(read.priority).toBe(0);
+    expect.soft(read.plans).toEqual([]);
+    expect.soft(read.done).toBe(false);
+    expect.soft(read.updatedAt).toBe(0);
+  });
+
+  it("clamps through the field validators — one opinion per field, tasks.ts's own", () => {
+    const read = readTask({
+      ...baseTask,
+      estimate: 100_000,
+      priority: 9,
+      plans: [
+        { start: ms("2026-03-09 10:00"), end: ms("2026-03-09 09:00") },
+        plan("2026-03-09 09:00", "2026-03-09 10:00"),
+      ],
+      done: "yes",
+    })!;
+    expect.soft(read.estimate).toBe(24 * 60);
+    expect.soft(read.priority).toBe(0);
+    expect.soft(read.plans).toEqual([plan("2026-03-09 09:00", "2026-03-09 10:00")]);
+    // A truthy string is not a tick: only a literal `true` finishes work.
+    expect.soft(read.done).toBe(false);
+  });
+
+  it("round-trips a full task unchanged", () => {
+    const full = task({
+      title: "Renew passport",
+      notes: "bring photos",
+      estimate: 45,
+      priority: 2,
+      plans: [plan("2026-03-09 09:00", "2026-03-09 10:00")],
+      done: true,
+      updatedAt: ms("2026-03-08 09:00"),
+    });
+    expect(readTask(full)).toEqual(full);
+  });
+});
+
 /* --------------------------------- importBackup ---------------------------- */
 
 describe("importBackup", () => {
@@ -716,6 +778,23 @@ describe("importBackup", () => {
       }),
     );
     expect(store.snapshot().events[0].calendarId).toBe("cal-b");
+  });
+
+  it("restores tasks, parking one on the first calendar when its own was not carried", async () => {
+    const { backup, store } = await load();
+    backup.importBackup(
+      JSON.stringify({
+        app: "circal",
+        calendars: [calendar({ id: "cal-a" }), calendar({ id: "cal-b" })],
+        events: [],
+        tasks: [
+          task({ id: "t1", calendarId: "cal-b" }),
+          task({ id: "t2", calendarId: "cal-missing" }),
+        ],
+      }),
+    );
+    const snap = store.snapshot();
+    expect.soft(snap.tasks.map((t) => t.calendarId).sort()).toEqual(["cal-a", "cal-b"]);
   });
 
   it("clears seriesId/seriesKey on an override whose parent was not carried, so it renders standalone", async () => {

@@ -134,12 +134,10 @@ describe("movedEvent — a timed event keeps its hours and changes its instants"
       repeat: "weekly",
       exdates: ["2026-07-22T09:00:00", "2026-07-29"],
       rdates: ["2026-08-05T11:00:00"],
-      doneKeys: ["2026-07-15T09:00:00"],
     });
     const moved = movedEvent(series, BERLIN, NEW_YORK);
     expect.soft(moved.exdates).toEqual(series.exdates);
     expect.soft(moved.rdates).toEqual(series.rdates);
-    expect.soft(moved.doneKeys).toEqual(series.doneKeys);
   });
 
   it("returns the same object when two zones are a different place and the same clock", () => {

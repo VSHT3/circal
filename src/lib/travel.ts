@@ -40,7 +40,7 @@
  *  - A repeating event moves by moving its **seed**, and everything else
  *    keyed to an instant must travel with it — `until` bounds a start, so a
  *    series moved and handed its old bound stops on the wrong day. Its
- *    `exdates`/`rdates`/`doneKeys` deliberately do *not* move: those are
+ *    `exdates`/`rdates` deliberately do *not* move: those are
  *    local wall-clock keys, and both answers keep the wall clock intact —
  *    a move by preserving it, a stamp by naming the zone they were written
  *    against. Rewriting them would be the resurrection bug `duplicateOf`
@@ -130,8 +130,8 @@ function movedUntil(until: number, from: string, to: string): number {
 function reanchored(event: CalEvent, from: string, to: string): CalEvent {
   const start = instantOfWall(startOfDay(wallClockIn(event.start, from)), to);
   const until = movedUntil(event.until, from, to);
-  // A task is a moment, not a span: `end === start`, and there is no last day
-  // to name.
+  // Defensive against a degenerate span in an older blob: `end === start`
+  // has no last day to name.
   const end =
     event.end <= event.start
       ? start

@@ -27,6 +27,7 @@ function snapshot(
   over: { graves?: Grave[]; settingsAt?: number } = {},
 ) {
   return {
+    tasks: [],
     events,
     calendars,
     settings: DEFAULT_SETTINGS,

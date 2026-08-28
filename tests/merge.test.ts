@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calendar, event, grave, ms } from "./helpers";
+import { calendar, event, grave, ms, task } from "./helpers";
 import { DEFAULT_SETTINGS, type Settings } from "@/lib/store";
 import { GRAVE_TTL } from "@/lib/events";
 import { canonicalJson, mergeDocuments, pruneGraves, restamped, stamped } from "@/lib/merge";
@@ -32,6 +32,7 @@ const NOW = ms("2026-03-12 09:00");
 function doc(over: Partial<Mergeable<Settings>> = {}): Mergeable<Settings> {
   return {
     events: [],
+    tasks: [],
     calendars: [calendar({ id: "cal-work", updatedAt: TUESDAY })],
     graves: [],
     settings: DEFAULT_SETTINGS,
@@ -88,6 +89,35 @@ describe("commutativity and idempotence", () => {
     // which would manufacture a meeting neither person wrote.
     expect.soft(merged.events.find((e) => e.id === "a")?.title).toBe("Wednesday");
     expect.soft(merged.events.find((e) => e.id === "b")?.title).toBe("mine only");
+  });
+});
+
+describe("tasks merge by the events' own rules", () => {
+  it("unions by id, later stamp winning, and a grave beats a staler task", () => {
+    const laptop = doc({
+      tasks: [
+        task({ id: "t-a", title: "Tuesday", updatedAt: TUESDAY }),
+        task({ id: "t-b", title: "mine only", updatedAt: TUESDAY }),
+      ],
+      graves: [grave("t-c", TUESDAY)],
+    });
+    const pc = doc({
+      tasks: [
+        task({ id: "t-a", title: "Wednesday", updatedAt: WEDNESDAY }),
+        task({ id: "t-c", title: "deleted on the laptop", updatedAt: ms("2026-03-09 09:00") }),
+      ],
+    });
+    const merged = mergeDocuments(laptop, pc, NOW);
+    expect.soft(ids(merged.tasks)).toEqual(["t-a", "t-b"]);
+    expect.soft(merged.tasks.find((t) => t.id === "t-a")?.title).toBe("Wednesday");
+    // Commutative here too, or two machines write at each other for ever.
+    expect.soft(canonicalJson(mergeDocuments(pc, laptop, NOW))).toBe(canonicalJson(merged));
+  });
+
+  it("a task ticked later survives the merge ticked", () => {
+    const mine = doc({ tasks: [task({ id: "t", done: false, updatedAt: TUESDAY })] });
+    const theirs = doc({ tasks: [task({ id: "t", done: true, updatedAt: WEDNESDAY })] });
+    expect(mergeDocuments(mine, theirs, NOW).tasks[0]?.done).toBe(true);
   });
 });
 
@@ -305,7 +335,14 @@ describe("an unstamped document is not merged", () => {
    * `settingsAt > 0` alone and that let two fresh installs adopt each other for
    * ever: neither may merge, and adopting an unstamped document leaves you
    * unstamped, so a real edit on one of them was adopted away by the other. */
-  const bare = { events: [], calendars: [], graves: [], settings: DEFAULT_SETTINGS, settingsAt: 0 };
+  const bare = {
+    events: [],
+    calendars: [],
+    tasks: [],
+    graves: [],
+    settings: DEFAULT_SETTINGS,
+    settingsAt: 0,
+  };
 
   it.each([
     { name: "nothing stamped at all", over: {}, want: false },
@@ -333,6 +370,11 @@ describe("an unstamped document is not merged", () => {
       over: { graves: [grave("gone", TUESDAY)] },
       want: true,
     },
+    {
+      name: "one real task",
+      over: { tasks: [task({ id: "t", updatedAt: TUESDAY })] },
+      want: true,
+    },
   ])("$name", ({ over, want }) => {
     expect.soft(stamped({ ...bare, ...over })).toBe(want);
   });
@@ -347,11 +389,13 @@ describe("restamped", () => {
     const current = {
       events: [kept, event({ id: "new", title: "created", updatedAt: WEDNESDAY })],
       calendars: [calendar({ id: "cal-work", updatedAt: TUESDAY })],
+      tasks: [],
       graves: [],
     };
     const step = {
       events: [kept, event({ id: "old", title: "deleted earlier", updatedAt: TUESDAY })],
       calendars: [calendar({ id: "cal-work", name: "Renamed", updatedAt: TUESDAY })],
+      tasks: [],
       graves: [],
     };
     const marked = restamped(step, current, NOW);
@@ -369,8 +413,8 @@ describe("restamped", () => {
   it("compares by content, not by reference, because a cross-tab read rebuilds every object", () => {
     const rehydrated = { ...kept };
     const marked = restamped(
-      { events: [rehydrated], calendars: [], graves: [] },
-      { events: [kept], calendars: [], graves: [] },
+      { events: [rehydrated], calendars: [], tasks: [], graves: [] },
+      { events: [kept], calendars: [], tasks: [], graves: [] },
       NOW,
     );
     expect(marked.events[0].updatedAt).toBe(TUESDAY);

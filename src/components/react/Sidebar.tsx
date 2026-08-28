@@ -1,11 +1,12 @@
 /* ------------------------------------------------------------------ *
- * Left panel: mini month picker, the calendars — visibility, and the
- * card that makes and edits them — and the moon.
+ * Left panel: mini month picker, the task list, the calendars —
+ * visibility, and the card that makes and edits them — and the moon.
  *
  * No agenda. The dial's interior answers the day, and the day is on screen
  * beside this column: a second list of the same occurrences two hundred
  * pixels to its left was the same fact twice, and it was the fact this
- * column had least room for.
+ * column had least room for. The task list is not that: it holds what the
+ * interior cannot show — work with no time on it yet.
  *
  * Collapses to zero width so the dial re-centres.
  * ------------------------------------------------------------------ */
@@ -13,8 +14,16 @@
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { ChevronLeft, ChevronRight, Pencil, Plus } from "lucide-react";
 import { useMemo, useState } from "react";
-import { colorOf, occurrencesOn } from "@/lib/events";
-import { addMonths, isSameDay, weekOffset, WEEKDAYS } from "@/lib/time";
+import { colorOf, occurrencesOn, taskOccurrences } from "@/lib/events";
+import { compareTasks } from "@/lib/tasks";
+import {
+  addMonths,
+  formatRelativeDay,
+  formatTimeShort,
+  isSameDay,
+  weekOffset,
+  WEEKDAYS,
+} from "@/lib/time";
 import { EASE } from "@/lib/motion";
 import type { SidebarProps } from "@/components/react/types";
 import { cn } from "@/lib/utils";
@@ -38,6 +47,8 @@ export default function Sidebar({
   now,
   events,
   calendars,
+  tasks,
+  clock,
   moon,
   theme,
   weekStart,
@@ -78,6 +89,16 @@ export default function Sidebar({
     [weekStart],
   );
 
+  /** Open tasks first, in the one order (`compareTasks`); done ones at the
+   *  foot so a tick can be taken back without a second surface. */
+  const sorted = useMemo(
+    () => [
+      ...tasks.filter((t) => !t.done).sort(compareTasks),
+      ...tasks.filter((t) => t.done).sort(compareTasks),
+    ],
+    [tasks],
+  );
+
   const body = (
     <div className="fade-y no-scrollbar flex h-full w-[260px] flex-col gap-5 overflow-y-auto p-3">
       <section className="flex w-full shrink-0 flex-col gap-2">
@@ -108,7 +129,11 @@ export default function Sidebar({
             const inMonth = cellDate.getMonth() === displayMonth.getMonth();
             const isToday = isSameDay(cellDate, now);
             const isSelected = isSameDay(cellDate, day);
-            const dots = occurrencesOn(events, calendars, cellDate).slice(0, 3);
+            const dots = [
+              ...occurrencesOn(events, calendars, cellDate),
+              // A due day carries something too — the pip the dial draws.
+              ...taskOccurrences(tasks, calendars, cellDate),
+            ].slice(0, 3);
             return (
               <button
                 key={cellDate.toISOString()}
@@ -145,6 +170,60 @@ export default function Sidebar({
             );
           })}
         </div>
+      </section>
+
+      {/* The list of work, bare on purpose for now: rows at the mini-month's
+          own rhythm, open tasks in `compareTasks`' order, done ones struck at
+          the foot so a tick can be taken back. The groups, the meta line and
+          the planned dot arrive with the sidebar's own stage (TASKS.md §6). */}
+      <section className="flex w-full shrink-0 flex-col gap-1">
+        <div className="flex items-center justify-between">
+          <span className="label text-ink-2">Tasks</span>
+          <IconButton label="New task" onClick={actions.newTask} className="size-6">
+            <Plus size={13} strokeWidth={1.75} />
+          </IconButton>
+        </div>
+        {sorted.map((task) => (
+          <div key={task.id} className="group flex items-center gap-1.5">
+            {/* The pip is the control, the face's own vocabulary: filled while
+                it stands, hollow once done. */}
+            <button
+              type="button"
+              aria-pressed={task.done}
+              aria-label={task.done ? `Reopen ${task.title}` : `Complete ${task.title}`}
+              onClick={() => actions.toggleTask(task.id)}
+              className="grid size-6 shrink-0 place-items-center"
+            >
+              <span
+                className="size-[9px] rounded-full"
+                style={
+                  task.done
+                    ? { border: `1.5px solid ${colorOf(task, calendars)}` }
+                    : { backgroundColor: colorOf(task, calendars) }
+                }
+              />
+            </button>
+            <button
+              type="button"
+              onClick={() => actions.editTask(task.id)}
+              className="flex h-7 min-w-0 flex-1 items-center gap-2 rounded-[8px] px-1 transition-colors hover:bg-white/6"
+            >
+              <span
+                className={cn(
+                  "truncate text-[12.5px]",
+                  task.done ? "text-ink-3 line-through" : "text-ink",
+                )}
+              >
+                {task.title || "Untitled"}
+              </span>
+              <span className="label ml-auto shrink-0 text-[9px] text-ink-3">
+                {formatRelativeDay(new Date(task.due), now)}
+                {!task.dueAllDay && ` ${formatTimeShort(new Date(task.due), clock)}`}
+              </span>
+            </button>
+          </div>
+        ))}
+        {sorted.length === 0 && <span className="caption px-1">Nothing due</span>}
       </section>
 
       <section className="flex w-full shrink-0 flex-col gap-1">

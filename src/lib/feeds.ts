@@ -84,11 +84,6 @@ export async function refreshFeed(calendar: Calendar): Promise<void> {
         seriesKey: isOverride ? e.recurrenceId : "",
         color: "",
         icon: "",
-        // A subscription is read-only, so its tasks are read-only too: the
-        // flag is mirrored, the ticks are whatever the sender last said. A
-        // subscription that carries neither says `false` and `[]`.
-        task: e.task,
-        doneKeys: e.doneKeys,
         // The whole of the `TRANSP` fix, seen from the side it matters on: a
         // subscription is where an event marked free somewhere else arrives,
         // and until this line it arrived booking the hour.

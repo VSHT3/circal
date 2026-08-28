@@ -42,6 +42,7 @@ function snapshot(
   over: { graves?: Grave[]; settingsAt?: number; calendars?: Calendar[] } = {},
 ) {
   return {
+    tasks: [],
     events,
     calendars: over.calendars ?? [calendar({ id: CAL })],
     settings: DEFAULT_SETTINGS,

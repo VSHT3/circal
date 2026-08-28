@@ -83,18 +83,6 @@ export interface IcsEvent extends Recurrence {
   url: string;
   notes: string;
   /**
-   * circal's own two extensions, read back off `X-CIRCAL-TASK` and
-   * `X-CIRCAL-DONE`. RFC 5545 §3.8.8.2 is the sanctioned way to carry
-   * something the standard has no property for, and a task here is a VEVENT
-   * of zero length rather than a VTODO: it has a day and a minute, which is
-   * the half of VTODO circal models, and every consumer that ignores the X-
-   * lines still shows it on the right day at the right time.
-   *
-   * `false` / `[]` for every VEVENT circal did not write.
-   */
-  task: boolean;
-  doneKeys: string[];
-  /**
    * `TRANSP` — the one property in this pair that is the standard's own.
    * §3.8.2.7 defines exactly two values: `OPAQUE`, the default, is time that
    * blocks; `TRANSPARENT` is time that does not. An absent property is
@@ -408,18 +396,10 @@ export function toIcs(events: CalEvent[], name: string): string {
       lines.push(`DTEND;VALUE=DATE:${dateStamp(new Date(event.end))}`);
     } else if (zone) {
       lines.push(`DTSTART;TZID=${zone}:${zonedStamp(wallClockIn(event.start, zone))}`);
-      // No DTEND on a task — see the comment on the floating branch below,
-      // which applies here unchanged.
-      if (!event.task) {
-        lines.push(`DTEND;TZID=${zone}:${zonedStamp(wallClockIn(event.end, zone))}`);
-      }
+      lines.push(`DTEND;TZID=${zone}:${zonedStamp(wallClockIn(event.end, zone))}`);
     } else {
       lines.push(`DTSTART:${utcStamp(new Date(event.start))}`);
-      // No DTEND on a task. §3.6.1 requires DTEND to be strictly later than
-      // DTSTART, and the same section says a DATE-TIME DTSTART on its own
-      // means an event that ends when it starts — so the spec-legal spelling
-      // of a zero-length event is to leave the property out.
-      if (!event.task) lines.push(`DTEND:${utcStamp(new Date(event.end))}`);
+      lines.push(`DTEND:${utcStamp(new Date(event.end))}`);
     }
     if (overrides) {
       // Matches this VEVENT's own DTSTART value type, as RFC requires.
@@ -463,11 +443,6 @@ export function toIcs(events: CalEvent[], name: string): string {
         attendee.status === "needs-action" ? "" : `;PARTSTAT=${attendee.status.toUpperCase()}`;
       lines.push(calAddressLine("ATTENDEE", attendee, partstat));
     }
-    // One comma list rather than a line each, which is what EXDATE's own
-    // multi-value form does — and a done key contains no comma, so it needs
-    // no escaping beyond that.
-    if (event.task) lines.push("X-CIRCAL-TASK:TRUE");
-    if (event.doneKeys.length > 0) lines.push(`X-CIRCAL-DONE:${event.doneKeys.join(",")}`);
     // A `VALARM` only for an event that named a lead of its own. An event
     // inheriting the setting has no per-event alarm to export, and writing
     // the current setting into the file would turn a preference into data:
@@ -902,22 +877,16 @@ function buildEvent(block: Block): IcsEvent | null {
   const dtstart = parseDateProp(props.DTSTART);
   if (!dtstart) return null;
 
-  const task = props["X-CIRCAL-TASK"]?.value.toUpperCase() === "TRUE";
   let end: number;
   const dtend = parseDateProp(props.DTEND);
   if (dtend) {
     end = dtend.ms;
   } else {
     const duration = props.DURATION ? parseDuration(props.DURATION.value) : null;
-    // §3.6.1: a DATE-TIME DTSTART with neither DTEND nor DURATION is an event
-    // that ends at the instant it starts — which is exactly what a task is,
-    // and why circal writes one that way rather than emitting `DTEND` equal to
-    // `DTSTART` (the RFC requires DTEND to be strictly later). The hour-long
-    // fallback stays for everybody else's VEVENTs: it is what a reader expects
-    // of a meeting sent without an end, and reading *those* as zero-length
-    // would collapse them onto the rim.
-    const fallback = task ? 0 : dtstart.allDay ? 86_400_000 : 3_600_000;
-    end = dtstart.ms + (duration ?? fallback);
+    // §3.6.1's hour-long fallback for a meeting sent without an end, a day for
+    // an all-day one: it is what a reader expects, and reading either as
+    // zero-length would collapse it onto the rim.
+    end = dtstart.ms + (duration ?? (dtstart.allDay ? 86_400_000 : 3_600_000));
   }
 
   // A UID is required by RFC 5545, so this fallback only fires on a
@@ -942,10 +911,6 @@ function buildEvent(block: Block): IcsEvent | null {
     location: props.LOCATION ? unescapeText(props.LOCATION.value) : "",
     url: props.URL ? unescapeText(props.URL.value) : "",
     notes: props.DESCRIPTION ? unescapeText(props.DESCRIPTION.value) : "",
-    task,
-    doneKeys: (props["X-CIRCAL-DONE"]?.value ?? "")
-      .split(",")
-      .filter((k) => /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(k)),
     // §3.8.2.7 defines two values and no others, so the test is for the one
     // that means something: anything else — `OPAQUE`, a missing property, a
     // value this standard does not have — is busy, which is the default the

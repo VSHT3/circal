@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { event, id as mintId, ms, rule } from "./helpers";
 import { instantKey, type CalEvent } from "@/lib/events";
-import { applyRemove, applySplit, applyToggleDone, applyTruncate, applyUpdate } from "@/lib/mutate";
+import { applyRemove, applySplit, applyTruncate, applyUpdate } from "@/lib/mutate";
 
 /** The series' own body, ready to be handed back as the tail of a split —
  *  the same shape `store.splitSeries`'s caller hands over. */
@@ -40,25 +40,6 @@ describe("applyUpdate", () => {
   it("patching an id that is not there is a no-op", () => {
     const a = event();
     expect(applyUpdate([a], "does-not-exist", { title: "changed" }, NOW)).toEqual([a]);
-  });
-});
-
-describe("applyToggleDone", () => {
-  it("ticks one occurrence of the named event, and leaves an override of the same series untouched", () => {
-    const parent = series();
-    const override = event({ seriesId: parent.id, seriesKey: instantKey(WEEKLY.second) });
-    const ticked = applyToggleDone([parent, override], parent.id, WEEKLY.second, NOW);
-    expect
-      .soft(ticked.find((e) => e.id === parent.id)?.doneKeys)
-      .toEqual([instantKey(WEEKLY.second)]);
-    // A tick is per-occurrence on one event, not per-series: an override
-    // carrying the same seriesId is a different event and keeps its own list.
-    expect.soft(ticked.find((e) => e.id === override.id)?.doneKeys).toEqual([]);
-  });
-
-  it("un-ticks a key already present rather than appending a duplicate", () => {
-    const task = event({ doneKeys: [instantKey(WEEKLY.second)] });
-    expect(applyToggleDone([task], task.id, WEEKLY.second, NOW)[0].doneKeys).toEqual([]);
   });
 });
 

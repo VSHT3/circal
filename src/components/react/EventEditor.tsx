@@ -14,17 +14,15 @@ import {
   REMIND_SILENT,
   ownLead,
   colorOf,
-  instantKey,
   REPEATS,
   REPEAT_LABELS,
   repeatUnit,
   repeats,
-  toggleDoneKey,
   type CalEvent,
   type Repeat,
 } from "@/lib/events";
 import { describeRule, isExpressible, nthLabel } from "@/lib/describe";
-import { DEFAULT_DURATION, MIN_DURATION, defaultStart } from "@/lib/quickadd";
+import { MIN_DURATION } from "@/lib/quickadd";
 import { REMIND_LEADS, leadOf, remindLabel } from "@/lib/remind";
 import {
   WEEKDAYS,
@@ -334,7 +332,7 @@ export default function EventEditor({
    * be called two different things.
    */
   function named(): Omit<CalEvent, "id"> {
-    return { ...draft, title: draft.title.trim() || (draft.task ? "New task" : "New event") };
+    return { ...draft, title: draft.title.trim() || "New event" };
   }
 
   function save(scope: EditScope) {
@@ -456,14 +454,6 @@ export default function EventEditor({
    */
   const timedSpan = useRef<{ startMin: number; endMin: number } | null>(null);
 
-  /**
-   * The span this event had before it was turned into a task, so turning the
-   * switch back off returns it rather than inventing an hour. Same argument
-   * as `timedSpan` above and the same shape — a ref, because nothing renders
-   * from it and it must survive a `patch` without causing a second render.
-   */
-  const taskSpan = useRef<number>(DEFAULT_DURATION * 60_000);
-
   function handleAllDayToggle(next: boolean) {
     const firstDay = startOfDay(new Date(draft.start));
     if (next) {
@@ -483,42 +473,6 @@ export default function EventEditor({
       if (end.getTime() < start + MIN_DURATION * 60_000) end = addDays(end, 1);
       patch({ allDay: false, start, end: end.getTime() });
     }
-  }
-
-  /**
-   * Event ⇄ task. A task is a moment, so the whole conversion is `end` —
-   * collapsed onto `start` one way, given its remembered width back the
-   * other. All-day goes with it, because "all day" and "one minute" are two
-   * answers to the same question and a control that can hold both is a
-   * control that lies.
-   */
-  function handleTaskToggle(next: boolean) {
-    if (next) {
-      if (!draft.allDay) taskSpan.current = Math.max(draft.end - draft.start, 60_000);
-      // An all-day event turned into a task is due at the hour a new draft
-      // would open on, not at midnight: midnight is where an all-day event's
-      // instant happens to sit, and nobody means "00:00" by it.
-      const firstDay = startOfDay(new Date(draft.start));
-      const start = draft.allDay
-        ? atMinutes(firstDay, defaultStart(firstDay, 0)).getTime()
-        : draft.start;
-      patch({ task: true, allDay: false, start, end: start });
-    } else {
-      patch({ task: false, doneKeys: [], end: draft.start + taskSpan.current });
-    }
-  }
-
-  /**
-   * Which occurrence the Done switch is about: the one that was opened, not
-   * the series' seed. A weekly task edited from next Tuesday's pip has to
-   * tick next Tuesday — `doneKeys` holds instants, and the seed's instant is
-   * a different Tuesday.
-   */
-  const doneAt = target.occurrenceStart ?? draft.start;
-  const done = draft.doneKeys.includes(instantKey(doneAt));
-
-  function handleDoneToggle() {
-    patch({ doneKeys: toggleDoneKey(draft.doneKeys, doneAt) });
   }
 
   /* ------------------------------ recurrence ------------------------------ */
@@ -663,9 +617,7 @@ export default function EventEditor({
           ref={dialog}
           role="dialog"
           aria-modal="true"
-          aria-label={
-            readOnly ? "Event" : `${target.id ? "Edit" : "New"} ${draft.task ? "task" : "event"}`
-          }
+          aria-label={readOnly ? "Event" : `${target.id ? "Edit" : "New"} event`}
           className="relative flex max-h-[86vh] w-[330px] flex-col overflow-hidden rounded-[14px] border border-hairline bg-surface shadow-[0_32px_80px_-20px_rgba(0,0,0,0.9)] md:w-[672px]"
           initial={reducedMotion ? false : { opacity: 0, scale: 0.97 }}
           animate={{ opacity: 1, scale: 1 }}
@@ -686,8 +638,8 @@ export default function EventEditor({
               disabled={readOnly}
               value={draft.title}
               onChange={(e) => patch({ title: e.target.value })}
-              placeholder={draft.task ? "New task" : "New event"}
-              aria-label={draft.task ? "Task title" : "Event title"}
+              placeholder="New event"
+              aria-label="Event title"
               className="w-full min-w-0 border-none bg-transparent text-[19px] font-medium text-ink outline-none placeholder:text-ink-3 disabled:opacity-100"
             />
           </div>
@@ -748,38 +700,27 @@ export default function EventEditor({
                       value={new Date(draft.start)}
                       onChange={handleDateChange}
                     />
-                    {/* A task has one day, so it has one date field. The second
-                    one names the last day a span covers, and a moment does not
-                    have one to name. */}
-                    {!draft.task && (
-                      <>
-                        <span className="text-ink-3">–</span>
-                        <DayField label="Last day" value={lastDay} onChange={handleEndDateChange} />
-                      </>
-                    )}
+                    <span className="text-ink-3">–</span>
+                    <DayField label="Last day" value={lastDay} onChange={handleEndDateChange} />
                   </Row>
 
-                  <Row label={draft.task ? "Due" : "Time"} disabled={draft.allDay}>
+                  <Row label="Time" disabled={draft.allDay}>
                     <ClockIcon size={14} className="shrink-0 text-ink-2" />
                     <TimeField
-                      label={draft.task ? "Due time" : "Start time"}
+                      label="Start time"
                       clock={clock}
                       value={new Date(draft.start)}
                       disabled={draft.allDay}
                       onCommit={handleStartTime}
                     />
-                    {!draft.task && (
-                      <>
-                        <span className="text-ink-3">–</span>
-                        <TimeField
-                          label="End time"
-                          clock={clock}
-                          value={new Date(draft.end)}
-                          disabled={draft.allDay}
-                          onCommit={handleEndTime}
-                        />
-                      </>
-                    )}
+                    <span className="text-ink-3">–</span>
+                    <TimeField
+                      label="End time"
+                      clock={clock}
+                      value={new Date(draft.end)}
+                      disabled={draft.allDay}
+                      onCommit={handleEndTime}
+                    />
                   </Row>
 
                   {/* Hours read against another clock, and an event that does not
@@ -829,36 +770,15 @@ export default function EventEditor({
                     attendeeCount={draft.attendeeCount}
                   />
 
-                  {/* One row, three switches, and the first two are exclusive by
-                  construction: "all day" and "one minute" are two answers to
-                  the same question about width, so each turns the other off
-                  rather than sitting beside it greyed out.
-
-                  `Toggle` rather than `Switch`, unlike every other row in this
-                  modal: those get their word from the row's own label, and a
-                  row with three switches in it has one label and three
-                  meanings. */}
+                  {/* One row, one switch. `Toggle` rather than `Switch`: the
+                  row's label is "Type" and the switch needs its own word. */}
                   <Row label="Type" align="top">
                     <span className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                      {!draft.task && (
-                        <Toggle
-                          label="All-day"
-                          checked={draft.allDay}
-                          onChange={handleAllDayToggle}
-                        />
-                      )}
                       <Toggle
-                        label="Task"
-                        name="A moment rather than a span"
-                        checked={draft.task}
-                        onChange={handleTaskToggle}
+                        label="All-day"
+                        checked={draft.allDay}
+                        onChange={handleAllDayToggle}
                       />
-                      {/* Only for an event that exists. A draft has no occurrence
-                      to tick — it is not on any day yet — and a switch whose
-                      state is discarded on Cancel is a switch that lied. */}
-                      {draft.task && target.id !== null && (
-                        <Toggle label="Done" checked={done} onChange={handleDoneToggle} />
-                      )}
                     </span>
                   </Row>
 
@@ -866,25 +786,20 @@ export default function EventEditor({
                   "Free" are both answers a user can mean, where a switch has
                   one word and an off position that has to be guessed at.
 
-                  Only for a span. A task is a moment, so there is no width to
-                  leave on offer — it books nothing whatever this says — and a
-                  control with no effect is worse than one that is missing. It
-                  wraps like every other inline row: a 320px column is the
+                  Wraps like every other inline row: a 320px column is the
                   narrowest this card is read in. */}
-                  {!draft.task && (
-                    <Row label="Shows as">
-                      <span className="flex flex-wrap items-center gap-2">
-                        <Segmented
-                          value={draft.free ? "free" : "busy"}
-                          onChange={(next) => patch({ free: next === "free" })}
-                          options={[
-                            { id: "busy", label: "Busy" },
-                            { id: "free", label: "Free" },
-                          ]}
-                        />
-                      </span>
-                    </Row>
-                  )}
+                  <Row label="Shows as">
+                    <span className="flex flex-wrap items-center gap-2">
+                      <Segmented
+                        value={draft.free ? "free" : "busy"}
+                        onChange={(next) => patch({ free: next === "free" })}
+                        options={[
+                          { id: "busy", label: "Busy" },
+                          { id: "free", label: "Free" },
+                        ]}
+                      />
+                    </span>
+                  </Row>
 
                   {/* One row, three states, and the default one reads as
                   inheritance rather than as a number — somebody who changes
@@ -906,8 +821,7 @@ export default function EventEditor({
 
                   Not on an all-day event: `dueReminders` never fires one —
                   there is no minute to count down to — so a lead here would
-                  be a control with no effect, the same reason "Shows as" is
-                  absent from a task. Whatever an import put on the draft is
+                  be a control with no effect. Whatever an import put on the draft is
                   left alone rather than reset; it is the sender's statement,
                   and it travels back out. */}
                   {!draft.allDay && (

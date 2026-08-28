@@ -39,6 +39,7 @@ import {
   type Calendar,
   type Grave,
 } from "./events";
+import { readEstimate, readPlans, readPriority, type Task } from "./tasks";
 
 const BACKUP_VERSION = 1;
 
@@ -48,6 +49,7 @@ interface Backup {
   exportedAt: string;
   events: CalEvent[];
   calendars: Calendar[];
+  tasks: Task[];
   settings: Settings;
   /**
    * The deletions and the settings stamp travel with the events, because a
@@ -138,6 +140,7 @@ export async function exportBackup(snapshot: Snapshot) {
     calendars: snapshot.calendars.map((c) =>
       c.feed ? { ...c, feed: { ...c.feed, fetchedAt: 0, error: "" } } : c,
     ),
+    tasks: snapshot.tasks,
     settings: snapshot.settings,
     settingsAt: snapshot.settingsAt,
     graves: snapshot.graves,
@@ -316,20 +319,6 @@ export function readSettings(value: unknown): Settings {
 }
 
 /**
- * `instantKey`'s form, which is the only one a done key is ever written in.
- * EXDATE carries a day-only form too because DATE is one of its RFC value
- * types; nothing outside this app writes a `doneKeys` entry, so a key that is
- * not a full instant matches no occurrence and is dropped.
- */
-const INSTANT_KEY = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/;
-
-function readDoneKeys(value: unknown): string[] {
-  return Array.isArray(value)
-    ? [...new Set(value.filter((k): k is string => typeof k === "string" && INSTANT_KEY.test(k)))]
-    : [];
-}
-
-/**
  * The id an event with none of its own gets: its own content, hashed. Enough
  * fields to separate two records that are genuinely different, and every one
  * of them a field the exporter wrote — a `seriesKey` is in there because an
@@ -350,12 +339,10 @@ export function readEvent(value: unknown): CalEvent | null {
   const { id, title, calendarId, start, end } = value;
   if (typeof start !== "number" || typeof end !== "number") return null;
   if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
-  // A task is the one shape whose `end` is allowed to equal its `start`: it is
-  // a moment, not a span. Everything else with no width is a corrupt record —
-  // it draws as an arc of the whole day or as nothing, and both are worse than
-  // dropping it.
-  const task = value.task === true;
-  if (task ? end < start : end <= start) return null;
+  // Nothing with no width is an event: it draws as an arc of the whole day or
+  // as nothing, and both are worse than dropping it. A moment with a deadline
+  // is a `Task` now, read by `readTask` below.
+  if (end <= start) return null;
   return {
     // Derived from the record's own fields, never minted: `Math.random()` gave
     // a different id every read, so the same backup imported twice was two
@@ -385,11 +372,6 @@ export function readEvent(value: unknown): CalEvent | null {
     // it has to tell apart. This used to slice at one shared cap, which turned
     // ten of the 247 shipped names into strings matching no path.
     icon: readMark(value.icon),
-    task,
-    // The same instant-key check EXDATE gets, and the same reason: a key this
-    // does not spell matches no occurrence, so it is a row of dead weight that
-    // survives every future export.
-    doneKeys: readDoneKeys(value.doneKeys),
     // Anything other than a literal `true` is busy, which is what an event
     // exported before this field existed was. A truthy string in a
     // hand-edited blob must not quietly take a meeting off the day's total.
@@ -444,6 +426,37 @@ export function readCalendar(value: unknown): Calendar | null {
 }
 
 /**
+ * The one validator for a stored task — three readers (a backup, the mirror
+ * document, the store's own hydration) share this opinion about what a task
+ * legally is, `readEvent`'s own bargain. The per-field clamps live in
+ * `tasks.ts` beside the model; this composes them and refuses the records no
+ * clamp can save: a due date that is not a finite instant is not a deadline,
+ * and everything in circal has a day.
+ */
+export function readTask(value: unknown): Task | null {
+  if (!isRecord(value)) return null;
+  const { id, title, due } = value;
+  if (typeof id !== "string" || !id) return null;
+  if (typeof due !== "number" || !Number.isFinite(due)) return null;
+  return {
+    id,
+    title: typeof title === "string" ? title : "Untitled",
+    notes: typeof value.notes === "string" ? value.notes : "",
+    calendarId: typeof value.calendarId === "string" ? value.calendarId : "",
+    // The mark and the colour take an event's own validators and defaults.
+    icon: readMark(value.icon),
+    color: typeof value.color === "string" ? value.color : "",
+    due,
+    dueAllDay: value.dueAllDay === true,
+    estimate: readEstimate(value.estimate),
+    priority: readPriority(value.priority),
+    plans: readPlans(value.plans),
+    done: value.done === true,
+    updatedAt: readStamp(value.updatedAt),
+  };
+}
+
+/**
  * The validated contents of a backup, or why it is not one.
  *
  * Split out of `importBackup` because the mirror file *is* a backup file —
@@ -457,6 +470,7 @@ export type BackupRead =
       ok: true;
       events: CalEvent[];
       calendars: Calendar[];
+      tasks: Task[];
       settings: Settings;
       settingsAt: number;
       graves: Grave[];
@@ -471,6 +485,9 @@ export function readBackup(parsed: unknown): BackupRead {
   const calendars = (Array.isArray(parsed.calendars) ? parsed.calendars : [])
     .map(readCalendar)
     .filter((c): c is Calendar => c !== null);
+  const tasks = (Array.isArray(parsed.tasks) ? parsed.tasks : [])
+    .map(readTask)
+    .filter((t): t is Task => t !== null);
 
   if (calendars.length === 0) return { ok: false, reason: "no-calendars" };
   // An event pointing at a calendar the backup did not carry would render in
@@ -491,6 +508,8 @@ export function readBackup(parsed: unknown): BackupRead {
         : parented;
     }),
     calendars,
+    // A task's calendar is parked the same way an event's is, same reason.
+    tasks: tasks.map((t) => (known.has(t.calendarId) ? t : { ...t, calendarId: fallback })),
     settings: readSettings(parsed.settings),
     // Not through `readSettings`: this is bookkeeping about the object rather
     // than a field of it, and a reader that clamped it into `Settings` would
@@ -552,11 +571,6 @@ export function importIcs(text: string, filename: string) {
         // An .ics carries no mark of its own; the imported calendar's is the
         // whole answer until somebody sets one.
         icon: "",
-        // Only from an .ics circal itself wrote. Nothing else has a way to say
-        // "this VEVENT is a task", and reading a zero-length VEVENT as one
-        // would turn every other producer's instantaneous event into a to-do.
-        task: e.task,
-        doneKeys: e.doneKeys,
         // `TRANSP`, which every calendar writes: an event another app marked
         // free arrives free here rather than silently booking the hour.
         free: e.free,

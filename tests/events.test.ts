@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { at, attendee, calendar, day, event, ms } from "./helpers";
+import { at, attendee, calendar, day, event, ms, plan, task } from "./helpers";
 import {
   ATTENDEE_MAX,
   GRAVE_MAX,
@@ -36,6 +36,7 @@ import {
   readPerson,
   readRemindLead,
   occurrencesOn,
+  taskOccurrences,
   scoreEvent,
   spanLabel,
   statusOf,
@@ -681,39 +682,110 @@ describe("dayLoad", () => {
 });
 
 describe("dayCleared", () => {
-  const cleared = (events: Parameters<typeof event>[0][]) =>
-    dayCleared(dayAgenda(events.map(event), [cal], day("2026-03-08")).all);
+  const cleared = (
+    tasks: Parameters<typeof task>[0][],
+    events: Parameters<typeof event>[0][] = [],
+  ) => dayCleared(dayAgenda(events.map(event), [cal], day("2026-03-08"), tasks.map(task)).all);
 
-  const openTask = { start: "2026-03-08 09:00", end: "2026-03-08 09:00", task: true };
-  const doneTask = { ...openTask, doneKeys: ["2026-03-08T09:00:00"] };
+  const openTask = { due: "2026-03-08 09:00" };
+  const doneTask = { ...openTask, done: true };
   const meeting = { start: "2026-03-08 10:00", end: "2026-03-08 11:00" };
 
   // An empty checklist is not a finished one: a day with no tasks must not
   // shimmer, or every meeting-only day would celebrate itself at midnight.
   it("is false for a day with no tasks at all", () => {
     expect.soft(cleared([])).toBe(false);
-    expect.soft(cleared([meeting])).toBe(false);
+    expect.soft(cleared([], [meeting])).toBe(false);
   });
 
   it("is false while any task stands open", () => {
     expect.soft(cleared([openTask])).toBe(false);
-    expect.soft(cleared([doneTask, { ...openTask, start: "2026-03-08 14:00" }])).toBe(false);
+    expect.soft(cleared([doneTask, { due: "2026-03-08 14:00" }])).toBe(false);
   });
 
   // The events beside the tasks are context, not work: a ticked to-do list is
   // cleared whatever meetings the day still holds.
   it("is true once every task is ticked, meetings notwithstanding", () => {
     expect.soft(cleared([doneTask])).toBe(true);
-    expect.soft(cleared([doneTask, meeting])).toBe(true);
+    expect.soft(cleared([doneTask], [meeting])).toBe(true);
   });
 
-  // Per occurrence, `doneKeys`' own grain: ticking this Sunday's instance of a
-  // weekly task clears this Sunday, whatever last Sunday's pip still says.
-  it("reads a repeating task by this day's occurrence, not the series", () => {
-    const weekly = { ...doneTask, start: "2026-03-01 09:00", end: "2026-03-01 09:00" };
-    expect(cleared([{ ...weekly, repeat: "weekly", doneKeys: ["2026-03-08T09:00:00"] }])).toBe(
-      true,
-    );
+  // A plan's arc counts like the pip: a task worked on this day keeps the day
+  // open until it is ticked.
+  it("reads a plan's occurrence too, not only the due pip", () => {
+    const planned = {
+      due: "2026-03-13 17:00",
+      plans: [plan("2026-03-08 09:00", "2026-03-08 11:00")],
+    };
+    expect.soft(cleared([planned])).toBe(false);
+    expect.soft(cleared([{ ...planned, done: true }])).toBe(true);
+  });
+});
+
+describe("taskOccurrences and dayAgenda: tasks enter the one read path", () => {
+  const march8 = day("2026-03-08");
+
+  it("a timed due date is a zero-width occurrence at its minute", () => {
+    const t = task({ title: "Renew passport", due: "2026-03-08 09:30" });
+    const [occ] = taskOccurrences([t], [cal], march8);
+    expect.soft(occ.task?.id).toBe(t.id);
+    expect.soft(occ.startMin).toBe(occ.endMin);
+    expect.soft(occ.start).toBeSameInstantAs("2026-03-08 09:30");
+    // The synthetic event carries what every renderer resolves.
+    expect.soft(occ.event.title).toBe("Renew passport");
+    expect.soft(occ.event.calendarId).toBe(t.calendarId);
+  });
+
+  it("an all-day due date draws nothing, as an all-day event draws no arc", () => {
+    const t = task({ due: "2026-03-08", dueAllDay: true });
+    expect(taskOccurrences([t], [cal], march8)).toEqual([]);
+  });
+
+  it("a plan overlapping the day is an arc clipped to it, and it silences the pip", () => {
+    const t = task({
+      due: "2026-03-08 17:00",
+      plans: [plan("2026-03-07 23:00", "2026-03-08 01:00")],
+    });
+    const occs = taskOccurrences([t], [cal], march8);
+    expect.soft(occs).toHaveLength(1);
+    expect.soft(occs[0].startMin).toBe(0);
+    expect.soft(occs[0].endMin).toBe(60);
+    expect.soft(occs[0].continuesBefore).toBe(true);
+  });
+
+  it("a hidden calendar's tasks are filtered, the face's own rule", () => {
+    const hidden = calendar({ id: "cal-work", visible: false });
+    expect(taskOccurrences([task({ due: "2026-03-08 09:00" })], [hidden], march8)).toEqual([]);
+  });
+
+  it("a plan packs a lane against the meeting it overlaps; a due pip takes none", () => {
+    const meeting = event({ start: "2026-03-08 09:00", end: "2026-03-08 11:00" });
+    const planned = task({
+      title: "Essay",
+      due: "2026-03-13 17:00",
+      plans: [plan("2026-03-08 10:00", "2026-03-08 12:00")],
+    });
+    const pip = task({ title: "Renew passport", due: "2026-03-08 10:30" });
+    const { timed } = dayAgenda([meeting], [cal], march8, [planned, pip]);
+    const lanes = new Map(timed.map((occ) => [occ.event.title, occ.lane]));
+    expect.soft(lanes.get("Event")).toBe(0);
+    // The plan is real time and cannot share the meeting's ring.
+    expect.soft(lanes.get(planned.title)).toBe(1);
+    // The pip is a notch in the rim: it neither buries nor is buried.
+    expect.soft(lanes.get(pip.title)).toBe(0);
+  });
+
+  it("a plan books its minutes — freeGaps and dayLoad read it like a meeting", () => {
+    const t = task({
+      due: "2026-03-13 17:00",
+      plans: [plan("2026-03-08 09:00", "2026-03-08 11:00")],
+    });
+    const { all } = dayAgenda([], [cal], march8, [t]);
+    expect.soft(freeGaps(all, 30, 8 * 60, 12 * 60)).toEqual([
+      { start: 8 * 60, end: 9 * 60 },
+      { start: 11 * 60, end: 12 * 60 },
+    ]);
+    expect.soft(dayLoad(all, DEFAULT_WAKING)?.booked).toBe(120);
   });
 });
 
@@ -724,7 +796,6 @@ describe("clashesWith", () => {
     title?: string;
     allDay?: boolean;
     free?: boolean;
-    task?: boolean;
   };
   const clash = (specs: Spec[], startMin: number, endMin: number) =>
     clashesWith(
@@ -791,16 +862,15 @@ describe("clashesWith", () => {
         expected: [],
       },
       {
-        // A task holds no minutes, so it is dropped on width rather than by a
-        // flag of its own — and one standing inside the span is the case a
-        // zero-width end alone would have let through.
-        name: "a task inside the span holds no minutes and does not clash",
+        // A moment holds no minutes, so it is dropped on width rather than by
+        // a flag of its own — an older blob's zero-length record standing
+        // inside the span is the case width alone has to catch.
+        name: "a zero-width record inside the span holds no minutes and does not clash",
         events: [
           {
             title: "Renew passport",
             start: "2026-03-08 09:30",
             end: "2026-03-08 09:30",
-            task: true,
           },
         ],
         span: [9 * 60, 10 * 60],
@@ -1539,9 +1609,10 @@ describe("freeSlots", () => {
     const events = [
       event({ start: day("2026-03-10"), end: day("2026-03-11"), allDay: true }),
       event({ start: "2026-03-10 12:00", end: "2026-03-10 13:00", free: true }),
-      event({ start: "2026-03-10 15:00", end: "2026-03-10 15:00", task: true }),
     ];
-    const slots = freeSlots(events, [cal], at("2026-03-10 08:00"), 1, waking);
+    const slots = freeSlots(events, [cal], at("2026-03-10 08:00"), 1, waking, [
+      task({ due: "2026-03-10 15:00" }),
+    ]);
     expect(slots).toEqual([{ start: ms("2026-03-10 08:00"), end: ms("2026-03-10 22:00") }]);
   });
 

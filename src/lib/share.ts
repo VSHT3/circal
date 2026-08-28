@@ -86,11 +86,12 @@ export const SHARE_MAX = 1_600;
  *  carries; the query string next to it is the app's day and view. */
 const FRAGMENT_PREFIX = "#e=";
 
-/** The three booleans, as bits, because three fields of `0`/`1` cost five
- *  characters more than one base36 digit. Read *before* the instants: an
- *  all-day event spells them differently. */
+/** The booleans, as bits, because separate fields of `0`/`1` cost more
+ *  characters than one base36 digit. Read *before* the instants: an all-day
+ *  event spells them differently. Bit 2 was `TASK` while a task was an event;
+ *  it is retired rather than reassigned, so a link minted then decodes to a
+ *  zero-width record `readEvent` refuses instead of to a free event. */
 const ALL_DAY = 1;
-const TASK = 2;
 const FREE = 4;
 
 /**
@@ -317,7 +318,7 @@ function decodeRule(field: string): Record<string, unknown> {
  * whatever is on the object — the same walk `duplicateOf` makes, and for
  * two of the fields the same answer.
  *
- * Travelling: `title`, the instants, `allDay`, `task`, `free`, `tzid`
+ * Travelling: `title`, the instants, `allDay`, `free`, `tzid`
  * (the zone the *rule* is read against, so a series shared out of a feed
  * still lands on the right days), `location`, `url`, `notes`, `color`,
  * `icon` and the whole `Recurrence`. That is what the sender was looking
@@ -337,8 +338,6 @@ function decodeRule(field: string): Record<string, unknown> {
  * - **`seriesId`/`seriesKey`.** They name a relationship to another event,
  *   and that event is not in the link. A shared override is an ordinary
  *   event on the day it used to replace.
- * - **`doneKeys`.** Ticks against work the *sender* did. A shared task
- *   arriving pre-ticked is a to-do list that lies.
  * - **`remindLead`.** It overrides the *reader's* own setting, and how much
  *   warning the sender wants about their day is not part of what the event
  *   is — the same reason a `.ics` carries no preferences. Absent, the field
@@ -367,7 +366,7 @@ function decodeRule(field: string): Record<string, unknown> {
  * people are meant to share.
  */
 export function encodeShare(event: ShareDraft): ShareEncoded {
-  const flags = (event.allDay ? ALL_DAY : 0) | (event.task ? TASK : 0) | (event.free ? FREE : 0);
+  const flags = (event.allDay ? ALL_DAY : 0) | (event.free ? FREE : 0);
   let when: string;
   let length: string;
   if (event.allDay) {
@@ -417,8 +416,8 @@ export function encodeShare(event: ShareDraft): ShareEncoded {
  * opinion here is how two paths come to disagree about what an event is.
  * The instants are the exception it cannot cover, because the day form is
  * this format's own: a day key outside the calendar is refused here, and
- * everything else (a `NaN` instant, an end before its start, a task's
- * zero width) is refused there.
+ * everything else (a `NaN` instant, an end at or before its start) is
+ * refused there.
  *
  * `calendarId` is the caller's, because the receiver's calendars are not
  * the sender's — see `encodeShare` on what does not travel.
@@ -458,7 +457,6 @@ export function decodeShare(token: string, calendarId: string): ShareDecoded {
     calendarId,
     title: parts[3] ?? "",
     allDay,
-    task: (flags & TASK) !== 0,
     free: (flags & FREE) !== 0,
     tzid: parts[5] ?? "",
     location: parts[6] ?? "",

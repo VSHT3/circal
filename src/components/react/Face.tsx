@@ -89,8 +89,6 @@ export interface FaceGhost {
   end: number;
   color: string;
   opacity: number;
-  /** A draft that is a moment rather than a span. */
-  task: boolean;
 }
 
 /** How translucent a range still under the pointer is. It has no colour to
@@ -730,14 +728,13 @@ export default function Face({
         />
       ))}
 
-      {ghost && (ghost.task || ghost.end > ghost.start) && (
+      {ghost && ghost.end > ghost.start && (
         <GhostArc
           clock={clock}
           start={ghost.start}
           end={ghost.end}
           color={ghost.color}
           opacity={ghost.opacity}
-          task={ghost.task}
         />
       )}
 
@@ -1295,7 +1292,7 @@ function EventArc({
   const tail = closed ? to : paintTo - inset;
   const mid = (from + to) / 2;
   const d = dot ? arcPath(r, mid, mid + 0.001) : arcPath(r, head, tail);
-  /** Where a task's pip sits: the same point the dot path is centred on. */
+  /** Where a due date's pip sits: the same point the dot path is centred on. */
   const taskPoint = polar(r, mid);
   /**
    * Free time is drawn as the outline of the arc a busy event fills, and the
@@ -1304,13 +1301,13 @@ function EventArc({
    * paint at this width, `inset` and the closed-turn rule included, so
    * nothing on the face moves and no radius is spent.
    *
-   * A **task** is deliberately never asked. It is a moment rather than a
-   * span, so there is no width to leave on offer — it books nothing already,
-   * which is the whole of what free means — and its pip is filled while it
-   * stands and hollow once it is done. Reading `free` here would put a second
-   * meaning on that one shape.
+   * A **task's occurrence** is deliberately never asked. A due pip has no
+   * width to leave on offer — it books nothing already, which is the whole of
+   * what free means — and its filled/hollow pair is spoken for: filled is
+   * open, hollow is done. A plan's synthetic event is always busy, so the
+   * question never reaches one.
    */
-  const hollow = !occ.event.task && occ.event.free;
+  const hollow = !occ.task && occ.event.free;
   const grown = hovered || dragging;
   /**
    * Hover thickens the outline instead of widening the band.
@@ -1417,7 +1414,7 @@ function EventArc({
       className={intro ? "intro-in" : undefined}
       style={intro ?? undefined}
     >
-      {occ.event.task ? (
+      {occ.task && occ.startMin === occ.endMin ? (
         // A task is a notch in the rim, and its two states are the face's own
         // vocabulary: ink is light, so an open one is a filled pip and a done
         // one is that pip emptied out — the favicon's two shapes, at 14 units.
@@ -1539,15 +1536,12 @@ function GhostArc({
   end,
   color,
   opacity,
-  task,
 }: {
   clock: Clock;
   start: number;
   end: number;
   color: string;
   opacity: number;
-  /** A draft that is a moment rather than a span. */
-  task: boolean;
 }) {
   const stroke = {
     fill: "none",
@@ -1556,24 +1550,6 @@ function GhostArc({
     strokeWidth: DIAL.ARC_WIDTH,
     pointerEvents: "none",
   } as const;
-
-  // A task is a moment, so its ghost is the pip it is about to become rather
-  // than an arc of no length — without this, flipping the editor's Task switch
-  // makes the draft disappear off the face, which reads as the drawing having
-  // been thrown away. The one shape a `GhostArc` draws that is not an arc.
-  if (task) {
-    const at = polar(DIAL.LANE, angleAt(start, clock));
-    return (
-      <circle
-        cx={at.x}
-        cy={at.y}
-        r={DIAL.ARC_WIDTH / 2}
-        fill={color}
-        fillOpacity={opacity}
-        pointerEvents="none"
-      />
-    );
-  }
 
   if (end - start >= MINUTES_PER_DAY) {
     return <circle cx={DIAL.C} cy={DIAL.C} r={DIAL.LANE} {...stroke} />;

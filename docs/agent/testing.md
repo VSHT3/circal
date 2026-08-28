@@ -5,7 +5,7 @@
 
 ## Testing & QA
 
-**Suite exists. Read before writing one.** Vitest, `tests/`, 2,104 cases, 34 files, ~3 s, wired into `verify`. Coverage = cases in file owning module. Never scaffold second harness, second fixture style, `*.spec.ts`.
+**Suite exists. Read before writing one.** Vitest, `tests/`, 2,224 cases, 36 files, ~3 s, wired into `verify`. Coverage = cases in file owning module. Never scaffold second harness, second fixture style, `*.spec.ts`.
 
 | test file                    | covers                                                                                                                                                                                                                                  |
 | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -18,6 +18,7 @@
 | `tests/recur.test.ts`        | `recur.ts` — RFC 5545 §3.8.5.3 worked examples, BY\* , BYSETPOS                                                                                                                                                                         |
 | `tests/describe.test.ts`     | `describe.ts` — `isExpressible`'s gate, `describeRule`'s clause order, BYSETPOS as adjective                                                                                                                                            |
 | `tests/events.test.ts`       | `events.ts` — clipping, lanes, overrides, `freeGaps`, free time booking nothing, `colorOf`, `inkOn`, lead + guest format                                                                                                                |
+| `tests/tasks.test.ts`        | `tasks.ts` — field validators, `plannedMinutes`/`unplanned`, `taskState`'s boundaries, `scoreTask`, `compareTasks`                                                                                                                      |
 | `tests/ics.test.ts`          | `ics.ts` — round-trip incl. `TRANSP`, `VALARM`, `ORGANIZER` + `ATTENDEE`, `METHOD` ignored, folding, escaping, malformed feeds                                                                                                          |
 | `tests/store.test.ts`        | `store.ts` — write/delete/move, undo, cross-tab, `sane`, seeding, backup clock                                                                                                                                                          |
 | `tests/backup.test.ts`       | `backup.ts` — hostile input, orphan reparenting, `backupDue`'s interval                                                                                                                                                                 |
@@ -30,7 +31,7 @@
 | `tests/week.test.ts`         | `week.ts` — layout bounds, scroll floor, zoom's diameter contract                                                                                                                                                                       |
 | `tests/sun.test.ts`          | `sun.ts` — NOAA references, polar cases, no clipping                                                                                                                                                                                    |
 | `tests/moon.test.ts`         | `moon.ts` — published new/full anchors, 200-cycle walk, eight names                                                                                                                                                                     |
-| `tests/remind.test.ts`       | `remind.ts` — one-minute window, never catching up, all-day and ticked tasks, `leadOf`'s precedence                                                                                                                                     |
+| `tests/remind.test.ts`       | `remind.ts` — one-minute window, never catching up, all-day silence, task deadlines and plans, `leadOf`'s precedence                                                                                                                    |
 | `tests/travel.test.ts`       | `travel.ts` — when to ask, per-instant shift, all-day re-anchoring, `until`, scoped clear                                                                                                                                               |
 | `tests/share.test.ts`        | `share.ts` — round trip, what refuses to travel, truncation caught, length ratio                                                                                                                                                        |
 | `tests/vault.test.ts`        | `vault.ts` — round trip incl. multi-byte titles and a 380 KB document, fresh IV per seal, which of two refusals each damage earns                                                                                                       |

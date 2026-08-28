@@ -42,7 +42,7 @@ export default defineConfig([
     // reason it was opened. WAI-ARIA requires focus to move into a modal when
     // it opens, so the blanket ban is wrong exactly here.
     files: [
-      "src/components/react/{CalendarEditor,CommandPalette,EventEditor,MarkPicker,ScopePrompt}.tsx",
+      "src/components/react/{CalendarEditor,CommandPalette,EventEditor,MarkPicker,ScopePrompt,TaskEditor}.tsx",
     ],
     rules: { "jsx-a11y/no-autofocus": "off" },
   },

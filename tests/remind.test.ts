@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { at, byDay, calendar, event } from "./helpers";
+import { at, byDay, calendar, event, plan, task } from "./helpers";
 import { REMIND_INHERIT, REMIND_SILENT, instantKey } from "@/lib/events";
 import {
   REMIND_LEADS,
@@ -123,30 +123,30 @@ describe("dueReminders: the half-open window, and it never catches up", () => {
 
   it.each(rows)("$name", ({ start, due }) => {
     const e = event({ start });
-    const reminders = dueReminders([e], [cal], at("2026-03-09 08:00"), 60, new Set());
+    const reminders = dueReminders([e], [cal], [], at("2026-03-09 08:00"), 60, new Set());
     expect.soft(reminders).toHaveLength(due ? 1 : 0);
-    if (due) expect.soft(reminders[0]?.event.id).toBe(e.id);
+    if (due) expect.soft(reminders[0]?.event?.id).toBe(e.id);
   });
 });
 
 describe("dueReminders: lead 0 and lead 60", () => {
   it("lead 0 — the occurrence starting this very minute", () => {
     const e = event({ start: "2026-03-09 09:00" });
-    const reminders = dueReminders([e], [cal], at("2026-03-09 09:00"), 0, new Set());
+    const reminders = dueReminders([e], [cal], [], at("2026-03-09 09:00"), 0, new Set());
     expect.soft(reminders).toHaveLength(1);
     expect.soft(reminders[0]?.lead).toBe(0);
   });
 
   it("lead 60 — a full hour ahead of the occurrence", () => {
     const e = event({ start: "2026-03-09 10:00" });
-    const reminders = dueReminders([e], [cal], at("2026-03-09 09:00"), 60, new Set());
+    const reminders = dueReminders([e], [cal], [], at("2026-03-09 09:00"), 60, new Set());
     expect.soft(reminders).toHaveLength(1);
     expect.soft(reminders[0]?.lead).toBe(60);
   });
 
   it("does not fire lead 60 for an occurrence only 30 minutes out", () => {
     const e = event({ start: "2026-03-09 09:30" });
-    const reminders = dueReminders([e], [cal], at("2026-03-09 09:00"), 60, new Set());
+    const reminders = dueReminders([e], [cal], [], at("2026-03-09 09:00"), 60, new Set());
     expect.soft(reminders).toHaveLength(0);
   });
 });
@@ -154,14 +154,14 @@ describe("dueReminders: lead 0 and lead 60", () => {
 describe("dueReminders: a target that crosses midnight into tomorrow", () => {
   it("finds an occurrence whose target minute lands after midnight", () => {
     const e = event({ start: "2026-03-09 00:15" });
-    const reminders = dueReminders([e], [cal], at("2026-03-08 23:15"), 60, new Set());
+    const reminders = dueReminders([e], [cal], [], at("2026-03-08 23:15"), 60, new Set());
     expect.soft(reminders).toHaveLength(1);
     expect.soft(reminders[0]?.start).toBeSameInstantAs("2026-03-09 00:15");
   });
 
   it("does not find it on the wrong side of the boundary", () => {
     const e = event({ start: "2026-03-09 00:15" });
-    const reminders = dueReminders([e], [cal], at("2026-03-08 23:14"), 60, new Set());
+    const reminders = dueReminders([e], [cal], [], at("2026-03-08 23:14"), 60, new Set());
     expect.soft(reminders).toHaveLength(0);
   });
 });
@@ -176,7 +176,7 @@ describe("dueReminders: an event's own lead overrides the setting's", () => {
   const dentist = () => event({ title: "Dentist", start: "2026-03-09 09:00", remindLead: 60 });
 
   it("fires an hour ahead, where the setting would have waited", () => {
-    const reminders = dueReminders([dentist()], [cal], at("2026-03-09 08:00"), 5, new Set());
+    const reminders = dueReminders([dentist()], [cal], [], at("2026-03-09 08:00"), 5, new Set());
     expect.soft(reminders).toHaveLength(1);
     // The resolved lead, which is what the notification then prints.
     expect.soft(reminders[0]?.lead).toBe(60);
@@ -184,7 +184,7 @@ describe("dueReminders: an event's own lead overrides the setting's", () => {
   });
 
   it("says nothing at the setting's own minute", () => {
-    const reminders = dueReminders([dentist()], [cal], at("2026-03-09 08:55"), 5, new Set());
+    const reminders = dueReminders([dentist()], [cal], [], at("2026-03-09 08:55"), 5, new Set());
     expect.soft(reminders).toHaveLength(0);
   });
 
@@ -193,9 +193,9 @@ describe("dueReminders: an event's own lead overrides the setting's", () => {
   it("a named lead of 0 fires as the occurrence starts, not an hour before it", () => {
     const standup = event({ title: "Standup", start: "2026-03-09 09:00", remindLead: 0 });
     expect
-      .soft(dueReminders([standup], [cal], at("2026-03-09 08:00"), 60, new Set()))
+      .soft(dueReminders([standup], [cal], [], at("2026-03-09 08:00"), 60, new Set()))
       .toHaveLength(0);
-    const atStart = dueReminders([standup], [cal], at("2026-03-09 09:00"), 60, new Set());
+    const atStart = dueReminders([standup], [cal], [], at("2026-03-09 09:00"), 60, new Set());
     expect.soft(atStart).toHaveLength(1);
     expect.soft(atStart[0]?.lead).toBe(0);
   });
@@ -206,8 +206,8 @@ describe("dueReminders: an event's own lead overrides the setting's", () => {
   it("resolves each occurrence separately in the same tick", () => {
     const soon = event({ title: "Soon", start: "2026-03-09 09:05", remindLead: 5 });
     const later = event({ title: "Later", start: "2026-03-09 10:00", remindLead: 60 });
-    const reminders = dueReminders([soon, later], [cal], at("2026-03-09 09:00"), 15, new Set());
-    expect.soft(reminders.map((r) => r.event.title)).toEqual(["Soon", "Later"]);
+    const reminders = dueReminders([soon, later], [cal], [], at("2026-03-09 09:00"), 15, new Set());
+    expect.soft(reminders.map((r) => r.title)).toEqual(["Soon", "Later"]);
     expect.soft(reminders.map((r) => r.lead)).toEqual([5, 60]);
   });
 
@@ -215,7 +215,7 @@ describe("dueReminders: an event's own lead overrides the setting's", () => {
     const e = event({ start: "2026-03-09 00:15", remindLead: 60 });
     // The setting is 0, so nothing but this event's own lead can look into
     // tomorrow at all.
-    const reminders = dueReminders([e], [cal], at("2026-03-08 23:15"), 0, new Set());
+    const reminders = dueReminders([e], [cal], [], at("2026-03-08 23:15"), 0, new Set());
     expect.soft(reminders).toHaveLength(1);
     expect.soft(reminders[0]?.start).toBeSameInstantAs("2026-03-09 00:15");
   });
@@ -227,14 +227,14 @@ describe("dueReminders: a calendar's lead reaches its inheriting events", () => 
 
   it("fires an hour ahead for an event that named no lead of its own", () => {
     const e = event({ calendarId: "cal-standups", start: "2026-03-09 09:00" });
-    const reminders = dueReminders([e], [standups()], at("2026-03-09 08:00"), 5, new Set());
+    const reminders = dueReminders([e], [standups()], [], at("2026-03-09 08:00"), 5, new Set());
     expect.soft(reminders).toHaveLength(1);
     expect.soft(reminders[0]?.lead).toBe(60);
   });
 
   it("says nothing at the setting's own minute", () => {
     const e = event({ calendarId: "cal-standups", start: "2026-03-09 09:00" });
-    const reminders = dueReminders([e], [standups()], at("2026-03-09 08:55"), 5, new Set());
+    const reminders = dueReminders([e], [standups()], [], at("2026-03-09 08:55"), 5, new Set());
     expect.soft(reminders).toHaveLength(0);
   });
 
@@ -242,7 +242,7 @@ describe("dueReminders: a calendar's lead reaches its inheriting events", () => 
   // now one of them: only its 60 looks far enough into tomorrow to find this.
   it("a calendar's lead is the one that crosses midnight", () => {
     const e = event({ calendarId: "cal-standups", start: "2026-03-09 00:15" });
-    const reminders = dueReminders([e], [standups()], at("2026-03-08 23:15"), 0, new Set());
+    const reminders = dueReminders([e], [standups()], [], at("2026-03-08 23:15"), 0, new Set());
     expect.soft(reminders).toHaveLength(1);
     expect.soft(reminders[0]?.start).toBeSameInstantAs("2026-03-09 00:15");
   });
@@ -256,8 +256,8 @@ describe("dueReminders: a calendar's lead reaches its inheriting events", () => 
       start: "2026-03-09 09:00",
       remindLead: 5,
     });
-    const atLead = dueReminders([muted, own], [quiet], at("2026-03-09 08:55"), 5, new Set());
-    expect.soft(atLead.map((r) => r.event.id)).toEqual(["e-own"]);
+    const atLead = dueReminders([muted, own], [quiet], [], at("2026-03-09 08:55"), 5, new Set());
+    expect.soft(atLead.map((r) => r.event?.id)).toEqual(["e-own"]);
   });
 });
 
@@ -269,15 +269,22 @@ describe("dueReminders: a silent event, and only it, stays quiet", () => {
   const other = () => event({ title: "Review", start: "2026-03-09 09:00" });
 
   it("raises nothing for the silenced event while its neighbour fires", () => {
-    const reminders = dueReminders([quiet(), other()], [cal], at("2026-03-09 09:00"), 0, new Set());
-    expect.soft(reminders.map((r) => r.event.title)).toEqual(["Review"]);
+    const reminders = dueReminders(
+      [quiet(), other()],
+      [cal],
+      [],
+      at("2026-03-09 09:00"),
+      0,
+      new Set(),
+    );
+    expect.soft(reminders.map((r) => r.title)).toEqual(["Review"]);
   });
 
   it("stays quiet at every lead the setting could be on", () => {
     for (const lead of REMIND_LEADS) {
       const now = at("2026-03-09 09:00");
       now.setMinutes(now.getMinutes() - lead);
-      expect.soft(dueReminders([quiet()], [cal], now, lead, new Set())).toHaveLength(0);
+      expect.soft(dueReminders([quiet()], [cal], [], now, lead, new Set())).toHaveLength(0);
     }
   });
 
@@ -303,9 +310,13 @@ describe("dueReminders: a silent event, and only it, stays quiet", () => {
       remindLead: REMIND_SILENT,
     });
     const events = [series, silenced];
-    expect.soft(dueReminders(events, [cal], at("2026-03-09 09:00"), 0, new Set())).toHaveLength(0);
+    expect
+      .soft(dueReminders(events, [cal], [], at("2026-03-09 09:00"), 0, new Set()))
+      .toHaveLength(0);
     // The Monday after is the series' own occurrence again, and it speaks.
-    expect.soft(dueReminders(events, [cal], at("2026-03-16 09:00"), 0, new Set())).toHaveLength(1);
+    expect
+      .soft(dueReminders(events, [cal], [], at("2026-03-16 09:00"), 0, new Set()))
+      .toHaveLength(1);
   });
 });
 
@@ -314,41 +325,71 @@ describe("dueReminders: a silent event, and only it, stays quiet", () => {
 describe("dueReminders: all-day occurrences never fire", () => {
   it("skips an all-day event even when its midnight lines up with the window", () => {
     const e = event({ allDay: true, start: "2026-03-09", end: "2026-03-10" });
-    const reminders = dueReminders([e], [cal], at("2026-03-09 00:00"), 0, new Set());
+    const reminders = dueReminders([e], [cal], [], at("2026-03-09 00:00"), 0, new Set());
     expect.soft(reminders).toHaveLength(0);
   });
 });
 
-describe("dueReminders: a dated task fires, a ticked one does not", () => {
-  it("raises a task at its due moment — a to-do with a time is the thing most worth a nudge", () => {
-    const e = event({ task: true, start: "2026-03-09 09:00", end: "2026-03-09 09:00" });
-    const reminders = dueReminders([e], [cal], at("2026-03-09 09:00"), 0, new Set());
+describe("dueReminders: a task's deadline and its plans", () => {
+  it("raises a timed deadline at its due moment — a to-do with a time is the thing most worth a nudge", () => {
+    const t = task({ due: "2026-03-09 09:00" });
+    const reminders = dueReminders([], [cal], [t], at("2026-03-09 09:00"), 0, new Set());
     expect.soft(reminders).toHaveLength(1);
+    expect.soft(reminders[0].kind).toBe("due");
     expect.soft(reminderText(reminders[0], "24h").body).toBe("Due now · 09:00");
   });
 
-  it("says nothing about one already ticked off", () => {
-    const e = event({
-      task: true,
-      start: "2026-03-09 09:00",
-      end: "2026-03-09 09:00",
-      doneKeys: ["2026-03-09T09:00:00"],
-    });
-    const reminders = dueReminders([e], [cal], at("2026-03-09 09:00"), 0, new Set());
-    expect.soft(reminders).toHaveLength(0);
+  it("counts a lead down to the deadline, like an event's", () => {
+    const t = task({ due: "2026-03-09 09:00" });
+    const reminders = dueReminders([], [cal], [t], at("2026-03-09 08:50"), 10, new Set());
+    expect.soft(reminders).toHaveLength(1);
+    expect.soft(reminders[0].lead).toBe(10);
   });
 
-  it("still nudges the occurrence of a repeating task that has not been ticked", () => {
-    const e = event({
-      task: true,
-      start: "2026-03-02 09:00",
-      end: "2026-03-02 09:00",
-      repeat: "weekly",
-      doneKeys: ["2026-03-02T09:00:00"],
+  it("says nothing about one already ticked off", () => {
+    const t = task({ due: "2026-03-09 09:00", done: true });
+    expect.soft(dueReminders([], [cal], [t], at("2026-03-09 09:00"), 0, new Set())).toHaveLength(0);
+  });
+
+  it("fires nothing for an all-day deadline — there is no minute to count down to", () => {
+    const t = task({ due: "2026-03-09", dueAllDay: true });
+    expect.soft(dueReminders([], [cal], [t], at("2026-03-09 00:00"), 0, new Set())).toHaveLength(0);
+  });
+
+  it("raises a plan at its start — the thing actually on the clock", () => {
+    const t = task({
+      due: "2026-03-13 17:00",
+      plans: [plan("2026-03-09 09:00", "2026-03-09 11:00")],
     });
-    const reminders = dueReminders([e], [cal], at("2026-03-09 08:50"), 10, new Set());
+    const reminders = dueReminders([], [cal], [t], at("2026-03-09 08:50"), 10, new Set());
     expect.soft(reminders).toHaveLength(1);
+    expect.soft(reminders[0].kind).toBe("starts");
     expect.soft(reminders[0].start).toBeSameInstantAs("2026-03-09 09:00");
+  });
+
+  it("takes the calendar's lead — a task names none of its own", () => {
+    const standups = calendar({ id: "cal-work", remindLead: 30 });
+    const t = task({ due: "2026-03-09 09:00" });
+    const reminders = dueReminders([], [standups], [t], at("2026-03-09 08:30"), 5, new Set());
+    expect.soft(reminders).toHaveLength(1);
+    expect.soft(reminders[0].lead).toBe(30);
+  });
+
+  it("stays quiet on a hidden calendar, the face's own filter", () => {
+    const hidden = calendar({ id: "cal-work", visible: false });
+    const t = task({ due: "2026-03-09 09:00" });
+    expect
+      .soft(dueReminders([], [hidden], [t], at("2026-03-09 09:00"), 0, new Set()))
+      .toHaveLength(0);
+  });
+
+  it("the fired set suppresses a repeat, per key", () => {
+    const t = task({ due: "2026-03-09 09:00" });
+    const first = dueReminders([], [cal], [t], at("2026-03-09 09:00"), 0, new Set());
+    expect.soft(first).toHaveLength(1);
+    expect
+      .soft(dueReminders([], [cal], [t], at("2026-03-09 09:00"), 0, new Set([first[0]!.key])))
+      .toHaveLength(0);
   });
 });
 
@@ -356,14 +397,14 @@ describe("dueReminders: hidden calendars are already filtered by occurrencesOn",
   it("raises nothing for an event on a hidden calendar", () => {
     const hidden = calendar({ id: "cal-hidden", visible: false });
     const e = event({ calendarId: "cal-hidden", start: "2026-03-09 09:00" });
-    const reminders = dueReminders([e], [hidden], at("2026-03-09 09:00"), 0, new Set());
+    const reminders = dueReminders([e], [hidden], [], at("2026-03-09 09:00"), 0, new Set());
     expect.soft(reminders).toHaveLength(0);
   });
 
   it("still raises the same event once its calendar is visible again", () => {
     const visible = calendar({ id: "cal-hidden", visible: true });
     const e = event({ calendarId: "cal-hidden", start: "2026-03-09 09:00" });
-    const reminders = dueReminders([e], [visible], at("2026-03-09 09:00"), 0, new Set());
+    const reminders = dueReminders([e], [visible], [], at("2026-03-09 09:00"), 0, new Set());
     expect.soft(reminders).toHaveLength(1);
   });
 });
@@ -373,10 +414,10 @@ describe("dueReminders: hidden calendars are already filtered by occurrencesOn",
 describe("dueReminders: the fired set suppresses a repeat", () => {
   it("does not raise a key already in `fired`", () => {
     const e = event({ start: "2026-03-09 09:00" });
-    const first = dueReminders([e], [cal], at("2026-03-09 09:00"), 0, new Set());
+    const first = dueReminders([e], [cal], [], at("2026-03-09 09:00"), 0, new Set());
     expect.soft(first).toHaveLength(1);
 
-    const again = dueReminders([e], [cal], at("2026-03-09 09:00"), 0, new Set([first[0]!.key]));
+    const again = dueReminders([e], [cal], [], at("2026-03-09 09:00"), 0, new Set([first[0]!.key]));
     expect.soft(again).toHaveLength(0);
   });
 });
@@ -386,8 +427,15 @@ describe("dueReminders: return order is by start instant", () => {
     const later = event({ title: "Later", start: "2026-03-09 09:00:45" });
     const earlier = event({ title: "Earlier", start: "2026-03-09 09:00:00" });
     // Passed in reverse so a stable-but-wrong implementation cannot pass by accident.
-    const reminders = dueReminders([later, earlier], [cal], at("2026-03-09 09:00"), 0, new Set());
-    expect.soft(reminders.map((r) => r.event.title)).toEqual(["Earlier", "Later"]);
+    const reminders = dueReminders(
+      [later, earlier],
+      [cal],
+      [],
+      at("2026-03-09 09:00"),
+      0,
+      new Set(),
+    );
+    expect.soft(reminders.map((r) => r.title)).toEqual(["Earlier", "Later"]);
   });
 });
 
@@ -404,13 +452,13 @@ describe("dueReminders: a recurring event fires on the right day only", () => {
     });
 
   it("fires on the Monday the rule lands on", () => {
-    const reminders = dueReminders([weekly()], [cal], at("2026-03-09 08:00"), 60, new Set());
+    const reminders = dueReminders([weekly()], [cal], [], at("2026-03-09 08:00"), 60, new Set());
     expect.soft(reminders).toHaveLength(1);
     expect.soft(reminders[0]?.start).toBeSameInstantAs("2026-03-09 09:00");
   });
 
   it("does not fire on the Sunday before it", () => {
-    const reminders = dueReminders([weekly()], [cal], at("2026-03-08 08:00"), 60, new Set());
+    const reminders = dueReminders([weekly()], [cal], [], at("2026-03-08 08:00"), 60, new Set());
     expect.soft(reminders).toHaveLength(0);
   });
 });
@@ -422,19 +470,19 @@ describe("dueReminders: a multi-day event fires exactly once, only on the day it
     event({ title: "Conference", start: "2026-03-08 09:00", end: "2026-03-11 09:00" });
 
   it("fires on its first day, at its own start", () => {
-    const reminders = dueReminders([trip()], [cal], at("2026-03-08 08:00"), 60, new Set());
+    const reminders = dueReminders([trip()], [cal], [], at("2026-03-08 08:00"), 60, new Set());
     expect.soft(reminders).toHaveLength(1);
   });
 
   // A continuation day is clipped to startMin 0 by `occurrencesOn` — a bug that
   // compared minute-of-day instead of the real instant would fire here too.
   it("does not fire again at midnight on a day it merely continues through", () => {
-    const reminders = dueReminders([trip()], [cal], at("2026-03-08 23:00"), 60, new Set());
+    const reminders = dueReminders([trip()], [cal], [], at("2026-03-08 23:00"), 60, new Set());
     expect.soft(reminders).toHaveLength(0);
   });
 
   it("does not fire on its second day at the hour it started on its first", () => {
-    const reminders = dueReminders([trip()], [cal], at("2026-03-09 08:00"), 60, new Set());
+    const reminders = dueReminders([trip()], [cal], [], at("2026-03-09 08:00"), 60, new Set());
     expect.soft(reminders).toHaveLength(0);
   });
 });
@@ -446,9 +494,12 @@ describe("dueReminders: a multi-day event fires exactly once, only on the day it
 describe("reminderText", () => {
   const reminder = (overrides: Partial<Reminder> = {}): Reminder => ({
     key: "k1",
-    event: event({ title: "Design review" }),
+    title: "Design review",
     start: at("2026-03-09 09:05"),
     lead: 10,
+    kind: "starts",
+    event: event({ title: "Design review" }),
+    task: null,
     ...overrides,
   });
 
@@ -465,9 +516,15 @@ describe("reminderText", () => {
     expect.soft(got).toBe(body);
   });
 
-  it('falls back to "Untitled" for an event with no title', () => {
-    const { title } = reminderText(reminder({ event: event({ title: "" }) }), "12h");
-    expect.soft(title).toBe("Untitled");
+  it('says "Due now" for a deadline at lead 0 — a task is due, an event starts', () => {
+    const { body } = reminderText(reminder({ lead: 0, kind: "due" }), "24h");
+    expect.soft(body).toBe("Due now · 09:05");
+  });
+
+  it('resolves "Untitled" in the builder, for a subject with no name', () => {
+    const t = task({ title: "", due: "2026-03-09 09:05" });
+    const [r] = dueReminders([], [cal], [t], at("2026-03-09 09:05"), 0, new Set());
+    expect.soft(r?.title).toBe("Untitled");
   });
 });
 
@@ -479,33 +536,33 @@ describe("titleCountdown", () => {
   it("counts down to the next timed occurrence, floored like untilText", () => {
     // 899s to go, which is 14m59s — a round-to-nearest read would say 15m.
     const e = event({ title: "Standup", start: "2026-03-09 09:14:59" });
-    const got = titleCountdown([e], [cal], at("2026-03-09 09:00:00"));
+    const got = titleCountdown([e], [cal], [], at("2026-03-09 09:00:00"));
     expect(got).toBe("· 14m · Standup");
   });
 
   it("returns null when nothing timed is left today", () => {
     const e = event({ title: "Standup", start: "2026-03-09 08:00" });
-    const got = titleCountdown([e], [cal], at("2026-03-09 09:00"));
+    const got = titleCountdown([e], [cal], [], at("2026-03-09 09:00"));
     expect(got).toBeNull();
   });
 
   it("an all-day event is never it — no minute to count down to", () => {
     const allDay = event({ allDay: true, start: "2026-03-09", end: "2026-03-10" });
     const timed = event({ title: "Standup", start: "2026-03-09 10:00" });
-    const got = titleCountdown([allDay, timed], [cal], at("2026-03-09 09:00"));
+    const got = titleCountdown([allDay, timed], [cal], [], at("2026-03-09 09:00"));
     expect(got).toBe("· 1h · Standup");
   });
 
   it("picks the earliest qualifying occurrence, not the first in the array", () => {
     const later = event({ title: "Lunch", start: "2026-03-09 12:00" });
     const sooner = event({ title: "Standup", start: "2026-03-09 09:30" });
-    const got = titleCountdown([later, sooner], [cal], at("2026-03-09 09:00"));
+    const got = titleCountdown([later, sooner], [cal], [], at("2026-03-09 09:00"));
     expect(got).toBe("· 30m · Standup");
   });
 
   it('reads "now" rather than 0m for an occurrence already running', () => {
     const e = event({ title: "Standup", start: "2026-03-09 08:45", end: "2026-03-09 09:15" });
-    const got = titleCountdown([e], [cal], at("2026-03-09 09:00"));
+    const got = titleCountdown([e], [cal], [], at("2026-03-09 09:00"));
     expect(got).toBe("· now · Standup");
   });
 
@@ -514,13 +571,21 @@ describe("titleCountdown", () => {
   // countdown that has arrived and then stays there.
   it('reads "now" in the minute an occurrence starts', () => {
     const e = event({ title: "Standup", start: "2026-03-09 09:00:30" });
-    const got = titleCountdown([e], [cal], at("2026-03-09 09:00:00"));
+    const got = titleCountdown([e], [cal], [], at("2026-03-09 09:00:00"));
     expect(got).toBe("· now · Standup");
   });
 
   it('falls back to "Untitled" for an event with no title', () => {
     const e = event({ title: "", start: "2026-03-09 09:30" });
-    const got = titleCountdown([e], [cal], at("2026-03-09 09:00"));
+    const got = titleCountdown([e], [cal], [], at("2026-03-09 09:00"));
     expect(got).toBe("· 30m · Untitled");
+  });
+
+  it("a task's timed deadline counts as the next thing; a ticked one does not", () => {
+    const open = task({ title: "Essay", due: "2026-03-09 09:30" });
+    expect.soft(titleCountdown([], [cal], [open], at("2026-03-09 09:00"))).toBe("· 30m · Essay");
+    expect
+      .soft(titleCountdown([], [cal], [{ ...open, done: true }], at("2026-03-09 09:00")))
+      .toBeNull();
   });
 });

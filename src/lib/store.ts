@@ -56,7 +56,8 @@ import {
   type Grave,
   type Repeat,
 } from "./events";
-import { applyRemove, applySplit, applyToggleDone, applyTruncate, applyUpdate } from "./mutate";
+import { PLANS_MAX, readEstimate, readPlans, readPriority, type Plan, type Task } from "./tasks";
+import { applyRemove, applySplit, applyTruncate, applyUpdate } from "./mutate";
 import { pruneGraves, restamped } from "./merge";
 import { DEFAULT_DURATION, MIN_DURATION } from "./quickadd";
 import { REMIND_LEADS } from "./remind";
@@ -109,14 +110,18 @@ const FEED_BUDGET = 2_000_000;
  * Still 2 through the `clock` default going to `24h`, too. A default is what a
  * blob says when it says nothing; every blob that already exists says `12h` or
  * `24h` out loud, and neither of those changed meaning.
- * Still 2 through `task`, `doneKeys`, `moon`, `remind`, `remindLead` and
- * `free` as well: six more fields, filled in on read, none of them a change
+ * Still 2 through `moon`, `remind`, `remindLead` and `free` as well: more
+ * fields, filled in on read, none of them a change
  * to what anything already stored means — `moon` arrives from a stored
  * `moonPhase` through `migrateSettings`, which is a shape changing rather
  * than a meaning. And still 2 through the per-event `remindLead` override:
  * an event without one inherits, which is exactly what every event in every
  * blob written before it was already doing, so nothing stored says anything
  * new — and a bump here would throw away the setting the override overrides.
+ * And still 2 through `tasks` arriving as a sibling of `events`: a field
+ * arriving is the case `hydrateEvents` already covers, and nothing stored
+ * changed meaning — the old zero-width task events simply stopped being
+ * written; one still in a blob draws as the instantaneous dot it is.
  */
 const SCHEMA = 2;
 
@@ -413,6 +418,14 @@ export interface Snapshot {
   events: CalEvent[];
   calendars: Calendar[];
   /**
+   * The user's own tasks — a sibling of `events`, inside the blob for the
+   * same reasons: it is their data, it is exported, and it is undone. Two
+   * models because a deadline, an estimate and a done state have no meaning
+   * on a meeting; one read path because `dayAgenda` folds a task's plans and
+   * due pips in as `Occurrence`s.
+   */
+  tasks: Task[];
+  /**
    * Events pulled from subscribed feeds, keyed by their calendar's id. Kept
    * apart from `events` so a refresh can replace a feed wholesale, and so
    * nobody's Google calendar ends up inside a circal backup.
@@ -646,8 +659,6 @@ function seed(): CalEvent[] {
     seriesKey: "",
     color: "",
     icon: "",
-    task: false,
-    doneKeys: [],
     free: false,
     remindLead: REMIND_INHERIT,
     organizer: null,
@@ -679,9 +690,6 @@ function seed(): CalEvent[] {
     // label and this is not a second one — and it is invisible as a feature
     // until two events on one calendar disagree about it.
     make("Packing", "personal", at(13, 15), at(13, 50), { color: PALETTE[6] }),
-    // One task in the seed, because a pip on the rim is not a shape anybody
-    // guesses at: the demo day has to contain the thing the feature is.
-    make("Water the plants", "personal", at(18, 30), at(18, 30), { task: true }),
     make("Design review", "work", at(14, 0), at(16, 20), { location: "Studio" }),
     // Sky, not the Work violet under it: two arcs of one colour on adjacent
     // lanes are told apart by radius alone, and this pair is the only place
@@ -702,11 +710,38 @@ function seed(): CalEvent[] {
   ];
 }
 
+/**
+ * The seed's one task, for the reason the events above each earn a line: a
+ * pip on the rim is not a shape anybody guesses at, so the demo day has to
+ * contain the thing the feature is. Unstamped, `seed()`'s own argument.
+ */
+function seedTasks(): Task[] {
+  const today = startOfDay(new Date());
+  return [
+    {
+      id: newId(),
+      title: "Water the plants",
+      notes: "",
+      calendarId: "personal",
+      icon: "",
+      color: "",
+      due: today.getTime() + (18 * 60 + 30) * 60_000,
+      dueAllDay: false,
+      estimate: null,
+      priority: 0,
+      plans: [],
+      done: false,
+      updatedAt: 0,
+    },
+  ];
+}
+
 /* --------------------------------- state ---------------------------------- */
 
 const EMPTY: Snapshot = {
   schema: SCHEMA,
   events: [],
+  tasks: [],
   calendars: DEFAULT_CALENDARS,
   feeds: {},
   settings: DEFAULT_SETTINGS,
@@ -891,8 +926,6 @@ function hydrateEvents(value: unknown): CalEvent[] {
       seriesId,
       seriesKey,
       icon,
-      task,
-      doneKeys,
       free,
       remindLead,
       organizer,
@@ -919,8 +952,6 @@ function hydrateEvents(value: unknown): CalEvent[] {
       typeof seriesId === "string" &&
       typeof seriesKey === "string" &&
       typeof icon === "string" &&
-      typeof task === "boolean" &&
-      Array.isArray(doneKeys) &&
       typeof free === "boolean" &&
       // The one field asked about validity rather than only shape, and the
       // only one where the two differ: every neighbour here is a boolean, a
@@ -955,8 +986,6 @@ function hydrateEvents(value: unknown): CalEvent[] {
       seriesId: typeof seriesId === "string" ? seriesId : "",
       seriesKey: typeof seriesKey === "string" ? seriesKey : "",
       icon: typeof icon === "string" ? icon : "",
-      task: task === true,
-      doneKeys: Array.isArray(doneKeys) ? doneKeys : [],
       // Busy is what every event in a blob written before this field was
       // already doing, so the absent value and the default say the same
       // thing. It is in the shape question above as well as here: the fast
@@ -1019,6 +1048,56 @@ function hydrateCalendars(value: unknown): Calendar[] {
   );
 }
 
+/**
+ * The same boundary, for tasks. A blob written before tasks existed has none,
+ * which is an empty list; the per-field clamps are `tasks.ts`'s own, so the
+ * answer here is the answer `backup.readTask` gives. Same identity fast path
+ * and the same reason: this runs on every cross-tab write, and rebuilding
+ * every task each time is a copy nobody asked for. It asks about shape; the
+ * two instants are asked about validity because a stored `NaN` is a number
+ * and a due date of `NaN` is a task no day can find.
+ */
+function hydrateTasks(value: unknown): Task[] {
+  if (!Array.isArray(value)) return [];
+  return (value as Task[]).map((task) => {
+    const { id, title, notes, calendarId, icon, color, due, estimate, priority, plans } = task;
+    if (
+      typeof id === "string" &&
+      typeof title === "string" &&
+      typeof notes === "string" &&
+      typeof calendarId === "string" &&
+      typeof icon === "string" &&
+      typeof color === "string" &&
+      typeof due === "number" &&
+      Number.isFinite(due) &&
+      typeof task.dueAllDay === "boolean" &&
+      estimate === readEstimate(estimate) &&
+      priority === readPriority(priority) &&
+      Array.isArray(plans) &&
+      typeof task.done === "boolean" &&
+      task.updatedAt === readStamp(task.updatedAt)
+    ) {
+      return task;
+    }
+    return {
+      ...task,
+      id: typeof id === "string" && id ? id : newId(),
+      title: typeof title === "string" ? title : "Untitled",
+      notes: typeof notes === "string" ? notes : "",
+      calendarId: typeof calendarId === "string" ? calendarId : "",
+      icon: typeof icon === "string" ? icon : "",
+      color: typeof color === "string" ? color : "",
+      due: typeof due === "number" && Number.isFinite(due) ? due : Date.now(),
+      dueAllDay: task.dueAllDay === true,
+      estimate: readEstimate(estimate),
+      priority: readPriority(priority),
+      plans: readPlans(plans),
+      done: task.done === true,
+      updatedAt: readStamp(task.updatedAt),
+    };
+  });
+}
+
 function parse(stored: Partial<Snapshot>): Persisted {
   // A stale schema means the stored values no longer mean what they say.
   const settings =
@@ -1028,6 +1107,7 @@ function parse(stored: Partial<Snapshot>): Persisted {
   return {
     schema: SCHEMA,
     events: hydrateEvents(stored.events),
+    tasks: hydrateTasks(stored.tasks),
     calendars: hydrateCalendars(stored.calendars),
     // Both of these can be stored *wrong* rather than merely missing, and both
     // draw something broken if they are.
@@ -1254,7 +1334,12 @@ function hydrate(raw: string): Snapshot {
  */
 function freshInstall(): Snapshot {
   const weekStart = weekStartFor(globalThis.navigator?.language ?? "");
-  return { ...EMPTY, events: seed(), settings: { ...DEFAULT_SETTINGS, weekStart } };
+  return {
+    ...EMPTY,
+    events: seed(),
+    tasks: seedTasks(),
+    settings: { ...DEFAULT_SETTINGS, weekStart },
+  };
 }
 
 function load(): Snapshot {
@@ -1319,6 +1404,7 @@ function emit() {
 function baseSignature(s: Snapshot): string {
   return JSON.stringify([
     s.events,
+    s.tasks,
     s.calendars.map(({ feed: _feed, ...rest }) => rest),
     s.settings,
   ]);
@@ -1548,11 +1634,115 @@ export const store = {
     commit({ ...base, events: applyUpdate(base.events, id, patch, Date.now()) });
   },
 
-  /** Recorded in history like any other edit — a tick is a keystroke away and
-   *  ⌘Z is the only way back from the wrong one. */
-  toggleDone(id: string, at: Date | number) {
+  /* -------------------------------- tasks --------------------------------- */
+
+  /** Stamped at the line where it becomes a record, `create`'s own bargain. */
+  addTask(task: Omit<Task, "id" | "updatedAt">): Task {
     const base = fresh();
-    commit({ ...base, events: applyToggleDone(base.events, id, at, Date.now()) });
+    const created: Task = { ...task, id: newId(), updatedAt: Date.now() };
+    commit({ ...base, tasks: [...base.tasks, created] });
+    return created;
+  },
+
+  updateTask(id: string, patch: Partial<Task>) {
+    const base = fresh();
+    commit({
+      ...base,
+      tasks: base.tasks.map((t) => (t.id === id ? { ...t, ...patch, updatedAt: Date.now() } : t)),
+    });
+  },
+
+  /** The grave rides in the removal's own commit, an event's rule: a deletion
+   *  that landed without its grave is an id the next merge brings back. */
+  removeTask(id: string) {
+    const base = fresh();
+    if (!base.tasks.some((t) => t.id === id)) return;
+    commit({
+      ...base,
+      tasks: base.tasks.filter((t) => t.id !== id),
+      graves: [...base.graves, { id, at: Date.now() }],
+    });
+  },
+
+  /** Recorded in history like any other edit — a tick is a keystroke away and
+   *  ⌘Z is the only way back from the wrong one. No `EditScope` question: a
+   *  task has one deadline and is finished once. */
+  toggleTaskDone(id: string) {
+    const base = fresh();
+    commit({
+      ...base,
+      tasks: base.tasks.map((t) =>
+        t.id === id ? { ...t, done: !t.done, updatedAt: Date.now() } : t,
+      ),
+    });
+  },
+
+  /** One more block of time for a task. The list is kept in start order —
+   *  `readPlans`' own contract, so a stored list and a live one agree. */
+  planTask(id: string, plan: Plan) {
+    if (plan.end <= plan.start) return;
+    const base = fresh();
+    commit({
+      ...base,
+      tasks: base.tasks.map((t) =>
+        t.id === id && t.plans.length < PLANS_MAX
+          ? { ...t, plans: readPlans([...t.plans, plan]), updatedAt: Date.now() }
+          : t,
+      ),
+    });
+  },
+
+  unplanTask(id: string, index: number) {
+    const base = fresh();
+    commit({
+      ...base,
+      tasks: base.tasks.map((t) =>
+        t.id === id && index >= 0 && index < t.plans.length
+          ? { ...t, plans: t.plans.filter((_, i) => i !== index), updatedAt: Date.now() }
+          : t,
+      ),
+    });
+  },
+
+  movePlan(id: string, index: number, plan: Plan) {
+    if (plan.end <= plan.start) return;
+    const base = fresh();
+    commit({
+      ...base,
+      tasks: base.tasks.map((t) =>
+        t.id === id && index >= 0 && index < t.plans.length
+          ? {
+              ...t,
+              plans: readPlans(t.plans.map((p, i) => (i === index ? plan : p))),
+              updatedAt: Date.now(),
+            }
+          : t,
+      ),
+    });
+  },
+
+  /**
+   * Auto-schedule's single commit: every placement a run made, landed at
+   * once, so a whole run is one ⌘Z. Placements for ids that no longer exist
+   * are dropped rather than resurrected — the run was computed against a
+   * snapshot another tab may have moved past.
+   */
+  applyPlans(list: { id: string; plan: Plan }[]) {
+    if (list.length === 0) return;
+    const base = fresh();
+    const now = Date.now();
+    const byId = new Map<string, Plan[]>();
+    for (const { id, plan } of list) {
+      if (plan.end <= plan.start) continue;
+      byId.set(id, [...(byId.get(id) ?? []), plan]);
+    }
+    commit({
+      ...base,
+      tasks: base.tasks.map((t) => {
+        const added = byId.get(t.id);
+        return added ? { ...t, plans: readPlans([...t.plans, ...added]), updatedAt: now } : t;
+      }),
+    });
   },
 
   /** The graves ride in the same commit as the removal, which is what makes
@@ -2063,7 +2253,9 @@ export const store = {
    * `restamped` also buries what the backup does not carry, which is what
    * stops the other machine resurrecting every event this restore dropped.
    */
-  restore(next: Pick<Snapshot, "events" | "calendars" | "settings" | "settingsAt" | "graves">) {
+  restore(
+    next: Pick<Snapshot, "events" | "calendars" | "tasks" | "settings" | "settingsAt" | "graves">,
+  ) {
     // Only for its side effect: `commit` records the *current* snapshot as the
     // step to undo onto, and a stale one would undo into another tab's past.
     fresh();
@@ -2100,7 +2292,9 @@ export const store = {
    * anything useful: it knows which file moved and whether this was a sync or
    * a reconnect, and this action knows neither.
    */
-  adopt(next: Pick<Snapshot, "events" | "calendars" | "settings" | "settingsAt" | "graves">) {
+  adopt(
+    next: Pick<Snapshot, "events" | "calendars" | "tasks" | "settings" | "settingsAt" | "graves">,
+  ) {
     // Only for its side effect, the same reason `restore` calls it: `commit`
     // records the *current* snapshot as the step to undo onto.
     fresh();
@@ -2115,6 +2309,7 @@ export const store = {
         // `restore` above for the other half of the asymmetry.
         events: next.events,
         calendars: next.calendars,
+        tasks: next.tasks,
         graves: next.graves,
         settings: sane({ ...DEFAULT_SETTINGS, ...next.settings }),
         settingsAt: next.settingsAt,
@@ -2221,8 +2416,6 @@ export function draftEvent(
     seriesKey: "",
     color: "",
     icon: "",
-    task: false,
-    doneKeys: [],
     // Busy: a gesture that named a time meant that time to be spoken for.
     free: false,
     // Inheriting, which is the only answer a gesture gives: the drag named a
@@ -2244,20 +2437,6 @@ export function draftEvent(
 }
 
 /**
- * The same draft as a task: one minute of the day rather than a span, so
- * `start === end`.
- *
- * A function of its own rather than a fifth argument to `draftEvent`, because
- * everything that file's comment above says about spans — the all-day
- * threshold, the multi-day rounding, the exclusive midnight — is exactly what
- * a task does not have. Two shapes, two constructors; the editor's Task
- * switch converts between them.
- */
-export function taskDraft(day: Date, startMin: number, calendarId: string): Omit<CalEvent, "id"> {
-  return { ...draftEvent(day, startMin, startMin, calendarId), task: true };
-}
-
-/**
  * A copy of an event, as the draft a new one is written from.
  *
  * Everything the user wrote comes across, the rule included: ⌘-dragging one
@@ -2267,16 +2446,14 @@ export function taskDraft(day: Date, startMin: number, calendarId: string): Omit
  * It is also why a duplicate asks no `EditScope` question: nothing existing is
  * being edited, so there is no occurrence for the question to be about.
  *
- * Seven fields deliberately do not come across. `updatedAt` is the mechanical
+ * Six fields deliberately do not come across. `updatedAt` is the mechanical
  * one: a copy is a record that begins to exist at the commit, so it carries
  * `0` here and `create` stamps it — the same rule `draftEvent` follows.
  * `seriesId`/`seriesKey` name a
  * relationship to *another* event, and two events cannot both claim one
  * occurrence — so a copy of an override is an ordinary event on the day it
- * used to replace. And `doneKeys` are ticks against work that was done once; a
- * duplicate arriving pre-ticked is a to-do list that lies. The overrides *of*
- * a series are not copied either, for the first reason: an override is its own
- * event, and a duplicate is one event.
+ * used to replace. The overrides *of* a series are not copied either, for the
+ * same reason: an override is its own event, and a duplicate is one event.
  *
  * The guest list is the fourth kind of the same argument, and the sharpest.
  * `organizer`/`attendees`/`attendeeCount` are a record of an invitation
@@ -2311,7 +2488,6 @@ export function duplicateOf(event: CalEvent, shiftMs = 0): Omit<CalEvent, "id"> 
     rdates: shiftMs === 0 ? rest.rdates : rest.rdates.map(shiftKey),
     seriesId: "",
     seriesKey: "",
-    doneKeys: [],
     organizer: null,
     attendees: [],
     attendeeCount: 0,

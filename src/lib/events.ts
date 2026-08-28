@@ -8,7 +8,8 @@
 
 import { fuzzyScore } from "./fuzzy";
 import { MINUTES_PER_DAY, addDays, daysBetween, minutesOfDay, startOfDay } from "./time";
-import { instantKey, startsBetweenIn, type Recurrence, type Repeat } from "./recur";
+import { NEVER, instantKey, startsBetweenIn, type Recurrence, type Repeat } from "./recur";
+import type { Task } from "./tasks";
 
 export {
   FREQUENCIES,
@@ -556,30 +557,6 @@ export interface CalEvent extends Recurrence {
    */
   icon: string;
   /**
-   * A dated task: a moment rather than a span, so `end === start` and the
-   * dial draws the pip it already draws for anything shorter than its own
-   * cap — a mark at the right minute instead of an arc that lies about a
-   * duration nobody gave it.
-   *
-   * An explicit field rather than "`end === start`, therefore a task": a
-   * degenerate span is an arithmetic coincidence, and typing data by one is
-   * how a five-minute event dragged to nothing silently becomes a to-do.
-   * Undated tasks are deliberately not modelled — a list with no day on it
-   * is a different product wearing this one as a skin.
-   */
-  task: boolean;
-  /**
-   * The occurrences that have been ticked off, as `instantKey`s.
-   *
-   * A list on the event rather than a boolean, for the reason `exdates` is
-   * one: a repeating task is completed one occurrence at a time, and a flag
-   * on the series would tick every Monday at once. Always the datetime form,
-   * even for an all-day task — the two forms `exdates` carries exist because
-   * EXDATE has two RFC value types, and nothing outside this app writes
-   * these.
-   */
-  doneKeys: string[];
-  /**
    * Whether this event leaves the time it covers on offer: a placeholder, a
    * tentative hold, somebody's birthday. Busy is normal, so `false` is the
    * default and the absent value both.
@@ -591,15 +568,12 @@ export interface CalEvent extends Recurrence {
    * prints and the slot the palette finds stop being lies about a day whose
    * only "meeting" was a birthday.
    *
-   * An explicit flag for the reason `task` is one: nothing about a span says
-   * how seriously it is meant, so inferring this from a title, a calendar or
-   * a zero-width end would be typing data by coincidence. It is iCalendar's
-   * `TRANSP` on the wire — `TRANSPARENT` is free, `OPAQUE` and an absent
-   * property are busy — and named for the word the editor prints rather than
-   * for the property, because the property is a spelling and not the idea.
-   *
-   * Meaningless on a task, which is why nothing consults both: a task has no
-   * width to offer or withhold, so it already books nothing at all.
+   * An explicit flag on purpose: nothing about a span says how seriously it
+   * is meant, so inferring this from a title, a calendar or a degenerate
+   * width would be typing data by coincidence. It is iCalendar's `TRANSP`
+   * on the wire — `TRANSPARENT` is free, `OPAQUE` and an absent property
+   * are busy — and named for the word the editor prints rather than for the
+   * property, because the property is a spelling and not the idea.
    */
   free: boolean;
   /**
@@ -672,7 +646,9 @@ export interface CalEvent extends Recurrence {
   updatedAt: number;
 }
 
-/** One concrete appearance of an event on one day, clipped to that day. */
+/** One concrete appearance of an event on one day, clipped to that day. A
+ *  task's plan and a timed due date enter as occurrences too — see
+ *  `taskOccurrences` — so everything that draws a day keeps its one question. */
 export interface Occurrence {
   /**
    * Stable across renders, and unique: an event may now appear more than once
@@ -680,7 +656,19 @@ export interface Occurrence {
    * identifies an occurrence — the start instant does.
    */
   key: string;
+  /**
+   * The event this occurrence appears for. On a task's occurrence this is a
+   * synthetic record built by `taskOccurrences` — same title, colour, mark
+   * and calendar — so no renderer learns there are two models behind it.
+   */
   event: CalEvent;
+  /**
+   * The task behind this occurrence, when there is one. `undefined` on every
+   * ordinary event; set on a plan's arc and on a due date's pip (the latter
+   * zero-width — `startMin === endMin` — which is what makes it a pip). The
+   * tick control routes through this rather than through `event`.
+   */
+  task?: Task;
   start: Date;
   end: Date;
   /** Clipped to `[0, 1440]` — what the dial actually draws. */
@@ -701,10 +689,9 @@ export interface Occurrence {
   dayIndex: number;
   dayCount: number;
   /**
-   * Whether *this* occurrence of a task has been ticked off. Resolved here
-   * rather than at each surface because `dayAgenda` is the one read path onto
-   * a day, and `doneKeys` is a list lookup no renderer should be doing.
-   * Always `false` on an ordinary event.
+   * Whether the task behind this occurrence has been ticked off. Resolved
+   * here rather than at each surface because `dayAgenda` is the one read
+   * path onto a day. Always `false` on an ordinary event.
    */
   done: boolean;
   /** 0 = outermost ring. Assigned by `packLanes`. */
@@ -778,11 +765,11 @@ export function occurrencesOn(events: CalEvent[], calendars: Calendar[], day: Da
     if (hidden.has(event.calendarId)) continue;
 
     const duration = Math.max(event.end - event.start, 0);
-    // A task has no duration, and every overlap test below is written against
-    // an exclusive `end`: at zero width `end <= dayStart` throws away a task
-    // standing exactly at midnight. One millisecond of notional width is what
-    // makes "an instant belongs to the day it starts on" fall out of the same
-    // arithmetic as everything else, rather than needing a branch.
+    // Every overlap test below is written against an exclusive `end`, and at
+    // zero width `end <= dayStart` throws away an instantaneous record (an
+    // older blob's zero-length event) standing exactly at midnight. One
+    // millisecond of notional width is what makes "an instant belongs to the
+    // day it starts on" fall out of the same arithmetic as everything else.
     const span = Math.max(duration, 1);
     // In milliseconds rather than in days: `start + duration > dayStart` is
     // the whole overlap test, so the window is tight by construction and needs
@@ -823,10 +810,9 @@ export function occurrencesOn(events: CalEvent[], calendars: Calendar[], day: Da
         continuesAfter,
         dayIndex: daysBetween(firstDay, dayStart) + 1,
         dayCount: daysBetween(firstDay, lastDay) + 1,
-        // A tick is per occurrence, so it is looked up per occurrence. The
-        // list is empty on everything that is not a task, which is almost
-        // every event in the store.
-        done: event.doneKeys.length > 0 && event.doneKeys.includes(instantKey(start)),
+        // An event is never done — the field exists for a task's occurrences,
+        // resolved in `taskOccurrences`.
+        done: false,
         lane: 0,
       });
     }
@@ -852,12 +838,13 @@ function packLanes(occurrences: Occurrence[], pad = 6): Occurrence[] {
   const laneEnds: number[] = [];
   return occurrences.map((occ) => {
     if (occ.event.allDay) return occ;
-    // A task is a notch in the rim, not an occupant of it: it takes no lane
-    // and pushes nothing out of one. Packed like an arc it would either be
-    // buried under the meeting it happens during, or push that meeting inward
-    // to make room for a mark two units wide — and a pip on the outer ring
-    // during a booked hour is the honest picture of a task during a meeting.
-    if (occ.event.task) return occ;
+    // A due date's pip is a notch in the rim, not an occupant of it: it takes
+    // no lane and pushes nothing out of one. Packed like an arc it would
+    // either be buried under the meeting it happens during, or push that
+    // meeting inward to make room for a mark two units wide — and a pip on
+    // the outer ring during a booked hour is the honest picture of a deadline
+    // during a meeting. A *plan* has width and packs like anything else.
+    if (occ.task && occ.startMin === occ.endMin) return occ;
     let lane = laneEnds.findIndex((end) => end <= occ.startMin + pad);
     if (lane === -1) lane = laneEnds.length;
     laneEnds[lane] = occ.endMin;
@@ -869,9 +856,19 @@ function packLanes(occurrences: Occurrence[], pad = 6): Occurrence[] {
  * Timed occurrences with lanes assigned, plus the all-day ones kept apart.
  * Lane packing is face-independent: both dials put one day on one revolution,
  * so two events collide on screen exactly when they collide in time.
+ *
+ * Tasks enter here and nowhere else — `taskOccurrences` folds each plan and
+ * each timed due date in before packing — so `Face`, `CenterPanel` and the
+ * week strip never learn that there are two models behind them.
  */
-export function dayAgenda(events: CalEvent[], calendars: Calendar[], day: Date) {
-  const all = occurrencesOn(events, calendars, day);
+export function dayAgenda(
+  events: CalEvent[],
+  calendars: Calendar[],
+  day: Date,
+  tasks: Task[] = [],
+) {
+  const all = [...occurrencesOn(events, calendars, day), ...taskOccurrences(tasks, calendars, day)];
+  all.sort((a, b) => a.start.getTime() - b.start.getTime() || a.end.getTime() - b.end.getTime());
   const allDay = all.filter((o) => o.event.allDay);
   const timed = packLanes(all.filter((o) => !o.event.allDay));
   return { timed, allDay, all: [...allDay, ...timed] };
@@ -880,14 +877,108 @@ export function dayAgenda(events: CalEvent[], calendars: Calendar[], day: Date) 
 /* ---------------------------------- tasks --------------------------------- */
 
 /**
- * `doneKeys` with one occurrence ticked or un-ticked. The key's shape lives
- * here rather than at the two call sites — the store's commit and the
- * editor's switch — so a tick from the dial and a tick from the modal cannot
- * disagree about which occurrence they meant.
+ * The `CalEvent` a task's occurrences ride on, so no renderer learns there
+ * are two models behind a day. It shares the task's id — the two id spaces
+ * are disjoint, `newId` mints both — and carries the fields every surface
+ * resolves: title, colour, mark, calendar. Never stored, never merged;
+ * `updatedAt: 0` is the builder's own contract.
  */
-export function toggleDoneKey(keys: string[], at: Date | number): string[] {
-  const key = instantKey(at);
-  return keys.includes(key) ? keys.filter((k) => k !== key) : [...keys, key];
+function taskEvent(task: Task, start: number, end: number): CalEvent {
+  return {
+    id: task.id,
+    title: task.title,
+    calendarId: task.calendarId,
+    start,
+    end,
+    allDay: false,
+    tzid: "",
+    location: "",
+    url: "",
+    notes: task.notes,
+    ...NEVER,
+    seriesId: "",
+    seriesKey: "",
+    color: task.color,
+    icon: task.icon,
+    free: false,
+    remindLead: REMIND_INHERIT,
+    organizer: null,
+    attendees: [],
+    attendeeCount: 0,
+    updatedAt: 0,
+  };
+}
+
+/**
+ * A task's appearances on `day`, clipped to it, as `Occurrence`s: every plan
+ * that overlaps the day is an arc, and a timed due date with no plan on the
+ * day is a zero-width pip at its minute — what a task drew before it had
+ * plans at all. An all-day due date draws nothing, as an all-day event draws
+ * no arc; a deadline is not work, so it books nothing either (`freeGaps`
+ * drops zero-width blocks on its own).
+ */
+export function taskOccurrences(tasks: Task[], calendars: Calendar[], day: Date): Occurrence[] {
+  const hidden = new Set(calendars.filter((c) => !c.visible).map((c) => c.id));
+  const dayStart = startOfDay(day);
+  const dayEnd = addDays(dayStart, 1);
+  const out: Occurrence[] = [];
+
+  for (const task of tasks) {
+    if (hidden.has(task.calendarId)) continue;
+
+    let planned = false;
+    for (const plan of task.plans) {
+      if (plan.end <= dayStart.getTime() || plan.start >= dayEnd.getTime()) continue;
+      planned = true;
+      const start = new Date(plan.start);
+      const end = new Date(plan.end);
+      const continuesBefore = start < dayStart;
+      const continuesAfter = end > dayEnd;
+      const firstDay = startOfDay(start);
+      // `end` is exclusive, so a plan finishing at midnight ends on the day
+      // before — `occurrencesOn`'s own measurement.
+      const lastDay = startOfDay(new Date(Math.max(plan.start, plan.end - 1)));
+      out.push({
+        key: `${task.id}@${instantKey(start)}`,
+        event: taskEvent(task, plan.start, plan.end),
+        task,
+        start,
+        end,
+        startMin: continuesBefore ? 0 : minutesOfDay(start),
+        endMin: end >= dayEnd ? MINUTES_PER_DAY : minutesOfDay(end),
+        continuesBefore,
+        continuesAfter,
+        dayIndex: daysBetween(firstDay, dayStart) + 1,
+        dayCount: daysBetween(firstDay, lastDay) + 1,
+        done: task.done,
+        lane: 0,
+      });
+    }
+
+    // The pip only where no plan already says the day carries this task: a
+    // deadline beside its own arc would be the same fact twice.
+    if (planned || task.dueAllDay) continue;
+    if (task.due < dayStart.getTime() || task.due >= dayEnd.getTime()) continue;
+    const due = new Date(task.due);
+    out.push({
+      key: `${task.id}@${instantKey(due)}`,
+      event: taskEvent(task, task.due, task.due),
+      task,
+      start: due,
+      end: due,
+      startMin: minutesOfDay(due),
+      endMin: minutesOfDay(due),
+      continuesBefore: false,
+      continuesAfter: false,
+      dayIndex: 1,
+      dayCount: 1,
+      done: task.done,
+      lane: 0,
+    });
+  }
+
+  out.sort((a, b) => a.start.getTime() - b.start.getTime() || a.end.getTime() - b.end.getTime());
+  return out;
 }
 
 /* ------------------------------- free time -------------------------------- */
@@ -1024,12 +1115,15 @@ export function freeSlots(
   now: Date,
   days: number,
   waking: { from: number; to: number },
+  // A planned task books its minutes, so it must book them here too, or the
+  // link offers an hour the sender's own face shows as spoken for.
+  tasks: Task[] = [],
 ): { start: number; end: number }[] {
   const spans: { start: number; end: number }[] = [];
   const first = startOfDay(now);
   for (let i = 0; i < days; i++) {
     const day = addDays(first, i);
-    const { all } = dayAgenda(events, calendars, day);
+    const { all } = dayAgenda(events, calendars, day, tasks);
     const from = i === 0 ? Math.max(waking.from, minutesOfDay(now)) : waking.from;
     for (const gap of freeGaps(all, SLOT_SHARE_MIN, from, waking.to)) {
       spans.push({
@@ -1047,16 +1141,15 @@ export function freeSlots(
  * ring's once-a-day shimmer off this — so a second surface wanting the
  * answer cannot come to a different one.
  *
- * Asked of `dayAgenda`'s output, so a repeating task counts per occurrence
- * (`Occurrence.done` is already resolved there) and a subscription's task
- * counts too: it cannot be ticked here, which is exactly why a day carrying
- * one is not cleared. `false` for a day with no tasks at all — an empty
+ * Asked of `dayAgenda`'s output, so a task counts once per occurrence it put
+ * on the day — a plan's arc or a due date's pip, `Occurrence.done` already
+ * resolved there. `false` for a day with no tasks at all — an empty
  * checklist is not a finished one.
  */
 export function dayCleared(occurrences: Occurrence[]): boolean {
   let tasks = 0;
   for (const occ of occurrences) {
-    if (!occ.event.task) continue;
+    if (!occ.task) continue;
     if (!occ.done) return false;
     tasks += 1;
   }
@@ -1076,7 +1169,7 @@ export function dayCleared(occurrences: Occurrence[]): boolean {
  * rule rather than restating it: an all-day event is context and does not
  * clash (an all-day "Berlin" is not a conflict with lunch), a **free** one is
  * the placeholder you are meant to book over, and anything holding no minutes
- * at all — which is every task — is dropped on width, `freeGaps`' own test.
+ * at all — a due date's pip — is dropped on width, `freeGaps`' own test.
  * Three surfaces now read that one idea of busy: the totals line, the slot
  * search, and this. They cannot come to disagree about it.
  *

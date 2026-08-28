@@ -115,7 +115,10 @@ function eventFieldsShape() {
     date: dateKey("YYYY-MM-DD, local.").optional(),
     start: z
       .string()
-      .describe("HH:MM, 24-hour local clock. Required for a timed event or a task.")
+      .describe(
+        "HH:MM, 24-hour local clock. Required for a timed event; on a task it names the " +
+          "due time, and omitting it makes the deadline a date with no time on it.",
+      )
       .optional(),
     end: z
       .string()
@@ -131,7 +134,10 @@ function eventFieldsShape() {
       .optional(),
     task: z
       .boolean()
-      .describe("A dated to-do (one moment, not a span) rather than an event.")
+      .describe(
+        "A dated to-do rather than an event: a task record with a deadline. `date` is the " +
+          "due day and `start` the optional due time; end/duration/allDay/recurrence do not apply.",
+      )
       .optional(),
     calendarId: z
       .string()
@@ -370,13 +376,12 @@ export function registerTools(server: McpServer, store: Store): void {
   server.registerTool(
     "toggle_done",
     {
-      description:
-        "Ticks a task off, or back on, one occurrence at a time — never the whole series at once.",
+      description: "Ticks a task off, or back on — a task has one deadline and is finished once.",
       inputSchema: z.strictObject({
         id: z.string(),
         occurrence: z
           .string()
-          .describe("YYYY-MM-DD or a full instant. Required for a repeating task.")
+          .describe("Accepted for compatibility and ignored — a task is ticked whole.")
           .optional(),
       }),
       annotations: { destructiveHint: false, idempotentHint: false },

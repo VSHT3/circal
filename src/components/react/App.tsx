@@ -23,6 +23,7 @@ import {
   type CalEvent,
   type Occurrence,
 } from "@/lib/events";
+import type { Task } from "@/lib/tasks";
 import {
   defaultCalendarId,
   dismissBackupNudge,
@@ -31,7 +32,6 @@ import {
   introSeen,
   setIntroSeen,
   store,
-  taskDraft,
   useLastBackup,
   useStore,
 } from "@/lib/store";
@@ -54,6 +54,7 @@ import { defaultStart } from "@/lib/quickadd";
 import {
   MINUTES_PER_DAY,
   addDays,
+  atMinutes,
   dayKey,
   daysBetween,
   formatRelativeDay,
@@ -145,6 +146,7 @@ declare global {
 // module scope: `lazy`'s factory must stay referentially stable across
 // renders, or React resuspends the panel on every re-render of `Shell`.
 const EventEditor = lazy(() => import("./EventEditor"));
+const TaskEditor = lazy(() => import("./TaskEditor"));
 const Settings = lazy(() => import("./Settings"));
 
 /* --------------------------------- measures -------------------------------- */
@@ -308,7 +310,7 @@ function seedOccurrence(event: CalEvent): Occurrence {
     continuesAfter: end > nextMidnight,
     dayIndex: 1,
     dayCount: daysBetween(start, new Date(Math.max(event.start, event.end - 1))) + 1,
-    done: event.doneKeys.includes(instantKey(start)),
+    done: false,
     lane: 0,
   };
 }
@@ -360,7 +362,7 @@ export default function App() {
 }
 
 function Shell() {
-  const { events, calendars, feeds, settings } = useStore();
+  const { events, tasks, calendars, feeds, settings } = useStore();
   /**
    * Ambient: the chrome withdraws and the dial becomes the window. View state
    * and deliberately not a setting — a mode that survives a reload, with no
@@ -444,6 +446,9 @@ function Shell() {
   const [editor, setEditor] = useState<EditorTarget | null>(() =>
     received?.ok ? { id: null, draft: received.draft } : null,
   );
+  /** The task card's target: an id to edit, or `null` for a new draft — the
+   *  calendar card's own shape, resolved from the store every render. */
+  const [taskEditor, setTaskEditor] = useState<{ id: string | null } | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   /**
@@ -542,7 +547,10 @@ function Shell() {
     [visible, preview],
   );
 
-  const agenda = useMemo(() => dayAgenda(previewed, calendars, day), [previewed, calendars, day]);
+  const agenda = useMemo(
+    () => dayAgenda(previewed, calendars, day, tasks),
+    [previewed, calendars, day, tasks],
+  );
   const defaultCalendar = defaultCalendarId(calendars, settings.defaultCalendar);
   const feedIds = useMemo(
     () => new Set(calendars.filter((c) => c.feed).map((c) => c.id)),
@@ -919,6 +927,7 @@ function Shell() {
     editor !== null ||
     ask !== null ||
     calendarEditor !== null ||
+    taskEditor !== null ||
     travel !== null;
   /**
    * `busy` plus the one panel that has no state on it but does cover the
@@ -1075,14 +1084,13 @@ function Shell() {
         live.start === next.start &&
         live.end === next.end &&
         live.allDay === next.allDay &&
-        live.task === next.task &&
         live.color === next.color &&
         live.calendarId === next.calendarId
       ) {
         return open;
       }
-      const { start, end, allDay, task, color, calendarId } = next;
-      return { ...open, live: { start, end, allDay, task, color, calendarId } };
+      const { start, end, allDay, color, calendarId } = next;
+      return { ...open, live: { start, end, allDay, color, calendarId } };
     });
   }, []);
 
@@ -1098,8 +1106,8 @@ function Shell() {
   const pending = useMemo(() => {
     if (!editor || editor.id !== null) return null;
     const mark = editor.live ?? editor.draft;
-    const { start, end, allDay, task } = mark;
-    return { start, end, allDay, task, color: colorOf(mark, calendars) };
+    const { start, end, allDay } = mark;
+    return { start, end, allDay, color: colorOf(mark, calendars) };
   }, [editor, calendars]);
 
   /** The same draft as the year ring wants it: the two days it runs between,
@@ -1109,8 +1117,8 @@ function Shell() {
     () =>
       pending && {
         from: startOfDay(new Date(pending.start)),
-        // A task is one day, and `end - 1` on a zero-width instant would name
-        // the day before it.
+        // `Math.max` against a degenerate span, where `end - 1` would name
+        // the day before its own start.
         to: startOfDay(new Date(Math.max(pending.start, pending.end - 1))),
         color: pending.color,
       },
@@ -1201,6 +1209,58 @@ function Shell() {
     [commitAdjust],
   );
 
+  /**
+   * The rim's once-a-day sweep, and the days that have already had theirs.
+   * A serial so the face can re-key the element; nulled after the animation
+   * has run so the SVG does not hold an invisible circle for the rest of the
+   * session. `SHIMMER_MS` = the 1400ms `.face-shimmer` runs, plus slack —
+   * clearing mid-flight unmounts the sweep, the intro's own lesson.
+   *
+   * Declared above the `actions` memo because `tickTask` below is one of its
+   * fields' dependencies — `commitAdjust`'s own TDZ reasoning.
+   */
+  const [shimmer, setShimmer] = useState<number | null>(null);
+  const ringsClosed = useRef(new Set<string>());
+  useEffect(() => {
+    if (shimmer === null) return;
+    const timer = window.setTimeout(() => setShimmer(null), SHIMMER_MS);
+    return () => window.clearTimeout(timer);
+  }, [shimmer]);
+
+  /**
+   * A task ticked off, from the interior, the editor or the sidebar list.
+   *
+   * No `EditScope` question, and that is not an oversight: a task has one
+   * deadline and is finished once — nothing to ask, nothing to split.
+   *
+   * Rings closed rides on it — the one animation this app fires uninvited,
+   * budgeted at exactly one: ticking the day's last open pip sweeps a dash of
+   * light once round the track (see `.face-shimmer`). The *when* is shell
+   * policy, which is why the gate is here and not in the dial: never on an
+   * untick, never under reduced motion, and at most once per day — `on` is
+   * the day the tick was about, the occurrence's for a tick on the face and
+   * the due day for one from the list. The once-a-day guard is a session
+   * ref, not storage — it exists against tick-untick-tick, not against
+   * tomorrow, and a reload asking for it again costs nothing anyone is
+   * counting.
+   */
+  const tickTask = useCallback(
+    (id: string, ticking: boolean, on: Date) => {
+      store.toggleTaskDone(id);
+      if (!ticking || reducedMotion) return;
+      const key = dayKey(on);
+      if (ringsClosed.current.has(key)) return;
+      // Asked of the store's own post-commit answer rather than this render's
+      // props: the snapshot already carries the tick.
+      const snap = store.snapshot();
+      const visible = [...snap.events, ...Object.values(snap.feeds).flat()];
+      if (!dayCleared(dayAgenda(visible, snap.calendars, on, snap.tasks).all)) return;
+      ringsClosed.current.add(key);
+      setShimmer(Date.now());
+    },
+    [reducedMotion],
+  );
+
   const actions: ShellActions = useMemo(
     () => ({
       // Today keeps the view it was asked in. It is the middle of the `‹ Today
@@ -1274,13 +1334,21 @@ function Shell() {
       newTask: () => {
         setPaletteOpen(false);
         setAmbient("off");
-        // The same hour ⌘N opens on, with no width. `defaultStart` is asked
-        // for a duration of zero because a task has none, which on today is
-        // the next quarter hour and on any other day is nine o'clock.
-        setEditor({
-          id: null,
-          draft: taskDraft(day, defaultStart(day, 0), defaultCalendar),
-        });
+        // A blank draft due today at ⌘N's own hour, seeded inside the card —
+        // the calendar editor's shape, not the event editor's.
+        setTaskEditor({ id: null });
+      },
+      editTask: (id: string) => {
+        setPaletteOpen(false);
+        setAmbient("off");
+        setTaskEditor({ id });
+      },
+      toggleTask: (id: string) => {
+        // The store's answer, not this render's props: a tick from a stale
+        // closure must not untick what another tab just ticked.
+        const target = store.snapshot().tasks.find((t) => t.id === id);
+        if (!target) return;
+        tickTask(id, !target.done, new Date(target.due));
       },
       newEventAt: (startMin: number, endMin: number) => openDraft(startMin, endMin, day),
       quickAdd: (spec) => {
@@ -1297,7 +1365,11 @@ function Shell() {
          */
         const clashes = spec.allDay
           ? []
-          : clashesWith(dayAgenda(visible, calendars, spec.day).timed, spec.startMin, spec.endMin);
+          : clashesWith(
+              dayAgenda(visible, calendars, spec.day, tasks).timed,
+              spec.startMin,
+              spec.endMin,
+            );
         store.create({
           ...draftEvent(spec.day, spec.startMin, spec.endMin, defaultCalendar),
           title: spec.title,
@@ -1366,10 +1438,14 @@ function Shell() {
        */
       shareFreeSlots: () => {
         setPaletteOpen(false);
-        const spans = freeSlots(visible, calendars, new Date(), 7, {
-          from: settings.wakingFrom,
-          to: settings.wakingTo,
-        });
+        const spans = freeSlots(
+          visible,
+          calendars,
+          new Date(),
+          7,
+          { from: settings.wakingFrom, to: settings.wakingTo },
+          tasks,
+        );
         const encoded = encodeSlots(spans);
         if (!encoded.ok) {
           // An empty answer is an answer, not a failure — a fully booked week
@@ -1411,6 +1487,8 @@ function Shell() {
       go,
       openDraft,
       adjustOccurrence,
+      tickTask,
+      tasks,
       defaultCalendar,
       settings.defaultDuration,
       settings.wakingFrom,
@@ -1551,12 +1629,20 @@ function Shell() {
     now,
     events: visible,
     calendars,
+    tasks,
     lead: settings.remindLead,
     clock: settings.clock,
     onOpen: useCallback(
       (event: CalEvent) => {
         go({ day: startOfDay(new Date(event.start)), view: "day" });
         actions.openEvent(event);
+      },
+      [go, actions],
+    ),
+    onOpenTask: useCallback(
+      (task: Task) => {
+        go({ day: startOfDay(new Date(task.due)), view: "day" });
+        actions.editTask(task.id);
       },
       [go, actions],
     ),
@@ -1568,7 +1654,7 @@ function Shell() {
    * `useReminders` above; see `useTitleCountdown` for why it carries no
    * switch of its own and why a visible tab does not get one.
    */
-  useTitleCountdown(visible, calendars, now);
+  useTitleCountdown(visible, calendars, tasks, now);
 
   /**
    * A panel arriving says so, from wherever it was opened — ⌘P, the top bar,
@@ -1795,56 +1881,47 @@ function Shell() {
     setPreview(null);
   }, []);
 
-  /**
-   * The rim's once-a-day sweep, and the days that have already had theirs.
-   * A serial so the face can re-key the element; nulled after the animation
-   * has run so the SVG does not hold an invisible circle for the rest of the
-   * session. `SHIMMER_MS` = the 1400ms `.face-shimmer` runs, plus slack —
-   * clearing mid-flight unmounts the sweep, the intro's own lesson.
-   */
-  const [shimmer, setShimmer] = useState<number | null>(null);
-  const ringsClosed = useRef(new Set<string>());
-  useEffect(() => {
-    if (shimmer === null) return;
-    const timer = window.setTimeout(() => setShimmer(null), SHIMMER_MS);
-    return () => window.clearTimeout(timer);
-  }, [shimmer]);
-
-  /**
-   * A task ticked off, from the interior or from the editor.
-   *
-   * No `EditScope` question, and that is not an oversight: a repeating task's
-   * ticks are per occurrence by construction (`doneKeys` holds the instants),
-   * so "this one" is the only answer the gesture could have. Nothing to ask,
-   * nothing to split.
-   *
-   * Rings closed rides on it — the one animation this app fires uninvited,
-   * budgeted at exactly one: ticking the day's last open pip sweeps a dash of
-   * light once round the track (see `.face-shimmer`). The *when* is shell
-   * policy, which is why the gate is here and not in the dial: never on an
-   * untick, never under reduced motion, and at most once per day. The
-   * once-a-day guard is a session ref, not storage — it exists against
-   * tick-untick-tick, not against tomorrow, and a reload asking for it again
-   * costs nothing anyone is counting.
-   */
+  /** A tick from the face or the day's card: only a task's occurrence has one.
+   *  Routed through `tickTask`, so a tick from here and one from the sidebar
+   *  list cannot disagree about the rings-closed gate. */
   const toggleDone = useCallback(
     (occ: Occurrence) => {
-      const ticking = !occ.done;
-      store.toggleDone(occ.event.id, occ.start);
-      if (!ticking || reducedMotion) return;
-      const key = dayKey(occ.start);
-      if (ringsClosed.current.has(key)) return;
-      // Asked of the store's own post-commit answer rather than this render's
-      // props: the snapshot already carries the tick. The feeds are in because
-      // the face draws them — a subscription's open task keeps the day open.
-      const snap = store.snapshot();
-      const visible = [...snap.events, ...Object.values(snap.feeds).flat()];
-      if (!dayCleared(dayAgenda(visible, snap.calendars, occ.start).all)) return;
-      ringsClosed.current.add(key);
-      setShimmer(Date.now());
+      if (!occ.task) return;
+      tickTask(occ.task.id, !occ.done, occ.start);
     },
-    [reducedMotion],
+    [tickTask],
   );
+
+  /**
+   * The task card's subject, resolved from the store rather than copied into
+   * the state that opened it — the calendar card's own rule: an edit landing
+   * from another tab updates the card under you, and a task deleted out from
+   * under it takes the card with it.
+   */
+  const editedTask = taskEditor?.id ? (tasks.find((t) => t.id === taskEditor.id) ?? null) : null;
+  const taskCardOpen = taskEditor !== null && (!taskEditor.id || !!editedTask);
+
+  const saveTask = useCallback(
+    (draft: Omit<Task, "id" | "updatedAt">) => {
+      if (editedTask) store.updateTask(editedTask.id, draft);
+      else {
+        store.addTask(draft);
+        // Only for a new task: the cue is for the moment something starts to
+        // exist, the event editor's own rule.
+        cue("created", channels);
+      }
+      setTaskEditor(null);
+    },
+    [editedTask, channels],
+  );
+
+  const deleteTask = useCallback(() => {
+    if (!editedTask) return;
+    store.removeTask(editedTask.id);
+    setTaskEditor(null);
+    cue("deleted", channels);
+    notify(`Deleted “${editedTask.title || "Untitled"}”`);
+  }, [editedTask, channels]);
 
   /**
    * The calendar card's subject, resolved from the store rather than copied
@@ -1936,6 +2013,8 @@ function Shell() {
           now={now}
           events={visible}
           calendars={calendars}
+          tasks={tasks}
+          clock={settings.clock}
           moon={settings.moon}
           theme={settings.theme}
           weekStart={settings.weekStart}
@@ -2005,6 +2084,7 @@ function Shell() {
                   selected={day}
                   events={visible}
                   calendars={calendars}
+                  tasks={tasks}
                   settings={settings}
                   onSelectDay={(next) => actions.goDay(next)}
                   onOpenEvent={openOccurrence}
@@ -2127,6 +2207,21 @@ function Shell() {
             onShare={shareEvent}
             onDraftChange={trackDraft}
             onClose={() => setEditor(null)}
+          />
+        </Suspense>
+      )}
+
+      {taskCardOpen && (
+        <Suspense fallback={null}>
+          <TaskEditor
+            target={editedTask}
+            seedDue={atMinutes(day, defaultStart(day, 0)).getTime()}
+            calendars={calendars}
+            defaultCalendar={defaultCalendar}
+            clock={settings.clock}
+            onSave={saveTask}
+            onDelete={deleteTask}
+            onClose={() => setTaskEditor(null)}
           />
         </Suspense>
       )}

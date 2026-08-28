@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { at, attendee, calendar, ms, event, MemoryStorage } from "./helpers";
+import { at, attendee, calendar, ms, event, plan, task, MemoryStorage } from "./helpers";
 import {
   instantKey,
   PALETTE,
@@ -218,6 +218,92 @@ describe("remove", () => {
     const a = s.store.create(draft(s));
     s.store.remove(a.id);
     expect(s.store.snapshot().events).toEqual([]);
+  });
+});
+
+/* ------------------------------ tasks ------------------------------ */
+
+describe("task actions", () => {
+  const body = (
+    over: Partial<Omit<StoreModule.Snapshot["tasks"][number], "id" | "updatedAt">> = {},
+  ) => {
+    const { id: _id, updatedAt: _at, ...rest } = task({ due: "2026-03-08 18:30" });
+    return { ...rest, ...over };
+  };
+
+  it("addTask stamps at the line it becomes a record, and persists", async () => {
+    const s = await freshStore();
+    const created = s.store.addTask(body());
+    expect.soft(created.id).toBeTruthy();
+    expect.soft(created.updatedAt).toBeGreaterThan(0);
+    const persisted = JSON.parse(s.storage.getItem(KEY)!);
+    expect.soft(persisted.tasks).toContainEqual(created);
+  });
+
+  it("toggleTaskDone flips one task, restamped, and ⌘Z is the way back", async () => {
+    const s = await freshStore();
+    const created = s.store.addTask(body());
+    s.store.toggleTaskDone(created.id);
+    expect.soft(s.store.snapshot().tasks[0]?.done).toBe(true);
+    expect.soft(s.store.undo()).toBe(true);
+    expect.soft(s.store.snapshot().tasks[0]?.done).toBe(false);
+  });
+
+  it("removeTask buries the id in the same commit — a deletion without its grave comes back", async () => {
+    const s = await freshStore();
+    const created = s.store.addTask(body());
+    s.store.removeTask(created.id);
+    expect.soft(s.store.snapshot().tasks).toEqual([]);
+    expect.soft(s.store.snapshot().graves.map((g) => g.id)).toContain(created.id);
+  });
+
+  it("planTask keeps the list in start order and refuses a widthless plan", async () => {
+    const s = await freshStore();
+    const created = s.store.addTask(body());
+    s.store.planTask(created.id, plan("2026-03-10 09:00", "2026-03-10 10:00"));
+    s.store.planTask(created.id, plan("2026-03-09 09:00", "2026-03-09 10:00"));
+    s.store.planTask(created.id, { start: ms("2026-03-11 09:00"), end: ms("2026-03-11 09:00") });
+    expect(s.store.snapshot().tasks[0]?.plans).toEqual([
+      plan("2026-03-09 09:00", "2026-03-09 10:00"),
+      plan("2026-03-10 09:00", "2026-03-10 10:00"),
+    ]);
+  });
+
+  it("unplanTask and movePlan address one block by index", async () => {
+    const s = await freshStore();
+    const created = s.store.addTask(
+      body({
+        plans: [
+          plan("2026-03-09 09:00", "2026-03-09 10:00"),
+          plan("2026-03-10 09:00", "2026-03-10 10:00"),
+        ],
+      }),
+    );
+    s.store.movePlan(created.id, 0, plan("2026-03-09 11:00", "2026-03-09 12:00"));
+    expect
+      .soft(s.store.snapshot().tasks[0]?.plans[0])
+      .toEqual(plan("2026-03-09 11:00", "2026-03-09 12:00"));
+    s.store.unplanTask(created.id, 1);
+    expect
+      .soft(s.store.snapshot().tasks[0]?.plans)
+      .toEqual([plan("2026-03-09 11:00", "2026-03-09 12:00")]);
+  });
+
+  it("applyPlans lands a whole run in one commit — one ⌘Z gives it all back", async () => {
+    const s = await freshStore();
+    const a = s.store.addTask(body({ title: "A" }));
+    const b = s.store.addTask(body({ title: "B" }));
+    s.store.applyPlans([
+      { id: a.id, plan: plan("2026-03-09 09:00", "2026-03-09 10:00") },
+      { id: b.id, plan: plan("2026-03-09 10:00", "2026-03-09 11:00") },
+      // A placement for an id another tab removed is dropped, not resurrected.
+      { id: "gone", plan: plan("2026-03-09 11:00", "2026-03-09 12:00") },
+    ]);
+    const planned = s.store.snapshot().tasks;
+    expect.soft(planned.find((t) => t.id === a.id)?.plans).toHaveLength(1);
+    expect.soft(planned.find((t) => t.id === b.id)?.plans).toHaveLength(1);
+    expect.soft(s.store.undo()).toBe(true);
+    expect.soft(s.store.snapshot().tasks.every((t) => t.plans.length === 0)).toBe(true);
   });
 });
 
@@ -670,6 +756,7 @@ describe("undo / redo", () => {
     s.store.restore({
       events: [],
       calendars: [calendar({ id: "imported", name: "Imported" })],
+      tasks: [],
       settings: { ...DEFAULT_SETTINGS, clock: "24h" },
       settingsAt: ms("2026-03-08 09:00"),
       graves: [],
@@ -698,6 +785,7 @@ describe("adopt", () => {
         {
           events: [],
           calendars: [calendar({ id: "imported", name: "Imported" })],
+          tasks: [],
           settings,
           settingsAt: ms("2026-03-08 09:00"),
           graves: [],
@@ -1407,7 +1495,6 @@ describe("hydrateEvents", () => {
     // The blob predates busy/free entirely, and every event in one was busy:
     // an absent boolean must not reach `freeGaps` as `undefined`.
     expect.soft(hydrated.free).toBe(false);
-    expect.soft(hydrated.task).toBe(false);
     // The same blob predates per-event reminder leads, and an absent one must
     // reach `leadOf` as the inheriting state rather than as `undefined`,
     // which is none of the three and would silently stop matching any of
@@ -1746,6 +1833,7 @@ describe("feed payloads live outside the blob", () => {
     s.store.restore({
       events: [],
       calendars: [],
+      tasks: [],
       settings: DEFAULT_SETTINGS,
       settingsAt: 0,
       graves: [],
@@ -2007,14 +2095,6 @@ describe("duplicateOf", () => {
     expect.soft(copy.seriesKey).toBe("");
   });
 
-  it("arrives unticked — a duplicate carrying its original's ticks is a lie", () => {
-    const copy = duplicateOf(
-      event({ start: "2026-03-08 09:00", task: true, doneKeys: ["2026-03-08T09:00:00"] }),
-    );
-    expect.soft(copy.task).toBe(true);
-    expect.soft(copy.doneKeys).toEqual([]);
-  });
-
   // Part of "the whole event": a ⌘-drag on a placeholder gives back a
   // placeholder, not an hour that now books the day.
   it("carries busy/free across", () => {
@@ -2161,20 +2241,6 @@ describe("dayCopies", () => {
     // Berlin springs forward on 2026-03-29; a millisecond shift would land 10:00.
     const [copy] = dayCopies([source], [cal], at("2026-03-27"), at("2026-03-30"));
     expect(copy.start).toBe(ms("2026-03-30 09:00"));
-  });
-
-  it("arrives unticked and detached, off duplicateOf's own rules", () => {
-    const task = event({
-      title: "Water plants",
-      start: "2026-03-10 08:00",
-      end: "2026-03-10 08:00",
-      task: true,
-      doneKeys: ["2026-03-10T08:00:00"],
-    });
-    const [copy] = dayCopies([task], [cal], at("2026-03-10"), at("2026-03-11"));
-    expect.soft(copy.task).toBe(true);
-    expect.soft(copy.doneKeys).toEqual([]);
-    expect.soft(copy.end).toBe(copy.start);
   });
 
   it("skips a hidden calendar — a day's copy is what the day shows", () => {

@@ -51,6 +51,7 @@ beforeAll(async () => {
 
 const snapshot = (events: CalEvent[] = []): Mutated => ({
   events,
+  tasks: [],
   calendars: [calendar({ id: CAL })],
   settings: DEFAULT_SETTINGS,
   settingsAt: 0,

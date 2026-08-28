@@ -39,9 +39,14 @@ export const MIRROR_VERSION = 2;
  * `graves` and `settingsAt` joined the three at `MIRROR_VERSION` 2, which is
  * what that number means: *every record in this document carries a stamp, and
  * deletions are tombstoned*. A file without them cannot be merged, only
- * adopted — see `mirrorMerges`.
+ * adopted — see `mirrorMerges`. `tasks` arrived later with no bump: a task
+ * carries the same stamp and shares the grave list, so version 2's meaning
+ * holds, and an absent list reads as empty — a union with it loses nothing.
  */
-type Mirrored = Pick<Snapshot, "events" | "calendars" | "settings" | "settingsAt" | "graves">;
+type Mirrored = Pick<
+  Snapshot,
+  "events" | "calendars" | "tasks" | "settings" | "settingsAt" | "graves"
+>;
 
 export interface MirrorFile extends Mirrored {
   app: "circal";
@@ -137,6 +142,7 @@ export function mirrorDigest(s: Mirrored): string {
   // record order is one.
   return canonicalJson([
     ordered(s.events),
+    ordered(s.tasks),
     ordered(settled(s.calendars)),
     s.settings,
     s.settingsAt,
@@ -152,6 +158,7 @@ export function serialiseMirror(s: Mirrored, rev: number, zone = localZone()): s
     zone,
     rev,
     events: s.events,
+    tasks: s.tasks,
     calendars: settled(s.calendars),
     settings: s.settings,
     settingsAt: s.settingsAt,
@@ -183,6 +190,7 @@ export function readMirrorFile(text: string): MirrorContents | null {
   const envelope = parsed as Partial<MirrorFile>;
   return {
     events: read.events,
+    tasks: read.tasks,
     calendars: read.calendars,
     settings: read.settings,
     // Both through `readBackup`, which is the boundary that already assumes

@@ -70,7 +70,7 @@ export interface DialProps {
    * entirely once its date row has been edited — clipping it to this face is
    * this component's question and nobody else's.
    */
-  pending: { start: number; end: number; allDay: boolean; task: boolean; color: string } | null;
+  pending: { start: number; end: number; allDay: boolean; color: string } | null;
   /**
    * Free time received from a link, as absolute spans — the receiver's side
    * of "share my free time". Clipping each one to this face is this
@@ -128,9 +128,8 @@ export interface DialProps {
    * `Duplicate` row.
    */
   onDuplicate: (occ: Occurrence, deltaMin: number) => void;
-  /** Tick the task under the pointer off, or back on. Straight through to the
-   *  store — a task has one occurrence's worth of state and no scope to ask
-   *  about, because ticking Monday off has never meant ticking every Monday. */
+  /** Tick the task under the pointer off, or back on — a task has one
+   *  deadline and is finished once, so there is no scope to ask about. */
   onToggleDone: (occ: Occurrence) => void;
   /**
    * The drag in flight, per fifteen-minute step, and `null` the moment it ends.
@@ -364,11 +363,10 @@ function clipGhost(
   span: { start: number; end: number },
   day: Date,
   color: string,
-  task: boolean,
   opacity = 1,
 ): FaceGhost | null {
   const clipped = clipToDay(span, day);
-  return clipped && { ...clipped, color, opacity, task };
+  return clipped && { ...clipped, color, opacity };
 }
 
 export default function Dial({
@@ -527,8 +525,7 @@ export default function Dial({
    * either, and one whose middle covers it draws the closed ring.
    */
   const drafted = useMemo<FaceGhost | null>(
-    () =>
-      pending && !pending.allDay ? clipGhost(pending, day, pending.color, pending.task) : null,
+    () => (pending && !pending.allDay ? clipGhost(pending, day, pending.color) : null),
     [pending, day],
   );
 
@@ -542,7 +539,7 @@ export default function Dial({
   const copying = useMemo<FaceGhost | null>(() => {
     if (!adjust?.copy) return null;
     const { event } = adjust.occ;
-    return clipGhost(draggedOccurrence(adjust), day, colorOf(event, calendars), event.task);
+    return clipGhost(draggedOccurrence(adjust), day, colorOf(event, calendars));
   }, [adjust, day, calendars]);
 
   /**
@@ -568,14 +565,13 @@ export default function Dial({
         start += MINUTES_PER_DAY;
         end += MINUTES_PER_DAY;
       }
-      return { start, end, color, opacity: GHOST_ALPHA, task: false };
+      return { start, end, color, opacity: GHOST_ALPHA };
     }
-    return clipGhost(drawnOccurrence(draw), day, color, false, GHOST_ALPHA);
+    return clipGhost(drawnOccurrence(draw), day, color, GHOST_ALPHA);
   }, [draw, day, theme]);
 
   /** The pointer wins while it is down: the range being drawn *is* the draft
-   *  about to open, and drawing both would double the same fact. A drag never
-   *  draws a task — a gesture with a length in it is asking for a span. */
+   *  about to open, and drawing both would double the same fact. */
   const about = drawing ?? copying ?? drafted;
 
   /** Received free time, on this day's face. Memoised because it repaints the
@@ -585,9 +581,7 @@ export default function Dial({
     const color = THEME_PALETTES[theme].ghost;
     const clipped = slots.flatMap((span) => {
       const arc = clipToDay(span, day);
-      return arc && arc.end > arc.start
-        ? [{ ...arc, color, opacity: SLOT_ALPHA, task: false }]
-        : [];
+      return arc && arc.end > arc.start ? [{ ...arc, color, opacity: SLOT_ALPHA }] : [];
     });
     return clipped.length > 0 ? clipped : null;
   }, [slots, day, theme]);

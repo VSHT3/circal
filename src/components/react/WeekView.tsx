@@ -113,6 +113,7 @@ export default function WeekView({
   selected,
   events,
   calendars,
+  tasks,
   settings,
   onSelectDay,
   onOpenEvent,
@@ -144,12 +145,12 @@ export default function WeekView({
     const waking = { from: settings.wakingFrom, to: settings.wakingTo };
     const slotInk = THEME_PALETTES[settings.theme].ghost;
     return weekDays(fromDayKey(fromKey)).map((date) => {
-      const { all } = dayAgenda(events, calendars, date);
+      const { all } = dayAgenda(events, calendars, date, tasks);
       const load = dayLoad(all, waking);
       const arcs = (slots ?? []).flatMap((span, at) => {
         const arc = clipToDay(span, date);
         return arc && arc.end > arc.start
-          ? [{ ...arc, color: slotInk, opacity: SLOT_ALPHA, task: false, at }]
+          ? [{ ...arc, color: slotInk, opacity: SLOT_ALPHA, at }]
           : [];
       });
       return {
@@ -166,6 +167,7 @@ export default function WeekView({
   }, [
     events,
     calendars,
+    tasks,
     slots,
     fromKey,
     todayKey,
@@ -702,7 +704,8 @@ function Readout({
  *  a task is one instant, an all-day event has none, and a day of a longer
  *  span says which day it is rather than a clock time from three days ago. */
 function when(occ: Occurrence, clock: Clock): string {
-  if (occ.event.task) return `${formatTimeShort(occ.start, clock)} DUE`;
+  if (occ.task && occ.start.getTime() === occ.end.getTime())
+    return `${formatTimeShort(occ.start, clock)} DUE`;
   const span = spanLabel(occ);
   if (occ.event.allDay) return span ?? "All day";
   const times = `${formatTimeShort(occ.start, clock)} – ${formatTimeShort(occ.end, clock)}`;

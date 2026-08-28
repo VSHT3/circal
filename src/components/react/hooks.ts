@@ -5,6 +5,7 @@ import { FEED_CHECK_MS, refreshStaleFeeds } from "@/lib/feeds";
 import { store } from "@/lib/store";
 import { dueReminders, reminderText, titleCountdown } from "@/lib/remind";
 import type { CalEvent, Calendar } from "@/lib/events";
+import type { Task } from "@/lib/tasks";
 import type { Clock } from "@/lib/time";
 
 /**
@@ -448,10 +449,13 @@ export function useReminders(options: {
   now: Date;
   events: CalEvent[];
   calendars: Calendar[];
+  tasks: Task[];
   lead: number;
   clock: Clock;
   /** Clicking the notification lands on the event. */
   onOpen: (event: CalEvent) => void;
+  /** Clicking a task's notification lands on the task. */
+  onOpenTask: (task: Task) => void;
 }) {
   const { enabled, now } = options;
   const latest = useRef(options);
@@ -465,18 +469,19 @@ export function useReminders(options: {
     // gesture. Unanswered or denied, this does nothing at all.
     if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
 
-    const { events, calendars, lead, clock, onOpen } = latest.current;
+    const { events, calendars, tasks, lead, clock, onOpen, onOpenTask } = latest.current;
     // Safe at any size: an occurrence can only come due inside one one-minute
     // window, and every key in here is from a window that has closed.
     if (fired.current.size > 256) fired.current.clear();
 
-    for (const reminder of dueReminders(events, calendars, now, lead, fired.current)) {
+    for (const reminder of dueReminders(events, calendars, tasks, now, lead, fired.current)) {
       fired.current.add(reminder.key);
       const { title, body } = reminderText(reminder, clock);
       const note = new Notification(title, { body, tag: reminder.key, icon: "/icon-192.png" });
       note.onclick = () => {
         window.focus();
-        onOpen(reminder.event);
+        if (reminder.event) onOpen(reminder.event);
+        else if (reminder.task) onOpenTask(reminder.task);
         note.close();
       };
     }
@@ -498,7 +503,12 @@ export function useReminders(options: {
  * clearing, on the tab coming back to the front, and on unmount, so this
  * hook can never leave the tab wearing a countdown after it stops running.
  */
-export function useTitleCountdown(events: CalEvent[], calendars: Calendar[], now: Date) {
+export function useTitleCountdown(
+  events: CalEvent[],
+  calendars: Calendar[],
+  tasks: Task[],
+  now: Date,
+) {
   const original = useRef<string | null>(null);
   const [hidden, setHidden] = useState(() => document.visibilityState === "hidden");
 
@@ -510,12 +520,12 @@ export function useTitleCountdown(events: CalEvent[], calendars: Calendar[], now
 
   useEffect(() => {
     if (original.current === null) original.current = document.title;
-    const countdown = hidden ? titleCountdown(events, calendars, now) : null;
+    const countdown = hidden ? titleCountdown(events, calendars, tasks, now) : null;
     document.title = countdown ? `${original.current} ${countdown}` : original.current;
     return () => {
       if (original.current !== null) document.title = original.current;
     };
-  }, [events, calendars, now, hidden]);
+  }, [events, calendars, tasks, now, hidden]);
 }
 
 /**

@@ -25,13 +25,22 @@
  * ------------------------------------------------------------------ */
 
 import { GRAVE_MAX, GRAVE_TTL, type CalEvent, type Calendar, type Grave } from "./events";
+import type { Task } from "./tasks";
 
-/** The three lists a merge is about. `feeds` is deliberately absent: it is a
+/** The stamp and identity every merged record carries — `CalEvent`, `Calendar`
+ *  and `Task` alike. The union rules below read nothing else. */
+interface Stamped {
+  id: string;
+  updatedAt: number;
+}
+
+/** The four lists a merge is about. `feeds` is deliberately absent: it is a
  *  read model assembled from the `circal.feed.*` keys, the one `Snapshot`
  *  field `write()` never serialises, and each machine pulls its own. */
 export interface Records {
   events: CalEvent[];
   calendars: Calendar[];
+  tasks: Task[];
   graves: Grave[];
 }
 
@@ -98,6 +107,7 @@ export function stamped(document: Records & Pick<Mergeable, "settingsAt">): bool
   return (
     document.events.some((e) => e.updatedAt > 0) ||
     document.calendars.some((c) => c.updatedAt > 0) ||
+    document.tasks.some((t) => t.updatedAt > 0) ||
     // A grave is a stamp: it is the record of a deletion, and the machine that
     // made it must be able to merge rather than adopt, or the deletion is the
     // thing that gets adopted away.
@@ -126,7 +136,7 @@ export function pruneGraves(graves: Grave[], now: number): Grave[] {
 
 /** A record without its own stamp, canonically — what "the same record" means
  *  when the only difference is when it was last written. */
-function body(record: CalEvent | Calendar): string {
+function body(record: Stamped): string {
   const { updatedAt: _stamp, ...rest } = record;
   return canonicalJson(rest);
 }
@@ -144,7 +154,7 @@ function body(record: CalEvent | Calendar): string {
  * one event in the same millisecond is not a case worth a vector clock, but it
  * is very much a case worth converging on.
  */
-function later<T extends CalEvent | Calendar>(mine: T, theirs: T): T {
+function later<T extends Stamped>(mine: T, theirs: T): T {
   if (mine.updatedAt !== theirs.updatedAt) return mine.updatedAt > theirs.updatedAt ? mine : theirs;
   return canonicalJson(mine) <= canonicalJson(theirs) ? mine : theirs;
 }
@@ -158,7 +168,7 @@ function later<T extends CalEvent | Calendar>(mine: T, theirs: T): T {
  * `merge(b, a)` two arrays of the same events, which is a difference the
  * mirror file would then write back and forth for ever.
  */
-function unite<T extends CalEvent | Calendar>(mine: T[], theirs: T[]): T[] {
+function unite<T extends Stamped>(mine: T[], theirs: T[]): T[] {
   const byId = new Map<string, T>();
   for (const record of mine) byId.set(record.id, record);
   for (const record of theirs) {
@@ -176,7 +186,7 @@ function unite<T extends CalEvent | Calendar>(mine: T[], theirs: T[]): T[] {
  *
  * The rules, in order:
  *
- * 1. Union by id, across `events` and `calendars` independently.
+ * 1. Union by id, across `events`, `calendars` and `tasks` independently.
  * 2. A grave wins over a record when `grave.at > record.updatedAt`. Otherwise
  *    the record survives and the grave is discarded — an event edited after it
  *    was deleted elsewhere is a resurrection the *user* performed, which is a
@@ -199,16 +209,17 @@ export function mergeDocuments<S>(
 ): Mergeable<S> {
   const graves = pruneGraves([...mine.graves, ...theirs.graves], now);
   const buried = new Map(graves.map((grave) => [grave.id, grave.at]));
-  const alive = (record: CalEvent | Calendar) =>
-    (buried.get(record.id) ?? -Infinity) <= record.updatedAt;
+  const alive = (record: Stamped) => (buried.get(record.id) ?? -Infinity) <= record.updatedAt;
 
   const events = unite(mine.events, theirs.events).filter(alive);
   const calendars = unite(mine.calendars, theirs.calendars).filter(alive);
-  const survived = new Set([...events, ...calendars].map((record) => record.id));
+  const tasks = unite(mine.tasks, theirs.tasks).filter(alive);
+  const survived = new Set([...events, ...calendars, ...tasks].map((record) => record.id));
 
   return {
     events,
     calendars,
+    tasks,
     graves: graves.filter((grave) => !survived.has(grave.id)),
     // Equal stamps take the same tie-break the records take, for the same
     // reason: without it two machines that changed a setting in one
@@ -251,17 +262,22 @@ export function mergeDocuments<S>(
  */
 export function restamped(next: Records, current: Records, now: number): Records {
   const before = new Map<string, string>();
-  for (const record of [...current.events, ...current.calendars]) {
+  for (const record of [...current.events, ...current.calendars, ...current.tasks]) {
     before.set(record.id, body(record));
   }
-  const held = new Set([...next.events, ...next.calendars].map((record) => record.id));
-  const gone = [...current.events, ...current.calendars].filter((record) => !held.has(record.id));
+  const held = new Set(
+    [...next.events, ...next.calendars, ...next.tasks].map((record) => record.id),
+  );
+  const gone = [...current.events, ...current.calendars, ...current.tasks].filter(
+    (record) => !held.has(record.id),
+  );
 
   return {
     events: next.events.map((e) => (before.get(e.id) === body(e) ? e : { ...e, updatedAt: now })),
     calendars: next.calendars.map((c) =>
       before.get(c.id) === body(c) ? c : { ...c, updatedAt: now },
     ),
+    tasks: next.tasks.map((t) => (before.get(t.id) === body(t) ? t : { ...t, updatedAt: now })),
     // Graves are never wound back, and both sides' are kept: a deletion is a
     // thing that happened, and undoing one is answered by the stamp above
     // outrunning the grave rather than by forgetting it. Dropping them here

@@ -10,7 +10,7 @@
  * already has.
  * ------------------------------------------------------------------ */
 
-import { readCalendar, readEvent } from "@/lib/backup";
+import { readCalendar, readEvent, readTask } from "@/lib/backup";
 import { describeRule } from "@/lib/describe";
 import {
   DEFAULT_WAKING,
@@ -20,6 +20,7 @@ import {
   dayLoad,
   freeGaps,
   occurrencesOn,
+  taskOccurrences,
   recurrenceOf,
   scoreEvent,
   spanLabel,
@@ -27,7 +28,8 @@ import {
   type Calendar,
   type Occurrence,
 } from "@/lib/events";
-import { applyRemove, applySplit, applyToggleDone, applyTruncate, applyUpdate } from "@/lib/mutate";
+import { scoreTask, type Task } from "@/lib/tasks";
+import { applyRemove, applySplit, applyTruncate, applyUpdate } from "@/lib/mutate";
 import { parseQuickAdd } from "@/lib/quickadd";
 import { NEVER, instantKey, keyToInstant, readRecurrence, repeats, type Repeat } from "@/lib/recur";
 import {
@@ -167,7 +169,6 @@ interface Span {
   start: number;
   end: number;
   allDay: boolean;
-  task: boolean;
 }
 
 export interface EventFieldsInput {
@@ -181,6 +182,7 @@ export interface EventFieldsInput {
   /** Minutes — an alternative to `end` for a timed event. */
   duration?: number;
   allDay?: boolean;
+  /** A dated to-do rather than an event — routed to the task list. */
   task?: boolean;
   calendarId?: string;
   color?: string;
@@ -194,11 +196,6 @@ export interface EventFieldsInput {
 /** A brand-new event's span. No time named at all reads as all day — the
  *  same rule `parseQuickAdd` uses: nothing here is invented. */
 function resolveSpanForCreate(input: EventFieldsInput, day: Date, defaultDuration: number): Span {
-  if (input.task === true) {
-    if (input.start === undefined) throw new RefusalError('a task needs "start" (HH:MM)');
-    const at = atMinutes(day, parseTime(input.start, "start")).getTime();
-    return { start: at, end: at, allDay: false, task: true };
-  }
   // A `YYYY-MM-DD`-shaped `end` is a day, never a time — the all-day spelling
   // the field's own doc allows. Counting it as "a time was given" forced
   // `{date, end}` (a multi-day holiday, phrased exactly as documented) into
@@ -215,7 +212,6 @@ function resolveSpanForCreate(input: EventFieldsInput, day: Date, defaultDuratio
       start: startOfDay(day).getTime(),
       end: addDays(startOfDay(day), days).getTime(),
       allDay: true,
-      task: false,
     };
   }
   if (input.start === undefined) throw new RefusalError('a timed event needs "start" (HH:MM)');
@@ -228,7 +224,6 @@ function resolveSpanForCreate(input: EventFieldsInput, day: Date, defaultDuratio
     start: atMinutes(day, startMin).getTime(),
     end: atMinutes(day, endMin).getTime(),
     allDay: false,
-    task: false,
   };
 }
 
@@ -238,15 +233,6 @@ function resolveSpanForCreate(input: EventFieldsInput, day: Date, defaultDuratio
  *  own value, so "just move it an hour" does not also reset its length. */
 function resolveSpanForPatch(input: EventFieldsInput, base: CalEvent, anchorMs: number): Span {
   const day = input.date ? parseDay(input.date) : startOfDay(new Date(anchorMs));
-  const task = input.task ?? base.task;
-  if (task) {
-    const startMin =
-      input.start !== undefined
-        ? parseTime(input.start, "start")
-        : minutesOfDay(new Date(anchorMs));
-    const at = atMinutes(day, startMin).getTime();
-    return { start: at, end: at, allDay: false, task: true };
-  }
   const allDay = input.allDay ?? base.allDay;
   if (allDay) {
     const baseDays = Math.max(
@@ -258,12 +244,11 @@ function resolveSpanForPatch(input: EventFieldsInput, base: CalEvent, anchorMs: 
       start: startOfDay(day).getTime(),
       end: addDays(startOfDay(day), days).getTime(),
       allDay: true,
-      task: false,
     };
   }
-  // A base with no width of its own (it was a task) falls back to a minute
-  // rather than `DEFAULT_DURATION` — `Math.max` never returns `0`, so a
-  // second fallback here would be unreachable, not a second safety net.
+  // A degenerate base span (an older document's zero-width record) falls
+  // back to a minute rather than `DEFAULT_DURATION` — `Math.max` never
+  // returns `0`, so a second fallback here would be unreachable.
   const baseDurationMin = Math.max(1, Math.round((base.end - base.start) / 60_000));
   const startMin =
     input.start !== undefined ? parseTime(input.start, "start") : minutesOfDay(new Date(anchorMs));
@@ -275,7 +260,6 @@ function resolveSpanForPatch(input: EventFieldsInput, base: CalEvent, anchorMs: 
     start: atMinutes(day, startMin).getTime(),
     end: atMinutes(day, endMin).getTime(),
     allDay: false,
-    task: false,
   };
 }
 
@@ -287,7 +271,7 @@ function resolveSpanForPatch(input: EventFieldsInput, base: CalEvent, anchorMs: 
 function validate(draft: Record<string, unknown>): Omit<CalEvent, "id"> {
   const validated = readEvent({ ...draft, id: "pending" });
   if (!validated)
-    throw new RefusalError("the assembled event failed validation (check start, end and task)");
+    throw new RefusalError("the assembled event failed validation (check start and end)");
   const { id: _drop, ...rest } = validated;
   return rest;
 }
@@ -316,8 +300,6 @@ export function buildEventRecord(
     seriesKey: "",
     color: input.color ?? "",
     icon: input.icon ?? "",
-    task: span.task,
-    doneKeys: [],
     // Busy. There is no tool argument for this yet, and an agent asked to put
     // an hour in the diary means the hour to be spoken for.
     free: false,
@@ -370,8 +352,6 @@ export function applyPatchToEvent(
     seriesKey: base.seriesKey,
     color: input.color ?? base.color,
     icon: input.icon ?? base.icon,
-    task: span.task,
-    doneKeys: base.doneKeys,
     // Carried, like every other field a patch does not name: `validate` reads
     // the draft through `backup.readEvent`, which defaults an absent `free`
     // to busy — so leaving it out would quietly rebook a free event the
@@ -412,6 +392,7 @@ function carried(contents: MirrorContents): Mutated {
   return {
     events: contents.events,
     calendars: contents.calendars,
+    tasks: contents.tasks,
     settings: contents.settings,
     settingsAt: contents.settingsAt,
     graves: contents.graves,
@@ -425,19 +406,37 @@ function calendarName(calendars: Calendar[], id: string): string {
 }
 
 export function eventSummaryLine(event: CalEvent, calendars: Calendar[], clock: Clock): string {
-  const when = event.task
-    ? `${dayKey(new Date(event.start))} ${formatTimeShort(new Date(event.start), clock)}`
-    : event.allDay
-      ? `${dayKey(new Date(event.start))} – ${dayKey(addDays(new Date(event.end), -1))} (all day)`
-      : `${dayKey(new Date(event.start))} ${formatTimeShort(new Date(event.start), clock)}–${formatTimeShort(new Date(event.end), clock)}`;
+  const when = event.allDay
+    ? `${dayKey(new Date(event.start))} – ${dayKey(addDays(new Date(event.end), -1))} (all day)`
+    : `${dayKey(new Date(event.start))} ${formatTimeShort(new Date(event.start), clock)}–${formatTimeShort(new Date(event.end), clock)}`;
   return `${event.title || "Untitled"} — [${calendarName(calendars, event.calendarId)}] — ${when} — id=${event.id}`;
 }
 
+/** A task's one line, `eventSummaryLine`'s own shape: what it is called,
+ *  where it is filed, when it is due, and the id every write tool needs. */
+export function taskSummaryLine(task: Task, calendars: Calendar[], clock: Clock): string {
+  const when = task.dueAllDay
+    ? `due ${dayKey(new Date(task.due))}`
+    : `due ${dayKey(new Date(task.due))} ${formatTimeShort(new Date(task.due), clock)}`;
+  const bits = [
+    `${task.title || "Untitled"} (task)`,
+    `[${calendarName(calendars, task.calendarId)}]`,
+    when,
+    task.done ? "done" : "open",
+    ...(task.estimate !== null ? [`~${formatDuration(task.estimate)}`] : []),
+    ...(task.priority > 0 ? [task.priority === 2 ? "urgent" : "high"] : []),
+    `id=${task.id}`,
+  ];
+  return bits.join(" — ");
+}
+
 export function occurrenceLine(occ: Occurrence, calendars: Calendar[], clock: Clock): string {
+  // A due date's pip is one instant; a plan and an event print their span.
+  const pip = occ.task && occ.start.getTime() === occ.end.getTime();
   const when = occ.event.allDay
     ? "all day"
-    : occ.event.task
-      ? `${occ.start.toISOString()} (${formatTimeShort(occ.start, clock)})`
+    : pip
+      ? `${occ.start.toISOString()} (${formatTimeShort(occ.start, clock)}) due`
       : `${occ.start.toISOString()} (${formatTimeShort(occ.start, clock)}) – ${occ.end.toISOString()} (${formatTimeShort(occ.end, clock)})`;
   const span = spanLabel(occ);
   const bits = [
@@ -445,7 +444,7 @@ export function occurrenceLine(occ: Occurrence, calendars: Calendar[], clock: Cl
     `[${calendarName(calendars, occ.event.calendarId)}]`,
     when,
     ...(span ? [span] : []),
-    ...(occ.event.task ? [occ.done ? "done" : "open"] : []),
+    ...(occ.task ? [occ.done ? "done" : "open"] : []),
     `id=${occ.event.id}`,
     `occurrence=${dayKey(occ.start)}`,
   ];
@@ -457,7 +456,7 @@ export function occurrenceLine(occ: Occurrence, calendars: Calendar[], clock: Cl
 export function listDay(contents: MirrorContents, date: string): string {
   assertDateKey(date);
   const day = fromDayKey(date);
-  const agenda = dayAgenda(contents.events, contents.calendars, day);
+  const agenda = dayAgenda(contents.events, contents.calendars, day, contents.tasks);
   const clock = contents.settings.clock;
   return [
     `${date} — ${agenda.all.length} occurrence${agenda.all.length === 1 ? "" : "s"}`,
@@ -493,7 +492,11 @@ export function listRange(contents: MirrorContents, from: string, to: string): s
   let truncated = false;
   for (let i = 0; i < span && !truncated; i++) {
     const day = addDays(fromDay, i);
-    const occs = occurrencesOn(contents.events, contents.calendars, day);
+    // The dial's own merge: plans and due pips beside the events.
+    const occs = [
+      ...occurrencesOn(contents.events, contents.calendars, day),
+      ...taskOccurrences(contents.tasks, contents.calendars, day),
+    ].sort((a, b) => a.start.getTime() - b.start.getTime() || a.end.getTime() - b.end.getTime());
     if (occs.length === 0) continue;
     lines.push(`${dayKey(day)}:`);
     for (const occ of occs) {
@@ -513,16 +516,24 @@ export function listRange(contents: MirrorContents, from: string, to: string): s
 
 export function searchEvents(contents: MirrorContents, query: string, limit = 20): string {
   const clock = contents.settings.clock;
+  const cap = Math.max(0, limit);
   const scored = contents.events
-    .map((event) => ({ event, score: scoreEvent(event, query) }))
-    .filter((s): s is { event: CalEvent; score: number } => s.score !== null)
+    .map((event) => ({
+      line: eventSummaryLine(event, contents.calendars, clock),
+      score: scoreEvent(event, query),
+    }))
+    .concat(
+      contents.tasks.map((task) => ({
+        line: taskSummaryLine(task, contents.calendars, clock),
+        score: scoreTask(task, query),
+      })),
+    )
+    .filter((s): s is { line: string; score: number } => s.score !== null)
     .sort((a, b) => b.score - a.score)
-    .slice(0, Math.max(0, limit));
+    .slice(0, cap);
   return [
     `"${query}" — ${scored.length} match${scored.length === 1 ? "" : "es"}`,
-    ...(scored.length
-      ? scored.map(({ event }) => eventSummaryLine(event, contents.calendars, clock))
-      : ["(none)"]),
+    ...(scored.length ? scored.map(({ line }) => line) : ["(none)"]),
   ].join("\n");
 }
 
@@ -535,7 +546,7 @@ export function freeSlots(
 ): string {
   assertDateKey(date);
   const day = fromDayKey(date);
-  const occs = occurrencesOn(contents.events, contents.calendars, day);
+  const occs = dayAgenda(contents.events, contents.calendars, day, contents.tasks).all;
   const fromMin =
     from !== undefined
       ? parseTime(from, "from")
@@ -572,17 +583,20 @@ export function listCalendars(contents: MirrorContents): string {
 
 export function describeEvent(contents: MirrorContents, id: string): string {
   const event = contents.events.find((e) => e.id === id);
-  if (!event) throw new RefusalError(`no event with id "${id}"`);
+  if (!event) {
+    // The id may name a task — one id space for the caller, two lists here.
+    const task = contents.tasks.find((t) => t.id === id);
+    if (task) return describeTask(contents, task);
+    throw new RefusalError(`no event with id "${id}"`);
+  }
   const calendar = contents.calendars.find((c) => c.id === event.calendarId);
   const clock = contents.settings.clock;
   return [
     `${event.title || "Untitled"}  (id=${event.id})`,
     `Calendar: ${calendarName(contents.calendars, event.calendarId)}${calendar?.feed ? " (subscription, read-only)" : ""}`,
-    event.task
-      ? `Task at ${dayKey(new Date(event.start))} ${formatTimeShort(new Date(event.start), clock)}`
-      : event.allDay
-        ? `All day, ${dayKey(new Date(event.start))} to ${dayKey(addDays(new Date(event.end), -1))}`
-        : `${dayKey(new Date(event.start))} ${formatTimeShort(new Date(event.start), clock)}–${formatTimeShort(new Date(event.end), clock)}`,
+    event.allDay
+      ? `All day, ${dayKey(new Date(event.start))} to ${dayKey(addDays(new Date(event.end), -1))}`
+      : `${dayKey(new Date(event.start))} ${formatTimeShort(new Date(event.start), clock)}–${formatTimeShort(new Date(event.end), clock)}`,
     `Repeats: ${repeats(event) ? describeRule(event) : "never"}`,
     ...(event.location ? [`Location: ${event.location}`] : []),
     ...(event.url ? [`URL: ${event.url}`] : []),
@@ -590,11 +604,27 @@ export function describeEvent(contents: MirrorContents, id: string): string {
     ...(event.seriesId
       ? [`Overrides one occurrence of id=${event.seriesId} (${event.seriesKey})`]
       : []),
-    ...(event.task
-      ? [
-          `Done: ${event.doneKeys.length} occurrence${event.doneKeys.length === 1 ? "" : "s"} ticked`,
-        ]
+  ].join("\n");
+}
+
+function describeTask(contents: MirrorContents, task: Task): string {
+  const clock = contents.settings.clock;
+  return [
+    `${task.title || "Untitled"}  (task, id=${task.id})`,
+    `Calendar: ${calendarName(contents.calendars, task.calendarId)}`,
+    task.dueAllDay
+      ? `Due ${dayKey(new Date(task.due))}`
+      : `Due ${dayKey(new Date(task.due))} ${formatTimeShort(new Date(task.due), clock)}`,
+    `Status: ${task.done ? "done" : "open"}`,
+    ...(task.estimate !== null ? [`Estimate: ${formatDuration(task.estimate)}`] : []),
+    ...(task.priority > 0 ? [`Priority: ${task.priority === 2 ? "urgent" : "high"}`] : []),
+    ...(task.plans.length
+      ? task.plans.map(
+          (p) =>
+            `Planned: ${dayKey(new Date(p.start))} ${formatTimeShort(new Date(p.start), clock)}–${formatTimeShort(new Date(p.end), clock)}`,
+        )
       : []),
+    ...(task.notes ? [`Notes: ${task.notes}`] : []),
   ].join("\n");
 }
 
@@ -633,6 +663,41 @@ export function performQuickAdd(
 }
 
 export function performCreateEvent(contents: MirrorContents, input: EventFieldsInput): WriteResult {
+  // `task: true` routes to the task list: a task is its own record now, with
+  // a deadline rather than a span. `start` names a due time; without one the
+  // deadline is a date with no time on it.
+  if (input.task === true) {
+    if (!input.date) throw new RefusalError('a task needs "date" (YYYY-MM-DD)');
+    const day = parseDay(input.date);
+    const calendar = resolveCalendar(input.calendarId, contents.calendars, contents.settings);
+    const dueAllDay = input.start === undefined;
+    const due = dueAllDay
+      ? startOfDay(day).getTime()
+      : atMinutes(day, parseTime(input.start as string, "start")).getTime();
+    // Through `readTask`, `validate`'s own bargain: an agent is exactly the
+    // untrusted input that boundary already assumes.
+    const task = readTask({
+      id: newId(),
+      title: input.title ?? "",
+      notes: input.notes ?? "",
+      calendarId: calendar.id,
+      icon: input.icon ?? "",
+      color: input.color ?? "",
+      due,
+      dueAllDay,
+      estimate: null,
+      priority: 0,
+      plans: [],
+      done: false,
+      updatedAt: Date.now(),
+    });
+    if (!task)
+      throw new RefusalError("the assembled task failed validation (check date and start)");
+    return {
+      mutated: { ...carried(contents), tasks: [...contents.tasks, task] },
+      message: `Created ${taskSummaryLine(task, contents.calendars, contents.settings.clock)}`,
+    };
+  }
   const record = buildEventRecord(input, contents.calendars, contents.settings);
   const event: CalEvent = { ...record, id: newId(), updatedAt: Date.now() };
   return {
@@ -649,7 +714,17 @@ export function performUpdateEvent(
   patch: EventFieldsInput,
 ): WriteResult {
   const original = contents.events.find((e) => e.id === id);
-  if (!original) throw new RefusalError(`no event with id "${id}"`);
+  if (!original) {
+    // A task's id lands here from list_day and search; its patch vocabulary
+    // is its own and arrives in a later stage, so the refusal says where the
+    // record lives rather than pretending it does not exist.
+    if (contents.tasks.some((t) => t.id === id)) {
+      throw new RefusalError(
+        `id "${id}" is a task — update_event edits events. Use toggle_done to tick it, or edit it in the app.`,
+      );
+    }
+    throw new RefusalError(`no event with id "${id}"`);
+  }
   refuseIfFeed(original, contents.calendars);
   const scope = requireScope(original, scopeArg);
   const clock = contents.settings.clock;
@@ -702,7 +777,22 @@ export function performDeleteEvent(
   occurrence: string | undefined,
 ): WriteResult {
   const original = contents.events.find((e) => e.id === id);
-  if (!original) throw new RefusalError(`no event with id "${id}"`);
+  if (!original) {
+    // Deleting a task is one shape only — it has no series and no scope —
+    // and its grave rides with the removal, an event's own rule.
+    const task = contents.tasks.find((t) => t.id === id);
+    if (task) {
+      return {
+        mutated: {
+          ...carried(contents),
+          tasks: contents.tasks.filter((t) => t.id !== id),
+          graves: [...contents.graves, { id, at: Date.now() }],
+        },
+        message: `Deleted the task "${task.title || "Untitled"}".`,
+      };
+    }
+    throw new RefusalError(`no event with id "${id}"`);
+  }
   refuseIfFeed(original, contents.calendars);
   const scope = requireScope(original, scopeArg);
   const title = original.title || "Untitled";
@@ -748,21 +838,27 @@ export function performDeleteEvent(
   };
 }
 
+/** Ticks a task off, or back on. `occurrence` is accepted and ignored — a
+ *  task has one deadline and is finished once, so there is nothing for the
+ *  argument to disambiguate any more. */
 export function performToggleDone(
   contents: MirrorContents,
   id: string,
-  occurrence: string | undefined,
+  _occurrence: string | undefined,
 ): WriteResult {
-  const original = contents.events.find((e) => e.id === id);
-  if (!original) throw new RefusalError(`no event with id "${id}"`);
-  if (!original.task) throw new RefusalError(`"${original.title || "Untitled"}" is not a task`);
-  refuseIfFeed(original, contents.calendars);
-  const at = resolveInstant(original, occurrence);
-  const wasDone = original.doneKeys.includes(instantKey(at));
-  const events = applyToggleDone(contents.events, original.id, at, Date.now());
+  const original = contents.tasks.find((t) => t.id === id);
+  if (!original) {
+    if (contents.events.some((e) => e.id === id)) {
+      throw new RefusalError(`"${id}" is an event, not a task`);
+    }
+    throw new RefusalError(`no task with id "${id}"`);
+  }
+  const tasks = contents.tasks.map((t) =>
+    t.id === id ? { ...t, done: !t.done, updatedAt: Date.now() } : t,
+  );
   return {
-    mutated: { ...carried(contents), events },
-    message: `${wasDone ? "Reopened" : "Completed"} "${original.title || "Untitled"}" on ${dayKey(new Date(at))}.`,
+    mutated: { ...carried(contents), tasks },
+    message: `${original.done ? "Reopened" : "Completed"} "${original.title || "Untitled"}".`,
   };
 }
 

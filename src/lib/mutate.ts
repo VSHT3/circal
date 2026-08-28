@@ -1,5 +1,5 @@
 /* ------------------------------------------------------------------ *
- * The decision half of five `store` actions, pulled out as pure
+ * The decision half of four `store` actions, pulled out as pure
  * functions over an event list.
  *
  * An MCP server writing to the same file the app mirrors to has to mean
@@ -19,7 +19,7 @@
  * ids do.
  * ------------------------------------------------------------------ */
 
-import { toggleDoneKey, type CalEvent, type Grave } from "./events";
+import type { CalEvent, Grave } from "./events";
 import { keyToInstant, splitRule } from "./recur";
 
 /**
@@ -44,22 +44,6 @@ export function applyUpdate(
   now: number,
 ): CalEvent[] {
   return events.map((e) => (e.id === id ? { ...e, ...patch, updatedAt: now } : e));
-}
-
-/**
- * Ticks one occurrence of a task off, or back on. By occurrence, not by
- * event: a weekly task ticked this Monday is not ticked every Monday, and
- * `doneKeys` is the list that says which.
- */
-export function applyToggleDone(
-  events: CalEvent[],
-  id: string,
-  at: Date | number,
-  now: number,
-): CalEvent[] {
-  return events.map((e) =>
-    e.id === id ? { ...e, doneKeys: toggleDoneKey(e.doneKeys, at), updatedAt: now } : e,
-  );
 }
 
 /**

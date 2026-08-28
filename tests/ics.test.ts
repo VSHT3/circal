@@ -221,21 +221,12 @@ describe("what the round trip drops", () => {
     expect.soft(events[0].end).toBeSameInstantAs(Date.UTC(2026, 5, 15, 10, 0, 0));
   });
 
-  it("exports a task as a zero-length VEVENT, so its ticks do not travel", () => {
-    const ticked = event({
-      title: "Renew passport",
-      start: "2026-03-09 09:00",
-      end: "2026-03-09 09:00",
-      task: true,
-      doneKeys: ["2026-03-09T09:00:00"],
-    });
-    const out = toIcs([ticked], "Work");
-    // Spec-legal — §3.6.1 has no DTEND equal to DTSTART — and readable by
-    // circal, which wrote the `X-` lines. To anything else it is an event that
-    // happens instantaneously, and the tick is an extension it will discard.
-    expect.soft(out).toContain("X-CIRCAL-TASK:TRUE");
-    expect.soft(out).not.toContain("DTEND");
-    expect.soft(out).not.toContain("BEGIN:VTODO");
+  it("reads a DTSTART-only VEVENT with the hour fallback, never as zero length", () => {
+    // §3.6.1 says a bare DATE-TIME DTSTART ends when it starts, but a reader
+    // expects an unterminated meeting to hold an hour — collapsing every
+    // producer's open-ended VEVENT onto the rim would be worse than the lie.
+    const { events } = fromIcs(singleVevent(["SUMMARY:Open ended", "DTSTART:20260615T090000Z"]));
+    expect.soft(events[0].end - events[0].start).toBe(3_600_000);
   });
 });
 

@@ -4,6 +4,7 @@ import type { RefObject } from "react";
 import type { ThemeName } from "@/lib/theme";
 import type { Clock, WeekStart } from "@/lib/time";
 import type { CalEvent, Calendar, Occurrence } from "@/lib/events";
+import type { Task } from "@/lib/tasks";
 import type { LifeRun, LifeStage } from "@/lib/life";
 import type { WeekStage } from "@/lib/week";
 import type { Settings } from "@/lib/store";
@@ -62,9 +63,6 @@ export interface DraftMark {
   end: number;
   /** No arc on the dial, exactly as a saved all-day event has none. */
   allDay: boolean;
-  /** A pip rather than an arc, and the reason the mark cannot simply be
-   *  derived from `start === end`: the switch is what says so. */
-  task: boolean;
   /** The event's own override, `""` for "follow the calendar". */
   color: string;
   calendarId: string;
@@ -116,10 +114,16 @@ export interface ShellActions {
   goDay: (day: Date) => void;
   setView: (view: ViewMode) => void;
   newEvent: () => void;
-  /** A dated task on the selected day, at the same hour ⌘N would open on: a
-   *  task and an event are the same question about a different width, so they
-   *  must not disagree about when. */
+  /** The task editor over a blank draft, due on the selected day at the same
+   *  hour ⌘N would open on: a task and an event are the same question about
+   *  a different width, so they must not disagree about when. */
   newTask: () => void;
+  /** The task editor over an existing task. */
+  editTask: (id: string) => void;
+  /** Tick a task off, or back on — the store's own toggle, with the shell's
+   *  rings-closed gate on top, so a tick from the sidebar and one from the
+   *  dial mean the same thing. */
+  toggleTask: (id: string) => void;
   /** A draft over an explicit range on the selected day — the free-time rows. */
   newEventAt: (startMin: number, endMin: number) => void;
   /**
@@ -210,6 +214,11 @@ export interface SidebarProps {
   now: Date;
   events: CalEvent[];
   calendars: Calendar[];
+  /** The task list, for the tasks section and the mini-month's dots — a due
+   *  day carries something too. */
+  tasks: Task[];
+  /** The viewer's clock, for the rows' printed due times. */
+  clock: Clock;
   /**
    * Whether the moon is drawn at the foot of the column. A scalar rather than
    * the whole `Settings` object: this panel reads one field of it, and it
@@ -223,6 +232,22 @@ export interface SidebarProps {
    *  it too. */
   weekStart: WeekStart;
   actions: ShellActions;
+}
+
+export interface TaskEditorProps {
+  /** The task being edited, or `null` for a new draft. */
+  target: Task | null;
+  /** Epoch ms a new draft is due at — the selected day at ⌘N's own hour.
+   *  Ignored when `target` is set. */
+  seedDue: number;
+  calendars: Calendar[];
+  /** The calendar a new draft lands on, `defaultCalendarId`'s answer. */
+  defaultCalendar: string;
+  clock: Clock;
+  onSave: (draft: Omit<Task, "id" | "updatedAt">) => void;
+  /** Only reachable when `target` is set. */
+  onDelete: () => void;
+  onClose: () => void;
 }
 
 export interface EventEditorProps {
@@ -362,6 +387,9 @@ export interface WeekViewProps {
   selected: Date;
   events: CalEvent[];
   calendars: Calendar[];
+  /** The task list — the strip's agendas fold plans and due pips in through
+   *  `dayAgenda`, the dial's own read path. */
+  tasks: Task[];
   /** Whole: the strip reads the clock, the arc marks and both tick channels. */
   settings: Settings;
   /** Name a day — which leaves this view for the dial, exactly as the year

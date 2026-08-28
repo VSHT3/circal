@@ -22,6 +22,7 @@ import {
   type Partstat,
   type Recurrence,
 } from "@/lib/events";
+import type { Plan, Task } from "@/lib/tasks";
 
 /* -------------------------------- parsing --------------------------------- */
 
@@ -176,8 +177,6 @@ export function event(
     seriesKey: "",
     color: "",
     icon: "",
-    task: false,
-    doneKeys: [],
     // Busy, which is what an event says when it says nothing.
     free: false,
     // Following the setting, which is the same kind of nothing: this event
@@ -198,6 +197,37 @@ export function event(
 /** A recurrence rule with everything not stated left unstated. */
 export function rule(overrides: Partial<Recurrence> = {}): Recurrence {
   return { ...NEVER, ...overrides };
+}
+
+/**
+ * A `Task` with every field defaulted — `event()`'s own bargain, one tier
+ * over. `due` takes a stamp for the reason `start` does.
+ */
+export function task(
+  overrides: Partial<Omit<Task, "due">> & { due?: string | number | Date } = {},
+): Task {
+  const { due, ...rest } = overrides;
+  return {
+    id: id("t"),
+    title: "Task",
+    notes: "",
+    calendarId: "cal-work",
+    icon: "",
+    color: "",
+    due: due === undefined ? ms("2026-03-08 18:30") : typeof due === "string" ? ms(due) : +due,
+    dueAllDay: false,
+    estimate: null,
+    priority: 0,
+    plans: [],
+    done: false,
+    updatedAt: 0,
+    ...rest,
+  };
+}
+
+/** One plan, both ends as stamps. */
+export function plan(start: string, end: string): Plan {
+  return { start: ms(start), end: ms(end) };
 }
 
 /**
