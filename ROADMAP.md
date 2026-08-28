@@ -78,9 +78,6 @@ auto-schedule) the delight. Two amendments to the spec:
 
 ## Tier 5 · Ink-earners (small; between big things)
 
-- **IDEAS #12, daylight across the year ring.** Day length over a year is one
-  picture only a circular year draws; `sun.ts` ships already. Rim _background_
-  tint, so it survives the no-new-rings rule.
 - **IDEAS #2, travel time.** A hand-typed "leave by" pip ahead of an arc — the most
   clock-face-native feature on any of these lists, one `CalEvent` field through
   the `readEvent` checklist, and reminders get it for free.

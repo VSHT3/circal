@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { placeForZone } from "@/lib/places";
-import { ambientLevel, solarLight, sunTimes, type Place } from "@/lib/sun";
+import { ambientLevel, dayLength, solarLight, sunTimes, type Place } from "@/lib/sun";
 import { at, day } from "./helpers";
 
 const BERLIN: Place = { lat: 52.52, lon: 13.405, label: "Berlin" };
@@ -261,5 +261,48 @@ describe("ambientLevel", () => {
     const midMorning = at("2026-06-21 10:00");
     expect(ambientLevel(midMorning, BERLIN)).toBe(1);
     expect(ambientLevel(midMorning, honolulu)).toBeLessThan(0.7);
+  });
+});
+
+/* --------------------------------- dayLength -------------------------------- */
+
+describe("dayLength", () => {
+  const arctic: Place = { lat: 70, lon: 20, label: "Arctic" };
+  const equator: Place = { lat: 0, lon: 0, label: "Equator" };
+
+  it("is the gap between sunrise and sunset", () => {
+    const sun = sunTimes(day("2026-04-10"), BERLIN);
+    expect(dayLength(day("2026-04-10"), BERLIN)).toBe(sun.sunset! - sun.sunrise!);
+  });
+
+  it("runs long in midsummer and short in midwinter, at a mid latitude", () => {
+    const june = dayLength(day("2026-06-21"), BERLIN);
+    const december = dayLength(day("2026-12-21"), BERLIN);
+    // Berlin's published extremes are about 16h50m and 7h40m.
+    expect(june).toBeGreaterThan(16 * 60);
+    expect(december).toBeLessThan(8 * 60);
+    expect(june).toBeGreaterThan(december);
+  });
+
+  it("barely moves across the year at the equator — the year ring's blank case", () => {
+    const june = dayLength(day("2026-06-21"), equator);
+    const december = dayLength(day("2026-12-21"), equator);
+    expect(Math.abs(june - december)).toBeLessThan(15);
+  });
+
+  it("is a whole day of sun under the midnight sun, and none in polar night", () => {
+    expect(dayLength(day("2026-06-21"), arctic)).toBe(1440);
+    expect(dayLength(day("2026-12-21"), arctic)).toBe(0);
+  });
+
+  it("stays inside a day for a place the viewer's midnight does not frame", () => {
+    // `sunTimes` does not clip to the viewer's zone, so the pair it returns
+    // for Honolulu straddles this process's own day boundary.
+    const honolulu: Place = { lat: 21.3069, lon: -157.8583, label: "Honolulu" };
+    for (const date of ["2026-06-21", "2026-12-21"]) {
+      const length = dayLength(day(date), honolulu);
+      expect(length).toBeGreaterThan(0);
+      expect(length).toBeLessThanOrEqual(1440);
+    }
   });
 });

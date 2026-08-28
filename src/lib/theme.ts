@@ -118,6 +118,23 @@ export const THEME_PALETTES: Record<ThemeName, ThemePalette> = {
   },
 };
 
+/**
+ * The lightcycle's two colours, as `wash` channels: warm but desaturated for
+ * sun, a dim violet for night.
+ *
+ * Here rather than beside the dial's band because a second face now speaks
+ * it — the year ring tints its rim by how long each day is — and two spellings
+ * of the same pair is two chances for the day view and the year view to
+ * disagree about what daylight looks like.
+ */
+export const LIGHTCYCLE: {
+  readonly day: readonly [number, number, number];
+  readonly night: readonly [number, number, number];
+} = {
+  day: [255, 198, 124],
+  night: [150, 132, 255],
+};
+
 function channels(color: string): readonly [number, number, number] {
   const raw = /^#?([0-9a-f]{6})$/i.exec(color.trim());
   if (!raw) return [0, 0, 0];

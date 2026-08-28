@@ -45,8 +45,9 @@ import { Search, X } from "lucide-react";
 import type { YearViewProps } from "@/components/react/types";
 import { IconButton } from "@/components/react/ui/primitives";
 import { scoreEvent } from "@/lib/events";
-import { DIAL, VIEW_BOX, VIEW_SIZE, polar } from "@/lib/dial";
+import { DIAL, VIEW_BOX, VIEW_SIZE, arcPath, polar } from "@/lib/dial";
 import { LIFE_META_H, dayTally, formatLifeDate, lifeDot, type LifeStage } from "@/lib/life";
+import { dayLength } from "@/lib/sun";
 import {
   YEAR,
   dateOfYear,
@@ -61,12 +62,13 @@ import {
   ringDelta,
   spread,
   unroller,
+  yearAngle,
   type Vec,
 } from "@/lib/year";
-import { MONTHS, WEEKDAYS, clamp, daysBetween, formatDayRange } from "@/lib/time";
+import { MINUTES_PER_DAY, MONTHS, WEEKDAYS, clamp, daysBetween, formatDayRange } from "@/lib/time";
 import { UNROLL_IN_MS, UNROLL_OUT_MS } from "@/lib/motion";
 import { cue } from "@/lib/feedback";
-import { THEME_PALETTES, type ThemeName } from "@/lib/theme";
+import { LIGHTCYCLE, THEME_PALETTES, wash, type ThemeName } from "@/lib/theme";
 import { useElementSize, useHotkeys } from "./hooks";
 import { cn } from "@/lib/utils";
 
@@ -79,6 +81,25 @@ import { cn } from "@/lib/utils";
  * compete.
  */
 const LIT_HOVER = 0.95;
+
+/**
+ * The daylight tint: how much of the lightcycle's own colour a day's slot
+ * gets behind its mark, at the solstice, and how far from a twelve-hour day
+ * counts as the whole of that.
+ *
+ * Heavily dimmed on purpose. This is the rim's *background* — it annotates a
+ * shape the marks make, and every louder thing on this face (an event's
+ * colour, the magnifier, the selection's white, a search's grey) has to stay
+ * unmistakably louder. At `TINT_LEVEL` even the solstice sits below the empty
+ * day's own mark, so the ring never reads as lit by it.
+ *
+ * `TINT_SWING` is six hours either side of twelve, which is roughly what the
+ * Arctic Circle gives: past it the swing clamps, so a polar year is the
+ * strongest the tint goes rather than a scale nobody else fits on. An equator
+ * draws nothing at all, which is the truth about its year.
+ */
+const TINT_LEVEL = 0.11;
+const TINT_SWING = 0.25;
 
 /**
  * How the three parts of the magnifier are spread across the neighbourhood,
@@ -537,6 +558,51 @@ export default function YearView({
 
   const months = useMemo(() => monthMarks(year), [year]);
 
+  /**
+   * The year's own daylight, as the rim's background: one arc per day behind
+   * its mark, warm where the day runs long and violet where it runs short.
+   *
+   * The rim's background is the one place this may live. The interior held a
+   * daylight figure for a draft and is not getting it back, and a ring of its
+   * own would be a second year beside the year. Here it is the ground the
+   * marks already stand on, so the seasons are a thing the eye finds rather
+   * than a thing the face says.
+   *
+   * SVG under the canvas rather than a pass inside it: the marks repaint every
+   * frame off two springs, and this answer changes once a year. Memoised to a
+   * finished node so a hover — which re-renders this component once per slot
+   * crossed — never re-diffs 365 paths either.
+   */
+  const daylightBand = useMemo<ReactNode>(() => {
+    const place = settings.place;
+    // No place, no band, exactly as the dial's rim has none.
+    if (!place) return null;
+    const radius = (YEAR.DAY_INNER + YEAR.DAY_OUTER) / 2;
+    const arcs: ReactNode[] = [];
+    for (let i = 0; i < days; i++) {
+      const swing = clamp(
+        (dayLength(dateOfYear(year, i), place) / MINUTES_PER_DAY - 0.5) / TINT_SWING,
+        -1,
+        1,
+      );
+      const level = TINT_LEVEL * Math.abs(swing);
+      if (level < 0.004) continue;
+      const [r, g, b] = swing > 0 ? LIGHTCYCLE.day : LIGHTCYCLE.night;
+      arcs.push(
+        <path
+          key={i}
+          // Overlapping the neighbour by a third of a degree, the band's own
+          // trick: butt-to-butt opaque arcs leave an antialiasing seam.
+          d={arcPath(radius, yearAngle(i, days), yearAngle(i + 1, days) + 0.3)}
+          stroke={wash(settings.theme, r, g, b, level)}
+          strokeWidth={YEAR.DAY_OUTER - YEAR.DAY_INNER}
+          fill="none"
+        />,
+      );
+    }
+    return <g pointerEvents="none">{arcs}</g>;
+  }, [year, days, settings.place, settings.theme]);
+
   const isThisYear = year === today.getFullYear();
   const todayIndex = isThisYear ? dayOfYear(today) : null;
 
@@ -813,6 +879,9 @@ export default function YearView({
           </radialGradient>
         </defs>
         <circle cx={DIAL.C} cy={DIAL.C} r={YEAR.DAY_INNER} fill="url(#year-glow)" />
+
+        {/* The rim's daylight, behind the day marks the canvas draws over it. */}
+        {daylightBand}
 
         {/* Month boundaries, and their names outside them. */}
         <g pointerEvents="none">
