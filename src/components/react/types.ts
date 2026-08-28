@@ -124,6 +124,14 @@ export interface ShellActions {
    *  rings-closed gate on top, so a tick from the sidebar and one from the
    *  dial mean the same thing. */
   toggleTask: (id: string) => void;
+  /**
+   * The drag's keyboard and touch equivalent, and the palette row's alt:
+   * plans the task on the selected day at the next quarter hour, at its
+   * estimate's length (the default duration when it has none), and toasts
+   * where it landed — in drawer mode the column covers the face, so there is
+   * nothing to drag onto.
+   */
+  scheduleTask: (id: string) => void;
   /** A draft over an explicit range on the selected day — the free-time rows. */
   newEventAt: (startMin: number, endMin: number) => void;
   /**
@@ -247,6 +255,12 @@ export interface TaskEditorProps {
   onSave: (draft: Omit<Task, "id" | "updatedAt">) => void;
   /** Only reachable when `target` is set. */
   onDelete: () => void;
+  /**
+   * The Convert verb: this task rebuilt as an event, off the draft on screen.
+   * Existing tasks only; the shell builds the `CalEvent` and commits once
+   * through `store.convertTask`, so one ⌘Z gives the task back.
+   */
+  onConvert: (draft: Omit<Task, "id" | "updatedAt">) => void;
   onClose: () => void;
 }
 
@@ -283,6 +297,13 @@ export interface EventEditorProps {
    * draw the event before it exists — see `EditorTarget.live`.
    */
   onDraftChange: (draft: Omit<CalEvent, "id">) => void;
+  /**
+   * The Convert verb: this event rebuilt as a task, off the draft on screen —
+   * the share verb's own rule about what the card sends. Offered only on an
+   * existing, writable event; the shell builds the `Task` and commits once
+   * through `store.convertEvent`, so one ⌘Z gives the event back.
+   */
+  onConvert: (draft: Omit<CalEvent, "id">) => void;
 }
 
 export interface CalendarEditorProps {
@@ -500,6 +521,9 @@ export interface CommandPaletteProps {
   calendars: Calendar[];
   /** The selected day's agenda — what the free-time search works against. */
   occurrences: Occurrence[];
+  /** The task list — rows through `scoreTask`, primary opens the task card,
+   *  alt is Schedule. */
+  tasks: Task[];
   actions: ShellActions;
   /**
    * Whole, rather than one prop per field. This panel reached five of them —

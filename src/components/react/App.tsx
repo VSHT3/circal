@@ -13,6 +13,7 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import type { Clock } from "@/lib/time";
 import {
   NEVER,
+  REMIND_INHERIT,
   clashesWith,
   colorOf,
   dayAgenda,
@@ -23,7 +24,7 @@ import {
   type CalEvent,
   type Occurrence,
 } from "@/lib/events";
-import type { Task } from "@/lib/tasks";
+import { readEstimate, type Task } from "@/lib/tasks";
 import {
   defaultCalendarId,
   dismissBackupNudge,
@@ -59,6 +60,7 @@ import {
   daysBetween,
   formatRelativeDay,
   formatTime,
+  formatTimeShort,
   fromDayKey,
   isSameDay,
   localZone,
@@ -1350,6 +1352,28 @@ function Shell() {
         if (!target) return;
         tickTask(id, !target.done, new Date(target.due));
       },
+      scheduleTask: (id: string) => {
+        setPaletteOpen(false);
+        // The store's answer, `toggleTask`'s own reason.
+        const target = store.snapshot().tasks.find((t) => t.id === id);
+        if (!target || target.done) return;
+        // The next quarter hour on the selected day, at the estimate's length
+        // — `defaultStart` is ⌘N's and quick-add's shared rule, and a task
+        // that could not be sized takes the same default an event does.
+        const length = target.estimate ?? settings.defaultDuration;
+        const startMin = defaultStart(day, length);
+        const start = atMinutes(day, startMin);
+        store.planTask(id, {
+          start: start.getTime(),
+          end: atMinutes(day, startMin + length).getTime(),
+        });
+        cue("created", channels);
+        // The toast is the receipt: in drawer mode the column covers the face,
+        // so where the plan landed is not otherwise on screen.
+        notify(
+          `Planned “${target.title || "Untitled"}” ${formatRelativeDay(day)} ${formatTimeShort(start, settings.clock)}`,
+        );
+      },
       newEventAt: (startMin: number, endMin: number) => openDraft(startMin, endMin, day),
       quickAdd: (spec) => {
         /**
@@ -1491,6 +1515,7 @@ function Shell() {
       tasks,
       defaultCalendar,
       settings.defaultDuration,
+      settings.clock,
       settings.wakingFrom,
       settings.wakingTo,
       feedIds,
@@ -1751,6 +1776,40 @@ function Shell() {
   );
 
   /**
+   * The event editor's Convert verb: the draft on screen rebuilt as a task,
+   * one commit through `store.convertEvent` (a series takes its overrides
+   * with it — Convert answers "what is this", not "which occurrence"). The
+   * task card opens on the new record, which is what the old Type switch's
+   * continuity was: the thing being edited changed kind, not hands.
+   */
+  const convertToTask = useCallback(
+    (draft: Omit<CalEvent, "id">) => {
+      if (!editor?.id) return;
+      // The occurrence the card was opened from, not the series' seed: a
+      // weekly review converted from next Tuesday's arc is due next Tuesday.
+      const at = editor.occurrenceStart ?? draft.start;
+      const created = store.convertEvent(editor.id, {
+        title: draft.title.trim() || "New task",
+        notes: draft.notes,
+        calendarId: draft.calendarId,
+        icon: draft.icon,
+        color: draft.color,
+        due: draft.allDay ? startOfDay(new Date(at)).getTime() : at,
+        dueAllDay: draft.allDay,
+        // The span is real information about the work, so it seeds the
+        // estimate; an all-day event has no span to read one off.
+        estimate: draft.allDay ? null : readEstimate((draft.end - draft.start) / 60_000),
+        priority: 0,
+        plans: [],
+        done: false,
+      });
+      setEditor(null);
+      if (created) setTaskEditor({ id: created.id });
+    },
+    [editor],
+  );
+
+  /**
    * A delete, with the same three scopes. "Only this one" writes an EXDATE and
    * removes nothing: the series still exists, it simply no longer lands there.
    */
@@ -1922,6 +1981,49 @@ function Shell() {
     cue("deleted", channels);
     notify(`Deleted “${editedTask.title || "Untitled"}”`);
   }, [editedTask, channels]);
+
+  /**
+   * The task card's Convert verb, the other direction: one commit through
+   * `store.convertTask`, the event editor opening on the new record. A timed
+   * deadline becomes an event at that instant, the estimate its length; a
+   * day-only deadline becomes an all-day event on that day. The plans do not
+   * travel — an event has no list for them, and one ⌘Z is the way back.
+   */
+  const convertToEvent = useCallback(
+    (draft: Omit<Task, "id" | "updatedAt">) => {
+      if (!editedTask) return;
+      const dueDay = startOfDay(new Date(draft.due));
+      const length = (draft.estimate ?? settings.defaultDuration) * 60_000;
+      const created = store.convertTask(editedTask.id, {
+        title: draft.title.trim() || "New event",
+        calendarId: draft.calendarId,
+        start: draft.dueAllDay ? dueDay.getTime() : draft.due,
+        end: draft.dueAllDay ? addDays(dueDay, 1).getTime() : draft.due + length,
+        allDay: draft.dueAllDay,
+        tzid: "",
+        location: "",
+        url: "",
+        notes: draft.notes,
+        ...NEVER,
+        seriesId: "",
+        seriesKey: "",
+        color: draft.color,
+        icon: draft.icon,
+        free: false,
+        remindLead: REMIND_INHERIT,
+        organizer: null,
+        attendees: [],
+        attendeeCount: 0,
+        updatedAt: 0,
+      });
+      setTaskEditor(null);
+      if (created) {
+        const { id, ...body } = created;
+        setEditor({ id, draft: body });
+      }
+    },
+    [editedTask, settings.defaultDuration],
+  );
 
   /**
    * The calendar card's subject, resolved from the store rather than copied
@@ -2206,6 +2308,7 @@ function Shell() {
             onDelete={deleteEvent}
             onShare={shareEvent}
             onDraftChange={trackDraft}
+            onConvert={convertToTask}
             onClose={() => setEditor(null)}
           />
         </Suspense>
@@ -2221,6 +2324,7 @@ function Shell() {
             clock={settings.clock}
             onSave={saveTask}
             onDelete={deleteTask}
+            onConvert={convertToEvent}
             onClose={() => setTaskEditor(null)}
           />
         </Suspense>
@@ -2248,6 +2352,7 @@ function Shell() {
         events={visible}
         calendars={calendars}
         occurrences={agenda.all}
+        tasks={tasks}
         settings={settings}
         actions={actions}
         onSearch={setSearch}

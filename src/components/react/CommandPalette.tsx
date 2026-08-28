@@ -34,6 +34,7 @@ import { Kbd, MOD } from "@/components/react/ui/primitives";
 import { CalendarMark } from "@/components/react/ui/icons";
 import type { CommandPaletteProps } from "@/components/react/types";
 import { colorOf, freeGaps, markOf, repeats, scoreEvent, type CalEvent } from "@/lib/events";
+import { scoreTask, type Task } from "@/lib/tasks";
 import { fuzzyScore } from "@/lib/fuzzy";
 import {
   hasEditVerb,
@@ -110,6 +111,7 @@ export default function CommandPalette({
   events,
   calendars,
   occurrences,
+  tasks,
   actions,
   settings,
   onSearch,
@@ -358,6 +360,55 @@ export default function CommandPalette({
     }));
     return { rows, best };
   }, [events, q, day, calendars, clock, actions, onClose, inheritMarks]);
+
+  /**
+   * Every task, through `scoreTask` — the same engine and the same penalty
+   * structure the event rows take, so the list and the lit faces cannot
+   * disagree about a hit. Primary opens the task card on the due day; the
+   * alt is Schedule, the drag's keyboard equivalent, withheld from a done
+   * task — planning finished work is a verb with no meaning.
+   */
+  const taskHits: { rows: Row[]; best: number } = useMemo(() => {
+    const scored = tasks
+      .map((task) => ({ task, score: scoreTask(task, q) }))
+      .filter((row): row is { task: Task; score: number } => row.score !== null)
+      .sort(
+        (a, b) =>
+          b.score - a.score ||
+          Math.abs(a.task.due - day.getTime()) - Math.abs(b.task.due - day.getTime()),
+      )
+      .slice(0, 8);
+    const best = scored[0]?.score ?? 0;
+    const rows = scored.map(({ task }) => ({
+      id: `task-${task.id}`,
+      mark: { icon: markOf(task, calendars, inheritMarks), color: colorOf(task, calendars) },
+      title: task.title,
+      meta: (
+        <span className="label text-ink-3">
+          {task.done
+            ? "DONE"
+            : task.dueAllDay
+              ? `DUE ${formatRelativeDay(new Date(task.due))}`
+              : `DUE ${formatRelativeDay(new Date(task.due))} ${formatTimeShort(new Date(task.due), clock)}`}
+        </span>
+      ),
+      run: () => {
+        actions.goDay(new Date(task.due));
+        actions.editTask(task.id);
+        onClose();
+      },
+      alt: task.done
+        ? undefined
+        : {
+            label: "Schedule",
+            run: () => {
+              actions.scheduleTask(task.id);
+              onClose();
+            },
+          },
+    }));
+    return { rows, best };
+  }, [tasks, q, day, calendars, clock, actions, onClose, inheritMarks]);
 
   const commandHits: { rows: Row[]; best: number } = useMemo(() => {
     const base: Row[] = [
@@ -617,22 +668,18 @@ export default function CommandPalette({
   }, [q, day, sidebarOpen, ambient, calendars, clock, actions, onClose]);
 
   const groups: Group[] = useMemo(() => {
-    // The two ranked sections place themselves by their best answer, in the
-    // one scale both scores share (`fuzzyScore`; an event's title score is
+    // The three ranked sections place themselves by their best answer, in the
+    // one scale all their scores share (`fuzzyScore`; a title score is
     // exactly that). Typing a command's own name must not bury it under
     // fuzzy event matches — "new event" once sat below seven deadlines that
     // matched only through the forgiven typo, with Enter primed on the wrong
-    // one. A tie keeps Events first, which is also the empty box's own order.
-    const ranked =
-      eventHits.best >= commandHits.best
-        ? [
-            { title: "Events", rows: eventHits.rows },
-            { title: "Commands", rows: commandHits.rows },
-          ]
-        : [
-            { title: "Commands", rows: commandHits.rows },
-            { title: "Events", rows: eventHits.rows },
-          ];
+    // one. Ties keep the empty box's own order: Events, then Tasks, then
+    // Commands — a stable sort over the list as written.
+    const ranked = [
+      { title: "Events", rows: eventHits.rows, best: eventHits.best },
+      { title: "Tasks", rows: taskHits.rows, best: taskHits.best },
+      { title: "Commands", rows: commandHits.rows, best: commandHits.best },
+    ].sort((a, b) => b.best - a.best);
     return [
       { title: "Edit", rows: editRows },
       // One line names one thing. `move standup to 10` also parses as an event
@@ -645,7 +692,7 @@ export default function CommandPalette({
       { title: "Free time", rows: freeRows },
       ...ranked,
     ].filter((g) => g.rows.length > 0);
-  }, [editRows, createRows, jumpRows, freeRows, eventHits, commandHits]);
+  }, [editRows, createRows, jumpRows, freeRows, eventHits, taskHits, commandHits]);
 
   const flatItems = useMemo(() => groups.flatMap((g) => g.rows), [groups]);
   const indexById = useMemo(() => {

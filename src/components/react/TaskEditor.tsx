@@ -1,24 +1,32 @@
 /* ------------------------------------------------------------------ *
  * A task, as a thing you can name.
  *
- * The minimal card for the model's first stage: title, notes, due,
- * estimate, priority, calendar, done. Colour, mark and the plan list
- * arrive with the full editor (TASKS.md §10); until then a task wears
- * its calendar's colour, which is what `""` already means.
- *
- * `CalendarEditor`'s frame on purpose — one column at 330px, the same
- * Escape/⌘↵ capture, the same footer — because a third modal with a
- * third row grid is a third product.
+ * One column at 330px on `CalendarEditor`'s frame — the same Escape/⌘↵
+ * capture, the same footer — because a third modal with a third row
+ * grid is a third product. Rows: title, due (day/time/day-only),
+ * estimate, priority, calendar, colour, mark, done, the plans as a
+ * small list with a remove on each, notes. Convert rebuilds the task
+ * as an event and commits once (TASKS.md §10).
  * ------------------------------------------------------------------ */
 
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useEffect, useState } from "react";
-import { Clock as ClockIcon } from "lucide-react";
-import { ESTIMATE_MAX, type Task } from "@/lib/tasks";
-import { atMinutes, dayKey, fromDayKey, minutesOfDay } from "@/lib/time";
+import { X, Clock as ClockIcon } from "lucide-react";
+import { ESTIMATE_MAX, type Plan, type Task } from "@/lib/tasks";
+import { PALETTE, colorOf } from "@/lib/events";
 import {
+  atMinutes,
+  dayKey,
+  formatRelativeDay,
+  formatTimeShort,
+  fromDayKey,
+  minutesOfDay,
+} from "@/lib/time";
+import {
+  ColorPicker,
   DateField,
   FieldRow as Row,
+  IconButton,
   Kbd,
   MOD,
   NumberField,
@@ -27,6 +35,7 @@ import {
   Switch,
   TimeField,
 } from "@/components/react/ui/primitives";
+import { MarkPicker } from "@/components/react/MarkPicker";
 import { useFocusTrap } from "@/components/react/hooks";
 import type { TaskEditorProps } from "@/components/react/types";
 
@@ -45,6 +54,7 @@ export default function TaskEditor({
   clock,
   onSave,
   onDelete,
+  onConvert,
   onClose,
 }: TaskEditorProps) {
   const reducedMotion = useReducedMotion();
@@ -57,33 +67,52 @@ export default function TaskEditor({
   const [dueAllDay, setDueAllDay] = useState(target?.dueAllDay ?? false);
   const [estimate, setEstimate] = useState<number | null>(target?.estimate ?? null);
   const [priority, setPriority] = useState<Task["priority"]>(target?.priority ?? 0);
+  const [color, setColor] = useState(target?.color ?? "");
+  const [icon, setIcon] = useState(target?.icon ?? "");
+  const [plans, setPlans] = useState<Plan[]>(target?.plans ?? []);
   const [done, setDone] = useState(target?.done ?? false);
   /** The footer's verbs swap for the question, the calendar card's own move. */
   const [confirming, setConfirming] = useState(false);
+  /** The mark browser is a full-screen grid over this card, so Escape belongs
+   *  to it before it belongs to the card — the calendar card's own seam. */
+  const [browsing, setBrowsing] = useState(false);
+  const [markQuery, setMarkQuery] = useState("");
 
   /** A task on a subscription cannot exist — a feed's records are somebody
    *  else's — so the picker offers only calendars of one's own. */
   const writable = calendars.filter((c) => !c.feed);
+  /** What `""` falls back to, so the swatch row can say what "follow the
+   *  calendar" currently means. */
+  const calendarColor = calendars.find((c) => c.id === calendarId)?.color ?? PALETTE[0];
 
   function draft(): Omit<Task, "id" | "updatedAt"> {
     return {
       title: title.trim() || "New task",
       notes,
       calendarId,
-      // Carried, not editable yet: the full editor's rows (TASKS.md §10).
-      icon: target?.icon ?? "",
-      color: target?.color ?? "",
+      icon,
+      color,
       due,
       dueAllDay,
       estimate,
       priority,
-      plans: target?.plans ?? [],
+      plans,
       done,
     };
   }
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
+      // Everything is off while the grid is over the card, ⌘↵ included: a save
+      // committed from under a surface the user is still working in is the
+      // shell's own `busy` bug, one layer in.
+      if (browsing) {
+        if (e.key !== "Escape") return;
+        e.preventDefault();
+        e.stopPropagation();
+        setBrowsing(false);
+        return;
+      }
       if (e.key === "Escape") {
         e.preventDefault();
         // Captured at `window`, so stopping here keeps the press from also
@@ -123,7 +152,14 @@ export default function TaskEditor({
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: reducedMotion ? 0 : 0.18, ease: [0.32, 0.72, 0, 1] }}
         >
+          {/* The header is the pip being coloured, at the size it will be
+              worn — the calendar card's own rule about previews. */}
           <div className="flex items-center gap-2.5 border-b border-hairline px-3.5 py-3">
+            <span
+              aria-hidden
+              className="size-[9px] shrink-0 rounded-full"
+              style={{ backgroundColor: colorOf({ color, calendarId }, calendars) }}
+            />
             <input
               autoFocus
               value={title}
@@ -138,6 +174,7 @@ export default function TaskEditor({
             <Row label="Due">
               <DateField
                 label="Due date"
+                className="shrink-0"
                 value={dayKey(new Date(due))}
                 onChange={(next) => {
                   if (!next) return;
@@ -147,17 +184,7 @@ export default function TaskEditor({
                   setDue(atMinutes(fromDayKey(next), minutesOfDay(new Date(due))).getTime());
                 }}
               />
-              <Switch
-                checked={dueAllDay}
-                onChange={(next) => {
-                  setDueAllDay(next);
-                  // Leaving all-day needs a minute back; the hour a new draft
-                  // opens on is nobody's answer here, so noon-adjacent 09:00
-                  // would be invented data — keep whatever minute the instant
-                  // already carries, midnight included.
-                }}
-                label="Due on the day, no time"
-              />
+              <Switch checked={dueAllDay} onChange={setDueAllDay} label="Due on the day, no time" />
               <span className="label text-ink-3">Day only</span>
             </Row>
 
@@ -205,6 +232,56 @@ export default function TaskEditor({
               />
             </Row>
 
+            {/* `fallback` because a task's `""` means "follow the calendar",
+                the event's own reading — omitted only where nothing sits
+                above to inherit from. */}
+            <Row label="Color">
+              <ColorPicker value={color} fallback={calendarColor} onChange={setColor} />
+            </Row>
+
+            <Row label="Mark" align="top">
+              <MarkPicker
+                icon={icon}
+                color={colorOf({ color, calendarId }, calendars)}
+                noneLabel="Follow the calendar"
+                onChange={setIcon}
+                query={markQuery}
+                onQuery={setMarkQuery}
+                browsing={browsing}
+                onBrowse={setBrowsing}
+              />
+            </Row>
+
+            {/* Only when there are any: an empty list would be a row offering
+                to remove nothing. The blocks themselves are placed by the
+                drag and the Schedule verb; here they can only be taken away —
+                removal is draft state, so Cancel gives every block back. */}
+            {plans.length > 0 && (
+              <Row label="Planned" align="top">
+                <span className="flex w-full min-w-0 flex-col gap-1">
+                  {plans.map((plan, index) => (
+                    <span
+                      key={`${plan.start}-${index}`}
+                      className="flex items-center gap-1.5 text-[13px] text-ink"
+                    >
+                      <span className="truncate tabular-nums">
+                        {formatRelativeDay(new Date(plan.start))}{" "}
+                        {formatTimeShort(new Date(plan.start), clock)} –{" "}
+                        {formatTimeShort(new Date(plan.end), clock)}
+                      </span>
+                      <IconButton
+                        label="Remove this block"
+                        className="ml-auto size-6"
+                        onClick={() => setPlans((rest) => rest.filter((_, i) => i !== index))}
+                      >
+                        <X size={12} strokeWidth={1.75} />
+                      </IconButton>
+                    </span>
+                  ))}
+                </span>
+              </Row>
+            )}
+
             <Row label="Done">
               <Switch checked={done} onChange={setDone} label="Done" />
             </Row>
@@ -243,15 +320,27 @@ export default function TaskEditor({
               </div>
             </div>
           ) : (
-            <div className="flex items-center gap-2 border-t border-hairline px-3 py-2.5">
+            <div className="flex items-center gap-1 border-t border-hairline px-3 py-2.5">
               {target && (
-                <button
-                  type="button"
-                  onClick={() => setConfirming(true)}
-                  className="flex items-center gap-1.5 rounded-[8px] px-2 py-1 text-[14px] text-danger transition-colors hover:bg-(--veil-06)"
-                >
-                  Delete
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setConfirming(true)}
+                    className="flex items-center gap-1.5 rounded-[8px] px-2 py-1 text-[14px] text-danger transition-colors hover:bg-(--veil-06)"
+                  >
+                    Delete
+                  </button>
+                  {/* The Convert verb, both editors' pair: builds the other
+                      record and commits once. Quiet, because it is a rare
+                      answer to "what is this", not a working control. */}
+                  <button
+                    type="button"
+                    onClick={() => onConvert(draft())}
+                    className="flex items-center gap-1.5 rounded-[8px] px-2 py-1 text-[14px] whitespace-nowrap text-ink-2 transition-colors hover:bg-(--veil-06) hover:text-ink"
+                  >
+                    To event
+                  </button>
+                </>
               )}
               <div className="ml-auto flex items-center gap-3">
                 <button

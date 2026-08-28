@@ -12,12 +12,13 @@
  * ------------------------------------------------------------------ */
 
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { ChevronLeft, ChevronRight, Pencil, Plus } from "lucide-react";
+import { CalendarPlus, ChevronLeft, ChevronRight, Pencil, Plus } from "lucide-react";
 import { useMemo, useState } from "react";
-import { colorOf, occurrencesOn, taskOccurrences } from "@/lib/events";
-import { compareTasks } from "@/lib/tasks";
+import { colorOf, markOf, occurrencesOn, taskOccurrences } from "@/lib/events";
+import { compareTasks, taskState, unplanned, type Task, type TaskState } from "@/lib/tasks";
 import {
   addMonths,
+  formatDuration,
   formatRelativeDay,
   formatTimeShort,
   isSameDay,
@@ -89,15 +90,29 @@ export default function Sidebar({
     [weekStart],
   );
 
-  /** Open tasks first, in the one order (`compareTasks`); done ones at the
-   *  foot so a tick can be taken back without a second surface. */
-  const sorted = useMemo(
-    () => [
-      ...tasks.filter((t) => !t.done).sort(compareTasks),
-      ...tasks.filter((t) => t.done).sort(compareTasks),
-    ],
-    [tasks],
-  );
+  /**
+   * The list of work by deadline, `taskState`'s own grouping so this column
+   * and any future badge cannot disagree. Rows inside a group take the one
+   * order (`compareTasks`); a group with nothing in it is not drawn — a
+   * header counting zero is a shelf with a label and no shelf.
+   */
+  const groups = useMemo(() => {
+    const by: Record<TaskState, Task[]> = { done: [], overdue: [], "due-soon": [], later: [] };
+    for (const t of tasks) by[taskState(t, now)].push(t);
+    for (const list of Object.values(by)) list.sort(compareTasks);
+    return [
+      { id: "overdue", title: "Overdue", rows: by.overdue },
+      { id: "due-soon", title: "Due soon", rows: by["due-soon"] },
+      { id: "later", title: "Later", rows: by.later },
+      // Done tasks leave the groups on tick and land here, so a tick can be
+      // taken back without a second surface.
+      { id: "done", title: "Done", rows: by.done },
+    ].filter((group) => group.rows.length > 0);
+  }, [tasks, now]);
+
+  /** Which groups are folded. Session state, not a setting: Done starts
+   *  collapsed — finished work is reachable, never ambient. */
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({ done: true });
 
   const body = (
     <div className="fade-y no-scrollbar flex h-full w-[260px] flex-col gap-5 overflow-y-auto p-3">
@@ -172,10 +187,10 @@ export default function Sidebar({
         </div>
       </section>
 
-      {/* The list of work, bare on purpose for now: rows at the mini-month's
-          own rhythm, open tasks in `compareTasks`' order, done ones struck at
-          the foot so a tick can be taken back. The groups, the meta line and
-          the planned dot arrive with the sidebar's own stage (TASKS.md §6). */}
+      {/* TASKS.md §6: work grouped by deadline, above the calendars. Two
+          things this must not become — a second agenda (the interior answers
+          the day) and a card stack: these are rows, at the mini-month's own
+          rhythm. */}
       <section className="flex w-full shrink-0 flex-col gap-1">
         <div className="flex items-center justify-between">
           <span className="label text-ink-2">Tasks</span>
@@ -183,47 +198,102 @@ export default function Sidebar({
             <Plus size={13} strokeWidth={1.75} />
           </IconButton>
         </div>
-        {sorted.map((task) => (
-          <div key={task.id} className="group flex items-center gap-1.5">
-            {/* The pip is the control, the face's own vocabulary: filled while
-                it stands, hollow once done. */}
+        {groups.map((group) => (
+          <div key={group.id} className="flex flex-col gap-0.5">
             <button
               type="button"
-              aria-pressed={task.done}
-              aria-label={task.done ? `Reopen ${task.title}` : `Complete ${task.title}`}
-              onClick={() => actions.toggleTask(task.id)}
-              className="grid size-6 shrink-0 place-items-center"
+              aria-expanded={!collapsed[group.id]}
+              onClick={() => setCollapsed((open) => ({ ...open, [group.id]: !open[group.id] }))}
+              className="flex h-6 items-center gap-1 rounded-[7px] px-1 transition-colors hover:bg-white/6"
             >
-              <span
-                className="size-[9px] rounded-full"
-                style={
-                  task.done
-                    ? { border: `1.5px solid ${colorOf(task, calendars)}` }
-                    : { backgroundColor: colorOf(task, calendars) }
-                }
-              />
-            </button>
-            <button
-              type="button"
-              onClick={() => actions.editTask(task.id)}
-              className="flex h-7 min-w-0 flex-1 items-center gap-2 rounded-[8px] px-1 transition-colors hover:bg-white/6"
-            >
-              <span
+              <ChevronRight
+                size={11}
+                strokeWidth={1.75}
                 className={cn(
-                  "truncate text-[12.5px]",
-                  task.done ? "text-ink-3 line-through" : "text-ink",
+                  "shrink-0 text-ink-4 transition-transform",
+                  !collapsed[group.id] && "rotate-90",
                 )}
-              >
-                {task.title || "Untitled"}
-              </span>
-              <span className="label ml-auto shrink-0 text-[9px] text-ink-3">
-                {formatRelativeDay(new Date(task.due), now)}
-                {!task.dueAllDay && ` ${formatTimeShort(new Date(task.due), clock)}`}
-              </span>
+              />
+              <span className="label text-[9px] text-ink-3">{group.title}</span>
+              <span className="label text-[9px] text-ink-4">{group.rows.length}</span>
             </button>
+            {!collapsed[group.id] &&
+              group.rows.map((task) => (
+                <div key={task.id} className="group flex items-center gap-1.5 pl-1">
+                  {/* The pip is the control, the face's own vocabulary: filled
+                      while it stands, hollow once done. */}
+                  <button
+                    type="button"
+                    aria-pressed={task.done}
+                    aria-label={task.done ? `Reopen ${task.title}` : `Complete ${task.title}`}
+                    onClick={() => actions.toggleTask(task.id)}
+                    className="grid size-6 shrink-0 place-items-center"
+                  >
+                    <span
+                      className="size-[9px] rounded-full"
+                      style={
+                        task.done
+                          ? { border: `1.5px solid ${colorOf(task, calendars)}` }
+                          : { backgroundColor: colorOf(task, calendars) }
+                      }
+                    />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => actions.editTask(task.id)}
+                    className="flex h-8 min-w-0 flex-1 flex-col justify-center rounded-[8px] px-1 text-left"
+                  >
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      <span
+                        className={cn(
+                          "truncate text-[12.5px]",
+                          task.done ? "text-ink-3 line-through" : "text-ink",
+                        )}
+                      >
+                        {task.title || "Untitled"}
+                      </span>
+                      {/* "Already on the face somewhere" is the one thing to
+                          know before dragging it again: a small filled dot,
+                          never a dimming. */}
+                      {!task.done && !unplanned(task) && (
+                        <span
+                          aria-label="Already planned"
+                          className="ml-auto size-[5px] shrink-0 rounded-full bg-ink-3"
+                        />
+                      )}
+                    </span>
+                    {/* One line, truncating: the due date, the estimate, and
+                        the calendar's mark — the row's whole meta budget. */}
+                    <span className="label flex min-w-0 items-center gap-1 text-[9px] text-ink-3">
+                      <span className="truncate">
+                        {formatRelativeDay(new Date(task.due), now)}
+                        {!task.dueAllDay && ` ${formatTimeShort(new Date(task.due), clock)}`}
+                        {task.estimate !== null && ` · ${formatDuration(task.estimate)}`}
+                      </span>
+                      <CalendarMark
+                        icon={markOf(task, calendars, true)}
+                        color={colorOf(task, calendars)}
+                        size={10}
+                      />
+                    </span>
+                  </button>
+                  {/* The drag's keyboard and touch equivalent: in drawer mode
+                      this column covers the face, and there is nothing to
+                      drag onto. Hidden until pointed at, the pencil's rule. */}
+                  {!task.done && (
+                    <IconButton
+                      label={`Schedule ${task.title || "Untitled"}`}
+                      onClick={() => actions.scheduleTask(task.id)}
+                      className="size-6 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                    >
+                      <CalendarPlus size={12} strokeWidth={1.75} />
+                    </IconButton>
+                  )}
+                </div>
+              ))}
           </div>
         ))}
-        {sorted.length === 0 && <span className="caption px-1">Nothing due</span>}
+        {groups.length === 0 && <span className="caption px-1">Nothing due</span>}
       </section>
 
       <section className="flex w-full shrink-0 flex-col gap-1">

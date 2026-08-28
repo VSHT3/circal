@@ -267,6 +267,7 @@ export default function EventEditor({
   onShare,
   onClose,
   onDraftChange,
+  onConvert,
 }: EventEditorProps) {
   // Destructured on the body's first line, so every reader below reads
   // exactly as it did when these arrived as props of their own.
@@ -779,6 +780,19 @@ export default function EventEditor({
                         checked={draft.allDay}
                         onChange={handleAllDayToggle}
                       />
+                      {/* The Convert verb, the task card's pair: builds the
+                      other record and commits once. Only an existing,
+                      writable event — a draft is not a record yet, and a
+                      subscription's is somebody else's. */}
+                      {target.id !== null && !readOnly && (
+                        <button
+                          type="button"
+                          onClick={() => onConvert(named())}
+                          className="label rounded-[8px] px-2 py-1 text-ink-2 transition-colors hover:bg-(--veil-06) hover:text-ink"
+                        >
+                          To task
+                        </button>
+                      )}
                     </span>
                   </Row>
 

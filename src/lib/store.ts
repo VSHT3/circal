@@ -1745,6 +1745,47 @@ export const store = {
     });
   },
 
+  /**
+   * A task rebuilt as an event — the editor's Convert verb. One commit, so
+   * one ⌘Z gives the task back: two commits would leave a state holding both
+   * records, and an undo landing there is a duplicate nobody made. The old
+   * id is buried; the event is a new record and stamps like one.
+   */
+  convertTask(id: string, draft: Omit<CalEvent, "id">): CalEvent | null {
+    const base = fresh();
+    if (!base.tasks.some((t) => t.id === id)) return null;
+    const now = Date.now();
+    const created: CalEvent = { ...draft, id: newId(), updatedAt: now };
+    commit({
+      ...base,
+      tasks: base.tasks.filter((t) => t.id !== id),
+      events: [...base.events, created],
+      graves: [...base.graves, { id, at: now }],
+    });
+    return created;
+  },
+
+  /**
+   * The other direction: an event rebuilt as a task, one commit for the same
+   * reason. `applyRemove` rather than a filter, because converting a series
+   * takes its overrides with it — an orphaned override is an event nothing
+   * explains — and every removed id is buried.
+   */
+  convertEvent(id: string, draft: Omit<Task, "id" | "updatedAt">): Task | null {
+    const base = fresh();
+    if (!base.events.some((e) => e.id === id)) return null;
+    const now = Date.now();
+    const removed = applyRemove(base.events, id, now);
+    const created: Task = { ...draft, id: newId(), updatedAt: now };
+    commit({
+      ...base,
+      events: removed.events,
+      tasks: [...base.tasks, created],
+      graves: [...base.graves, ...removed.graves],
+    });
+    return created;
+  },
+
   /** The graves ride in the same commit as the removal, which is what makes
    *  them believable: a deletion that landed without its grave is an id the
    *  next merge brings straight back. */

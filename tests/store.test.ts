@@ -305,6 +305,46 @@ describe("task actions", () => {
     expect.soft(s.store.undo()).toBe(true);
     expect.soft(s.store.snapshot().tasks.every((t) => t.plans.length === 0)).toBe(true);
   });
+
+  it("convertTask rebuilds it as an event in one commit, id buried, one ⌘Z back", async () => {
+    const s = await freshStore();
+    const created = s.store.addTask(body({ title: "Essay" }));
+    const madeEvent = s.store.convertTask(created.id, {
+      ...s.draftEvent(at("2026-03-08"), 9 * 60, 10 * 60, "personal"),
+      title: "Essay",
+    });
+    const snap = s.store.snapshot();
+    expect.soft(madeEvent?.title).toBe("Essay");
+    expect.soft(snap.tasks).toEqual([]);
+    expect.soft(snap.events.map((e) => e.id)).toContain(madeEvent!.id);
+    expect.soft(snap.graves.map((g) => g.id)).toContain(created.id);
+    // One commit: one undo restores the task and takes the event away.
+    expect.soft(s.store.undo()).toBe(true);
+    const back = s.store.snapshot();
+    expect.soft(back.tasks.map((t) => t.title)).toEqual(["Essay"]);
+    expect.soft(back.events.find((e) => e.id === madeEvent!.id)).toBeUndefined();
+  });
+
+  it("convertEvent takes a series' overrides with it, all buried, one commit", async () => {
+    const s = await freshStore();
+    const series = s.store.create(draft(s, 60, 120, "weekly"));
+    const override = s.store.create({
+      ...draft(s, 180, 240),
+      seriesId: series.id,
+      seriesKey: "2026-03-15T01:00:00",
+    });
+    const { id: _id, updatedAt: _at, ...taskBody } = task({ title: "Was a series" });
+    const made = s.store.convertEvent(series.id, taskBody);
+    const snap = s.store.snapshot();
+    expect.soft(made?.title).toBe("Was a series");
+    expect.soft(snap.events).toEqual([]);
+    expect.soft(snap.tasks.map((t) => t.id)).toContain(made!.id);
+    // The override is not orphaned — it goes, and both ids are buried.
+    expect.soft(snap.graves.map((g) => g.id).sort()).toEqual([series.id, override.id].sort());
+    expect.soft(s.store.undo()).toBe(true);
+    expect.soft(s.store.snapshot().events).toHaveLength(2);
+    expect.soft(s.store.snapshot().tasks).toEqual([]);
+  });
 });
 
 /* --------------------------- editing a series --------------------------- */
