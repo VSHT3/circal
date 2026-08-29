@@ -405,6 +405,13 @@ export interface Settings {
    */
   wakingFrom: number;
   wakingTo: number;
+  /**
+   * Run the auto-scheduler by itself: once on load and whenever a task
+   * arrives, the same rule the sidebar's Fill free time verb runs by hand
+   * (TASKS.md §9). Off by default — an app writing to your calendar
+   * unasked is something you turn on, never something you discover.
+   */
+  autoSchedule: boolean;
 }
 
 /** The switches: every field of `Settings` that is a plain boolean. */
@@ -581,6 +588,9 @@ export const DEFAULT_SETTINGS: Settings = {
   // not to disagree with it on day one.
   wakingFrom: DEFAULT_WAKING.from,
   wakingTo: DEFAULT_WAKING.to,
+  // Opt-in: writes to the calendar nobody asked for are the one thing an
+  // instrument must never surprise anybody with.
+  autoSchedule: false,
 };
 
 /** The three every install starts with. Unstamped for `seed`'s reason: they
@@ -2255,7 +2265,11 @@ export const store = {
    * override does, to write it into `seriesId`, and generating it here would
    * be too late for that.
    */
-  addCalendarWithEvents(name: string, events: Omit<CalEvent, "calendarId">[]): Calendar {
+  addCalendarWithEvents(
+    name: string,
+    events: Omit<CalEvent, "calendarId">[],
+    tasks: Omit<Task, "calendarId">[] = [],
+  ): Calendar {
     const base = fresh();
     const now = Date.now();
     const calendar: Calendar = {
@@ -2276,6 +2290,12 @@ export const store = {
       events: [
         ...base.events,
         ...events.map((e) => ({ ...e, calendarId: calendar.id, updatedAt: now })),
+      ],
+      // A `.ics` may carry VTODOs; they land on the same new calendar under
+      // the same stamp, one commit with everything else.
+      tasks: [
+        ...base.tasks,
+        ...tasks.map((t) => ({ ...t, calendarId: calendar.id, updatedAt: now })),
       ],
     });
     return calendar;

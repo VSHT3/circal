@@ -19,12 +19,16 @@ import {
   listCalendars,
   listDay,
   listRange,
+  listTasks,
   performCreateCalendar,
   performCreateEvent,
+  performCreateTask,
   performDeleteEvent,
+  performPlanTask,
   performQuickAdd,
   performToggleDone,
   performUpdateEvent,
+  performUpdateTask,
   searchEvents,
 } from "./domain";
 
@@ -115,10 +119,7 @@ function eventFieldsShape() {
     date: dateKey("YYYY-MM-DD, local.").optional(),
     start: z
       .string()
-      .describe(
-        "HH:MM, 24-hour local clock. Required for a timed event; on a task it names the " +
-          "due time, and omitting it makes the deadline a date with no time on it.",
-      )
+      .describe("HH:MM, 24-hour local clock. Required for a timed event.")
       .optional(),
     end: z
       .string()
@@ -131,13 +132,6 @@ function eventFieldsShape() {
     allDay: z
       .boolean()
       .describe("Forces an all-day event. Inferred when start, end and duration are all omitted.")
-      .optional(),
-    task: z
-      .boolean()
-      .describe(
-        "A dated to-do rather than an event: a task record with a deadline. `date` is the " +
-          "due day and `start` the optional due time; end/duration/allDay/recurrence do not apply.",
-      )
       .optional(),
     calendarId: z
       .string()
@@ -163,6 +157,49 @@ const createEventFieldsSchema = z.strictObject({
 });
 
 const patchEventFieldsSchema = z.strictObject(eventFieldsShape());
+
+/** Shared shape between `create_task`'s fields and `update_task`'s `patch` —
+ *  every field optional here; create overrides `date` to required,
+ *  `eventFieldsShape`'s own bargain one record over. */
+function taskFieldsShape() {
+  return {
+    title: z.string().optional(),
+    date: dateKey("YYYY-MM-DD, local — the due day.").optional(),
+    time: z
+      .string()
+      .nullable()
+      .describe(
+        "HH:MM due time, 24-hour local clock. Omit for a deadline that is a date with no " +
+          "time on it; null (on update) clears an existing due time back to that.",
+      )
+      .optional(),
+    estimate: z
+      .number()
+      .nullable()
+      .describe("Minutes of work this looks like. null (on update) clears it back to unknown.")
+      .optional(),
+    priority: z.enum(["normal", "high", "urgent"]).optional(),
+    calendarId: z
+      .string()
+      .describe(
+        "Defaults to the user's default calendar. Must not be a subscription — those are read-only.",
+      )
+      .optional(),
+    color: z.string().describe("#rrggbb. Empty follows the calendar's own colour.").optional(),
+    icon: z
+      .string()
+      .describe("A Phosphor icon name or one emoji. Empty follows the calendar's own mark.")
+      .optional(),
+    notes: z.string().optional(),
+  };
+}
+
+const createTaskFieldsSchema = z.strictObject({
+  ...taskFieldsShape(),
+  date: dateKey("YYYY-MM-DD, local — the due day."),
+});
+
+const patchTaskFieldsSchema = z.strictObject(taskFieldsShape());
 
 const SCOPE_DESCRIPTION =
   'Required when the target event repeats: "one" (just this occurrence), "future" (this one and ' +
@@ -390,6 +427,82 @@ export function registerTools(server: McpServer, store: Store): void {
       guarded(() =>
         store.write((contents) => {
           const outcome = performToggleDone(contents, id, occurrence);
+          return { result: outcome.mutated, summary: outcome.message };
+        }),
+      ),
+  );
+
+  server.registerTool(
+    "list_tasks",
+    {
+      description:
+        "Every task, grouped the way the app's own sidebar groups them — Overdue, Due soon, " +
+        "Later, Done — soonest deadline first inside each group.",
+      inputSchema: z.strictObject({}),
+      annotations: { readOnlyHint: true },
+    },
+    async () =>
+      guarded(async () => {
+        const { contents, warning } = await store.load();
+        return withWarning(listTasks(contents), warning);
+      }),
+  );
+
+  server.registerTool(
+    "create_task",
+    {
+      description:
+        "Creates a task: a piece of work with a deadline, distinct from an event. `date` is the " +
+        "due day; add `time` for a timed deadline, `estimate` so auto-schedule can size it.",
+      inputSchema: createTaskFieldsSchema,
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+    },
+    async (input) =>
+      guarded(() =>
+        store.write((contents) => {
+          const outcome = performCreateTask(contents, input);
+          return { result: outcome.mutated, summary: outcome.message };
+        }),
+      ),
+  );
+
+  server.registerTool(
+    "update_task",
+    {
+      description:
+        "Patches an existing task. Every field in `patch` is optional and left alone when " +
+        "omitted; ticking is toggle_done's job and planning is plan_task's.",
+      inputSchema: z.strictObject({ id: z.string(), patch: patchTaskFieldsSchema }),
+      annotations: { destructiveHint: true, idempotentHint: false },
+    },
+    async ({ id, patch }) =>
+      guarded(() =>
+        store.write((contents) => {
+          const outcome = performUpdateTask(contents, id, patch);
+          return { result: outcome.mutated, summary: outcome.message };
+        }),
+      ),
+  );
+
+  server.registerTool(
+    "plan_task",
+    {
+      description:
+        "Books a block of time for a task on the clock — the drag onto the dial, performed by " +
+        "the assistant. Length falls back to the task's estimate, then the default duration.",
+      inputSchema: z.strictObject({
+        id: z.string(),
+        date: dateKey("YYYY-MM-DD, local — the day to work on it."),
+        start: z.string().describe("HH:MM, 24-hour local clock."),
+        end: z.string().describe("HH:MM. Alternative to duration.").optional(),
+        duration: z.number().describe("Minutes — an alternative to end.").optional(),
+      }),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+    },
+    async ({ id, date, start, end, duration }) =>
+      guarded(() =>
+        store.write((contents) => {
+          const outcome = performPlanTask(contents, id, date, start, end, duration);
           return { result: outcome.mutated, summary: outcome.message };
         }),
       ),

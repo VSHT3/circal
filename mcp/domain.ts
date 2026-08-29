@@ -28,7 +28,7 @@ import {
   type Calendar,
   type Occurrence,
 } from "@/lib/events";
-import { scoreTask, type Task } from "@/lib/tasks";
+import { PLANS_MAX, compareTasks, scoreTask, taskState, type Task } from "@/lib/tasks";
 import { applyRemove, applySplit, applyTruncate, applyUpdate } from "@/lib/mutate";
 import { parseQuickAdd } from "@/lib/quickadd";
 import { NEVER, instantKey, keyToInstant, readRecurrence, repeats, type Repeat } from "@/lib/recur";
@@ -182,8 +182,6 @@ export interface EventFieldsInput {
   /** Minutes — an alternative to `end` for a timed event. */
   duration?: number;
   allDay?: boolean;
-  /** A dated to-do rather than an event — routed to the task list. */
-  task?: boolean;
   calendarId?: string;
   color?: string;
   icon?: string;
@@ -663,47 +661,179 @@ export function performQuickAdd(
 }
 
 export function performCreateEvent(contents: MirrorContents, input: EventFieldsInput): WriteResult {
-  // `task: true` routes to the task list: a task is its own record now, with
-  // a deadline rather than a span. `start` names a due time; without one the
-  // deadline is a date with no time on it.
-  if (input.task === true) {
-    if (!input.date) throw new RefusalError('a task needs "date" (YYYY-MM-DD)');
-    const day = parseDay(input.date);
-    const calendar = resolveCalendar(input.calendarId, contents.calendars, contents.settings);
-    const dueAllDay = input.start === undefined;
-    const due = dueAllDay
-      ? startOfDay(day).getTime()
-      : atMinutes(day, parseTime(input.start as string, "start")).getTime();
-    // Through `readTask`, `validate`'s own bargain: an agent is exactly the
-    // untrusted input that boundary already assumes.
-    const task = readTask({
-      id: newId(),
-      title: input.title ?? "",
-      notes: input.notes ?? "",
-      calendarId: calendar.id,
-      icon: input.icon ?? "",
-      color: input.color ?? "",
-      due,
-      dueAllDay,
-      estimate: null,
-      priority: 0,
-      plans: [],
-      done: false,
-      updatedAt: Date.now(),
-    });
-    if (!task)
-      throw new RefusalError("the assembled task failed validation (check date and start)");
-    return {
-      mutated: { ...carried(contents), tasks: [...contents.tasks, task] },
-      message: `Created ${taskSummaryLine(task, contents.calendars, contents.settings.clock)}`,
-    };
-  }
   const record = buildEventRecord(input, contents.calendars, contents.settings);
   const event: CalEvent = { ...record, id: newId(), updatedAt: Date.now() };
   return {
     mutated: { ...carried(contents), events: [...contents.events, event] },
     message: `Created ${eventSummaryLine(event, contents.calendars, contents.settings.clock)}`,
   };
+}
+
+/* ------------------------------- task tools ------------------------------------ */
+
+/** The three states an agent may spell, in the model's own rank. */
+const PRIORITY_RANK: Record<string, 0 | 1 | 2> = { normal: 0, high: 1, urgent: 2 };
+
+export interface TaskFieldsInput {
+  title?: string;
+  /** YYYY-MM-DD, local — the due day. */
+  date?: string;
+  /** HH:MM due time; `null` clears it to a day with no time on it. */
+  time?: string | null;
+  /** Minutes; `null` clears it back to "no idea". */
+  estimate?: number | null;
+  priority?: "normal" | "high" | "urgent";
+  calendarId?: string;
+  color?: string;
+  icon?: string;
+  notes?: string;
+}
+
+/** Finds the task an id names, or refuses with the right redirection — the
+ *  one id space serves two lists, and "no such id" would be a lie about a
+ *  record that merely lives next door. */
+function requireTask(contents: MirrorContents, id: string, tool: string): Task {
+  const task = contents.tasks.find((t) => t.id === id);
+  if (task) return task;
+  if (contents.events.some((e) => e.id === id)) {
+    throw new RefusalError(`"${id}" is an event, not a task — ${tool} works on tasks`);
+  }
+  throw new RefusalError(`no task with id "${id}"`);
+}
+
+/** `readTask` as a gate: the assembled record must survive the same
+ *  validator a backup does, `validate`'s own bargain one list over. */
+function requireValidTask(assembled: Task): Task {
+  const task = readTask(assembled);
+  if (!task) throw new RefusalError("the assembled task failed validation (check date and time)");
+  return task;
+}
+
+export function performCreateTask(contents: MirrorContents, input: TaskFieldsInput): WriteResult {
+  if (!input.date) throw new RefusalError('a task needs "date" (YYYY-MM-DD), its due day');
+  const day = parseDay(input.date);
+  const calendar = resolveCalendar(input.calendarId, contents.calendars, contents.settings);
+  const dueAllDay = input.time === undefined || input.time === null;
+  const task = requireValidTask({
+    id: newId(),
+    title: input.title ?? "",
+    notes: input.notes ?? "",
+    calendarId: calendar.id,
+    icon: input.icon ?? "",
+    color: input.color ?? "",
+    due: dueAllDay
+      ? startOfDay(day).getTime()
+      : atMinutes(day, parseTime(input.time as string, "time")).getTime(),
+    dueAllDay,
+    estimate: input.estimate ?? null,
+    priority: PRIORITY_RANK[input.priority ?? "normal"],
+    plans: [],
+    done: false,
+    updatedAt: Date.now(),
+  });
+  return {
+    mutated: { ...carried(contents), tasks: [...contents.tasks, task] },
+    message: `Created ${taskSummaryLine(task, contents.calendars, contents.settings.clock)}`,
+  };
+}
+
+export function performUpdateTask(
+  contents: MirrorContents,
+  id: string,
+  patch: TaskFieldsInput,
+): WriteResult {
+  const original = requireTask(contents, id, "update_task");
+  // The deadline, re-derived only from what the patch names: a new day keeps
+  // a timed deadline's own minute, a new time keeps the day, `time: null`
+  // clears the minute — and a patch naming neither leaves both alone.
+  const day = patch.date ? parseDay(patch.date) : startOfDay(new Date(original.due));
+  const dueAllDay =
+    patch.time === null ? true : patch.time !== undefined ? false : original.dueAllDay;
+  const dueMin =
+    typeof patch.time === "string"
+      ? parseTime(patch.time, "time")
+      : minutesOfDay(new Date(original.due));
+  const calendar = patch.calendarId
+    ? resolveCalendar(patch.calendarId, contents.calendars, contents.settings)
+    : undefined;
+  const next = requireValidTask({
+    ...original,
+    title: patch.title ?? original.title,
+    notes: patch.notes ?? original.notes,
+    calendarId: calendar?.id ?? original.calendarId,
+    color: patch.color ?? original.color,
+    icon: patch.icon ?? original.icon,
+    due: dueAllDay ? startOfDay(day).getTime() : atMinutes(day, dueMin).getTime(),
+    dueAllDay,
+    estimate: patch.estimate !== undefined ? patch.estimate : original.estimate,
+    priority: patch.priority !== undefined ? PRIORITY_RANK[patch.priority] : original.priority,
+    updatedAt: Date.now(),
+  });
+  return {
+    mutated: {
+      ...carried(contents),
+      tasks: contents.tasks.map((t) => (t.id === id ? next : t)),
+    },
+    message: `Updated ${taskSummaryLine(next, contents.calendars, contents.settings.clock)}`,
+  };
+}
+
+export function performPlanTask(
+  contents: MirrorContents,
+  id: string,
+  date: string,
+  start: string,
+  end: string | undefined,
+  duration: number | undefined,
+): WriteResult {
+  const original = requireTask(contents, id, "plan_task");
+  if (original.done) throw new RefusalError("this task is already done — nothing to plan");
+  if (original.plans.length >= PLANS_MAX) {
+    throw new RefusalError(`this task already carries ${PLANS_MAX} plans, the cap`);
+  }
+  const day = parseDay(date);
+  const startMin = parseTime(start, "start");
+  const endMin =
+    end !== undefined
+      ? parseTime(end, "end")
+      : startMin + (duration ?? original.estimate ?? contents.settings.defaultDuration);
+  if (endMin <= startMin) throw new RefusalError('"end" must be after "start"');
+  const plan = { start: atMinutes(day, startMin).getTime(), end: atMinutes(day, endMin).getTime() };
+  const next: Task = {
+    ...original,
+    plans: [...original.plans, plan].sort((a, b) => a.start - b.start || a.end - b.end),
+    updatedAt: Date.now(),
+  };
+  const clock = contents.settings.clock;
+  return {
+    mutated: { ...carried(contents), tasks: contents.tasks.map((t) => (t.id === id ? next : t)) },
+    message: `Planned "${next.title || "Untitled"}" ${date} ${formatTimeShort(new Date(plan.start), clock)}–${formatTimeShort(new Date(plan.end), clock)}`,
+  };
+}
+
+/** The sidebar's own grouping, printed: Overdue / Due soon / Later, then
+ *  Done, each row `taskSummaryLine`'s shape. `now` is a parameter for the
+ *  test's sake only; the tool never passes one. */
+export function listTasks(contents: MirrorContents, now: Date = new Date()): string {
+  if (contents.tasks.length === 0) return "No tasks.";
+  const clock = contents.settings.clock;
+  const groups: [string, Task[]][] = [
+    ["Overdue", []],
+    ["Due soon", []],
+    ["Later", []],
+    ["Done", []],
+  ];
+  const index: Record<string, number> = { overdue: 0, "due-soon": 1, later: 2, done: 3 };
+  for (const task of contents.tasks) groups[index[taskState(task, now)]][1].push(task);
+  const sections = groups
+    .filter(([, rows]) => rows.length > 0)
+    .map(([label, rows]) =>
+      [
+        `${label} (${rows.length}):`,
+        ...rows.sort(compareTasks).map((t) => `  ${taskSummaryLine(t, contents.calendars, clock)}`),
+      ].join("\n"),
+    );
+  return sections.join("\n\n");
 }
 
 export function performUpdateEvent(
@@ -715,13 +845,10 @@ export function performUpdateEvent(
 ): WriteResult {
   const original = contents.events.find((e) => e.id === id);
   if (!original) {
-    // A task's id lands here from list_day and search; its patch vocabulary
-    // is its own and arrives in a later stage, so the refusal says where the
-    // record lives rather than pretending it does not exist.
+    // A task's id lands here from list_day and search — the refusal says
+    // where the record lives rather than pretending it does not exist.
     if (contents.tasks.some((t) => t.id === id)) {
-      throw new RefusalError(
-        `id "${id}" is a task — update_event edits events. Use toggle_done to tick it, or edit it in the app.`,
-      );
+      throw new RefusalError(`id "${id}" is a task — use update_task, plan_task or toggle_done.`);
     }
     throw new RefusalError(`no event with id "${id}"`);
   }

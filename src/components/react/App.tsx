@@ -26,6 +26,7 @@ import {
   type CalEvent,
   type Occurrence,
 } from "@/lib/events";
+import { schedule } from "@/lib/plan";
 import { readEstimate, type Task } from "@/lib/tasks";
 import {
   defaultCalendarId,
@@ -1096,6 +1097,70 @@ function Shell() {
     [planAt, now, settings.defaultDuration, settings.wakingFrom, settings.wakingTo],
   );
 
+  /**
+   * Auto-schedule, whole (TASKS.md §9): `schedule` decides, `applyPlans`
+   * commits the run as one undo step, and the toast says what landed and
+   * what did not — a silent write to your calendar is indistinguishable
+   * from a bug. `verbose` is the verb's half of that: a hand-run reports
+   * even "nothing to do", where an automatic run on load with nothing to
+   * place would be a toast about nothing every morning.
+   */
+  const fillFreeTime = useCallback(
+    (verbose = true) => {
+      const snap = store.snapshot();
+      const all = [...snap.events, ...Object.values(snap.feeds).flat()];
+      const { placements, unplaced } = schedule(
+        snap.tasks,
+        all,
+        snap.calendars,
+        { from: snap.settings.wakingFrom, to: snap.settings.wakingTo },
+        new Date(),
+      );
+      if (placements.length > 0) {
+        store.applyPlans(placements);
+        cue("created", channels);
+      }
+      if (placements.length === 0 && unplaced.length === 0) {
+        if (verbose) notify("Nothing to plan");
+        return;
+      }
+      if (placements.length === 1 && unplaced.length === 0) {
+        // One task planned gets the Schedule verb's own receipt, not a count.
+        const target = snap.tasks.find((t) => t.id === placements[0].id);
+        const start = new Date(placements[0].plan.start);
+        notify(
+          `Planned “${target?.title || "Untitled"}” ${formatRelativeDay(start)} ${formatTimeShort(start, snap.settings.clock)}`,
+        );
+        return;
+      }
+      const parts: string[] = [];
+      if (placements.length > 0)
+        parts.push(`Planned ${placements.length} task${placements.length === 1 ? "" : "s"}`);
+      if (unplaced.length > 0)
+        parts.push(`${unplaced.length} ${unplaced.length === 1 ? "does" : "do"} not fit`);
+      notify(parts.join(" · "));
+    },
+    [channels],
+  );
+
+  /**
+   * The automatic half: once on load and whenever a task arrives, only while
+   * the setting is on. New ids are the trigger — a run adds plans, never
+   * tasks, so a run cannot re-arm itself — and the first pass (prior
+   * `null`) is the on-load run. Flipping the setting on mid-session runs
+   * nothing by itself: the verb is one click away and the next load is
+   * covered.
+   */
+  const knownTaskIds = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    const ids = new Set(tasks.map((t) => t.id));
+    const prior = knownTaskIds.current;
+    knownTaskIds.current = ids;
+    if (!settings.autoSchedule) return;
+    if (prior !== null && ![...ids].some((id) => !prior.has(id))) return;
+    fillFreeTime(false);
+  }, [tasks, settings.autoSchedule, fillFreeTime]);
+
   const openDraft = useCallback(
     (startMin: number, endMin: number, on: Date) => {
       setPaletteOpen(false);
@@ -1465,6 +1530,7 @@ function Shell() {
         planAt(id, day, startMin, startMin + length);
       },
       dragTask: (id: string) => setDragTaskId(id),
+      fillFreeTime: () => fillFreeTime(),
       newEventAt: (startMin: number, endMin: number) => openDraft(startMin, endMin, day),
       quickAdd: (spec) => {
         /**
@@ -1604,6 +1670,7 @@ function Shell() {
       adjustOccurrence,
       tickTask,
       planAt,
+      fillFreeTime,
       tasks,
       defaultCalendar,
       settings.defaultDuration,

@@ -139,6 +139,12 @@ export interface ShellActions {
    * `scheduleTask` makes.
    */
   dragTask: (id: string) => void;
+  /**
+   * The sidebar header's verb: the auto-scheduler run by hand. Same rule as
+   * the `autoSchedule` setting's own runs, and it always toasts — even
+   * "Nothing to plan", because a verb that says nothing did nothing.
+   */
+  fillFreeTime: () => void;
   /** A draft over an explicit range on the selected day — the free-time rows. */
   newEventAt: (startMin: number, endMin: number) => void;
   /**

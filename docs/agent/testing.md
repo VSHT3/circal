@@ -5,7 +5,7 @@
 
 ## Testing & QA
 
-**Suite exists. Read before writing one.** Vitest, `tests/`, 2,224 cases, 36 files, ~3 s, wired into `verify`. Coverage = cases in file owning module. Never scaffold second harness, second fixture style, `*.spec.ts`.
+**Suite exists. Read before writing one.** Vitest, `tests/`, 2,261 cases, 38 files, ~3 s, wired into `verify`. Coverage = cases in file owning module. Never scaffold second harness, second fixture style, `*.spec.ts`.
 
 | test file                    | covers                                                                                                                                                                                                                                  |
 | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -19,6 +19,7 @@
 | `tests/describe.test.ts`     | `describe.ts` — `isExpressible`'s gate, `describeRule`'s clause order, BYSETPOS as adjective                                                                                                                                            |
 | `tests/events.test.ts`       | `events.ts` — clipping, lanes, overrides, `freeGaps`, free time booking nothing, `colorOf`, `inkOn`, lead + guest format                                                                                                                |
 | `tests/tasks.test.ts`        | `tasks.ts` — field validators, `plannedMinutes`/`unplanned`, `taskState`'s boundaries, `scoreTask`, `compareTasks`                                                                                                                      |
+| `tests/plan.test.ts`         | `plan.ts` — auto-schedule's five invariants: candidacy, order, waking/deadline bounds, no double-booking, idempotence                                                                                                                   |
 | `tests/ics.test.ts`          | `ics.ts` — round-trip incl. `TRANSP`, `VALARM`, `ORGANIZER` + `ATTENDEE`, `METHOD` ignored, folding, escaping, malformed feeds                                                                                                          |
 | `tests/store.test.ts`        | `store.ts` — write/delete/move, undo, cross-tab, `sane`, seeding, backup clock                                                                                                                                                          |
 | `tests/backup.test.ts`       | `backup.ts` — hostile input, orphan reparenting, `backupDue`'s interval                                                                                                                                                                 |

@@ -52,6 +52,7 @@ import {
   type Repeat,
   type WeekdayRule,
 } from "./events";
+import { readEstimate, readPlans, type Plan, type Task } from "./tasks";
 
 /** A VEVENT reduced to what circal models. `uid` is kept so a re-import of
  *  the same feed replaces rather than duplicates. */
@@ -112,6 +113,26 @@ export interface IcsEvent extends Recurrence {
    */
   attendees: Attendee[];
   attendeeCount: number;
+}
+
+/** A VTODO reduced to what circal models (TASKS.md §11). `uid` is kept for
+ *  the reason `IcsEvent`'s is: a re-import replaces rather than duplicates. */
+export interface IcsTask {
+  uid: string;
+  title: string;
+  notes: string;
+  /** Epoch ms; `dueAllDay` says whether it is a day or a day and a minute.
+   *  Always present — a VTODO with no `DUE` has no day, and everything here
+   *  lives on a day, so it is skipped rather than invented. */
+  due: number;
+  dueAllDay: boolean;
+  estimate: number | null;
+  priority: 0 | 1 | 2;
+  /** First plan from `DTSTART` + `DURATION`, further ones from
+   *  `X-CIRCAL-PLAN` period lines — through `readPlans`, the model's one
+   *  validator, so a hand-written file obeys the same caps a backup does. */
+  plans: Plan[];
+  done: boolean;
 }
 
 /* --------------------------------- text ----------------------------------- */
@@ -367,7 +388,7 @@ const UID_DOMAIN = "circal.day";
  * *correct* time that is quietly an hour off, which is worse than the UTC
  * export this feature replaces: that one at least loses cleanly.
  */
-export function toIcs(events: CalEvent[], name: string): string {
+export function toIcs(events: CalEvent[], name: string, tasks: Task[] = []): string {
   const lines: string[] = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
@@ -472,6 +493,42 @@ export function toIcs(events: CalEvent[], name: string): string {
       lines.push("END:VALARM");
     }
     lines.push("END:VEVENT");
+  }
+
+  // Tasks as VTODO — the true thing on the wire (TASKS.md §11). The cost is
+  // named there: a consumer that ignores VTODO shows nothing, where the old
+  // zero-width VEVENT was rendered by everybody. `DUE`, `PRIORITY` and
+  // `STATUS` are the standard's own; the first plan rides `DTSTART` +
+  // `DURATION` (both legal on a VTODO), further plans and the estimate take
+  // `X-CIRCAL-` lines, since RFC 5545 has no property for either.
+  for (const task of tasks) {
+    lines.push("BEGIN:VTODO");
+    lines.push(`UID:${task.id}@${UID_DOMAIN}`);
+    lines.push(`DTSTAMP:${stamp}`);
+    lines.push(`SUMMARY:${escapeText(task.title)}`);
+    lines.push(
+      task.dueAllDay
+        ? `DUE;VALUE=DATE:${dateStamp(new Date(task.due))}`
+        : `DUE:${utcStamp(new Date(task.due))}`,
+    );
+    if (task.notes) lines.push(`DESCRIPTION:${escapeText(task.notes)}`);
+    // §3.8.1.9: 1 is the highest urgency and 0 is "undefined", so normal
+    // writes nothing — an absent line already means it. High takes 4, the
+    // top of CUA convention's middle band, so a three-state reader on the
+    // other side keeps the three states apart.
+    if (task.priority === 2) lines.push("PRIORITY:1");
+    else if (task.priority === 1) lines.push("PRIORITY:4");
+    if (task.done) lines.push("STATUS:COMPLETED");
+    if (task.estimate !== null) lines.push(`X-CIRCAL-ESTIMATE:${task.estimate}`);
+    const [first, ...rest] = task.plans;
+    if (first) {
+      lines.push(`DTSTART:${utcStamp(new Date(first.start))}`);
+      lines.push(`DURATION:PT${Math.round((first.end - first.start) / 60_000)}M`);
+    }
+    for (const plan of rest) {
+      lines.push(`X-CIRCAL-PLAN:${utcStamp(new Date(plan.start))}/${utcStamp(new Date(plan.end))}`);
+    }
+    lines.push("END:VTODO");
   }
   lines.push("END:VCALENDAR");
 
@@ -934,6 +991,69 @@ function buildEvent(block: Block): IcsEvent | null {
   };
 }
 
+/** One VTODO's properties, `Block`'s shape one component over: the flat map
+ *  plus the one property that may repeat. */
+interface TodoBlock {
+  props: Record<string, PropEntry>;
+  plans: PropEntry[];
+}
+
+/** An `X-CIRCAL-PLAN` period — two UTC stamps, `/`-joined, RFC 5545's own
+ *  §3.3.9 explicit form. */
+const PLAN_PERIOD = /^(\d{8}T\d{6}Z)\/(\d{8}T\d{6}Z)$/;
+
+/**
+ * One VTODO → the task circal models, or `null` for one it cannot place.
+ * `DUE` is required — every task here carries a due date, and a dateless
+ * to-do belongs to a different product — so a VTODO without one is skipped,
+ * `buildEvent`'s own answer to a VEVENT without a DTSTART.
+ */
+function buildTask(block: TodoBlock): IcsTask | null {
+  const props = block.props;
+  const due = parseDateProp(props.DUE);
+  if (!due) return null;
+
+  const title = props.SUMMARY ? unescapeText(props.SUMMARY.value) : "";
+  const uid = props.UID?.value.trim() || `todo-${fnv1a(`${title}|${due.ms}`)}@${UID_DOMAIN}`;
+
+  // The first plan is DTSTART + DURATION on the VTODO itself; the rest are
+  // X-CIRCAL-PLAN periods. All of it through `readPlans`, the model's one
+  // validator, so the wire obeys the caps a backup already does.
+  const raw: Plan[] = [];
+  const start = parseDateProp(props.DTSTART);
+  const duration = props.DURATION ? parseDuration(props.DURATION.value) : null;
+  if (start && !start.allDay && duration !== null && duration > 0) {
+    raw.push({ start: start.ms, end: start.ms + duration });
+  }
+  for (const entry of block.plans) {
+    const m = PLAN_PERIOD.exec(entry.value.trim());
+    if (!m) continue;
+    const from = parseDateProp({ params: {}, value: m[1] });
+    const to = parseDateProp({ params: {}, value: m[2] });
+    if (from && to) raw.push({ start: from.ms, end: to.ms });
+  }
+
+  // §3.8.1.9: 1–4 are the high band, 5 medium, 6–9 low, 0 undefined. Three
+  // states here, so the top of the band is urgent and the rest of it high —
+  // the inverse of what the writer above spells.
+  const rank = Number(props.PRIORITY?.value);
+  const priority = rank >= 1 && rank <= 3 ? 2 : rank >= 4 && rank <= 6 ? 1 : 0;
+
+  return {
+    uid,
+    title,
+    notes: props.DESCRIPTION ? unescapeText(props.DESCRIPTION.value) : "",
+    due: due.ms,
+    dueAllDay: due.allDay,
+    // Through the model's own validator, `readPlans`'s reason: `null` for
+    // anything unreadable, clamped otherwise.
+    estimate: readEstimate(Number(props["X-CIRCAL-ESTIMATE"]?.value)),
+    priority,
+    plans: readPlans(raw),
+    done: props.STATUS?.value.trim().toUpperCase() === "COMPLETED",
+  };
+}
+
 /** RFC 5545 §3.8.4.4: the only RANGE value the standard defines. */
 const THIS_AND_FUTURE = "THISANDFUTURE";
 
@@ -1039,7 +1159,7 @@ function linkThisAndFuture(parsed: Parsed[]): IcsEvent[] {
 /** Tolerant parse. Returns `name` from X-WR-CALNAME (or "" when absent) and
  *  every VEVENT it could read; a VEVENT it cannot read is skipped, never
  *  thrown on. */
-export function fromIcs(text: string): { name: string; events: IcsEvent[] } {
+export function fromIcs(text: string): { name: string; events: IcsEvent[]; tasks: IcsTask[] } {
   // Unfold first: a CRLF (or bare LF, for feeds that skip the wire line
   // ending) followed by a single space or tab continues the previous
   // logical line.
@@ -1051,6 +1171,7 @@ export function fromIcs(text: string): { name: string; events: IcsEvent[] } {
 
   let name = "";
   const read: Parsed[] = [];
+  const tasks: IcsTask[] = [];
   // Block nesting, tracked generically: a property belongs to the open
   // VEVENT only while VEVENT is the innermost block, so a VALARM (or
   // anything else) nested inside one can't leak its own properties in or
@@ -1060,6 +1181,10 @@ export function fromIcs(text: string): { name: string; events: IcsEvent[] } {
   const stack: string[] = [];
   let current: Block | null = null;
   let alarm: Record<string, PropEntry> | null = null;
+  // The open VTODO, tracked beside the open VEVENT rather than through it:
+  // the two never nest, and a reader that shared `current` would let a
+  // malformed file leak one component's properties into the other.
+  let todo: TodoBlock | null = null;
 
   for (const raw of lines) {
     const parsed = splitLine(raw);
@@ -1075,6 +1200,8 @@ export function fromIcs(text: string): { name: string; events: IcsEvent[] } {
       // Only an alarm directly inside the open VEVENT. Anything deeper is a
       // component this reader has no opinion about.
       else if (block === "VALARM" && current !== null && inVevent) alarm = {};
+      else if (block === "VTODO" && current === null && todo === null)
+        todo = { props: {}, plans: [] };
       continue;
     }
     if (propName === "END") {
@@ -1098,6 +1225,11 @@ export function fromIcs(text: string): { name: string; events: IcsEvent[] } {
         // alarm to the next VEVENT.
         alarm = null;
       }
+      if (opened === "VTODO" && value.toUpperCase() === "VTODO" && todo !== null) {
+        const task = buildTask(todo);
+        if (task) tasks.push(task);
+        todo = null;
+      }
       continue;
     }
 
@@ -1111,10 +1243,14 @@ export function fromIcs(text: string): { name: string; events: IcsEvent[] } {
       // its last attendee is the same bug an EXDATE list flattened into one.
       else if (propName === "ATTENDEE") current.attendees.push({ params, value });
       else current.props[propName] = { params, value };
+    } else if (todo !== null && stack[stack.length - 1] === "VTODO") {
+      // Several plan lines per task, so a list, `EXDATE`'s own reason.
+      if (propName === "X-CIRCAL-PLAN") todo.plans.push({ params, value });
+      else todo.props[propName] = { params, value };
     } else if (current === null && propName === "X-WR-CALNAME") {
       name = unescapeText(value);
     }
   }
 
-  return { name, events: linkThisAndFuture(read) };
+  return { name, events: linkThisAndFuture(read), tasks };
 }

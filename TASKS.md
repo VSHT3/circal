@@ -1,6 +1,9 @@
 # Tasks: a list you can drag onto the day
 
-**Status:** design, not approved. Written from a brainstorm on 2026-08-20.
+**Status:** built, all five stages shipped (2026-08-29). Written from a brainstorm
+on 2026-08-20. Where the build deviated, `docs/agent/dial.md` §Tasks records it:
+no migration (no users), `taskOccurrences` in `events.ts`, one completing verb in
+MCP (`toggle_done`, no `complete_task`), no legacy `X-CIRCAL-TASK` read.
 
 **The open question, resolved by default.** The one thing left undecided in the
 conversation was whether a task may exist with no date at all. This spec takes

@@ -302,6 +302,7 @@ export default function Settings({
     weekStart,
     wakingFrom,
     wakingTo,
+    autoSchedule,
   } = settings;
   const reducedMotion = useReducedMotion();
   const [feedUrl, setFeedUrl] = useState("");
@@ -1412,13 +1413,21 @@ export default function Settings({
                         title="Day"
                         onInfo={setInfo}
                         info={
-                          <p>
-                            What "free" means here: the dial's totals line and the palette's slot
-                            search both measure free time against these hours
-                          </p>
+                          <>
+                            <InfoEntry name="Hours">
+                              What "free" means here: the dial's totals line and the palette's slot
+                              search both measure free time against these hours
+                            </InfoEntry>
+                            <InfoEntry name="Auto-schedule">
+                              Plans your unplanned tasks into free gaps by itself, once on load and
+                              when a task arrives: soonest deadline first, inside these hours, never
+                              over a block you placed. The sidebar's Fill free time runs the same
+                              rule by hand
+                            </InfoEntry>
+                          </>
                         }
                       >
-                        <FieldRow label="Hours" last>
+                        <FieldRow label="Hours">
                           <div className="flex flex-wrap items-center gap-2">
                             <TimeField
                               label="Waking hours start"
@@ -1434,6 +1443,13 @@ export default function Settings({
                               onCommit={(minutes) => store.setWaking(wakingFrom, minutes)}
                             />
                           </div>
+                        </FieldRow>
+                        <FieldRow label="Tasks" last>
+                          <Toggle
+                            label="Auto-schedule"
+                            checked={autoSchedule}
+                            onChange={(on) => store.setToggle("autoSchedule", on)}
+                          />
                         </FieldRow>
                       </Section>
 

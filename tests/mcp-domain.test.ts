@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } fr
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { attendee, calendar, day, event, ms, resetIds, task } from "./helpers";
+import { at, attendee, calendar, day, event, ms, plan, resetIds, task } from "./helpers";
 import { DEFAULT_SETTINGS, type Settings } from "@/lib/store";
 import { MIRROR_VERSION, localZone, serialiseMirror, type MirrorContents } from "@/lib/mirror";
 import type { Task } from "@/lib/tasks";
@@ -21,12 +21,16 @@ import {
   listCalendars,
   listDay,
   listRange,
+  listTasks,
   performCreateCalendar,
   performCreateEvent,
+  performCreateTask,
   performDeleteEvent,
   performQuickAdd,
+  performPlanTask,
   performToggleDone,
   performUpdateEvent,
+  performUpdateTask,
   requireScope,
   resolveCalendar,
   resolveInstant,
@@ -764,35 +768,147 @@ describe("performCreateEvent", () => {
     expect.soft(mutated.events[0]!.title).toBe("Call");
   });
 
-  it("task: true creates a Task with a timed deadline, not an event", () => {
-    const { mutated, message } = performCreateEvent(contents(), {
-      title: "Renew passport",
-      date: "2026-03-08",
-      start: "07:15",
-      task: true,
-    });
-    expect.soft(mutated.events).toHaveLength(0);
-    expect.soft(mutated.tasks).toHaveLength(1);
-    expect.soft(mutated.tasks[0]!.due).toBe(ms("2026-03-08 07:15"));
-    expect.soft(mutated.tasks[0]!.dueAllDay).toBe(false);
-    expect.soft(mutated.tasks[0]!.done).toBe(false);
-    expect.soft(message).toContain("(task)");
-  });
-
-  it("a task with no start is due on the day, no time on it", () => {
+  it("has no task spelling left — create_task owns that record now", () => {
+    // The one id space still answers for both lists elsewhere; creation does
+    // not: an event tool creates events, full stop of the schema's own
+    // strictness (an unknown `task` field is rejected before the handler).
     const { mutated } = performCreateEvent(contents(), {
       title: "Renew passport",
       date: "2026-03-08",
-      task: true,
+      start: "07:15",
+    });
+    expect.soft(mutated.tasks).toHaveLength(0);
+    expect.soft(mutated.events).toHaveLength(1);
+  });
+});
+
+describe("performCreateTask", () => {
+  it("a timed deadline, sized and ranked", () => {
+    const { mutated, message } = performCreateTask(contents(), {
+      title: "Renew passport",
+      date: "2026-03-08",
+      time: "07:15",
+      estimate: 45,
+      priority: "urgent",
+    });
+    expect.soft(mutated.events).toHaveLength(0);
+    expect.soft(mutated.tasks).toHaveLength(1);
+    const t = mutated.tasks[0]!;
+    expect.soft(t.due).toBe(ms("2026-03-08 07:15"));
+    expect.soft(t.dueAllDay).toBe(false);
+    expect.soft(t.estimate).toBe(45);
+    expect.soft(t.priority).toBe(2);
+    expect.soft(t.done).toBe(false);
+    expect.soft(message).toContain("(task)");
+  });
+
+  it("no time means due on the day, no time on it", () => {
+    const { mutated } = performCreateTask(contents(), {
+      title: "Renew passport",
+      date: "2026-03-08",
     });
     expect.soft(mutated.tasks[0]!.dueAllDay).toBe(true);
     expect.soft(mutated.tasks[0]!.due).toBe(ms("2026-03-08 00:00"));
   });
 
-  it("a task still needs a date — everything in circal has a day", () => {
-    expect(() => performCreateEvent(contents(), { title: "x", task: true })).toThrow(
-      /a task needs "date"/,
+  it("still needs a date — everything in circal has a day", () => {
+    expect(() => performCreateTask(contents(), { title: "x" })).toThrow(/a task needs "date"/);
+  });
+});
+
+describe("performUpdateTask", () => {
+  const base = () => contents({ tasks: [task({ id: "t1", due: "2026-03-08 09:00" })] });
+
+  it("a new day keeps a timed deadline's own minute", () => {
+    const { mutated } = performUpdateTask(base(), "t1", { date: "2026-03-10" });
+    expect.soft(mutated.tasks[0]!.due).toBe(ms("2026-03-10 09:00"));
+    expect.soft(mutated.tasks[0]!.dueAllDay).toBe(false);
+  });
+
+  it("a new time keeps the day; null clears the time", () => {
+    const timed = performUpdateTask(base(), "t1", { time: "17:30" });
+    expect.soft(timed.mutated.tasks[0]!.due).toBe(ms("2026-03-08 17:30"));
+    const cleared = performUpdateTask(base(), "t1", { time: null });
+    expect.soft(cleared.mutated.tasks[0]!.dueAllDay).toBe(true);
+    expect.soft(cleared.mutated.tasks[0]!.due).toBe(ms("2026-03-08 00:00"));
+  });
+
+  it("estimate null clears; a patch naming nothing changes nothing but the stamp", () => {
+    const sized = performUpdateTask(contents({ tasks: [task({ id: "t1", estimate: 90 })] }), "t1", {
+      estimate: null,
+    });
+    expect.soft(sized.mutated.tasks[0]!.estimate).toBeNull();
+    const before = task({ id: "t1", due: "2026-03-08 09:00", estimate: 60, priority: 1 });
+    const { mutated } = performUpdateTask(contents({ tasks: [before] }), "t1", {});
+    expect.soft(mutated.tasks[0]!.due).toBe(before.due);
+    expect.soft(mutated.tasks[0]!.estimate).toBe(60);
+    expect.soft(mutated.tasks[0]!.priority).toBe(1);
+  });
+
+  it("redirects an event's id to update_event", () => {
+    const c = contents({ events: [event({ id: "e1", calendarId: CAL })] });
+    expect(() => performUpdateTask(c, "e1", {})).toThrow(/is an event/);
+  });
+});
+
+describe("performPlanTask", () => {
+  it("books a block, length from the estimate when no end is named", () => {
+    const c = contents({ tasks: [task({ id: "t1", estimate: 90 })] });
+    const { mutated, message } = performPlanTask(
+      c,
+      "t1",
+      "2026-03-09",
+      "09:00",
+      undefined,
+      undefined,
     );
+    expect
+      .soft(mutated.tasks[0]!.plans)
+      .toEqual([{ start: ms("2026-03-09 09:00"), end: ms("2026-03-09 10:30") }]);
+    expect.soft(message).toContain("Planned");
+  });
+
+  it("keeps the plan list in start order and refuses a backwards block", () => {
+    const c = contents({
+      tasks: [task({ id: "t1", plans: [plan("2026-03-10 09:00", "2026-03-10 10:00")] })],
+    });
+    const { mutated } = performPlanTask(c, "t1", "2026-03-09", "09:00", "10:00", undefined);
+    expect
+      .soft(mutated.tasks[0]!.plans.map((p) => p.start))
+      .toEqual([ms("2026-03-09 09:00"), ms("2026-03-10 09:00")]);
+    expect(() => performPlanTask(c, "t1", "2026-03-09", "10:00", "09:00", undefined)).toThrow(
+      /after "start"/,
+    );
+  });
+
+  it("refuses a done task — nothing to plan", () => {
+    const c = contents({ tasks: [task({ id: "t1", done: true })] });
+    expect(() => performPlanTask(c, "t1", "2026-03-09", "09:00", undefined, undefined)).toThrow(
+      /already done/,
+    );
+  });
+});
+
+describe("listTasks", () => {
+  it("prints the sidebar's own groups, soonest deadline first", () => {
+    const c = contents({
+      tasks: [
+        task({ id: "a", title: "Old", due: "2026-03-01 09:00" }),
+        task({ id: "b", title: "Soon", due: "2026-03-09 09:00" }),
+        task({ id: "c", title: "Far", due: "2026-06-01 09:00" }),
+        task({ id: "d", title: "Ticked", due: "2026-03-09 09:00", done: true }),
+      ],
+    });
+    const out = listTasks(c, at("2026-03-08 12:00"));
+    const pos = (needle: string) => out.indexOf(needle);
+    expect.soft(pos("Overdue (1):")).toBeGreaterThanOrEqual(0);
+    expect.soft(pos("Due soon (1):")).toBeGreaterThan(pos("Overdue (1):"));
+    expect.soft(pos("Later (1):")).toBeGreaterThan(pos("Due soon (1):"));
+    expect.soft(pos("Done (1):")).toBeGreaterThan(pos("Later (1):"));
+  });
+
+  it("says so when there are none", () => {
+    expect(listTasks(contents())).toBe("No tasks.");
   });
 });
 

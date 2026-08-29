@@ -12,7 +12,7 @@
  * ------------------------------------------------------------------ */
 
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { CalendarPlus, ChevronLeft, ChevronRight, Pencil, Plus } from "lucide-react";
+import { CalendarPlus, ChevronLeft, ChevronRight, Pencil, Plus, Sparkles } from "lucide-react";
 import { useMemo, useState } from "react";
 import { colorOf, markOf, occurrencesOn, taskOccurrences } from "@/lib/events";
 import { compareTasks, taskState, unplanned, type Task, type TaskState } from "@/lib/tasks";
@@ -194,9 +194,17 @@ export default function Sidebar({
       <section className="flex w-full shrink-0 flex-col gap-1">
         <div className="flex items-center justify-between">
           <span className="label text-ink-2">Tasks</span>
-          <IconButton label="New task" onClick={actions.newTask} className="size-6">
-            <Plus size={13} strokeWidth={1.75} />
-          </IconButton>
+          <div className="flex items-center">
+            {/* TASKS.md §9: the auto-scheduler's hand-run — drops every
+                unplanned, sized task into free gaps, soonest deadline
+                first, and toasts what landed. */}
+            <IconButton label="Fill free time" onClick={actions.fillFreeTime} className="size-6">
+              <Sparkles size={12} strokeWidth={1.75} />
+            </IconButton>
+            <IconButton label="New task" onClick={actions.newTask} className="size-6">
+              <Plus size={13} strokeWidth={1.75} />
+            </IconButton>
+          </div>
         </div>
         {groups.map((group) => (
           <div key={group.id} className="flex flex-col gap-0.5">

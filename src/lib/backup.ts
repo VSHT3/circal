@@ -98,18 +98,25 @@ async function download(filename: string, mime: string, body: string): Promise<b
 /* --------------------------------- export --------------------------------- */
 
 export async function exportIcs(snapshot: Snapshot) {
-  if (snapshot.events.length === 0) {
+  if (snapshot.events.length === 0 && snapshot.tasks.length === 0) {
     notify("Nothing to export yet");
     return;
   }
   const saved = await download(
     `circal-${dayKey(new Date())}.ics`,
     "text/calendar",
-    toIcs(snapshot.events, "circal"),
+    toIcs(snapshot.events, "circal", snapshot.tasks),
   );
   // Nothing on a cancel: the user cancelled, they know, and a toast apologising
   // for obeying is chrome.
-  if (saved) notify(`Exported ${snapshot.events.length} events`);
+  if (saved) {
+    const parts = [];
+    if (snapshot.events.length > 0)
+      parts.push(`${snapshot.events.length} event${snapshot.events.length === 1 ? "" : "s"}`);
+    if (snapshot.tasks.length > 0)
+      parts.push(`${snapshot.tasks.length} task${snapshot.tasks.length === 1 ? "" : "s"}`);
+    notify(`Exported ${parts.join(" · ")}`);
+  }
 }
 
 /**
@@ -315,6 +322,9 @@ export function readSettings(value: unknown): Settings {
     wakingFrom:
       typeof value.wakingFrom === "number" ? value.wakingFrom : DEFAULT_SETTINGS.wakingFrom,
     wakingTo: typeof value.wakingTo === "number" ? value.wakingTo : DEFAULT_SETTINGS.wakingTo,
+    // Off unless the backup says so — a restore must not start writing to
+    // the calendar because the field was absent.
+    autoSchedule: value.autoSchedule === true,
   };
 }
 
@@ -533,8 +543,8 @@ export function importBackup(text: string) {
 }
 
 export function importIcs(text: string, filename: string) {
-  const { name, events } = fromIcs(text);
-  if (events.length === 0) {
+  const { name, events, tasks } = fromIcs(text);
+  if (events.length === 0 && tasks.length === 0) {
     notify("No events found in that file", "error");
     return;
   }
@@ -591,8 +601,29 @@ export function importIcs(text: string, filename: string) {
         updatedAt: 0,
       };
     }),
+    // VTODOs, on the same new calendar. Fresh ids for `importBackup`'s
+    // reason inverted: a `.ics` import always lands in a calendar of its
+    // own, so a uid-stable id would let two imports of one file collide
+    // across calendars without ever replacing anything.
+    tasks.map((t) => ({
+      id: newId(),
+      title: t.title,
+      notes: t.notes,
+      icon: "",
+      color: "",
+      due: t.due,
+      dueAllDay: t.dueAllDay,
+      estimate: t.estimate,
+      priority: t.priority,
+      plans: t.plans,
+      done: t.done,
+      updatedAt: 0,
+    })),
   );
-  notify(`Imported ${events.length} events into “${label}”`);
+  const parts = [];
+  if (events.length > 0) parts.push(`${events.length} event${events.length === 1 ? "" : "s"}`);
+  if (tasks.length > 0) parts.push(`${tasks.length} task${tasks.length === 1 ? "" : "s"}`);
+  notify(`Imported ${parts.join(" · ")} into “${label}”`);
 }
 
 /**

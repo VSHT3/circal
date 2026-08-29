@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { attendee, byDay, day, event, ms } from "./helpers";
+import { attendee, byDay, day, event, ms, plan, task } from "./helpers";
 import { fromIcs, toIcs, type IcsEvent } from "@/lib/ics";
 import {
   ATTENDEE_MAX,
@@ -47,6 +47,22 @@ function vcalendar(...vevents: string[][]): string {
       "VERSION:2.0",
       "PRODID:-//test//test//EN",
       ...vevents.flatMap((props) => ["BEGIN:VEVENT", ...props, "END:VEVENT"]),
+      "END:VCALENDAR",
+    ].join("\r\n") + "\r\n"
+  );
+}
+
+/** One VTODO wrapped in a minimal VCALENDAR — `singleVevent`'s sibling, for
+ *  reading files circal never wrote. */
+function singleVtodo(props: string[]): string {
+  return (
+    [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "PRODID:-//test//test//EN",
+      "BEGIN:VTODO",
+      ...props,
+      "END:VTODO",
       "END:VCALENDAR",
     ].join("\r\n") + "\r\n"
   );
@@ -1503,5 +1519,141 @@ describe("RANGE=THISANDFUTURE", () => {
     const [only] = parse(MOVED);
     expect.soft(only.uid).toBe(UID);
     expect.soft(only.recurrenceId).toBe("2026-03-16T09:00:00");
+  });
+});
+
+/* --------------------------------- VTODO ------------------------------------ *
+ * TASKS.md §11: a task is a VTODO on the wire — DUE, PRIORITY,
+ * STATUS:COMPLETED, the first plan as DTSTART + DURATION, further plans as
+ * X-CIRCAL-PLAN periods, the estimate as X-CIRCAL-ESTIMATE. */
+
+describe("VTODO round-trip", () => {
+  it("a task with everything survives the whole trip", () => {
+    const t = task({
+      title: "Essay; draft",
+      notes: "two pages\nminimum",
+      due: "2026-03-13 17:00",
+      estimate: 90,
+      priority: 2,
+      plans: [
+        plan("2026-03-09 09:00", "2026-03-09 10:30"),
+        plan("2026-03-11 14:00", "2026-03-11 15:00"),
+      ],
+      done: true,
+    });
+    const { events, tasks } = fromIcs(toIcs([], "Work", [t]));
+    expect.soft(events).toHaveLength(0);
+    expect(tasks).toHaveLength(1);
+    const out = tasks[0];
+    expect.soft(out.title).toBe(t.title);
+    expect.soft(out.notes).toBe(t.notes);
+    expect.soft(out.due).toBe(t.due);
+    expect.soft(out.dueAllDay).toBe(false);
+    expect.soft(out.estimate).toBe(90);
+    expect.soft(out.priority).toBe(2);
+    expect.soft(out.plans).toEqual(t.plans);
+    expect.soft(out.done).toBe(true);
+  });
+
+  it("an all-day deadline takes VALUE=DATE and comes back a local day", () => {
+    const t = task({ due: ms("2026-03-13 00:00"), dueAllDay: true });
+    const text = toIcs([], "Work", [t]);
+    expect.soft(text).toContain("DUE;VALUE=DATE:20260313");
+    const { tasks } = fromIcs(text);
+    expect.soft(tasks[0].dueAllDay).toBe(true);
+    expect.soft(tasks[0].due).toBe(ms("2026-03-13 00:00"));
+  });
+
+  it("defaults write nothing: no PRIORITY, no STATUS, no estimate, no plans", () => {
+    const text = toIcs([], "Work", [task({ due: "2026-03-13 17:00" })]);
+    expect.soft(text).not.toContain("PRIORITY");
+    expect.soft(text).not.toContain("STATUS");
+    expect.soft(text).not.toContain("X-CIRCAL-ESTIMATE");
+    expect.soft(text).not.toContain("DTSTART");
+    const { tasks } = fromIcs(text);
+    expect.soft(tasks[0].priority).toBe(0);
+    expect.soft(tasks[0].done).toBe(false);
+    expect.soft(tasks[0].estimate).toBeNull();
+    expect.soft(tasks[0].plans).toEqual([]);
+  });
+
+  it("events and tasks travel in one file without leaking into each other", () => {
+    const ev = event({ title: "Standup", start: "2026-03-09 09:00", end: "2026-03-09 09:30" });
+    const t = task({ title: "Essay", due: "2026-03-13 17:00" });
+    const { events, tasks } = fromIcs(toIcs([ev], "Work", [t]));
+    expect.soft(events).toHaveLength(1);
+    expect.soft(events[0].title).toBe("Standup");
+    expect.soft(tasks).toHaveLength(1);
+    expect.soft(tasks[0].title).toBe("Essay");
+  });
+});
+
+describe("VTODO from other producers", () => {
+  it("reads another app's priority band into the three states", () => {
+    for (const [wire, priority] of [
+      ["1", 2],
+      ["3", 2],
+      ["4", 1],
+      ["5", 1],
+      ["9", 0],
+      ["0", 0],
+    ] as const) {
+      const { tasks } = fromIcs(
+        singleVtodo(["UID:x@y", "SUMMARY:T", "DUE:20260313T170000Z", `PRIORITY:${wire}`]),
+      );
+      expect.soft(tasks[0].priority, `PRIORITY:${wire}`).toBe(priority);
+    }
+  });
+
+  it("skips a VTODO with no DUE — everything here lives on a day", () => {
+    const { tasks } = fromIcs(singleVtodo(["UID:x@y", "SUMMARY:Someday"]));
+    expect(tasks).toEqual([]);
+  });
+
+  it("mints a stable uid for a VTODO that brought none", () => {
+    const text = singleVtodo(["SUMMARY:T", "DUE:20260313T170000Z"]);
+    const first = fromIcs(text).tasks[0].uid;
+    expect.soft(first).not.toBe("");
+    expect.soft(fromIcs(text).tasks[0].uid).toBe(first);
+  });
+
+  it("drops an unreadable plan line rather than the task", () => {
+    const { tasks } = fromIcs(
+      singleVtodo([
+        "UID:x@y",
+        "SUMMARY:T",
+        "DUE:20260313T170000Z",
+        "X-CIRCAL-PLAN:not-a-period",
+        "X-CIRCAL-PLAN:20260309T090000Z/20260309T100000Z",
+      ]),
+    );
+    expect(tasks[0].plans).toEqual([
+      { start: ms("2026-03-09 10:00"), end: ms("2026-03-09 11:00") },
+    ]);
+  });
+
+  it("a VTODO does not leak its properties into a VEVENT beside it", () => {
+    const text = [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "PRODID:-//test//test//EN",
+      "BEGIN:VTODO",
+      "UID:t@y",
+      "SUMMARY:Chore",
+      "DUE:20260313T170000Z",
+      "END:VTODO",
+      "BEGIN:VEVENT",
+      "UID:e@y",
+      "SUMMARY:Meeting",
+      "DTSTART:20260309T090000Z",
+      "DTEND:20260309T100000Z",
+      "END:VEVENT",
+      "END:VCALENDAR",
+    ].join("\r\n");
+    const { events, tasks } = fromIcs(text);
+    expect.soft(events).toHaveLength(1);
+    expect.soft(events[0].title).toBe("Meeting");
+    expect.soft(tasks).toHaveLength(1);
+    expect.soft(tasks[0].title).toBe("Chore");
   });
 });
