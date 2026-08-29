@@ -2106,24 +2106,16 @@ function Shell() {
   const deleteOccurrence = useCallback(
     (occ: Occurrence) => {
       if (feedIds.has(occ.event.calendarId)) return;
-      // ⌫ over a task's drawing deletes what the drawing is: a plan arc is
-      // one block, so only that block goes; a due pip is the task itself.
-      // No scope question — a task has no series.
+      // ⌫ over any of a task's drawings deletes the task — one record, one
+      // delete, the MCP tool's own rule ("a task has no series and no
+      // scope"). An earlier draft removed only the block under the pointer,
+      // and the due pip surfacing where an arc had just been deleted read
+      // as the deletion having half-worked. Pruning one block keeps its
+      // home in the task card's plan list, where each block has its own ×.
       if (occ.task) {
-        const task = occ.task;
-        if (occ.startMin === occ.endMin) {
-          store.removeTask(task.id);
-          cue("deleted", channels);
-          notify(`Deleted “${task.title || "Untitled"}”`);
-          return;
-        }
-        const index = task.plans.findIndex(
-          (p) => p.start === occ.start.getTime() && p.end === occ.end.getTime(),
-        );
-        if (index < 0) return;
-        store.unplanTask(task.id, index);
+        store.removeTask(occ.task.id);
         cue("deleted", channels);
-        notify(`Removed a block of “${task.title || "Untitled"}”`);
+        notify(`Deleted “${occ.task.title || "Untitled"}”`);
         return;
       }
       if (repeats(occ.event)) {
