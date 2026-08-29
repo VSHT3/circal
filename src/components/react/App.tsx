@@ -593,9 +593,32 @@ function Shell() {
     [visible, preview],
   );
 
+  /**
+   * `tasks`, with the dragged plan (or due pip) where the drag has it —
+   * `previewed`'s own job one list over. `preview.from` names which of the
+   * task's plans is being held; a `from` matching the deadline instead is a
+   * pip drag, and moves the due minute.
+   */
+  const previewedTasks = useMemo(() => {
+    if (!preview) return tasks;
+    return tasks.map((t) => {
+      if (t.id !== preview.id) return t;
+      if (t.plans.some((p) => p.start === preview.from)) {
+        return {
+          ...t,
+          plans: t.plans.map((p) =>
+            p.start === preview.from ? { start: preview.start, end: preview.end } : p,
+          ),
+        };
+      }
+      if (t.due === preview.from) return { ...t, due: preview.start };
+      return t;
+    });
+  }, [tasks, preview]);
+
   const agenda = useMemo(
-    () => dayAgenda(previewed, calendars, day, tasks),
-    [previewed, calendars, day, tasks],
+    () => dayAgenda(previewed, calendars, day, previewedTasks),
+    [previewed, calendars, day, previewedTasks],
   );
   const defaultCalendar = defaultCalendarId(calendars, settings.defaultCalendar);
   const feedIds = useMemo(
@@ -1359,6 +1382,24 @@ function Shell() {
    */
   const adjustOccurrence = useCallback(
     (occ: Occurrence, startDeltaMin: number, endDeltaMin: number) => {
+      // A task's occurrence has its own writes: a dragged plan moves that
+      // block (`movePlan`, matched by its own instants — the id names the
+      // task, not the block), and a dragged due pip moves the deadline.
+      // Never `commitAdjust`: its event writes would land on an id the
+      // event list has never held.
+      if (occ.task) {
+        const start = occ.start.getTime() + startDeltaMin * 60_000;
+        const end = occ.end.getTime() + endDeltaMin * 60_000;
+        if (occ.startMin === occ.endMin) {
+          store.updateTask(occ.task.id, { due: start });
+          return;
+        }
+        const index = occ.task.plans.findIndex(
+          (p) => p.start === occ.start.getTime() && p.end === occ.end.getTime(),
+        );
+        if (index >= 0) store.movePlan(occ.task.id, index, { start, end });
+        return;
+      }
       if (!repeats(occ.event)) {
         commitAdjust(occ, startDeltaMin, endDeltaMin, "all");
         return;
@@ -1372,6 +1413,7 @@ function Shell() {
         id: occ.event.id,
         start: occ.event.start + startDeltaMin * 60_000,
         end: occ.event.end + endDeltaMin * 60_000,
+        from: occ.event.start,
       });
     },
     [commitAdjust],
@@ -2006,6 +2048,17 @@ function Shell() {
 
   const openOccurrence = useCallback(
     (occ: Occurrence) => {
+      // A task's occurrence opens the task's own card. The synthetic event
+      // it rides on carries the task's id, so falling through would open
+      // the event editor over a record the event list has never held —
+      // whose Save wrote nothing and whose Delete toasted over a task it
+      // never touched.
+      if (occ.task) {
+        setPaletteOpen(false);
+        setAmbient("off");
+        setTaskEditor({ id: occ.task.id });
+        return;
+      }
       const { id, ...draft } = occ.event;
       setPaletteOpen(false);
       setAmbient("off");
@@ -2053,13 +2106,33 @@ function Shell() {
   const deleteOccurrence = useCallback(
     (occ: Occurrence) => {
       if (feedIds.has(occ.event.calendarId)) return;
+      // ⌫ over a task's drawing deletes what the drawing is: a plan arc is
+      // one block, so only that block goes; a due pip is the task itself.
+      // No scope question — a task has no series.
+      if (occ.task) {
+        const task = occ.task;
+        if (occ.startMin === occ.endMin) {
+          store.removeTask(task.id);
+          cue("deleted", channels);
+          notify(`Deleted “${task.title || "Untitled"}”`);
+          return;
+        }
+        const index = task.plans.findIndex(
+          (p) => p.start === occ.start.getTime() && p.end === occ.end.getTime(),
+        );
+        if (index < 0) return;
+        store.unplanTask(task.id, index);
+        cue("deleted", channels);
+        notify(`Removed a block of “${task.title || "Untitled"}”`);
+        return;
+      }
       if (repeats(occ.event)) {
         setAsk({ kind: "delete", occ });
         return;
       }
       removeOccurrence(occ, "all");
     },
-    [feedIds, removeOccurrence],
+    [feedIds, removeOccurrence, channels],
   );
 
   /**
@@ -2078,11 +2151,24 @@ function Shell() {
   const duplicateOccurrence = useCallback(
     (occ: Occurrence, deltaMin: number) => {
       if (feedIds.has(occ.event.calendarId)) return;
+      // ⌘-dragging a plan copies the block, not the task: another span of
+      // the same work, which is what a plan list is for. A due pip has
+      // nothing to duplicate — one task, one deadline.
+      if (occ.task) {
+        if (occ.startMin === occ.endMin) return;
+        const start = occ.start.getTime() + deltaMin * 60_000;
+        store.planTask(occ.task.id, { start, end: occ.end.getTime() + deltaMin * 60_000 });
+        cue("created", channels);
+        notify(
+          `Planned “${occ.task.title || "Untitled"}” ${formatRelativeDay(new Date(start))} ${formatTimeShort(new Date(start), settings.clock)}`,
+        );
+        return;
+      }
       store.create(duplicateOf(occ.event, deltaMin * 60_000));
       cue("created", channels);
       notify(`Duplicated “${occ.event.title || "Untitled"}”`);
     },
-    [feedIds, channels],
+    [feedIds, channels, settings.clock],
   );
 
   const answerAsk = useCallback(

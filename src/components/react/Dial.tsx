@@ -42,6 +42,13 @@ export interface DragPreview {
   /** Epoch ms, `end` exclusive — `CalEvent`'s own units. */
   start: number;
   end: number;
+  /**
+   * The grabbed record's own start before the drag moved anything. The
+   * shell needs it for a task: the id names the task, but a task may carry
+   * several plans, and this is which one is being held. An event's preview
+   * never reads it.
+   */
+  from: number;
 }
 
 export interface DialProps {
@@ -323,7 +330,12 @@ function deltas({ grip, delta }: Adjust): { start: number; end: number } {
 function draggedEvent(adjust: Adjust): DragPreview {
   const { event } = adjust.occ;
   const { start, end } = deltas(adjust);
-  return { id: event.id, start: event.start + start * 60_000, end: event.end + end * 60_000 };
+  return {
+    id: event.id,
+    start: event.start + start * 60_000,
+    end: event.end + end * 60_000,
+    from: event.start,
+  };
 }
 
 /**
@@ -592,17 +604,18 @@ export default function Dial({
    * The task drag, carried on window listeners: the press happened on a
    * sidebar row, so no pointer event ever targets this SVG — the window is
    * the only place the rest of the gesture can be heard. The mechanic is
-   * TASKS.md §7's: the ghost lands at the estimate's length under the
-   * pointer, holds still while the pointer is inside its own span, slides
-   * when the pointer backs out before its start, and sweeps a different
-   * length once dragged past its own end. `held` is a closure local, not
-   * state: the effect's lifetime *is* the drag's, and two pointermoves can
-   * arrive inside one render.
+   * one move: the ghost rides under the pointer, at the estimate's length,
+   * in both directions — an earlier draft anchored the start and swept the
+   * end once the pointer passed it, and moving a task clockwise grew it
+   * instead of carrying it. Length is chosen after it lands, with the arc's
+   * own grips, like any other arc. `held` is a closure local, not state:
+   * the effect's lifetime *is* the drag's, and two pointermoves can arrive
+   * inside one render.
    */
   useEffect(() => {
     if (!dragTask) return;
     const length = Math.max(STEP, dragTask.estimate ?? settings.defaultDuration);
-    let held: { start: number; end: number; swept: boolean } | null = null;
+    let held: { start: number; end: number } | null = null;
 
     /** The pointer as a minute of this face, or `null` off the annulus —
      *  from the numerals ring in to a lane past the innermost, so the
@@ -625,22 +638,12 @@ export default function Dial({
         }
         return;
       }
-      let next: typeof held;
-      if (!held || m < held.start) {
-        // Arrive, or slide: the start takes the quarter under the pointer,
-        // nudged back from midnight so the estimate still fits the day.
-        const start = Math.min(m, MINUTES_PER_DAY - STEP);
-        next = { start, end: Math.min(start + length, MINUTES_PER_DAY), swept: false };
-      } else if (held.swept || m > held.end) {
-        // Past its own end: the start anchors and the pointer owns the end,
-        // down to one step — the ring's own draw, joined mid-gesture.
-        next = { start: held.start, end: Math.max(held.start + STEP, m), swept: true };
-      } else {
-        return;
-      }
-      if (held && next.start === held.start && next.end === held.end) return;
-      held = next;
-      setDrop({ start: next.start, end: next.end });
+      // The start takes the quarter under the pointer, nudged back from
+      // midnight so the estimate still fits the day.
+      const start = Math.min(m, MINUTES_PER_DAY - STEP);
+      if (held && start === held.start) return;
+      held = { start, end: Math.min(start + length, MINUTES_PER_DAY) };
+      setDrop(held);
       cue("step", { sound: tickSound, haptics: tickHaptics });
     };
 
