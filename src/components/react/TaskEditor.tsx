@@ -64,7 +64,11 @@ export default function TaskEditor({
   const [notes, setNotes] = useState(target?.notes ?? "");
   const [calendarId, setCalendarId] = useState(target?.calendarId ?? defaultCalendar);
   const [due, setDue] = useState(target?.due ?? seedDue);
-  const [dueAllDay, setDueAllDay] = useState(target?.dueAllDay ?? false);
+  // A new task's deadline is a day, not a minute: "due Friday" is the
+  // ordinary deadline, and the Day only switch is how the rare timed one
+  // is asked for. `seedDue` still carries ⌘N's hour, so flipping the
+  // switch lands on a sensible minute rather than midnight.
+  const [dueAllDay, setDueAllDay] = useState(target?.dueAllDay ?? true);
   const [estimate, setEstimate] = useState<number | null>(target?.estimate ?? null);
   const [priority, setPriority] = useState<Task["priority"]>(target?.priority ?? 0);
   const [color, setColor] = useState(target?.color ?? "");

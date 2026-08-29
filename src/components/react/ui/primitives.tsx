@@ -473,9 +473,13 @@ export function DateField({
 }
 
 /**
- * A small integer with a unit after it. Committed on change and clamped on
- * blur rather than per keystroke: clamping while typing makes "8" jump to the
- * minimum before the "0" arrives.
+ * A small integer with a unit after it. While focused the field shows what
+ * is being typed, verbatim, through a draft string: a controlled number
+ * input snaps "" back to the committed value on every keystroke, which made
+ * the digit under the cursor undeletable — clearing "0" re-typed it, and
+ * writing 90 took "090" plus a deletion. Parseable digits commit as they
+ * are typed; emptiness and half-typed numbers are allowed to stand until
+ * blur, which rounds, clamps and re-syncs the field.
  */
 export function NumberField({
   value,
@@ -494,6 +498,7 @@ export function NumberField({
   max: number;
   className?: string;
 }) {
+  const [draft, setDraft] = useState<string | null>(null);
   return (
     <span
       className={cn(
@@ -505,11 +510,19 @@ export function NumberField({
         type="number"
         inputMode="numeric"
         aria-label={label}
-        value={value}
+        value={draft ?? value}
         min={min}
         max={max}
-        onChange={(e) => onChange(Number(e.target.value))}
-        onBlur={(e) => onChange(Math.min(max, Math.max(min, Math.round(Number(e.target.value)))))}
+        onFocus={() => setDraft(String(value))}
+        onChange={(e) => {
+          setDraft(e.target.value);
+          const next = Number(e.target.value);
+          if (e.target.value !== "" && Number.isFinite(next)) onChange(next);
+        }}
+        onBlur={(e) => {
+          setDraft(null);
+          onChange(Math.min(max, Math.max(min, Math.round(Number(e.target.value)))));
+        }}
         className="w-[3.5ch] [appearance:textfield] tabular-nums [&::-webkit-inner-spin-button]:appearance-none"
       />
       {suffix && <span className="label text-ink-2">{suffix}</span>}
