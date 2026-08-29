@@ -18,6 +18,7 @@ import {
   colorOf,
   dayAgenda,
   dayCleared,
+  freeGaps,
   freeSlots,
   instantKey,
   planEvents,
@@ -493,6 +494,36 @@ function Shell() {
    * that list. The shell can only put it there if it can see one.
    */
   const [lifeRun, setLifeRun] = useState<LifeRun | null>(null);
+
+  /**
+   * The task a sidebar row has picked up, by id, for the reason `preview`
+   * and `lifeRun` live here: `Sidebar` starts the gesture, `Dial` or the
+   * week strip finishes it, and only the shell can see all three. Escape
+   * clears it first of everything — a drag is the one thing here you can
+   * start by accident.
+   */
+  const [dragTaskId, setDragTaskId] = useState<string | null>(null);
+  const draggedTask = useMemo(
+    () => (dragTaskId ? (tasks.find((t) => t.id === dragTaskId) ?? null) : null),
+    [dragTaskId, tasks],
+  );
+
+  /** The drag ends with the pointer, wherever it is: the drop targets hear
+   *  the same release first (element handlers run before window listeners),
+   *  so clearing here never eats a commit. The cursor says "carrying" for
+   *  the whole of it — the ghost only exists over the face. */
+  useEffect(() => {
+    if (!dragTaskId) return;
+    const drop = () => setDragTaskId(null);
+    window.addEventListener("pointerup", drop);
+    window.addEventListener("pointercancel", drop);
+    document.documentElement.style.cursor = "grabbing";
+    return () => {
+      window.removeEventListener("pointerup", drop);
+      window.removeEventListener("pointercancel", drop);
+      document.documentElement.style.cursor = "";
+    };
+  }, [dragTaskId]);
 
   /**
    * The app introducing itself, once per install: `Dial` sweeps one revolution
@@ -1007,6 +1038,64 @@ function Shell() {
     [settings.tickSound, settings.tickHaptics],
   );
 
+  /**
+   * The one plan write, whatever gesture asked: the Schedule verb, the drag's
+   * release on the dial, and a drop on a strip face all land here, so the
+   * commit, the cue and the toast cannot drift apart. The toast is the
+   * receipt — in drawer mode the column covers the face, so where the plan
+   * landed is not otherwise on screen.
+   */
+  const planAt = useCallback(
+    (id: string, on: Date, startMin: number, endMin: number) => {
+      // The store's answer, not this render's props: a drop from a stale
+      // closure must not plan what another tab just deleted or ticked.
+      const target = store.snapshot().tasks.find((t) => t.id === id);
+      if (!target || target.done) return;
+      const start = atMinutes(on, startMin);
+      store.planTask(id, { start: start.getTime(), end: atMinutes(on, endMin).getTime() });
+      cue("created", channels);
+      notify(
+        `Planned “${target.title || "Untitled"}” ${formatRelativeDay(on)} ${formatTimeShort(start, settings.clock)}`,
+      );
+    },
+    [channels, settings.clock],
+  );
+
+  /** The dial's drop: the ghost's minutes, on the day the face shows. */
+  const dropTask = useCallback(
+    (id: string, startMin: number, endMin: number) => planAt(id, day, startMin, endMin),
+    [planAt, day],
+  );
+
+  /**
+   * A drop on a week-strip face: the next free quarter hour inside waking
+   * hours on that day (TASKS.md §7) — the strip names a day, never a minute,
+   * so the shell picks one the way auto-schedule will. Today's gaps are read
+   * from now on, and a day with no gap that fits falls back to the Schedule
+   * verb's own `defaultStart`.
+   */
+  const dropTaskOnDay = useCallback(
+    (id: string, on: Date) => {
+      const snap = store.snapshot();
+      const target = snap.tasks.find((t) => t.id === id);
+      if (!target || target.done) return;
+      const length = target.estimate ?? settings.defaultDuration;
+      const all = [...snap.events, ...Object.values(snap.feeds).flat()];
+      const agenda = dayAgenda(all, snap.calendars, on, snap.tasks);
+      const floor = isSameDay(on, now) ? minutesOfDay(now) : 0;
+      for (const gap of freeGaps(agenda.all, length, settings.wakingFrom, settings.wakingTo)) {
+        const startMin = Math.ceil(Math.max(gap.start, floor) / 15) * 15;
+        if (startMin + length <= gap.end) {
+          planAt(id, on, startMin, startMin + length);
+          return;
+        }
+      }
+      const startMin = defaultStart(on, length);
+      planAt(id, on, startMin, startMin + length);
+    },
+    [planAt, now, settings.defaultDuration, settings.wakingFrom, settings.wakingTo],
+  );
+
   const openDraft = useCallback(
     (startMin: number, endMin: number, on: Date) => {
       setPaletteOpen(false);
@@ -1366,7 +1455,6 @@ function Shell() {
       },
       scheduleTask: (id: string) => {
         setPaletteOpen(false);
-        // The store's answer, `toggleTask`'s own reason.
         const target = store.snapshot().tasks.find((t) => t.id === id);
         if (!target || target.done) return;
         // The next quarter hour on the selected day, at the estimate's length
@@ -1374,18 +1462,9 @@ function Shell() {
         // that could not be sized takes the same default an event does.
         const length = target.estimate ?? settings.defaultDuration;
         const startMin = defaultStart(day, length);
-        const start = atMinutes(day, startMin);
-        store.planTask(id, {
-          start: start.getTime(),
-          end: atMinutes(day, startMin + length).getTime(),
-        });
-        cue("created", channels);
-        // The toast is the receipt: in drawer mode the column covers the face,
-        // so where the plan landed is not otherwise on screen.
-        notify(
-          `Planned “${target.title || "Untitled"}” ${formatRelativeDay(day)} ${formatTimeShort(start, settings.clock)}`,
-        );
+        planAt(id, day, startMin, startMin + length);
       },
+      dragTask: (id: string) => setDragTaskId(id),
       newEventAt: (startMin: number, endMin: number) => openDraft(startMin, endMin, day),
       quickAdd: (spec) => {
         /**
@@ -1524,6 +1603,7 @@ function Shell() {
       openDraft,
       adjustOccurrence,
       tickTask,
+      planAt,
       tasks,
       defaultCalendar,
       settings.defaultDuration,
@@ -1570,6 +1650,13 @@ function Shell() {
   // does not switch off.
   useHotkeys({
     escape: () => {
+      // A task being carried is the very front of the queue, before even the
+      // panels: TASKS.md §7 — a drag is the one thing here you can start by
+      // accident, and abandoning it must never also close what is open.
+      if (dragTaskId) {
+        setDragTaskId(null);
+        return;
+      }
       // One key, one thing: a press that closed a panel has done its work,
       // and taking the mode down with it would be two. A lit life grid is the
       // next layer down — nothing is over it, so Escape is free to clear it.
@@ -2183,6 +2270,8 @@ function Shell() {
                   onDelete={deleteOccurrence}
                   onDuplicate={duplicateOccurrence}
                   onToggleDone={toggleDone}
+                  dragTask={draggedTask}
+                  onDropTask={dropTask}
                   onPreview={setPreview}
                   onStepDay={step}
                   ambient={inAmbient}
@@ -2209,6 +2298,8 @@ function Shell() {
                   // ring and the grid use: which face drew the run is not
                   // something the editor can tell, and must not be.
                   onCreateSpan={(from, days) => openDraft(0, days * MINUTES_PER_DAY, from)}
+                  dragging={dragTaskId !== null}
+                  onDropTask={(on) => dragTaskId && dropTaskOnDay(dragTaskId, on)}
                 />
               )}
               {view === "year" && (

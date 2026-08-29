@@ -219,7 +219,32 @@ export default function Sidebar({
             </button>
             {!collapsed[group.id] &&
               group.rows.map((task) => (
-                <div key={task.id} className="group flex items-center gap-1.5 pl-1">
+                <div
+                  key={task.id}
+                  className="group flex items-center gap-1.5 pl-1"
+                  // The drag's start, and only its start: a press that moves
+                  // past a slop hands the task to the shell (`dragTask`), and
+                  // the dial's own window listeners carry the rest. Not for
+                  // touch — moving a finger here is scrolling the column, and
+                  // the Schedule verb below is the touch path (TASKS.md §7).
+                  // The listener pair lives exactly as long as the press.
+                  onPointerDown={(e) => {
+                    if (e.button !== 0 || e.pointerType === "touch" || task.done) return;
+                    const x0 = e.clientX;
+                    const y0 = e.clientY;
+                    const move = (ev: PointerEvent) => {
+                      if (Math.hypot(ev.clientX - x0, ev.clientY - y0) < 6) return;
+                      end();
+                      actions.dragTask(task.id);
+                    };
+                    const end = () => {
+                      window.removeEventListener("pointermove", move);
+                      window.removeEventListener("pointerup", end);
+                    };
+                    window.addEventListener("pointermove", move);
+                    window.addEventListener("pointerup", end);
+                  }}
+                >
                   {/* The pip is the control, the face's own vocabulary: filled
                       while it stands, hollow once done. */}
                   <button

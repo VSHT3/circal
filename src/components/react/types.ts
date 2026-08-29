@@ -132,6 +132,13 @@ export interface ShellActions {
    * nothing to drag onto.
    */
   scheduleTask: (id: string) => void;
+  /**
+   * The drag itself: a sidebar row picked up, named by id. The row only ever
+   * starts it — the dial's window listeners carry the ghost, `App` clears it
+   * on release or Escape, and the drop commits through the same plan write
+   * `scheduleTask` makes.
+   */
+  dragTask: (id: string) => void;
   /** A draft over an explicit range on the selected day — the free-time rows. */
   newEventAt: (startMin: number, endMin: number) => void;
   /**
@@ -449,6 +456,15 @@ export interface WeekViewProps {
    * the editor exactly as it does for the other two faces.
    */
   onCreateSpan: (from: Date, days: number) => void;
+  /**
+   * Whether a task drag is in flight. The strip stays read-only about arcs;
+   * a release over one of its faces is the same whole-day drop its span
+   * gesture already makes, answered through `onDropTask`.
+   */
+  dragging: boolean;
+  /** Release of a dragged task over one of the seven faces: plan it on that
+   *  day, at the shell's own next-free-quarter rule. */
+  onDropTask: (day: Date) => void;
 }
 
 export interface LifeViewProps {

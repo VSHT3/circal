@@ -16,13 +16,14 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { VIEW_SIZE, minutesAtPoint } from "@/lib/dial";
+import { DIAL, VIEW_SIZE, minutesAtPoint } from "@/lib/dial";
 import { clipToDay, colorOf, type Calendar, type Occurrence } from "@/lib/events";
 import { cue, type Cue } from "@/lib/feedback";
 import { ambientLevel, type Place } from "@/lib/sun";
 import { MINUTES_PER_DAY, addDays, daysBetween, snap, startOfDay } from "@/lib/time";
 import { INTRO_SWEEP_MS } from "@/lib/motion";
 import type { Settings } from "@/lib/store";
+import type { Task } from "@/lib/tasks";
 import { THEME_PALETTES } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import { useElementSize, useHotkeys } from "./hooks";
@@ -131,6 +132,17 @@ export interface DialProps {
   /** Tick the task under the pointer off, or back on — a task has one
    *  deadline and is finished once, so there is no scope to ask about. */
   onToggleDone: (occ: Occurrence) => void;
+  /**
+   * The task a sidebar row has picked up, or `null`. While set, the dial
+   * listens on the window — the press happened in the sidebar, so no press
+   * ever reaches this SVG — and draws a ghost of the task's estimate under
+   * the pointer: slide it, or drag past its own end to sweep a different
+   * length (TASKS.md §7). The shell owns clearing it, on release or Escape.
+   */
+  dragTask: Task | null;
+  /** The release over the face: commit these minutes of the shown day as a
+   *  plan. The shell writes it with `scheduleTask`'s own toast and cue. */
+  onDropTask: (id: string, startMin: number, endMin: number) => void;
   /**
    * The drag in flight, per fifteen-minute step, and `null` the moment it ends.
    * The dial does not draw from it: it hands it up so that the agenda it is
@@ -387,6 +399,8 @@ export default function Dial({
   onDelete,
   onDuplicate,
   onToggleDone,
+  dragTask,
+  onDropTask,
   onPreview,
   onStepDay,
   intro,
@@ -425,6 +439,10 @@ export default function Dial({
   const [hovered, setHovered] = useState<string | null>(null);
   const [draw, setDraw] = useState<Draw | null>(null);
   const [adjust, setAdjust] = useState<Adjust | null>(null);
+  /** The dragged task's ghost, in minutes of this day — `null` while the
+   *  pointer is off the face. The gesture itself lives in the effect below;
+   *  this is only what the face draws of it. */
+  const [drop, setDrop] = useState<{ start: number; end: number } | null>(null);
   /**
    * Days the view has moved on the draw gesture's account, kept in a ref
    * rather than the gesture state: two pointermoves can arrive inside one
@@ -570,9 +588,100 @@ export default function Dial({
     return clipGhost(drawnOccurrence(draw), day, color, GHOST_ALPHA);
   }, [draw, day, theme]);
 
+  /**
+   * The task drag, carried on window listeners: the press happened on a
+   * sidebar row, so no pointer event ever targets this SVG — the window is
+   * the only place the rest of the gesture can be heard. The mechanic is
+   * TASKS.md §7's: the ghost lands at the estimate's length under the
+   * pointer, holds still while the pointer is inside its own span, slides
+   * when the pointer backs out before its start, and sweeps a different
+   * length once dragged past its own end. `held` is a closure local, not
+   * state: the effect's lifetime *is* the drag's, and two pointermoves can
+   * arrive inside one render.
+   */
+  useEffect(() => {
+    if (!dragTask) return;
+    const length = Math.max(STEP, dragTask.estimate ?? settings.defaultDuration);
+    let held: { start: number; end: number; swept: boolean } | null = null;
+
+    /** The pointer as a minute of this face, or `null` off the annulus —
+     *  from the numerals ring in to a lane past the innermost, so the
+     *  interior and the corners refuse the drop the same way. */
+    const read = (e: PointerEvent): number | null => {
+      const ctm = svgRef.current?.getScreenCTM();
+      if (!ctm) return null;
+      const { x, y } = new DOMPoint(e.clientX, e.clientY).matrixTransform(ctm.inverse());
+      const radius = Math.hypot(x - DIAL.C, y - DIAL.C);
+      if (radius < DIAL.LANE - 3 * DIAL.LANE_STEP || radius > DIAL.C) return null;
+      return snap(minutesAtPoint(x, y, clock), STEP);
+    };
+
+    const move = (e: PointerEvent) => {
+      const m = read(e);
+      if (m === null) {
+        if (held) {
+          held = null;
+          setDrop(null);
+        }
+        return;
+      }
+      let next: typeof held;
+      if (!held || m < held.start) {
+        // Arrive, or slide: the start takes the quarter under the pointer,
+        // nudged back from midnight so the estimate still fits the day.
+        const start = Math.min(m, MINUTES_PER_DAY - STEP);
+        next = { start, end: Math.min(start + length, MINUTES_PER_DAY), swept: false };
+      } else if (held.swept || m > held.end) {
+        // Past its own end: the start anchors and the pointer owns the end,
+        // down to one step — the ring's own draw, joined mid-gesture.
+        next = { start: held.start, end: Math.max(held.start + STEP, m), swept: true };
+      } else {
+        return;
+      }
+      if (held && next.start === held.start && next.end === held.end) return;
+      held = next;
+      setDrop({ start: next.start, end: next.end });
+      cue("step", { sound: tickSound, haptics: tickHaptics });
+    };
+
+    const up = () => {
+      const landed = held;
+      held = null;
+      setDrop(null);
+      // Released off the face: the drag just ends, nothing written — the
+      // shell hears the same pointerup and puts the row down.
+      if (landed) onDropTask(dragTask.id, landed.start, landed.end);
+    };
+    const cancel = () => {
+      held = null;
+      setDrop(null);
+    };
+
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", cancel);
+    return () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", cancel);
+      setDrop(null);
+    };
+  }, [dragTask, clock, settings.defaultDuration, onDropTask, tickSound, tickHaptics]);
+
+  /** The carried task, where it is about to land. Unlike the ring's draw
+   *  there is a colour to show — the task's own — so the drop looks like
+   *  the arc it becomes. */
+  const dropping = useMemo<FaceGhost | null>(
+    () =>
+      dragTask && drop
+        ? { ...drop, color: colorOf(dragTask, calendars), opacity: GHOST_ALPHA }
+        : null,
+    [dragTask, drop, calendars],
+  );
+
   /** The pointer wins while it is down: the range being drawn *is* the draft
    *  about to open, and drawing both would double the same fact. */
-  const about = drawing ?? copying ?? drafted;
+  const about = drawing ?? copying ?? dropping ?? drafted;
 
   /** Received free time, on this day's face. Memoised because it repaints the
    *  SVG, and the spans only change when a link arrives or is dismissed. */

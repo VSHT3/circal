@@ -121,6 +121,8 @@ export default function WeekView({
   slots,
   onBookSlot,
   onCreateSpan,
+  dragging,
+  onDropTask,
 }: WeekViewProps) {
   const reducedMotion = useReducedMotion();
   const [active, setActive] = useState<Subject | null>(null);
@@ -374,7 +376,16 @@ export default function WeekView({
                 onPointerEnter={() => enter(i)}
                 onPointerDown={(e) => beginRun(e, i)}
                 onPointerMove={extendRun}
-                onPointerUp={endRun}
+                onPointerUp={() => {
+                  // A dragged task released here names this day, nothing
+                  // narrower — the strip stays read-only about minutes. The
+                  // shell hears the same release next and puts the row down.
+                  if (dragging) {
+                    onDropTask(d.date);
+                    return;
+                  }
+                  endRun();
+                }}
                 onPointerCancel={() => setRun(null)}
                 onFocus={() => enter(i)}
                 onBlur={() => setActive(null)}
