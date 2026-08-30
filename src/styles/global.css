@@ -187,6 +187,13 @@
     outline-offset: 2px;
   }
 
+  /* Focus a script moved, not a key: the trap's own container, and the button
+     it hands focus back to when a click was what opened the dialog. See
+     `focusQuietly` in `components/react/hooks.ts`. */
+  [data-focus-quiet]:focus-visible {
+    outline: none;
+  }
+
   /* Text fields are the exception: the caret already says where focus is, and
      a ring around a borderless field reads as a bug, not as feedback. */
   input:focus-visible,

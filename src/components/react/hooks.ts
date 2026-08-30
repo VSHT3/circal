@@ -294,11 +294,35 @@ function tabStops(root: HTMLElement): HTMLElement[] {
  * test recorded the dialog's own first field as the thing that opened it.
  */
 let opener: HTMLElement | null = null;
+let openerRinged = false;
 let watchers = 0;
 
 function onFocusIn(e: FocusEvent) {
   const el = e.target as HTMLElement;
-  if (!el.closest?.("[role=dialog]")) opener = el;
+  if (el.closest?.("[role=dialog]")) return;
+  opener = el;
+  // Whether a ring was up when the dialog opened. A click leaves none, and a
+  // dialog a click opened must not hand one back on Escape.
+  openerRinged = el.matches?.(":focus-visible") ?? false;
+}
+
+/**
+ * Focus something without the keyboard's ring.
+ *
+ * `:focus-visible` is a guess, and every browser guesses "keyboard" for a
+ * programmatic focus once any key has been pressed. Two places here move focus
+ * with no key behind it: the trap taking its own container, where a ring round
+ * the whole sheet names nothing to press, and the restore on close, where the
+ * button a pointer clicked would light up for the first time. The mark holds
+ * until the element blurs, so the next Tab through it rings as usual.
+ *
+ * A `data-` mark rather than `focus({ focusVisible: false })`, which says the
+ * same thing and which WebKit ignores — and the Mac app is a WKWebView.
+ */
+function focusQuietly(el: HTMLElement) {
+  el.dataset.focusQuiet = "";
+  el.addEventListener("blur", () => delete el.dataset.focusQuiet, { once: true });
+  el.focus({ preventScroll: true });
 }
 
 /**
@@ -332,7 +356,7 @@ export function useFocusTrap<T extends HTMLElement>(active: boolean): RefObject<
     const root = ref.current;
     if (!active || !root) return;
 
-    if (!root.contains(document.activeElement)) root.focus({ preventScroll: true });
+    if (!root.contains(document.activeElement)) focusQuietly(root);
 
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== "Tab") return;
@@ -354,6 +378,7 @@ export function useFocusTrap<T extends HTMLElement>(active: boolean): RefObject<
     root.addEventListener("keydown", onKeyDown);
 
     const back = opener;
+    const ringed = openerRinged;
     return () => {
       root.removeEventListener("keydown", onKeyDown);
       // The dialog's own nodes are gone by the time a passive cleanup runs, so
@@ -362,7 +387,12 @@ export function useFocusTrap<T extends HTMLElement>(active: boolean): RefObject<
       // moved focus deliberately and knows better than this does.
       const at = document.activeElement;
       if (!at || at === document.body || root.contains(at)) {
-        if (back?.isConnected) back.focus();
+        // The ring goes back up only if it was up: keyboard opened it, keyboard
+        // is being handed it back.
+        if (back?.isConnected) {
+          if (ringed) back.focus();
+          else focusQuietly(back);
+        }
       }
     };
   }, [active]);
