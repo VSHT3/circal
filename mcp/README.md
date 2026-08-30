@@ -46,16 +46,25 @@ zone, revision) plus a ready-to-paste config block. Paste that block into
 your client below, swap the path if it picked up the wrong file, then
 restart the client.
 
-> **Use `circal-mcp@0.3.0` or newer** (`npx -y circal-mcp` resolves it).
+> **Use `circal-mcp@0.5.0` or newer** (`npx -y circal-mcp` resolves it).
 > The cautionary tale behind that floor: `0.1.0` predated ten fields in
 > `src/lib` (`free`, `travel`, `remindLead`, `organizer` and the guest pair
 > on an event; `backupNudge`, `backupInterval`, `deviceZone`, `stampedZones`
 > in settings), and every write round-trips the whole document through its
 > reader, so it silently dropped all ten — measured, same fixture, two
-> bundles. A current server refuses to write a document whose format is
-> newer than its own, so a stale bundle can no longer damage one unnoticed;
-> it will simply refuse. Contributors run against their own build with
-> `pnpm build:mcp` → `node mcp/dist/circal-mcp.mjs`.
+> bundles.
+>
+> **The version gate does not save you from this, and the floor is why.** It
+> refuses a document whose _envelope_ is newer than the server's, and an
+> envelope version is bumped only when a whole key changes meaning — the
+> `tasks` list going missing was one. A new field on an event is not: `travel`
+> shipped at `MIRROR_VERSION` 3 like `free` before it, so a `0.4.1` bundle
+> reads `3 <= 3`, writes happily, and erases the field from every event in the
+> file. The gates stop only what they can see coming (`src/lib/mirror.ts`).
+> Reads are always safe; it is writes that lose data. So: **republish and
+> reinstall the server whenever a `CalEvent` or `Settings` field lands**, and
+> raise this floor in the same commit. Contributors run against their own
+> build with `pnpm build:mcp` → `node mcp/dist/circal-mcp.mjs`.
 
 ### Claude Desktop
 

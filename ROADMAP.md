@@ -7,7 +7,7 @@ belong to no other file. When something ships it leaves here, `TODO.md`'s own ru
 Context the older files predate: the MCP server grew a second transport
 (`circal-mcp --cloud` — the encrypted Supabase row, decrypted only on the user's
 machine; `mcp/README.md`), `circal-mcp login` discovers the project from the site's
-own `/mcp.json`, `circal-mcp@0.3.0` is published, and `/assistant/` teaches both
+own `/mcp.json`, `circal-mcp@0.5.0` is published, and `/assistant/` teaches both
 routes. The mirror file is no longer the only door an assistant has. Domain
 posture (2026-08-27): DMARC moved to `p=quarantine` (SPF, DKIM and the Resend
 records on `bounce.send.circal.day` were verified aligned first) and DNSSEC is
