@@ -1,6 +1,6 @@
 {
   "name": "circal-mcp",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "type": "module",
   "description": "MCP server for circal — read and write your calendar through its mirror file or its encrypted cloud copy",
   "license": "AGPL-3.0-only",
