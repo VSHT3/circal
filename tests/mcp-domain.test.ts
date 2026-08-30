@@ -2,11 +2,18 @@ import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } fr
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { at, attendee, calendar, day, event, ms, plan, resetIds, task } from "./helpers";
+import { at, attendee, calendar, day, event, grave, ms, plan, resetIds, task } from "./helpers";
 import { DEFAULT_SETTINGS, type Settings } from "@/lib/store";
 import { MIRROR_VERSION, localZone, serialiseMirror, type MirrorContents } from "@/lib/mirror";
 import type { Task } from "@/lib/tasks";
-import { DEFAULT_WAKING, type CalEvent, type Calendar } from "@/lib/events";
+import {
+  DEFAULT_WAKING,
+  REMIND_INHERIT,
+  REMIND_LEAD_MAX,
+  REMIND_SILENT,
+  type CalEvent,
+  type Calendar,
+} from "@/lib/events";
 import { instantKey } from "@/lib/recur";
 import { RefusalError } from "../mcp/file";
 import { runFind } from "../mcp/find";
@@ -17,15 +24,19 @@ import {
   assertDateKey,
   buildEventRecord,
   describeEvent,
+  findCalendar,
   freeSlots,
+  keyedId,
   listCalendars,
   listDay,
   listRange,
   listTasks,
   performCreateCalendar,
   performCreateEvent,
+  performCreateEvents,
   performCreateTask,
   performDeleteEvent,
+  performDeleteTask,
   performQuickAdd,
   performPlanTask,
   performToggleDone,
@@ -34,7 +45,9 @@ import {
   requireScope,
   resolveCalendar,
   resolveInstant,
+  scopedToCalendar,
   searchEvents,
+  syncStatus,
 } from "../mcp/domain";
 
 /**
@@ -1140,6 +1153,367 @@ describe("performCreateCalendar", () => {
     const { mutated } = performCreateCalendar(c, "New", undefined, undefined);
     expect.soft(mutated.events).toBe(c.events);
     expect.soft(mutated.settings).toBe(c.settings);
+  });
+});
+
+/* ------------------------ issues #1–#8: agent-session fixes -------------------- */
+
+describe("findCalendar answers an id, a unique name prefix, and nothing vaguer", () => {
+  const cals = [
+    calendar({ id: CAL }),
+    calendar({ id: "cal-adm", name: "Admissions" }),
+    calendar({ id: "cal-chores", name: "Admin chores" }),
+  ];
+
+  it("an exact id wins outright", () => {
+    expect(findCalendar(CAL, cals).id).toBe(CAL);
+  });
+
+  it("a unique name prefix resolves, case-insensitively", () => {
+    expect(findCalendar("admis", cals).id).toBe("cal-adm");
+  });
+
+  it("an ambiguous prefix is refused naming the candidates", () => {
+    expect(() => findCalendar("adm", cals)).toThrow(/Admissions, Admin chores/);
+  });
+
+  it("an unknown reference is refused", () => {
+    expect(() => findCalendar("zzz", cals)).toThrow(/no calendar with id or name "zzz"/);
+  });
+});
+
+describe("scopedToCalendar filters the records, never the calendar list", () => {
+  const c = contents({
+    calendars: [calendar({ id: CAL }), calendar({ id: "cal-adm", name: "Admissions" })],
+    events: [event({ id: "e1", calendarId: CAL }), event({ id: "e2", calendarId: "cal-adm" })],
+    tasks: [task({ id: "t1", calendarId: "cal-adm" }), task({ id: "t2", calendarId: CAL })],
+  });
+
+  it("keeps only the named calendar's events and tasks", () => {
+    const scoped = scopedToCalendar(c, "Admissions");
+    expect.soft(scoped.events.map((e) => e.id)).toEqual(["e2"]);
+    expect.soft(scoped.tasks.map((t) => t.id)).toEqual(["t1"]);
+    expect.soft(scoped.calendars).toHaveLength(2);
+  });
+
+  it("no reference means the whole document, untouched", () => {
+    expect(scopedToCalendar(c, undefined)).toBe(c);
+  });
+});
+
+describe("a not-found answer reads the graves before pleading ignorance", () => {
+  it("a graved id names the deletion instead of imitating a typo", () => {
+    const c = contents({ graves: [grave("x-dead", "2026-03-01 12:00")] });
+    expect.soft(() => describeEvent(c, "x-dead")).toThrow(/deleted 2026-03-01T/);
+    expect.soft(() => describeEvent(c, "x-dead")).toThrow(/grave for it is in the document/);
+    expect.soft(() => performUpdateTask(c, "x-dead", {})).toThrow(/grave/);
+  });
+
+  it("an app-shaped id with no grave hints at another writer", () => {
+    expect(() =>
+      performUpdateEvent(contents(), "m8s3kq1x-a1b2c3", undefined, undefined, {}),
+    ).toThrow(/another writer may have dropped/);
+  });
+
+  it("a plain typo stays a plain not-found", () => {
+    expect(() => performToggleDone(contents(), "ghost", undefined)).toThrow(
+      /no task with id "ghost"$/,
+    );
+  });
+});
+
+describe("syncStatus prints the envelope and the document's shape", () => {
+  it("rev, format version, zone, transport and counts, each named", () => {
+    const c = contents({
+      rev: 227,
+      events: [event({ id: "e1", calendarId: CAL })],
+      graves: [grave("g", "2026-03-01 00:00")],
+    });
+    const text = syncStatus(c, "file /tmp/calendar.json");
+    expect.soft(text).toContain("rev 227");
+    expect.soft(text).toContain(`format version ${MIRROR_VERSION}`);
+    expect.soft(text).toContain(localZone());
+    expect.soft(text).toContain("Transport: file /tmp/calendar.json");
+    expect.soft(text).toContain("1 events, 0 tasks, 1 calendars, 1 graves");
+  });
+
+  it("an unrecorded zone is said, not left blank", () => {
+    expect(syncStatus(contents({ zone: "" }), "file f")).toContain("(unrecorded)");
+  });
+});
+
+describe("performCreateEvent with a key upserts instead of duplicating", () => {
+  const key = "timeline:kaist-early";
+  const fields = { title: "Deadline", date: "2026-10-22", start: "11:00" };
+
+  it("creates under the key's own id", () => {
+    const { mutated } = performCreateEvent(contents(), fields, key);
+    expect(mutated.events[0]!.id).toBe(keyedId(key));
+  });
+
+  it("re-running with the same key updates in place — the mirror converges", () => {
+    const first = performCreateEvent(contents(), fields, key);
+    const c = contents({ events: [...first.mutated.events] });
+    const second = performCreateEvent(c, { ...fields, title: "Deadline moved" }, key);
+    expect.soft(second.mutated.events).toHaveLength(1);
+    expect.soft(second.mutated.events[0]!.title).toBe("Deadline moved");
+    expect.soft(second.message).toContain(`Updated (by key "${key}")`);
+  });
+
+  it("a field the re-run omits keeps its value — a patch, not a replace", () => {
+    const first = performCreateEvent(contents(), { ...fields, notes: "bring forms" }, key);
+    const c = contents({ events: [...first.mutated.events] });
+    const second = performCreateEvent(c, fields, key);
+    expect(second.mutated.events[0]!.notes).toBe("bring forms");
+  });
+});
+
+describe("performCreateEvents lands the whole batch in one write, or none of it", () => {
+  it("creates every record and reports one line each", () => {
+    const { mutated, message } = performCreateEvents(contents(), [
+      { title: "A", date: "2026-03-08", start: "09:00" },
+      { title: "B", date: "2026-03-09", start: "10:00" },
+    ]);
+    expect.soft(mutated.events).toHaveLength(2);
+    expect.soft(message.split("\n")).toHaveLength(2);
+  });
+
+  it("one bad record refuses the batch, naming which", () => {
+    expect(() =>
+      performCreateEvents(contents(), [
+        { title: "A", date: "2026-03-08", start: "09:00" },
+        { title: "B", date: "2026-03-09", start: "not a time" },
+      ]),
+    ).toThrow(/event 2 of 2/);
+  });
+
+  it("an empty batch is refused", () => {
+    expect(() => performCreateEvents(contents(), [])).toThrow(RefusalError);
+  });
+
+  it("two entries sharing a key converge on one record inside the batch", () => {
+    const { mutated } = performCreateEvents(contents(), [
+      { title: "A", date: "2026-03-08", start: "09:00", key: "k" },
+      { title: "A2", date: "2026-03-08", start: "09:30", key: "k" },
+    ]);
+    expect.soft(mutated.events).toHaveLength(1);
+    expect.soft(mutated.events[0]!.title).toBe("A2");
+  });
+});
+
+describe("the calendar a write lands on is named, pinned, or loudly defaulted", () => {
+  const timed = { title: "x", date: "2026-03-08", start: "09:00" };
+  const two = () =>
+    contents({
+      calendars: [calendar({ id: CAL }), calendar({ id: "cal-adm", name: "Admissions" })],
+    });
+
+  it("a defaulted create says so in its summary", () => {
+    expect(performCreateEvent(contents(), timed).message).toContain(
+      "— calendar defaulted, not named",
+    );
+  });
+
+  it("a named calendar carries no marker", () => {
+    expect(performCreateEvent(contents(), { ...timed, calendarId: CAL }).message).not.toContain(
+      "defaulted",
+    );
+  });
+
+  it("a pin catches writes that name no calendar, and is not a defaulting", () => {
+    const { mutated, message } = performCreateEvent(two(), timed, undefined, "Admissions");
+    expect.soft(mutated.events[0]!.calendarId).toBe("cal-adm");
+    expect.soft(message).not.toContain("defaulted");
+  });
+
+  it("a named calendar beats the pin", () => {
+    const { mutated } = performCreateEvent(
+      two(),
+      { ...timed, calendarId: CAL },
+      undefined,
+      "Admissions",
+    );
+    expect(mutated.events[0]!.calendarId).toBe(CAL);
+  });
+
+  it("create_task and quick_add speak the same marker and take the same pin", () => {
+    expect
+      .soft(performCreateTask(contents(), { title: "t", date: "2026-03-08" }).message)
+      .toContain("defaulted, not named");
+    expect
+      .soft(performQuickAdd(contents(), "lunch tomorrow 1pm", "2026-03-08").message)
+      .toContain("defaulted, not named");
+    expect
+      .soft(performQuickAdd(contents(), "lunch tomorrow 1pm", "2026-03-08", CAL).message)
+      .not.toContain("defaulted");
+  });
+
+  it("a pin naming a subscription is refused at the write", () => {
+    const c = contents({ calendars: [calendar({ id: CAL }), feed()] });
+    expect(() => performCreateEvent(c, timed, undefined, "Holidays")).toThrow(/subscription/);
+  });
+});
+
+describe("remindLead crosses the tool boundary loudly or not at all", () => {
+  const make = (remindLead: number | "inherit" | "silent") =>
+    performCreateEvent(contents(), { title: "x", date: "2026-03-08", start: "09:00", remindLead });
+
+  it("minutes are stored as given; the two words spell the two non-minute states", () => {
+    expect.soft(make(10_080).mutated.events[0]!.remindLead).toBe(10_080);
+    expect.soft(make("silent").mutated.events[0]!.remindLead).toBe(REMIND_SILENT);
+    expect.soft(make("inherit").mutated.events[0]!.remindLead).toBe(REMIND_INHERIT);
+  });
+
+  it("an omitted lead inherits — never a warning the agent was not asked for", () => {
+    const { mutated } = performCreateEvent(contents(), {
+      title: "x",
+      date: "2026-03-08",
+      start: "09:00",
+    });
+    expect(mutated.events[0]!.remindLead).toBe(REMIND_INHERIT);
+  });
+
+  it("a patch not naming the lead keeps a silenced event silent", () => {
+    const c = contents({
+      events: [event({ id: "e1", calendarId: CAL, remindLead: REMIND_SILENT })],
+    });
+    const { mutated } = performUpdateEvent(c, "e1", undefined, undefined, { title: "renamed" });
+    expect(mutated.events[0]!.remindLead).toBe(REMIND_SILENT);
+  });
+
+  it("a patch naming one sets it, and describe prints it", () => {
+    const c = contents({ events: [event({ id: "e1", calendarId: CAL })] });
+    const { mutated } = performUpdateEvent(c, "e1", undefined, undefined, { remindLead: 60 });
+    expect.soft(mutated.events[0]!.remindLead).toBe(60);
+    expect
+      .soft(describeEvent(contents({ events: [...mutated.events] }), "e1"))
+      .toContain("Remind: 1h before");
+  });
+
+  it("an out-of-range lead is refused, not silently read as inherit", () => {
+    expect.soft(() => make(REMIND_LEAD_MAX + 1)).toThrow(/remindLead/);
+    expect.soft(() => make(-3)).toThrow(/remindLead/);
+    expect.soft(() => make(2.5)).toThrow(/remindLead/);
+  });
+});
+
+describe("a foreign zone reads the times on that clock and stays on the event", () => {
+  const kaist = (date: string) =>
+    performCreateEvent(contents(), {
+      title: "KAIST deadline",
+      date,
+      start: "18:00",
+      duration: 60,
+      zone: "Asia/Seoul",
+    });
+
+  it("22 Oct 18:00 KST is 11:00 in Berlin, stamped Asia/Seoul", () => {
+    const e = kaist("2026-10-22").mutated.events[0]!;
+    expect.soft(e.start).toBe(ms("2026-10-22 11:00"));
+    expect.soft(e.end).toBe(ms("2026-10-22 12:00"));
+    expect.soft(e.tzid).toBe("Asia/Seoul");
+  });
+
+  it("the same wall time after Berlin's fall-back is 10:00 — the shift is per instant", () => {
+    expect(kaist("2026-10-26").mutated.events[0]!.start).toBe(ms("2026-10-26 10:00"));
+  });
+
+  it("the summary prints both clocks", () => {
+    expect(kaist("2026-10-22").message).toContain("11:00–12:00 (18:00–19:00 Asia/Seoul)");
+  });
+
+  it("describe prints the zone line", () => {
+    const { mutated } = kaist("2026-10-22");
+    expect(
+      describeEvent(contents({ events: [...mutated.events] }), mutated.events[0]!.id),
+    ).toContain("Zone: Asia/Seoul — 18:00–19:00 there");
+  });
+
+  it("an unknown zone is refused loudly, never silently floating", () => {
+    expect(() =>
+      performCreateEvent(contents(), {
+        title: "x",
+        date: "2026-10-22",
+        start: "18:00",
+        zone: "Mars/Olympus",
+      }),
+    ).toThrow(/not an IANA time zone/);
+  });
+
+  it("an all-day event refuses a zone — a date has no clock", () => {
+    expect(() =>
+      performCreateEvent(contents(), { title: "x", date: "2026-10-22", zone: "Asia/Seoul" }),
+    ).toThrow(/all-day/);
+  });
+
+  it("a patch naming only the zone re-reads the wall time on the new clock", () => {
+    const c = contents({
+      events: [
+        event({ id: "e1", calendarId: CAL, start: "2026-10-22 18:00", end: "2026-10-22 19:00" }),
+      ],
+    });
+    const { mutated } = performUpdateEvent(c, "e1", undefined, undefined, { zone: "Asia/Seoul" });
+    expect.soft(mutated.events[0]!.start).toBe(ms("2026-10-22 11:00"));
+    expect.soft(mutated.events[0]!.tzid).toBe("Asia/Seoul");
+  });
+
+  it('a patched time speaks the event\'s own zone; zone "" floats the wall time back', () => {
+    const first = kaist("2026-10-22");
+    const c = contents({ events: [...first.mutated.events] });
+    const id = first.mutated.events[0]!.id;
+    const moved = performUpdateEvent(c, id, undefined, undefined, { start: "20:00", duration: 60 });
+    expect.soft(moved.mutated.events[0]!.start).toBe(ms("2026-10-22 13:00"));
+    expect.soft(moved.mutated.events[0]!.tzid).toBe("Asia/Seoul");
+    const floated = performUpdateEvent(c, id, undefined, undefined, { zone: "" });
+    expect.soft(floated.mutated.events[0]!.tzid).toBe("");
+    expect.soft(floated.mutated.events[0]!.start).toBe(ms("2026-10-22 18:00"));
+  });
+});
+
+describe("performDeleteTask deletes with a grave, and the two delete verbs agree", () => {
+  const withTask = () => contents({ tasks: [task({ id: "t1", title: "Renew passport" })] });
+
+  it("removes the task and buries the id", () => {
+    const { mutated, message } = performDeleteTask(withTask(), "t1");
+    expect.soft(mutated.tasks).toHaveLength(0);
+    expect.soft(mutated.graves.map((g) => g.id)).toContain("t1");
+    expect.soft(message).toContain('Deleted the task "Renew passport"');
+  });
+
+  it("delete_event on the same id produces the same removal", () => {
+    const viaEvent = performDeleteEvent(withTask(), "t1", undefined, undefined);
+    expect.soft(viaEvent.mutated.tasks).toHaveLength(0);
+    expect.soft(viaEvent.mutated.graves.map((g) => g.id)).toContain("t1");
+  });
+
+  it("an event's id is redirected", () => {
+    const c = contents({ events: [event({ id: "e1", calendarId: CAL })] });
+    expect(() => performDeleteTask(c, "e1")).toThrow(/is an event/);
+  });
+});
+
+describe("search names the field a hit matched when it was not the title", () => {
+  const c = contents({
+    events: [
+      event({ id: "a", calendarId: CAL, title: "Dentist" }),
+      event({ id: "b", calendarId: CAL, title: "Errand", notes: "pick up dentist forms" }),
+      event({ id: "l", calendarId: CAL, title: "Meeting", location: "Dentist street 5" }),
+    ],
+    tasks: [task({ id: "t", title: "Chores", notes: "book dentist" })],
+  });
+  const lineFor = (id: string) =>
+    searchEvents(c, "dentist")
+      .split("\n")
+      .find((l) => l.includes(`id=${id}`))!;
+
+  it("a title hit carries no marker — the default reading", () => {
+    expect(lineFor("a")).not.toContain("matched");
+  });
+
+  it("notes and location hits say so, tasks included", () => {
+    expect.soft(lineFor("b")).toContain("matched notes");
+    expect.soft(lineFor("l")).toContain("matched location");
+    expect.soft(lineFor("t")).toContain("matched notes");
   });
 });
 

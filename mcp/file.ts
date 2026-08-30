@@ -187,6 +187,7 @@ export async function loadForRead(
  *  tool table serves this transport and the cloud row without knowing which. */
 export function fileStore(ctx: MirrorEnv): Store {
   return {
+    transport: `file ${ctx.path}`,
     load: () => loadForRead(ctx),
     write: <T>(mutate: Mutator<T>) => casWrite(ctx, mutate),
   };

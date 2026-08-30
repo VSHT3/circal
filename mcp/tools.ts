@@ -10,8 +10,10 @@
 import type { CallToolResult, McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod/v4";
 
+import { REMIND_LEAD_MAX } from "@/lib/events";
 import type { Store } from "./store";
 import {
+  CREATE_BATCH_MAX,
   MAX_RANGE_DAYS,
   MAX_RANGE_OCCURRENCES,
   describeEvent,
@@ -22,14 +24,18 @@ import {
   listTasks,
   performCreateCalendar,
   performCreateEvent,
+  performCreateEvents,
   performCreateTask,
   performDeleteEvent,
+  performDeleteTask,
   performPlanTask,
   performQuickAdd,
   performToggleDone,
   performUpdateEvent,
   performUpdateTask,
+  scopedToCalendar,
   searchEvents,
+  syncStatus,
 } from "./domain";
 
 /* -------------------------------- results ------------------------------------ */
@@ -147,13 +153,39 @@ function eventFieldsShape() {
     location: z.string().optional(),
     url: z.string().optional(),
     notes: z.string().optional(),
+    zone: z
+      .string()
+      .describe(
+        'IANA zone the date and times are written in, e.g. "Asia/Seoul" — for a deadline ' +
+          "abroad. Stored on the event so every surface prints both clocks; timed events " +
+          'only. On update, "" clears it back to floating (local) time, and patched times ' +
+          "are read on the event's own zone.",
+      )
+      .optional(),
+    remindLead: z
+      .union([z.number().int().min(0).max(REMIND_LEAD_MAX), z.enum(["inherit", "silent"])])
+      .describe(
+        'Reminder lead: minutes before the start (0 = as it starts), "silent" (never fires), ' +
+          'or "inherit" (follow the calendar, then the setting — the default).',
+      )
+      .optional(),
     recurrence: recurrenceSchema.optional(),
   };
 }
 
+const upsertKeySchema = z
+  .string()
+  .regex(/^[A-Za-z0-9._:-]{1,64}$/, "letters, digits, . _ : -, up to 64")
+  .describe(
+    "Caller-chosen external key for idempotent upsert: the same key always names the same " +
+      "event, so re-running a mirror updates in place instead of duplicating. Omitted, every " +
+      "call creates a fresh event.",
+  );
+
 const createEventFieldsSchema = z.strictObject({
   ...eventFieldsShape(),
   date: dateKey("YYYY-MM-DD, local."),
+  key: upsertKeySchema.optional(),
 });
 
 const patchEventFieldsSchema = z.strictObject(eventFieldsShape());
@@ -211,9 +243,16 @@ const OCCURRENCE_DESCRIPTION =
 const scopeSchema = z.enum(["one", "future", "all"]).describe(SCOPE_DESCRIPTION);
 const occurrenceSchema = z.string().describe(OCCURRENCE_DESCRIPTION);
 
+const calendarFilterSchema = z
+  .string()
+  .describe("Scope to one calendar — its id, or a unique name prefix. Omit for every calendar.");
+
 /* --------------------------------- tools -------------------------------------- */
 
-export function registerTools(server: McpServer, store: Store): void {
+/** `pin` is the connection's own default calendar (`--calendar` /
+ *  `CIRCAL_CALENDAR`): writes that name no calendar land on it instead of
+ *  the user default — an admissions agent stays on its calendar. */
+export function registerTools(server: McpServer, store: Store, pin?: string): void {
   server.registerTool(
     "list_day",
     {
@@ -221,13 +260,16 @@ export function registerTools(server: McpServer, store: Store): void {
         "The agenda for one local day: recurrence expanded, all-day and timed occurrences listed " +
         "separately, each with its id (for update_event/delete_event/toggle_done), its occurrence key, " +
         "and — for a multi-day span — its Day N/M position.",
-      inputSchema: z.strictObject({ date: dateKey("YYYY-MM-DD, local.") }),
+      inputSchema: z.strictObject({
+        date: dateKey("YYYY-MM-DD, local."),
+        calendar: calendarFilterSchema.optional(),
+      }),
       annotations: { readOnlyHint: true },
     },
-    async ({ date }) =>
+    async ({ date, calendar }) =>
       guarded(async () => {
         const { contents, warning } = await store.load();
-        return withWarning(listDay(contents, date), warning);
+        return withWarning(listDay(scopedToCalendar(contents, calendar), date), warning);
       }),
   );
 
@@ -241,13 +283,14 @@ export function registerTools(server: McpServer, store: Store): void {
       inputSchema: z.strictObject({
         from: dateKey("YYYY-MM-DD, local, inclusive."),
         to: dateKey("YYYY-MM-DD, local, inclusive."),
+        calendar: calendarFilterSchema.optional(),
       }),
       annotations: { readOnlyHint: true },
     },
-    async ({ from, to }) =>
+    async ({ from, to, calendar }) =>
       guarded(async () => {
         const { contents, warning } = await store.load();
-        return withWarning(listRange(contents, from, to), warning);
+        return withWarning(listRange(scopedToCalendar(contents, calendar), from, to), warning);
       }),
   );
 
@@ -255,17 +298,22 @@ export function registerTools(server: McpServer, store: Store): void {
     "search",
     {
       description:
-        "Ranked title/location/notes search over the user's own events (never a subscription's).",
+        "Ranked title/location/notes search over the user's own events (never a subscription's). " +
+        "Each result names the field it matched when it was not the title.",
       inputSchema: z.strictObject({
         query: z.string(),
         limit: z.number().int().min(1).describe("Default 20.").optional(),
+        calendar: calendarFilterSchema.optional(),
       }),
       annotations: { readOnlyHint: true },
     },
-    async ({ query, limit }) =>
+    async ({ query, limit, calendar }) =>
       guarded(async () => {
         const { contents, warning } = await store.load();
-        return withWarning(searchEvents(contents, query, limit), warning);
+        return withWarning(
+          searchEvents(scopedToCalendar(contents, calendar), query, limit),
+          warning,
+        );
       }),
   );
 
@@ -286,13 +334,17 @@ export function registerTools(server: McpServer, store: Store): void {
           .string()
           .describe("HH:MM, local. Defaults to the user's waking-hours end.")
           .optional(),
+        calendar: calendarFilterSchema.optional(),
       }),
       annotations: { readOnlyHint: true },
     },
-    async ({ date, minutes, from, to }) =>
+    async ({ date, minutes, from, to, calendar }) =>
       guarded(async () => {
         const { contents, warning } = await store.load();
-        return withWarning(freeSlots(contents, date, minutes, from, to), warning);
+        return withWarning(
+          freeSlots(scopedToCalendar(contents, calendar), date, minutes, from, to),
+          warning,
+        );
       }),
   );
 
@@ -343,7 +395,7 @@ export function registerTools(server: McpServer, store: Store): void {
     async ({ text, date }) =>
       guarded(() =>
         store.write((contents) => {
-          const outcome = performQuickAdd(contents, text, date);
+          const outcome = performQuickAdd(contents, text, date, pin);
           return { result: outcome.mutated, summary: outcome.message };
         }),
       ),
@@ -354,14 +406,37 @@ export function registerTools(server: McpServer, store: Store): void {
     {
       description:
         "Creates an event from explicit fields, for anything quick_add's grammar cannot spell — a full " +
-        "recurrence, a specific calendar, notes. Every field is validated the same way an imported backup is.",
+        "recurrence, a specific calendar, notes, a foreign time zone, a reminder lead. Every field is " +
+        "validated the same way an imported backup is. `key` makes the call an idempotent upsert.",
       inputSchema: createEventFieldsSchema,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     },
     async (input) =>
       guarded(() =>
         store.write((contents) => {
-          const outcome = performCreateEvent(contents, input);
+          const { key, ...fields } = input;
+          const outcome = performCreateEvent(contents, fields, key, pin);
+          return { result: outcome.mutated, summary: outcome.message };
+        }),
+      ),
+  );
+
+  server.registerTool(
+    "create_events",
+    {
+      description:
+        `Creates (or, with a per-record \`key\`, upserts) up to ${CREATE_BATCH_MAX} events in one ` +
+        "write — one revision bump, all-or-nothing: any refused record refuses the whole batch " +
+        "naming which. The convergent way to mirror an external document into the calendar.",
+      inputSchema: z.strictObject({
+        events: z.array(createEventFieldsSchema).min(1).max(CREATE_BATCH_MAX),
+      }),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+    },
+    async ({ events }) =>
+      guarded(() =>
+        store.write((contents) => {
+          const outcome = performCreateEvents(contents, events, pin);
           return { result: outcome.mutated, summary: outcome.message };
         }),
       ),
@@ -405,6 +480,24 @@ export function registerTools(server: McpServer, store: Store): void {
       guarded(() =>
         store.write((contents) => {
           const outcome = performDeleteEvent(contents, id, scope, occurrence);
+          return { result: outcome.mutated, summary: outcome.message };
+        }),
+      ),
+  );
+
+  server.registerTool(
+    "delete_task",
+    {
+      description:
+        "Deletes a task. The same removal delete_event performs on a task id — this name exists " +
+        "so the task verbs read as the set they are (create_task, update_task, delete_task).",
+      inputSchema: z.strictObject({ id: z.string() }),
+      annotations: { destructiveHint: true, idempotentHint: false },
+    },
+    async ({ id }) =>
+      guarded(() =>
+        store.write((contents) => {
+          const outcome = performDeleteTask(contents, id);
           return { result: outcome.mutated, summary: outcome.message };
         }),
       ),
@@ -460,7 +553,7 @@ export function registerTools(server: McpServer, store: Store): void {
     async (input) =>
       guarded(() =>
         store.write((contents) => {
-          const outcome = performCreateTask(contents, input);
+          const outcome = performCreateTask(contents, input, pin);
           return { result: outcome.mutated, summary: outcome.message };
         }),
       ),
@@ -527,5 +620,22 @@ export function registerTools(server: McpServer, store: Store): void {
           return { result: outcome.mutated, summary: outcome.message };
         }),
       ),
+  );
+
+  server.registerTool(
+    "sync_status",
+    {
+      description:
+        "The document's envelope and shape — revision, format version, recorded zone, transport, " +
+        "and record counts (events, tasks, calendars, graves). The first tool to reach for when " +
+        "reasoning about sync, a lost record, or a revision that moved.",
+      inputSchema: z.strictObject({}),
+      annotations: { readOnlyHint: true },
+    },
+    async () =>
+      guarded(async () => {
+        const { contents, warning } = await store.load();
+        return withWarning(syncStatus(contents, store.transport), warning);
+      }),
   );
 }

@@ -31,6 +31,10 @@ export interface Loaded {
 export type Mutator<T> = (contents: MirrorContents) => { result: Mutated; summary: T };
 
 export interface Store {
+  /** One line naming where the document lives — `file <path>` or
+   *  `cloud (<email>)` — for `sync_status`, which is about the envelope and
+   *  must therefore know which envelope. */
+  transport: string;
   /** The document for a read-only tool. Always answers, even across a zone
    *  mismatch — reading cannot put an event on the wrong day. */
   load(): Promise<Loaded>;

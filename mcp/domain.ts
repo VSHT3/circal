@@ -16,22 +16,27 @@ import {
   DEFAULT_WAKING,
   PALETTE,
   REMIND_INHERIT,
+  REMIND_LEAD_MAX,
+  REMIND_SILENT,
   dayAgenda,
   dayLoad,
   freeGaps,
   occurrencesOn,
   taskOccurrences,
+  readRemindLead,
   recurrenceOf,
-  scoreEvent,
+  scoreEventBy,
   spanLabel,
   type CalEvent,
+  type MatchField,
   type Calendar,
   type Occurrence,
 } from "@/lib/events";
-import { PLANS_MAX, compareTasks, scoreTask, taskState, type Task } from "@/lib/tasks";
+import { PLANS_MAX, compareTasks, scoreTaskBy, taskState, type Task } from "@/lib/tasks";
 import { applyRemove, applySplit, applyTruncate, applyUpdate } from "@/lib/mutate";
 import { parseQuickAdd } from "@/lib/quickadd";
 import { NEVER, instantKey, keyToInstant, readRecurrence, repeats, type Repeat } from "@/lib/recur";
+import { remindLabel } from "@/lib/remind";
 import {
   addDays,
   atMinutes,
@@ -40,9 +45,12 @@ import {
   formatDuration,
   formatTimeShort,
   fromDayKey,
+  instantOfWall,
+  isZone,
   minutesOfDay,
   parseClock,
   startOfDay,
+  wallClockIn,
   type Clock,
 } from "@/lib/time";
 import { defaultCalendarId, draftEvent, newId, type Settings } from "@/lib/store";
@@ -107,25 +115,74 @@ export function requireScope(event: CalEvent, scope: string | undefined): Scope 
 
 /* ------------------------------- calendars --------------------------------- */
 
+/** Finds the calendar a reference names: an exact id first, else a unique
+ *  case-insensitive name prefix — so "Admissions" (or "adm") works wherever
+ *  a calendarId does, without a list_calendars round trip. Ambiguity is
+ *  refused naming the candidates rather than resolved by list order. */
+export function findCalendar(ref: string, calendars: Calendar[]): Calendar {
+  const byId = calendars.find((c) => c.id === ref);
+  if (byId) return byId;
+  const needle = ref.trim().toLowerCase();
+  const matches = needle ? calendars.filter((c) => c.name.toLowerCase().startsWith(needle)) : [];
+  if (matches.length === 1) return matches[0];
+  if (matches.length > 1) {
+    throw new RefusalError(
+      `"${ref}" names ${matches.length} calendars (${matches.map((c) => c.name).join(", ")}) — ` +
+        `use an id from list_calendars`,
+    );
+  }
+  throw new RefusalError(`no calendar with id or name "${ref}"`);
+}
+
+function requireWritable(calendar: Calendar): Calendar {
+  if (calendar.feed) {
+    throw new RefusalError(
+      `"${calendar.name}" is a subscription — its events are pulled from a feed, never written to`,
+    );
+  }
+  return calendar;
+}
+
+/** The calendar a write lands on: the one the caller named, else the
+ *  connection's own pin (`--calendar`), else the user default — and only the
+ *  last of the three is a guess, which `defaultedCalendar` lets the caller
+ *  say out loud in its summary. */
 export function resolveCalendar(
   calendarId: string | undefined,
   calendars: Calendar[],
   settings: Settings,
+  pin?: string,
 ): Calendar {
-  if (calendarId) {
-    const found = calendars.find((c) => c.id === calendarId);
-    if (!found) throw new RefusalError(`no calendar with id "${calendarId}"`);
-    if (found.feed) {
-      throw new RefusalError(
-        `"${found.name}" is a subscription — its events are pulled from a feed, never written to`,
-      );
-    }
-    return found;
-  }
+  if (calendarId) return requireWritable(findCalendar(calendarId, calendars));
+  if (pin) return requireWritable(findCalendar(pin, calendars));
   const id = defaultCalendarId(calendars, settings.defaultCalendar);
   const found = calendars.find((c) => c.id === id);
   if (!found) throw new RefusalError("there is no calendar to put this on — create one first");
   return found;
+}
+
+/** Whether a write's calendar was defaulted rather than named or pinned —
+ *  the wrong-calendar hazard worth a loud marker in every create summary. */
+export function defaultedCalendar(
+  calendarId: string | undefined,
+  pin: string | undefined,
+): boolean {
+  return calendarId === undefined && !pin;
+}
+
+/** A read filter: the same document, scoped to one calendar's records. The
+ *  calendar list stays whole so names keep resolving in every printed line. */
+export function scopedToCalendar(
+  contents: MirrorContents,
+  ref: string | undefined,
+): MirrorContents {
+  if (!ref) return contents;
+  const calendar = findCalendar(ref, contents.calendars);
+  return {
+    ...contents,
+    events: contents.events.filter((e) => e.calendarId === calendar.id),
+    tasks: contents.tasks.filter((t) => t.calendarId === calendar.id),
+  };
 }
 
 function refuseIfFeed(event: CalEvent, calendars: Calendar[]): void {
@@ -156,10 +213,13 @@ export interface RecurrenceInput {
 
 /** A fresh rule replaces the whole recurrence, exceptions included — a rule
  *  authored in one message has no `exdates` of its own yet. Omitted entirely,
- *  the event does not repeat. */
-function buildRecurrence(input: RecurrenceInput | undefined) {
+ *  the event does not repeat. `zone` is the event's own (`tzid`), so `until`
+ *  bounds the last day on the clock the rule is walked over, not this
+ *  process's — hours apart across a zone, a whole day at the boundary. */
+function buildRecurrence(input: RecurrenceInput | undefined, zone = "") {
   if (!input) return { ...NEVER };
-  const until = input.until ? addDays(fromDayKey(input.until), 1).getTime() - 1 : 0;
+  const boundary = input.until ? addDays(fromDayKey(input.until), 1) : null;
+  const until = boundary ? (zone ? instantOfWall(boundary, zone) : boundary.getTime()) - 1 : 0;
   return readRecurrence({ ...input, until, exdates: [], rdates: [] });
 }
 
@@ -173,9 +233,9 @@ interface Span {
 
 export interface EventFieldsInput {
   title?: string;
-  /** YYYY-MM-DD, local. */
+  /** YYYY-MM-DD, local — or `zone`'s own wall date when one is named. */
   date?: string;
-  /** HH:MM, 24-hour local clock. */
+  /** HH:MM, 24-hour, on the local clock — or on `zone`'s when one is named. */
   start?: string;
   /** HH:MM for a timed event; YYYY-MM-DD (inclusive) for an all-day one. */
   end?: string;
@@ -188,12 +248,58 @@ export interface EventFieldsInput {
   location?: string;
   url?: string;
   notes?: string;
+  /** IANA zone the times are written in — a deadline abroad. `""` clears an
+   *  existing zone back to floating (this reader's own clock). */
+  zone?: string;
+  /** Minutes before start; or `"silent"` (never fires) / `"inherit"` (follow
+   *  the calendar, then the setting — every event's default). */
+  remindLead?: number | "inherit" | "silent";
   recurrence?: RecurrenceInput;
 }
 
+/** An instant from a wall date and minute count — read on `zone`'s own clock
+ *  when one is named, else this process's. `atMinutes` normalises an
+ *  over-midnight minute count either way. */
+function spanInstant(day: Date, minutes: number, zone: string): number {
+  return zone ? instantOfWall(atMinutes(day, minutes), zone) : atMinutes(day, minutes).getTime();
+}
+
+/** A `zone` argument, read loudly: `readEvent` would quietly drop a zone this
+ *  runtime cannot resolve, and a silently-floating deadline abroad is the
+ *  hour-off error the field exists to remove. */
+function zoneFrom(value: string): string {
+  if (value === "") return "";
+  if (!isZone(value)) {
+    throw new RefusalError(
+      `"${value}" is not an IANA time zone this runtime knows — try "Asia/Seoul"`,
+    );
+  }
+  return value;
+}
+
+/** A `remindLead` argument, read loudly for `zoneFrom`'s reason —
+ *  `readRemindLead` reads an out-of-range lead as inherit, which here would
+ *  silently discard exactly the warning the caller asked for. */
+function leadFrom(value: number | "inherit" | "silent"): number {
+  if (value === "inherit") return REMIND_INHERIT;
+  if (value === "silent") return REMIND_SILENT;
+  if (readRemindLead(value) !== value) {
+    throw new RefusalError(
+      `"remindLead" must be whole minutes, 0 to ${REMIND_LEAD_MAX} — got ${value}`,
+    );
+  }
+  return value;
+}
+
 /** A brand-new event's span. No time named at all reads as all day — the
- *  same rule `parseQuickAdd` uses: nothing here is invented. */
-function resolveSpanForCreate(input: EventFieldsInput, day: Date, defaultDuration: number): Span {
+ *  same rule `parseQuickAdd` uses: nothing here is invented. With a `zone`,
+ *  the date and times are that zone's wall clock. */
+function resolveSpanForCreate(
+  input: EventFieldsInput,
+  day: Date,
+  defaultDuration: number,
+  zone: string,
+): Span {
   // A `YYYY-MM-DD`-shaped `end` is a day, never a time — the all-day spelling
   // the field's own doc allows. Counting it as "a time was given" forced
   // `{date, end}` (a multi-day holiday, phrased exactly as documented) into
@@ -205,6 +311,13 @@ function resolveSpanForCreate(input: EventFieldsInput, day: Date, defaultDuratio
     input.duration === undefined;
   const allDay = input.allDay === true || (input.allDay === undefined && noTimeGiven);
   if (allDay) {
+    // An all-day event is never zoned — its date is the one the calendar
+    // printed, not an hour a transition could move (`CalEvent.tzid`'s rule).
+    if (zone) {
+      throw new RefusalError(
+        'an all-day event carries no clock to zone — drop "zone" or give a timed "start"',
+      );
+    }
     const days = input.end ? Math.max(1, daysBetween(day, fromDayKey(input.end)) + 1) : 1;
     return {
       start: startOfDay(day).getTime(),
@@ -219,8 +332,8 @@ function resolveSpanForCreate(input: EventFieldsInput, day: Date, defaultDuratio
       ? parseTime(input.end, "end")
       : startMin + (input.duration ?? defaultDuration);
   return {
-    start: atMinutes(day, startMin).getTime(),
-    end: atMinutes(day, endMin).getTime(),
+    start: spanInstant(day, startMin, zone),
+    end: spanInstant(day, endMin, zone),
     allDay: false,
   };
 }
@@ -228,11 +341,31 @@ function resolveSpanForCreate(input: EventFieldsInput, day: Date, defaultDuratio
 /** A patched span, anchored at `anchorMs` — the series' own seed for an
  *  `"all"` edit, the occurrence's instant for a `"one"` override or a
  *  `"future"` split. A field the patch does not name keeps the base event's
- *  own value, so "just move it an hour" does not also reset its length. */
-function resolveSpanForPatch(input: EventFieldsInput, base: CalEvent, anchorMs: number): Span {
-  const day = input.date ? parseDay(input.date) : startOfDay(new Date(anchorMs));
+ *  own value, so "just move it an hour" does not also reset its length.
+ *
+ *  `zone` is the span's target zone (the patch's, else the base's own), and
+ *  the defaults are read off the anchor's wall clock in the *base's* zone —
+ *  so a patch naming only `zone` re-reads the event's displayed wall time on
+ *  the new clock ("that 18:00 was meant in Seoul"), and a patch naming only
+ *  a time keeps the zoned event on its own clock. */
+function resolveSpanForPatch(
+  input: EventFieldsInput,
+  base: CalEvent,
+  anchorMs: number,
+  zone: string,
+): Span {
+  const anchorWall = base.tzid ? wallClockIn(anchorMs, base.tzid) : new Date(anchorMs);
+  const day = input.date ? parseDay(input.date) : startOfDay(anchorWall);
   const allDay = input.allDay ?? base.allDay;
   if (allDay) {
+    // An all-day event is never zoned. A zone the patch spelled out is
+    // refused; one merely inherited from a timed base is dropped with the
+    // clock the base is losing.
+    if (input.zone) {
+      throw new RefusalError(
+        'an all-day event carries no clock to zone — drop "zone" or give a timed "start"',
+      );
+    }
     const baseDays = Math.max(
       1,
       daysBetween(startOfDay(new Date(base.start)), startOfDay(new Date(base.end))),
@@ -249,14 +382,14 @@ function resolveSpanForPatch(input: EventFieldsInput, base: CalEvent, anchorMs: 
   // returns `0`, so a second fallback here would be unreachable.
   const baseDurationMin = Math.max(1, Math.round((base.end - base.start) / 60_000));
   const startMin =
-    input.start !== undefined ? parseTime(input.start, "start") : minutesOfDay(new Date(anchorMs));
+    input.start !== undefined ? parseTime(input.start, "start") : minutesOfDay(anchorWall);
   const endMin =
     input.end !== undefined
       ? parseTime(input.end, "end")
       : startMin + (input.duration ?? baseDurationMin);
   return {
-    start: atMinutes(day, startMin).getTime(),
-    end: atMinutes(day, endMin).getTime(),
+    start: spanInstant(day, startMin, zone),
+    end: spanInstant(day, endMin, zone),
     allDay: false,
   };
 }
@@ -278,22 +411,26 @@ export function buildEventRecord(
   input: EventFieldsInput,
   calendars: Calendar[],
   settings: Settings,
+  pin?: string,
 ): Omit<CalEvent, "id"> {
   if (!input.date) throw new RefusalError('an event needs "date" (YYYY-MM-DD)');
   const day = parseDay(input.date);
-  const calendar = resolveCalendar(input.calendarId, calendars, settings);
-  const span = resolveSpanForCreate(input, day, settings.defaultDuration);
+  const calendar = resolveCalendar(input.calendarId, calendars, settings, pin);
+  const zone = input.zone ? zoneFrom(input.zone) : "";
+  const span = resolveSpanForCreate(input, day, settings.defaultDuration, zone);
   return validate({
     title: input.title ?? "",
     calendarId: calendar.id,
     start: span.start,
     end: span.end,
     allDay: span.allDay,
-    tzid: "",
+    // The zone the times were spelled in, kept so every surface can print
+    // both clocks — and so a rule walks that zone's own wall calendar.
+    tzid: zone,
     location: input.location ?? "",
     url: input.url ?? "",
     notes: input.notes ?? "",
-    ...buildRecurrence(input.recurrence),
+    ...buildRecurrence(input.recurrence, zone),
     seriesId: "",
     seriesKey: "",
     color: input.color ?? "",
@@ -301,10 +438,10 @@ export function buildEventRecord(
     // Busy. There is no tool argument for this yet, and an agent asked to put
     // an hour in the diary means the hour to be spoken for.
     free: false,
-    // Inheriting, for the same reason: no tool argument names a lead, and an
-    // event created with one of its own would be an agent quietly deciding
-    // how much warning its user wants.
-    remindLead: REMIND_INHERIT,
+    // Inheriting unless the caller named a lead of its own — an event created
+    // with one it was not asked for would be an agent quietly deciding how
+    // much warning its user wants.
+    remindLead: input.remindLead !== undefined ? leadFrom(input.remindLead) : REMIND_INHERIT,
     // Nobody, for the reason there is no tool argument and never will be: an
     // agent has no channel to invite anyone on either, so a guest list it
     // assembled would be a list of people who were never asked.
@@ -334,18 +471,21 @@ export function applyPatchToEvent(
       ? resolveCalendar(input.calendarId, calendars, settings)
       : (calendars.find((c) => c.id === base.calendarId) ??
         resolveCalendar(undefined, calendars, settings));
-  const span = resolveSpanForPatch(input, base, anchorMs);
+  const zone = input.zone !== undefined ? zoneFrom(input.zone) : base.tzid;
+  const span = resolveSpanForPatch(input, base, anchorMs, zone);
   return validate({
     title: input.title ?? base.title,
     calendarId: calendar.id,
     start: span.start,
     end: span.end,
     allDay: span.allDay,
-    tzid: base.tzid,
+    // The patch's zone, else the base's — cleared with the clock when the
+    // patch flips the event all-day, since an all-day event is never zoned.
+    tzid: span.allDay ? "" : zone,
     location: input.location ?? base.location,
     url: input.url ?? base.url,
     notes: input.notes ?? base.notes,
-    ...(input.recurrence ? buildRecurrence(input.recurrence) : recurrenceOf(base)),
+    ...(input.recurrence ? buildRecurrence(input.recurrence, zone) : recurrenceOf(base)),
     seriesId: base.seriesId,
     seriesKey: base.seriesKey,
     color: input.color ?? base.color,
@@ -355,11 +495,10 @@ export function applyPatchToEvent(
     // to busy — so leaving it out would quietly rebook a free event the
     // moment its title was edited.
     free: base.free,
-    // Carried for exactly the reason above, and this is the field where it
-    // costs most: an event the user silenced would start speaking again the
-    // moment an assistant fixed a typo in its title, because `readEvent`
-    // reads an absent lead as inheriting.
-    remindLead: base.remindLead,
+    // Carried unless the patch names one — `readEvent` reads an absent lead
+    // as inheriting, so leaving it out would un-silence an event the user
+    // silenced the moment an assistant fixed a typo in its title.
+    remindLead: input.remindLead !== undefined ? leadFrom(input.remindLead) : base.remindLead,
     // Carried, and this is the field where dropping it would be least
     // recoverable: the guest list is a record of a message somebody else sent,
     // and `readEvent` reads an absent one as no invitation at all — so an
@@ -397,16 +536,50 @@ function carried(contents: MirrorContents): Mutated {
   };
 }
 
+/** The shape this app's own ids take (`newId`, plus the `x-` prefix an
+ *  upsert key mints), so a not-found can tell a typo from a record another
+ *  writer removed without leaving a grave. */
+const ID_SHAPE_RE = /^([0-9a-z]+-[0-9a-z]{6}|x-.+)$/;
+
+/** A not-found that reads the graves before answering: an id that was
+ *  deliberately deleted is a different fact from one that never existed, and
+ *  saying which turns a transport-level hunt into a one-call diagnosis. */
+function notFound(contents: MirrorContents, id: string, kind: "event" | "task"): RefusalError {
+  const grave = contents.graves.find((g) => g.id === id);
+  if (grave) {
+    return new RefusalError(
+      `no ${kind} with id "${id}" — deleted ${new Date(grave.at).toISOString()} (a grave for ` +
+        `it is in the document, so this writer or another one removed it)`,
+    );
+  }
+  if (ID_SHAPE_RE.test(id)) {
+    return new RefusalError(
+      `no ${kind} with id "${id}", and no grave for it either — the id has this app's shape, ` +
+        `so another writer may have dropped or rewritten it; re-read with list_day or search`,
+    );
+  }
+  return new RefusalError(`no ${kind} with id "${id}"`);
+}
+
 /* -------------------------------- formatting -------------------------------- */
 
 function calendarName(calendars: Calendar[], id: string): string {
   return calendars.find((c) => c.id === id)?.name ?? "—";
 }
 
+/** A zoned event's own wall clock, printed beside the local times — the
+ *  "18:00 KST · 11:00 here" a deadline abroad is owed on every surface. */
+function zoneSuffix(event: CalEvent, clock: Clock): string {
+  if (!event.tzid || event.allDay) return "";
+  const start = formatTimeShort(wallClockIn(event.start, event.tzid), clock);
+  const end = formatTimeShort(wallClockIn(event.end, event.tzid), clock);
+  return ` (${start}–${end} ${event.tzid})`;
+}
+
 export function eventSummaryLine(event: CalEvent, calendars: Calendar[], clock: Clock): string {
   const when = event.allDay
     ? `${dayKey(new Date(event.start))} – ${dayKey(addDays(new Date(event.end), -1))} (all day)`
-    : `${dayKey(new Date(event.start))} ${formatTimeShort(new Date(event.start), clock)}–${formatTimeShort(new Date(event.end), clock)}`;
+    : `${dayKey(new Date(event.start))} ${formatTimeShort(new Date(event.start), clock)}–${formatTimeShort(new Date(event.end), clock)}${zoneSuffix(event, clock)}`;
   return `${event.title || "Untitled"} — [${calendarName(calendars, event.calendarId)}] — ${when} — id=${event.id}`;
 }
 
@@ -518,20 +691,26 @@ export function searchEvents(contents: MirrorContents, query: string, limit = 20
   const scored = contents.events
     .map((event) => ({
       line: eventSummaryLine(event, contents.calendars, clock),
-      score: scoreEvent(event, query),
+      hit: scoreEventBy(event, query),
     }))
     .concat(
       contents.tasks.map((task) => ({
         line: taskSummaryLine(task, contents.calendars, clock),
-        score: scoreTask(task, query),
+        hit: scoreTaskBy(task, query),
       })),
     )
-    .filter((s): s is { line: string; score: number } => s.score !== null)
-    .sort((a, b) => b.score - a.score)
+    .filter((s): s is { line: string; hit: { field: MatchField; score: number } } => s.hit !== null)
+    .sort((a, b) => b.hit.score - a.hit.score)
     .slice(0, cap);
   return [
     `"${query}" — ${scored.length} match${scored.length === 1 ? "" : "es"}`,
-    ...(scored.length ? scored.map(({ line }) => line) : ["(none)"]),
+    // A hit outside the title says so: a notes match on a long note is
+    // otherwise indistinguishable from what the record is called.
+    ...(scored.length
+      ? scored.map(({ line, hit }) =>
+          hit.field === "title" ? line : `${line} — matched ${hit.field}`,
+        )
+      : ["(none)"]),
   ].join("\n");
 }
 
@@ -585,7 +764,7 @@ export function describeEvent(contents: MirrorContents, id: string): string {
     // The id may name a task — one id space for the caller, two lists here.
     const task = contents.tasks.find((t) => t.id === id);
     if (task) return describeTask(contents, task);
-    throw new RefusalError(`no event with id "${id}"`);
+    throw notFound(contents, id, "event");
   }
   const calendar = contents.calendars.find((c) => c.id === event.calendarId);
   const clock = contents.settings.clock;
@@ -595,7 +774,17 @@ export function describeEvent(contents: MirrorContents, id: string): string {
     event.allDay
       ? `All day, ${dayKey(new Date(event.start))} to ${dayKey(addDays(new Date(event.end), -1))}`
       : `${dayKey(new Date(event.start))} ${formatTimeShort(new Date(event.start), clock)}–${formatTimeShort(new Date(event.end), clock)}`,
+    // Both clocks for a zoned event — the times above are local, and the
+    // hours the deadline was written in are the ones its owner reasons in.
+    ...(event.tzid && !event.allDay
+      ? [
+          `Zone: ${event.tzid} — ${formatTimeShort(wallClockIn(event.start, event.tzid), clock)}–${formatTimeShort(wallClockIn(event.end, event.tzid), clock)} there`,
+        ]
+      : []),
     `Repeats: ${repeats(event) ? describeRule(event) : "never"}`,
+    ...(event.remindLead !== REMIND_INHERIT
+      ? [`Remind: ${event.remindLead === REMIND_SILENT ? "silent" : remindLabel(event.remindLead)}`]
+      : []),
     ...(event.location ? [`Location: ${event.location}`] : []),
     ...(event.url ? [`URL: ${event.url}`] : []),
     ...(event.notes ? [`Notes: ${event.notes}`] : []),
@@ -626,6 +815,19 @@ function describeTask(contents: MirrorContents, task: Task): string {
   ].join("\n");
 }
 
+/** The envelope and the document's shape, for an agent (or a human) reasoning
+ *  about sync — the out-of-band fetch-decrypt-print script the 2026-08-30
+ *  task-loss diagnosis needed, as a read-only tool. */
+export function syncStatus(contents: MirrorContents, transport: string): string {
+  return [
+    `Document: rev ${contents.rev}, format version ${contents.version}, zone ` +
+      `${contents.zone || "(unrecorded)"}`,
+    `Transport: ${transport}`,
+    `Counts: ${contents.events.length} events, ${contents.tasks.length} tasks, ` +
+      `${contents.calendars.length} calendars, ${contents.graves.length} graves`,
+  ].join("\n");
+}
+
 /* ------------------------------- write tools ---------------------------------- */
 
 export interface WriteResult {
@@ -633,10 +835,19 @@ export interface WriteResult {
   message: string;
 }
 
+/** The loud half of the default-calendar hazard: a write whose calendar was
+ *  neither named nor pinned says so in its own summary, because the wrong
+ *  calendar is the kind of error nobody notices until the wrong person gets
+ *  a reminder. */
+function defaultedSuffix(defaulted: boolean): string {
+  return defaulted ? " — calendar defaulted, not named" : "";
+}
+
 export function performQuickAdd(
   contents: MirrorContents,
   text: string,
   date: string | undefined,
+  pin?: string,
 ): WriteResult {
   if (!text.trim()) throw new RefusalError('"text" is empty');
   const reference = date ? parseDay(date) : startOfDay(new Date());
@@ -647,7 +858,7 @@ export function performQuickAdd(
         `"lunch tomorrow 1pm 45m" or "gym every monday 7am"`,
     );
   }
-  const calendar = resolveCalendar(undefined, contents.calendars, contents.settings);
+  const calendar = resolveCalendar(undefined, contents.calendars, contents.settings, pin);
   const record = validate({
     ...draftEvent(parsed.day, parsed.startMin, parsed.endMin, calendar.id),
     title: parsed.title,
@@ -656,17 +867,103 @@ export function performQuickAdd(
   const event: CalEvent = { ...record, id: newId(), updatedAt: Date.now() };
   return {
     mutated: { ...carried(contents), events: [...contents.events, event] },
-    message: `Created ${eventSummaryLine(event, contents.calendars, contents.settings.clock)}`,
+    message:
+      `Created ${eventSummaryLine(event, contents.calendars, contents.settings.clock)}` +
+      defaultedSuffix(defaultedCalendar(undefined, pin)),
   };
 }
 
-export function performCreateEvent(contents: MirrorContents, input: EventFieldsInput): WriteResult {
-  const record = buildEventRecord(input, contents.calendars, contents.settings);
+/** The prefix an upsert key's id wears, so a keyed record is recognisable
+ *  and can never collide with a minted `newId`. */
+const KEYED_ID_PREFIX = "x-";
+
+export function keyedId(key: string): string {
+  return `${KEYED_ID_PREFIX}${key}`;
+}
+
+/**
+ * Create — or, given a `key`, converge. The key becomes the event's id
+ * (`x-<key>`), so the same key always names the same record: re-running a
+ * mirror updates in place instead of duplicating, and the ordinary stamps
+ * and graves carry the merge semantics unchanged. An existing keyed event is
+ * patched whole-series, `applyPatchToEvent`'s own bargain: fields the input
+ * omits keep their value.
+ */
+export function performCreateEvent(
+  contents: MirrorContents,
+  input: EventFieldsInput,
+  key?: string,
+  pin?: string,
+): WriteResult {
+  const suffix = defaultedSuffix(defaultedCalendar(input.calendarId, pin));
+  if (key) {
+    const id = keyedId(key);
+    const existing = contents.events.find((e) => e.id === id);
+    if (existing) {
+      refuseIfFeed(existing, contents.calendars);
+      const record = applyPatchToEvent(existing, input, contents.calendars, contents.settings);
+      const events = applyUpdate(contents.events, id, record, Date.now());
+      const updated = events.find((e) => e.id === id) as CalEvent;
+      return {
+        mutated: { ...carried(contents), events },
+        message:
+          `Updated (by key "${key}") ` +
+          eventSummaryLine(updated, contents.calendars, contents.settings.clock) +
+          suffix,
+      };
+    }
+    const record = buildEventRecord(input, contents.calendars, contents.settings, pin);
+    const event: CalEvent = { ...record, id, updatedAt: Date.now() };
+    return {
+      mutated: { ...carried(contents), events: [...contents.events, event] },
+      message:
+        `Created ${eventSummaryLine(event, contents.calendars, contents.settings.clock)}` + suffix,
+    };
+  }
+  const record = buildEventRecord(input, contents.calendars, contents.settings, pin);
   const event: CalEvent = { ...record, id: newId(), updatedAt: Date.now() };
   return {
     mutated: { ...carried(contents), events: [...contents.events, event] },
-    message: `Created ${eventSummaryLine(event, contents.calendars, contents.settings.clock)}`,
+    message:
+      `Created ${eventSummaryLine(event, contents.calendars, contents.settings.clock)}` + suffix,
   };
+}
+
+/** How many records one batch may carry — a bound on the one CAS write's
+ *  size, not a rate limit. */
+export const CREATE_BATCH_MAX = 100;
+
+/** The batch: every record lands in one read-mutate-seal-CAS cycle and one
+ *  `rev` bump, and any one refusal refuses the whole batch before anything
+ *  is written — a CAS write is all-or-nothing, so the summary can never
+ *  disagree with the document. */
+export function performCreateEvents(
+  contents: MirrorContents,
+  inputs: (EventFieldsInput & { key?: string })[],
+  pin?: string,
+): WriteResult {
+  if (inputs.length === 0) throw new RefusalError('"events" is empty');
+  if (inputs.length > CREATE_BATCH_MAX) {
+    throw new RefusalError(
+      `the batch is capped at ${CREATE_BATCH_MAX} events — got ${inputs.length}`,
+    );
+  }
+  let current = contents;
+  const lines: string[] = [];
+  for (const [index, input] of inputs.entries()) {
+    let outcome: WriteResult;
+    try {
+      outcome = performCreateEvent(current, input, input.key, pin);
+    } catch (error) {
+      if (error instanceof RefusalError) {
+        throw new RefusalError(`event ${index + 1} of ${inputs.length}: ${error.message}`);
+      }
+      throw error;
+    }
+    current = { ...current, ...outcome.mutated };
+    lines.push(outcome.message);
+  }
+  return { mutated: carried(current), message: lines.join("\n") };
 }
 
 /* ------------------------------- task tools ------------------------------------ */
@@ -691,14 +988,15 @@ export interface TaskFieldsInput {
 
 /** Finds the task an id names, or refuses with the right redirection — the
  *  one id space serves two lists, and "no such id" would be a lie about a
- *  record that merely lives next door. */
+ *  record that merely lives next door (or in a grave, which `notFound`
+ *  checks before answering). */
 function requireTask(contents: MirrorContents, id: string, tool: string): Task {
   const task = contents.tasks.find((t) => t.id === id);
   if (task) return task;
   if (contents.events.some((e) => e.id === id)) {
     throw new RefusalError(`"${id}" is an event, not a task — ${tool} works on tasks`);
   }
-  throw new RefusalError(`no task with id "${id}"`);
+  throw notFound(contents, id, "task");
 }
 
 /** `readTask` as a gate: the assembled record must survive the same
@@ -709,10 +1007,14 @@ function requireValidTask(assembled: Task): Task {
   return task;
 }
 
-export function performCreateTask(contents: MirrorContents, input: TaskFieldsInput): WriteResult {
+export function performCreateTask(
+  contents: MirrorContents,
+  input: TaskFieldsInput,
+  pin?: string,
+): WriteResult {
   if (!input.date) throw new RefusalError('a task needs "date" (YYYY-MM-DD), its due day');
   const day = parseDay(input.date);
-  const calendar = resolveCalendar(input.calendarId, contents.calendars, contents.settings);
+  const calendar = resolveCalendar(input.calendarId, contents.calendars, contents.settings, pin);
   const dueAllDay = input.time === undefined || input.time === null;
   const task = requireValidTask({
     id: newId(),
@@ -733,7 +1035,9 @@ export function performCreateTask(contents: MirrorContents, input: TaskFieldsInp
   });
   return {
     mutated: { ...carried(contents), tasks: [...contents.tasks, task] },
-    message: `Created ${taskSummaryLine(task, contents.calendars, contents.settings.clock)}`,
+    message:
+      `Created ${taskSummaryLine(task, contents.calendars, contents.settings.clock)}` +
+      defaultedSuffix(defaultedCalendar(input.calendarId, pin)),
   };
 }
 
@@ -850,7 +1154,7 @@ export function performUpdateEvent(
     if (contents.tasks.some((t) => t.id === id)) {
       throw new RefusalError(`id "${id}" is a task — use update_task, plan_task or toggle_done.`);
     }
-    throw new RefusalError(`no event with id "${id}"`);
+    throw notFound(contents, id, "event");
   }
   refuseIfFeed(original, contents.calendars);
   const scope = requireScope(original, scopeArg);
@@ -905,20 +1209,10 @@ export function performDeleteEvent(
 ): WriteResult {
   const original = contents.events.find((e) => e.id === id);
   if (!original) {
-    // Deleting a task is one shape only — it has no series and no scope —
-    // and its grave rides with the removal, an event's own rule.
-    const task = contents.tasks.find((t) => t.id === id);
-    if (task) {
-      return {
-        mutated: {
-          ...carried(contents),
-          tasks: contents.tasks.filter((t) => t.id !== id),
-          graves: [...contents.graves, { id, at: Date.now() }],
-        },
-        message: `Deleted the task "${task.title || "Untitled"}".`,
-      };
-    }
-    throw new RefusalError(`no event with id "${id}"`);
+    // The id may name a task — one id space for the caller. Deleting one is
+    // `performDeleteTask`'s single shape, delete_task's own handler.
+    if (contents.tasks.some((t) => t.id === id)) return performDeleteTask(contents, id);
+    throw notFound(contents, id, "event");
   }
   refuseIfFeed(original, contents.calendars);
   const scope = requireScope(original, scopeArg);
@@ -965,6 +1259,27 @@ export function performDeleteEvent(
   };
 }
 
+/** Deletes a task — one shape only: it has no series and no scope, and its
+ *  grave rides with the removal, an event's own rule. `delete_event` on a
+ *  task id lands here too, so the alias and the original cannot drift. */
+export function performDeleteTask(contents: MirrorContents, id: string): WriteResult {
+  const task = contents.tasks.find((t) => t.id === id);
+  if (!task) {
+    if (contents.events.some((e) => e.id === id)) {
+      throw new RefusalError(`"${id}" is an event, not a task — use delete_event`);
+    }
+    throw notFound(contents, id, "task");
+  }
+  return {
+    mutated: {
+      ...carried(contents),
+      tasks: contents.tasks.filter((t) => t.id !== id),
+      graves: [...contents.graves, { id, at: Date.now() }],
+    },
+    message: `Deleted the task "${task.title || "Untitled"}".`,
+  };
+}
+
 /** Ticks a task off, or back on. `occurrence` is accepted and ignored — a
  *  task has one deadline and is finished once, so there is nothing for the
  *  argument to disambiguate any more. */
@@ -978,7 +1293,7 @@ export function performToggleDone(
     if (contents.events.some((e) => e.id === id)) {
       throw new RefusalError(`"${id}" is an event, not a task`);
     }
-    throw new RefusalError(`no task with id "${id}"`);
+    throw notFound(contents, id, "task");
   }
   const tasks = contents.tasks.map((t) =>
     t.id === id ? { ...t, done: !t.done, updatedAt: Date.now() } : t,

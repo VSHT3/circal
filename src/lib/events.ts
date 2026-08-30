@@ -1229,14 +1229,32 @@ const penalise = (score: number | null, cost: number) => (score === null ? null 
  *
  * Charged as a penalty rather than a multiplier: a score can be negative (a
  * long note matched across big gaps), and halving a negative promotes it.
+ *
+ * `scoreEventBy` also says *which* field won, for a surface that reports its
+ * matches (the MCP search): a notes hit on a long note is otherwise
+ * indistinguishable from a title hit. `scoreEvent` is the same judgement with
+ * the field dropped — one engine, never two opinions.
  */
+export type MatchField = "title" | "location" | "notes";
+
+export function scoreEventBy(
+  event: CalEvent,
+  query: string,
+): { field: MatchField; score: number } | null {
+  // A tie goes to the earlier field: a title match of the same quality as a
+  // note match is the match the person means.
+  let best: { field: MatchField; score: number } | null = null;
+  const consider = (field: MatchField, score: number | null) => {
+    if (score !== null && (best === null || score > best.score)) best = { field, score };
+  };
+  consider("title", fuzzyScore(event.title, query));
+  consider("location", penalise(fuzzyScore(event.location, query), FIELD_PENALTY.location));
+  consider("notes", penalise(fuzzyScore(event.notes, query), FIELD_PENALTY.notes));
+  return best;
+}
+
 export function scoreEvent(event: CalEvent, query: string): number | null {
-  const scores = [
-    fuzzyScore(event.title, query),
-    penalise(fuzzyScore(event.location, query), FIELD_PENALTY.location),
-    penalise(fuzzyScore(event.notes, query), FIELD_PENALTY.notes),
-  ].filter((score): score is number => score !== null);
-  return scores.length > 0 ? Math.max(...scores) : null;
+  return scoreEventBy(event, query)?.score ?? null;
 }
 
 /* --------------------------------- colour --------------------------------- */

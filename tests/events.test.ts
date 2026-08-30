@@ -39,6 +39,7 @@ import {
   planEvents,
   taskOccurrences,
   scoreEvent,
+  scoreEventBy,
   spanLabel,
   statusOf,
   type Gap,
@@ -1270,6 +1271,32 @@ describe("scoreEvent", () => {
     // The grid lights every match, so its reach is exactly the palette's: one
     // typo forgiven, and no second, stricter matcher anywhere.
     expect(scoreEvent(event({ title: "Morning run" }), "mornng run")).not.toBeNull();
+  });
+});
+
+describe("scoreEventBy — the same judgement, with the winning field named", () => {
+  it("agrees with scoreEvent about the score", () => {
+    const e = event({ title: "Morning run", location: "Riverside", notes: "bring the dog" });
+    expect(scoreEventBy(e, "riverside")!.score).toBe(scoreEvent(e, "riverside")!);
+  });
+
+  it("names title, location or notes as the field that won", () => {
+    expect.soft(scoreEventBy(event({ title: "Riverside" }), "riverside")!.field).toBe("title");
+    expect
+      .soft(scoreEventBy(event({ title: "Run", location: "Riverside" }), "riverside")!.field)
+      .toBe("location");
+    expect
+      .soft(scoreEventBy(event({ title: "Run", notes: "Riverside" }), "riverside")!.field)
+      .toBe("notes");
+  });
+
+  it("a tie goes to the title — the match the person means", () => {
+    const both = event({ title: "Riverside", location: "Riverside" });
+    expect(scoreEventBy(both, "riverside")!.field).toBe("title");
+  });
+
+  it("answers null exactly where scoreEvent does", () => {
+    expect(scoreEventBy(event({ title: "Run" }), "dentist")).toBeNull();
   });
 });
 

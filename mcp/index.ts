@@ -29,6 +29,10 @@ Usage:
   circal-mcp --file <path>   Start the server against a mirror file
   circal-mcp --cloud         Start the server against the cloud copy
                               (sign in first with \`circal-mcp login\`)
+  circal-mcp --calendar <c>  Pin this connection's default calendar (an id or
+                              unique name prefix): writes that name none land
+                              on it instead of the user default. Optional,
+                              beside either transport
   circal-mcp login           Sign in to the cloud copy and remember the
                               derived key on this machine (interactive:
                               email, emailed code, passphrase; asks circal.day
@@ -42,6 +46,7 @@ Usage:
 
 Environment:
   CIRCAL_FILE                 Mirror file path, same as --file
+  CIRCAL_CALENDAR             Default calendar for writes, same as --calendar
   CIRCAL_CLOUD_CREDENTIALS    Where \`login\` keeps its record (default:
                               the platform config dir, circal/cloud.json)
   CIRCAL_ALLOW_ZONE_MISMATCH   Set to 1 to allow writes when this process's
@@ -97,9 +102,16 @@ if (argv.includes("--cloud")) {
   store = fileStore({ path, env: process.env });
 }
 
+// The connection's own default calendar, resolved per call rather than at
+// startup — the calendar list can change under a long-lived server, and a
+// bad reference should refuse the write that needed it, not the boot.
+const calendarFlag = argv.indexOf("--calendar");
+const pinned =
+  (calendarFlag >= 0 ? argv[calendarFlag + 1] : undefined) || process.env.CIRCAL_CALENDAR;
+
 function createServer(): McpServer {
   const server = new McpServer({ name: "circal", version: "1.0.0" });
-  registerTools(server, store);
+  registerTools(server, store, pinned);
   return server;
 }
 

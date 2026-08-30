@@ -423,6 +423,7 @@ export function cloudStore(ctx: CloudEnv): Store {
   let writeQueue: Promise<unknown> = Promise.resolve();
 
   return {
+    transport: `cloud (${ctx.credentials.email || "signed in"})`,
     load: loadOnce,
     write<T>(mutate: Mutator<T>): Promise<T> {
       const run = writeQueue.then(() => writeOnce(mutate));

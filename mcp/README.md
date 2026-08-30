@@ -110,6 +110,16 @@ No mirror file yet: on the Mac app there is almost always one already (`--find` 
 it); in a browser, turn the mirror on from circal's Settings panel, then run `--find` again. Run
 `npx -y circal-mcp --help` for the full flag and environment variable list.
 
+### Pinning a calendar
+
+`--calendar <c>` (or `CIRCAL_CALENDAR`), beside either transport, pins the
+connection's default calendar — an id or a unique name prefix. Every write
+that names no `calendarId` lands there instead of on the user's default,
+which is how an agent working one calendar stays on it. A create that was
+neither named nor pinned says so in its own summary
+(`calendar defaulted, not named`), so a wrong-calendar write is loud rather
+than discovered by whoever gets the reminder.
+
 ## From source (contributors)
 
 Building from a checkout instead of the published package:

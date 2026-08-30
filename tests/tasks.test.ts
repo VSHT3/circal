@@ -10,6 +10,7 @@ import {
   readPlans,
   readPriority,
   scoreTask,
+  scoreTaskBy,
   taskState,
   unplanned,
 } from "@/lib/tasks";
@@ -164,6 +165,19 @@ describe("scoreTask — scoreEvent's shape, so the two models rank alike", () =>
 
   it("answers null when nothing matches — a day must not light for a query the list would not find", () => {
     expect(scoreTask(task({ title: "Renew passport", notes: "" }), "zzz")).toBeNull();
+  });
+});
+
+describe("scoreTaskBy — the winning field named, scoreEventBy's shape", () => {
+  it("agrees with scoreTask about the score and names the field", () => {
+    const noted = task({ title: "Errand", notes: "Renew passport" });
+    expect.soft(scoreTaskBy(noted, "renew")!.score).toBe(scoreTask(noted, "renew")!);
+    expect.soft(scoreTaskBy(noted, "renew")!.field).toBe("notes");
+    expect.soft(scoreTaskBy(task({ title: "Renew passport" }), "renew")!.field).toBe("title");
+  });
+
+  it("answers null exactly where scoreTask does", () => {
+    expect(scoreTaskBy(task({ title: "Renew passport", notes: "" }), "zzz")).toBeNull();
   });
 });
 

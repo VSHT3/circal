@@ -162,15 +162,26 @@ const NOTES_PENALTY = 45;
  * How well a task answers a query, or `null` when it does not — `scoreEvent`'s
  * shape (title first, notes at a penalty), so the palette and the lit faces
  * reach tasks with the same engine and never light for a query the list
- * would not find.
+ * would not find. `scoreTaskBy` names the winning field for `scoreEventBy`'s
+ * reason, a tie going to the title.
  */
-export function scoreTask(task: Task, query: string): number | null {
+export function scoreTaskBy(
+  task: Task,
+  query: string,
+): { field: "title" | "notes"; score: number } | null {
   const title = fuzzyScore(task.title, query);
   const notes = fuzzyScore(task.notes, query);
-  const scores = [title, notes === null ? null : notes - NOTES_PENALTY].filter(
-    (score): score is number => score !== null,
-  );
-  return scores.length > 0 ? Math.max(...scores) : null;
+  const penalised = notes === null ? null : notes - NOTES_PENALTY;
+  let best: { field: "title" | "notes"; score: number } | null =
+    title === null ? null : { field: "title", score: title };
+  if (penalised !== null && (best === null || penalised > best.score)) {
+    best = { field: "notes", score: penalised };
+  }
+  return best;
+}
+
+export function scoreTask(task: Task, query: string): number | null {
+  return scoreTaskBy(task, query)?.score ?? null;
 }
 
 /** The sidebar's order inside a group: soonest deadline first, then the
