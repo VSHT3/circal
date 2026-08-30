@@ -30,8 +30,24 @@ import type { Settings, Snapshot } from "./store";
 export { localZone };
 
 /** Bumped only when the *file's* own envelope changes meaning. The events,
- *  calendars and settings inside it are versioned by the backup format. */
-export const MIRROR_VERSION = 2;
+ *  calendars and settings inside it are versioned by the backup format.
+ *
+ *  3 marks the arrival of `tasks`: not because a task changes what a stamp or
+ *  a grave means — it carries the same stamp and shares the grave list — but
+ *  because a *writer* without a name for the field re-serialises the document
+ *  without it. Measured, not feared: a pre-tasks client left cloud rev 227
+ *  with no `tasks` key at all, erasing every task the MCP server had written,
+ *  while its own events survived. The version gates exist for exactly that
+ *  writer, and they can only stop what they can see coming. */
+export const MIRROR_VERSION = 3;
+
+/** The envelope meaning merging actually depends on — *every record carries a
+ *  stamp, and deletions are tombstoned* — which is version 2's, and did not
+ *  change at 3. `mirrorMerges` gates on this floor rather than on
+ *  `MIRROR_VERSION`, or every bump would demote merge to adopt for one
+ *  version's worth of documents and adopt is the one that loses data: a v2
+ *  row adopted whole by a v3 store is this store's tasks gone. */
+export const STAMPED_VERSION = 2;
 
 /**
  * What a snapshot contributes to the file — the same fields a backup carries.
@@ -39,9 +55,11 @@ export const MIRROR_VERSION = 2;
  * `graves` and `settingsAt` joined the three at `MIRROR_VERSION` 2, which is
  * what that number means: *every record in this document carries a stamp, and
  * deletions are tombstoned*. A file without them cannot be merged, only
- * adopted — see `mirrorMerges`. `tasks` arrived later with no bump: a task
- * carries the same stamp and shares the grave list, so version 2's meaning
- * holds, and an absent list reads as empty — a union with it loses nothing.
+ * adopted — see `mirrorMerges`. `tasks` first shipped with no bump, on the
+ * reasoning that an absent list reads as empty and a union with it loses
+ * nothing — true between two builds that both *have* the field, and disproved
+ * by the first build that did not: it wrote the document back without the key
+ * (see `MIRROR_VERSION`'s own comment). Version 3 is that correction.
  */
 type Mirrored = Pick<
   Snapshot,
@@ -242,9 +260,12 @@ export function mirrorVerdict(fileRev: number, localRev: number): MirrorVerdict 
  * Whether a file ahead of us may be *merged* rather than adopted whole. The
  * three-way gate, and it is what stops a regression:
  *
- * - **v2 file, v2 store** → merge. Both documents carry stamps, so the
- *   element-wise answer is available and it is strictly better than either
- *   document winning.
+ * - **Stamped envelope (v2+), stamped store** → merge. Both documents carry
+ *   stamps, so the element-wise answer is available and it is strictly better
+ *   than either document winning. The floor is `STAMPED_VERSION`, not
+ *   `MIRROR_VERSION`: a v2 document merges into a v3 store — its absent
+ *   `tasks` list unions as empty and this store's tasks survive — where
+ *   adopting it whole would erase them.
  * - **v1 file, or either side unstamped** → today's behaviour exactly:
  *   `mirrorVerdict`, adopt, stale, no merge. An unstamped document cannot be
  *   merged without guessing which of two undated copies of an event is newer,
@@ -254,15 +275,16 @@ export function mirrorVerdict(fileRev: number, localRev: number): MirrorVerdict 
  *   stamp: two fresh installs that had each changed nothing adopted each other
  *   for ever, and the first real edit on either is the instant there is
  *   something to defend. See its own comment.
- * - **v2 file, v1 reader** → already refused, one layer over:
+ * - **Newer file, older reader** → already refused, one layer over:
  *   `assertVersionAllowsMutation` exists for exactly this, because a reader
  *   that round-trips a document through validators it is too old for silently
- *   drops every field it has no name for.
+ *   drops every field it has no name for — which is the observed failure
+ *   version 3 was minted for (see `MIRROR_VERSION`).
  *
  * A plain `.json` backup handed to the mirror carries `BACKUP_VERSION`, which
  * is 1, so it adopts rather than merges. That is the conservative answer and
  * the correct one: a backup is a document somebody chose, not a peer.
  */
 export function mirrorMerges(contents: MirrorContents, mine: Mergeable<Settings>): boolean {
-  return contents.version >= MIRROR_VERSION && stamped(contents) && stamped(mine);
+  return contents.version >= STAMPED_VERSION && stamped(contents) && stamped(mine);
 }
