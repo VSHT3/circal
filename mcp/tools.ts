@@ -14,6 +14,7 @@ import { REMIND_LEAD_MAX } from "@/lib/events";
 import type { Store } from "./store";
 import {
   CREATE_BATCH_MAX,
+  UPSERT_KEY_RE,
   MAX_RANGE_DAYS,
   MAX_RANGE_OCCURRENCES,
   describeEvent,
@@ -175,11 +176,13 @@ function eventFieldsShape() {
 
 const upsertKeySchema = z
   .string()
-  .regex(/^[A-Za-z0-9._:-]{1,64}$/, "letters, digits, . _ : -, up to 64")
+  .regex(UPSERT_KEY_RE, "letters, digits, . _ : -, up to 64")
   .describe(
     "Caller-chosen external key for idempotent upsert: the same key always names the same " +
-      "event, so re-running a mirror updates in place instead of duplicating. Omitted, every " +
-      "call creates a fresh event.",
+      "event, so re-running a mirror updates in place instead of duplicating. A keyed create " +
+      "also overrides a prior deletion — the source of truth re-asserts — so to drop a record " +
+      "for good, remove it from the source, not just the calendar. Omitted, every call creates " +
+      "a fresh event.",
   );
 
 const createEventFieldsSchema = z.strictObject({

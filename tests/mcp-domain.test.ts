@@ -1266,6 +1266,22 @@ describe("performCreateEvent with a key upserts instead of duplicating", () => {
     const second = performCreateEvent(c, fields, key);
     expect(second.mutated.events[0]!.notes).toBe("bring forms");
   });
+
+  it("a keyed create outranks a prior deletion — the source re-asserts, as documented", () => {
+    // The app deleted the mirrored record; the next mirror run recreates it
+    // with a fresh stamp that wins over the grave. Deliberate: the key is
+    // identity, so dropping a record for good means removing it at the
+    // source — the sentence the key schema carries.
+    const c = contents({ graves: [grave(keyedId(key), "2026-03-01 12:00")] });
+    const { mutated } = performCreateEvent(c, fields, key);
+    expect.soft(mutated.events[0]!.id).toBe(keyedId(key));
+    expect.soft(mutated.events[0]!.updatedAt).toBeGreaterThan(ms("2026-03-01 12:00"));
+  });
+
+  it("an unbounded or control-character key is refused — a paste, not a key", () => {
+    expect.soft(() => performCreateEvent(contents(), fields, "a".repeat(65))).toThrow(/"key"/);
+    expect.soft(() => performCreateEvent(contents(), fields, "line\nbreak")).toThrow(/"key"/);
+  });
 });
 
 describe("performCreateEvents lands the whole batch in one write, or none of it", () => {

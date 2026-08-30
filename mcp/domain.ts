@@ -877,7 +877,18 @@ export function performQuickAdd(
  *  and can never collide with a minted `newId`. */
 const KEYED_ID_PREFIX = "x-";
 
+/** What a key may be — the tool schema's own regex, re-checked here because
+ *  this is the decision layer (`assertDateKey`'s bargain): an unbounded
+ *  string is a paste, and a pasted key becomes an id that flows into graves,
+ *  sort order and summary lines. */
+export const UPSERT_KEY_RE = /^[A-Za-z0-9._:-]{1,64}$/;
+
 export function keyedId(key: string): string {
+  if (!UPSERT_KEY_RE.test(key)) {
+    throw new RefusalError(
+      '"key" must be 1-64 characters of letters, digits and . _ : - — it becomes the record\'s id',
+    );
+  }
   return `${KEYED_ID_PREFIX}${key}`;
 }
 
@@ -885,9 +896,12 @@ export function keyedId(key: string): string {
  * Create — or, given a `key`, converge. The key becomes the event's id
  * (`x-<key>`), so the same key always names the same record: re-running a
  * mirror updates in place instead of duplicating, and the ordinary stamps
- * and graves carry the merge semantics unchanged. An existing keyed event is
- * patched whole-series, `applyPatchToEvent`'s own bargain: fields the input
- * omits keep their value.
+ * and graves carry the merge semantics unchanged. That identity cuts both
+ * ways: a keyed create outranks a prior deletion's grave (the fresh stamp
+ * wins), which is what "the source of truth re-asserts" means — a record
+ * deleted in the app returns on the next mirror run unless it is removed at
+ * the source. An existing keyed event is patched whole-series,
+ * `applyPatchToEvent`'s own bargain: fields the input omits keep their value.
  */
 export function performCreateEvent(
   contents: MirrorContents,
