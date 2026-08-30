@@ -487,6 +487,50 @@ describe("dueReminders: a multi-day event fires exactly once, only on the day it
   });
 });
 
+/* ----------------------------------- travel -------------------------------------- */
+
+describe("dueReminders: a lead is measured back from the minute you leave", () => {
+  // 09:00 meeting, 25 minutes away, 10 minutes' warning: the notification is
+  // due at 08:25, because the thing needing warning is the departure.
+  const dentist = () => event({ title: "Dentist", start: "2026-03-09 09:00", travel: 25 });
+
+  it("fires the lead ahead of the leave-by minute, not ahead of the start", () => {
+    const early = dueReminders([dentist()], [cal], [], at("2026-03-09 08:25"), 10, new Set());
+    expect.soft(early).toHaveLength(1);
+    // The lead is still the lead — what moved is the instant it counts from,
+    // so the notification says "Leave in 10m" and prints the event's own time.
+    expect.soft(early[0]?.lead).toBe(10);
+    expect.soft(early[0]?.travel).toBe(25);
+    expect.soft(early[0]?.start).toBeSameInstantAs("2026-03-09 09:00");
+  });
+
+  it("stays quiet at the minute it would have fired without the travel", () => {
+    const late = dueReminders([dentist()], [cal], [], at("2026-03-09 08:50"), 10, new Set());
+    expect.soft(late).toHaveLength(0);
+  });
+
+  // The `days` map has to reach far enough to expand the day the occurrence
+  // starts on: lead alone would have looked at the 8th and missed this.
+  it("reaches across midnight when the lead and the travel together cross it", () => {
+    const e = event({ title: "Airport", start: "2026-03-09 01:00", travel: 90 });
+    const reminders = dueReminders([e], [cal], [], at("2026-03-08 23:20"), 10, new Set());
+    expect.soft(reminders).toHaveLength(1);
+    expect.soft(reminders[0]?.start).toBeSameInstantAs("2026-03-09 01:00");
+  });
+
+  // One answer to "does this event's travel count": the face draws no run-up
+  // for a free event and books none, so no notification claims one either.
+  it("ignores a free event's travel, as every other reader does", () => {
+    const hold = event({ title: "Hold", start: "2026-03-09 09:00", travel: 25, free: true });
+    expect
+      .soft(dueReminders([hold], [cal], [], at("2026-03-09 08:25"), 10, new Set()))
+      .toHaveLength(0);
+    expect
+      .soft(dueReminders([hold], [cal], [], at("2026-03-09 08:50"), 10, new Set()))
+      .toHaveLength(1);
+  });
+});
+
 /* -------------------------------------------------------------------------- *
  * reminderText
  * -------------------------------------------------------------------------- */
@@ -497,6 +541,7 @@ describe("reminderText", () => {
     title: "Design review",
     start: at("2026-03-09 09:05"),
     lead: 10,
+    travel: 0,
     kind: "starts",
     event: event({ title: "Design review" }),
     task: null,
@@ -504,14 +549,64 @@ describe("reminderText", () => {
   });
 
   it.each([
-    { name: "lead 0, 12h clock", lead: 0, clock: "12h" as const, body: "Starts now · 9:05 AM" },
-    { name: "lead 0, 24h clock", lead: 0, clock: "24h" as const, body: "Starts now · 09:05" },
-    { name: "lead 10, 12h clock", lead: 10, clock: "12h" as const, body: "in 10m · 9:05 AM" },
-    { name: "lead 10, 24h clock", lead: 10, clock: "24h" as const, body: "in 10m · 09:05" },
-    { name: "lead 60, 12h clock", lead: 60, clock: "12h" as const, body: "in 1h · 9:05 AM" },
-    { name: "lead 60, 24h clock", lead: 60, clock: "24h" as const, body: "in 1h · 09:05" },
-  ])("$name", ({ lead, clock, body }) => {
-    const { title, body: got } = reminderText(reminder({ lead }), clock);
+    {
+      name: "lead 0, 12h clock",
+      lead: 0,
+      travel: 0,
+      clock: "12h" as const,
+      body: "Starts now · 9:05 AM",
+    },
+    {
+      name: "lead 0, 24h clock",
+      lead: 0,
+      travel: 0,
+      clock: "24h" as const,
+      body: "Starts now · 09:05",
+    },
+    {
+      name: "lead 10, 12h clock",
+      lead: 10,
+      travel: 0,
+      clock: "12h" as const,
+      body: "in 10m · 9:05 AM",
+    },
+    {
+      name: "lead 10, 24h clock",
+      lead: 10,
+      travel: 0,
+      clock: "24h" as const,
+      body: "in 10m · 09:05",
+    },
+    {
+      name: "lead 60, 12h clock",
+      lead: 60,
+      travel: 0,
+      clock: "12h" as const,
+      body: "in 1h · 9:05 AM",
+    },
+    {
+      name: "lead 60, 24h clock",
+      lead: 60,
+      travel: 0,
+      clock: "24h" as const,
+      body: "in 1h · 09:05",
+    },
+    {
+      name: "a travelled event is told to leave, not that it starts",
+      lead: 10,
+      travel: 25,
+      clock: "24h" as const,
+      body: "Leave in 10m · 09:05",
+    },
+    {
+      name: "and at lead 0 it is told to go now",
+      lead: 0,
+      travel: 25,
+      clock: "24h" as const,
+      body: "Leave now · 09:05",
+    },
+  ])("$name", ({ lead, travel, clock, body }) => {
+    const { title, body: got } = reminderText(reminder({ lead, travel }), clock);
     expect.soft(title).toBe("Design review");
     expect.soft(got).toBe(body);
   });

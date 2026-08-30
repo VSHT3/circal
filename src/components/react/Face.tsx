@@ -50,8 +50,18 @@ import {
   hollowPath,
   polar,
   seamTrim,
+  travelDots,
 } from "@/lib/dial";
-import { colorOf, inkOn, markOf, statusOf, type Calendar, type Occurrence } from "@/lib/events";
+import {
+  bookedBlock,
+  colorOf,
+  inkOn,
+  markOf,
+  statusOf,
+  travelMinutes,
+  type Calendar,
+  type Occurrence,
+} from "@/lib/events";
 import { MarkGlyph } from "@/components/react/ui/icons";
 import { solarLight, sunTimes, type Place } from "@/lib/sun";
 import {
@@ -483,6 +493,10 @@ export default function Face({
    * and weld into one bent line (see `seamTrim`). The gap is measured here,
    * once per agenda, because it is a fact about the pair rather than about
    * either arc: only the lane they share decides whether they can touch at all.
+   *
+   * Measured from each arc's *footprint*, run-up included, which is what
+   * `packLanes` shares a lane by: the seam has to open in front of the dashed
+   * travel, since that is the paint the neighbour's cap would weld to.
    */
   const gaps = useMemo(() => {
     const timed = occurrences.filter((o) => !o.event.allDay);
@@ -490,10 +504,12 @@ export default function Face({
       timed.map((occ) => {
         let before = Infinity;
         let after = Infinity;
+        const mineFrom = occ.startMin - travelMinutes(occ);
         for (const other of timed) {
           if (other === occ || other.lane !== occ.lane) continue;
-          if (other.endMin <= occ.startMin) before = Math.min(before, occ.startMin - other.endMin);
-          if (other.startMin >= occ.endMin) after = Math.min(after, other.startMin - occ.endMin);
+          const otherFrom = other.startMin - travelMinutes(other);
+          if (other.endMin <= mineFrom) before = Math.min(before, mineFrom - other.endMin);
+          if (otherFrom >= occ.endMin) after = Math.min(after, otherFrom - occ.endMin);
         }
         return [occ.key, { before, after }] as const;
       }),
@@ -1141,19 +1157,25 @@ function HourLabels({
 }
 
 /**
- * A lane's radius, eased rather than stepped.
+ * A number the geometry is rebuilt from, eased rather than stepped.
  *
- * Lanes repack live while an arc is dragged past another, so an event that has
- * to give up the outer ring moves 27 units inwards between one pointer event
- * and the next — and a shape that teleports reads as a redraw rather than as
- * something making room. The drag's own angular steps stay instant: those are
- * the fifteen-minute detents, and they are meant to be felt.
+ * Two callers, both for the same reason. A **lane's radius**: lanes repack
+ * live while an arc is dragged past another, so an event that has to give up
+ * the outer ring moves 27 units inwards between one pointer event and the
+ * next, and a shape that teleports reads as a redraw rather than as something
+ * making room. A **hovered band's width**: an arc answers a hover by growing
+ * three units on a CSS transition, and the dotted run-up in front of it is
+ * built from a path, which CSS cannot tween — eased here, the two grow
+ * together instead of the outline snapping ahead of the arc it joins.
  *
- * The eased value is React state, not a motion value on the attribute, because
- * the whole path is rebuilt from the radius — `capInset` has to follow it, or
- * an arc mid-move lies about its length.
+ * The drag's own angular steps stay instant: those are the fifteen-minute
+ * detents, and they are meant to be felt.
+ *
+ * The eased value is React state, not a motion value on the attribute,
+ * because the whole path is rebuilt from it — `capInset` has to follow a
+ * radius, or an arc mid-move lies about its length.
  */
-function useEasedRadius(target: number): number {
+function useEased(target: number): number {
   const reducedMotion = useReducedMotion();
   const [eased, setEased] = useState(target);
   const at = useRef(target);
@@ -1272,7 +1294,13 @@ function EventArc({
 }) {
   // Before the early return, so the hook order does not depend on the event: an
   // all-day occurrence draws nothing, but it still owns this component.
-  const r = useEasedRadius(DIAL.LANE - occ.lane * DIAL.LANE_STEP);
+  const r = useEased(DIAL.LANE - occ.lane * DIAL.LANE_STEP);
+  // The band a hovered arc grows to, eased for the run-up's sake: the arc's
+  // own growth is a CSS transition on `stroke-width`, but the dotted outline
+  // in front of it is a path, and a path swap cannot tween — so the number is
+  // eased here and the two widen together. Beside `r` rather than further
+  // down, for the same hook-order reason.
+  const band = useEased(hovered || dragging ? DIAL.ARC_WIDTH + 3 : DIAL.ARC_WIDTH);
   // `<textPath>` takes a reference, not a path, so the label's own path needs
   // an id. Not `occ.key`: a feed's occurrence carries its UID, and a UID is
   // any text at all — including the `#` that would break the reference.
@@ -1300,6 +1328,17 @@ function EventArc({
   // A whole revolution closes instead: the inset that keeps a short arc honest
   // would leave a notch at midnight once the two ends meet.
   const closed = to - from >= 360;
+  /**
+   * The dashed run-up: the travel this occurrence books ahead of itself.
+   *
+   * Read off `bookedBlock` rather than off the field, so the face draws
+   * exactly the minutes the day's arithmetic charges for. A free event's
+   * travel books nothing and so draws nothing, and a task has none at all —
+   * neither case is named here, because naming it twice is how two answers
+   * start. A closed turn has no room in front of itself.
+   */
+  const block = bookedBlock(occ);
+  const runUp = closed ? 0 : occ.startMin - (block?.start ?? occ.startMin);
   // Half a seam off each end that has a neighbour hard against it, so two
   // back-to-back events are two lozenges rather than one dented line. Not on a
   // dot: it is already shorter than the event it stands for.
@@ -1308,7 +1347,11 @@ function EventArc({
   // puts half a stroke back past `head` and `tail`, which is exactly what
   // `inset` took off, so what an event actually covers is its own span less
   // whatever a neighbour's seam claimed.
-  const paintFrom = closed || dot ? from : from + seamTrim(r, gap.before);
+  //
+  // A run-up takes the leading seam instead of the arc: the two are one
+  // object, and a seam between them would open a gap in the middle of it.
+  const leading = closed || dot ? 0 : seamTrim(r, gap.before);
+  const paintFrom = closed || dot ? from : from + (runUp > 0 ? 0 : leading);
   const paintTo = closed || dot ? to : to - seamTrim(r, gap.after);
   const head = closed ? from : paintFrom + inset;
   const tail = closed ? to : paintTo - inset;
@@ -1325,6 +1368,28 @@ function EventArc({
    *  work, not an appointment". A plan collapsed to a dot keeps the dot's
    *  centre, where its cap actually is. */
   const pipAt = planArc && !dot ? polar(r, head) : taskPoint;
+  /**
+   * The run-up, as the dotted outline of the band it books.
+   *
+   * `hollowPath` is the free arc's construction, borrowed for what it says
+   * rather than for what it means there: an outline is this footprint with
+   * none of the event in it, and that is exactly a commute. The hairline is
+   * dotted on top of that, because a hand-typed travel time is an estimate.
+   * A filled dashed band was tried first and carried the weight of the
+   * meeting it leads into, so the two read as one event with a fault in it.
+   *
+   * The leave-by end is `inset` back off the centre line, the arc's own
+   * bargain: `hollowPath`'s cap reaches half a band past its tip, so the
+   * painted outline starts on the minute you have to go rather than half a
+   * stroke before it. The join end is *not* inset — that cap overhangs into
+   * the arc's own paint, which is drawn over it, so the pair meet with no
+   * seam and nothing shows. On a dot the arc's paint is its two caps, so the
+   * run-up stops where the near one begins.
+   */
+  const travelTo = dot ? mid - inset : paintFrom;
+  const travelFrom = angleAt(occ.startMin - runUp, clock) + leading + inset;
+  const travelD =
+    runUp > 0 && travelTo > travelFrom ? hollowPath(r, travelFrom, travelTo, band) : "";
   /**
    * Free time is drawn as the outline of the arc a busy event fills, and the
    * arc keeps every number it had: same lane, same radius, same painted
@@ -1446,6 +1511,31 @@ function EventArc({
       className={intro ? "intro-in" : undefined}
       style={intro ?? undefined}
     >
+      {travelD !== "" && (
+        // The travel time: the outline of the band it books, in the event's
+        // own colour, dotted. Two encodings composed rather than a third
+        // invented — an outline is the footprint with none of the event in
+        // it, a broken line is an estimate — on a face where alpha already
+        // means "past" and a filled band of this width would simply read as
+        // a longer meeting.
+        <path
+          d={travelD}
+          fill="none"
+          stroke={color}
+          // The hairline's own weight, held there through a hover: what grows
+          // is the band the outline traces (`band`, eased), so the dots move
+          // apart with the arc instead of swelling. Doubled, they exceed their
+          // own pitch and weld into a bead chain. The run-up takes no pointer
+          // events either way — it is a picture of the arc's own footprint.
+          strokeWidth={ARC_HAIRLINE}
+          // Round, so a zero-length dash paints a dot of that weight.
+          strokeLinecap="round"
+          strokeDasharray={travelDots(r, travelTo - travelFrom, band)}
+          opacity={dimmed && !hovered && !dragging ? 0.42 : 1}
+          pointerEvents="none"
+          style={{ transition: `opacity ${MOOD}` }}
+        />
+      )}
       {pipOnly ? (
         // A task is a notch in the rim, and its two states are the face's own
         // vocabulary: ink is light, so an open one is a filled pip and a done

@@ -251,7 +251,7 @@ export function useCloud(): MirrorStatus {
  * The **version** gate is unconditional, and deliberately stricter than the
  * file half. A newer envelope is a document this build would round-trip
  * through validators too old for it, dropping every field it has no name for —
- * measured at nine keys per record, not feared — and that is as true of a row
+ * measured at ten keys per record, not feared — and that is as true of a row
  * we are about to re-assert over as of one we are about to adopt.
  * `assertVersionAllowsMutation` makes the same refusal one tier up.
  *

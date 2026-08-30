@@ -10,6 +10,7 @@ import {
   NEVER,
   REMIND_INHERIT,
   REMIND_SILENT,
+  TRAVEL_MAX,
   type CalEvent,
 } from "@/lib/events";
 import { placeForZone } from "@/lib/places";
@@ -126,6 +127,26 @@ describe("readEvent — defaults", () => {
     { input: undefined, expected: false },
   ])("free $input reads as $expected — only a literal true means free", ({ input, expected }) => {
     expect(readEvent({ ...baseEvent, free: input })?.free).toBe(expected);
+  });
+
+  // A bounded number rather than a boolean, so the hostile cases are the ones
+  // in between: a negative run-up draws backwards out of the arc and one over
+  // the ceiling dashes the whole ring. `TRAVEL_MAX` is 1440, so a full
+  // revolution is legal and a minute more is not. Where those bounds live is
+  // `events.ts`, pinned there — this asserts the reader asks rather than
+  // deciding for itself.
+  it.each([
+    { name: "absent", input: undefined, expected: 0 },
+    { name: "null", input: null, expected: 0 },
+    { name: "a string", input: "20", expected: 0 },
+    { name: "a negative", input: -5, expected: 0 },
+    { name: "a fraction of a minute", input: 19.5, expected: 0 },
+    { name: "a minute past the ceiling", input: TRAVEL_MAX + 1, expected: 0 },
+    { name: "no travel written out", input: 0, expected: 0 },
+    { name: "a commute somebody typed", input: 25, expected: 25 },
+    { name: "the ceiling itself", input: TRAVEL_MAX, expected: TRAVEL_MAX },
+  ])("travel: $name", ({ input, expected }) => {
+    expect(readEvent({ ...baseEvent, travel: input })?.travel).toBe(expected);
   });
 
   // Not a boolean but a number with a range, so the hostile cases are the

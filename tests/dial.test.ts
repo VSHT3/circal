@@ -12,6 +12,7 @@ import {
   minutesAtPoint,
   polar,
   seamTrim,
+  travelDots,
 } from "@/lib/dial";
 import { MINUTES_PER_DAY } from "@/lib/time";
 
@@ -211,6 +212,52 @@ describe("hollowPath's two degenerate turns", () => {
     // Diametrically opposite each other, which is what makes the pair a circle
     // rather than two arcs of one.
     expect.soft(Math.hypot(caps[0].x - caps[1].x, caps[0].y - caps[1].y)).toBeCloseTo(2 * OFF, 9);
+  });
+});
+
+describe("travelDots fits whole dots to the run-up's outline", () => {
+  const R = DIAL.LANE;
+  /** Minutes of run-up, as degrees on the face. */
+  const sweep = (minutes: number) => (minutes * 360) / 1440;
+  /** The racetrack `hollowPath` traces: two edges, whose lengths sum to twice
+   *  the centre line's, plus two caps that together make one circle. */
+  const outline = (minutes: number) => {
+    const off = (DIAL.ARC_WIDTH - ARC_HAIRLINE) / 2;
+    return 2 * ((sweep(minutes) * Math.PI) / 180) * R + 2 * Math.PI * off;
+  };
+  const pattern = (minutes: number) => {
+    const [ink, gap] = travelDots(R, sweep(minutes)).split(" ").map(Number);
+    return { ink, pitch: ink + gap };
+  };
+
+  // The claim the fitting exists for: the outline is a closed loop, so a
+  // pattern that does not divide into its length leaves a pinch where it
+  // wraps — two dots crowded together at whichever end of the run-up the
+  // arithmetic drops the remainder.
+  it.each([5, 10, 15, 20, 25, 30, 45, 60, 90, 120])(
+    "a %i-minute run-up closes on a whole number of dots",
+    (minutes) => {
+      const { pitch } = pattern(minutes);
+      const dots = outline(minutes) / pitch;
+      expect.soft(dots).toBeCloseTo(Math.round(dots), 6);
+      expect.soft(Math.round(dots)).toBeGreaterThanOrEqual(3);
+    },
+  );
+
+  // A dot is the stroke's own width, not a length of line: the ink is there
+  // only because a genuinely zero-length dash is a case renderers disagree
+  // about, and it must stay far below the hairline it is capped with.
+  it("paints dots rather than dashes", () => {
+    expect.soft(pattern(25).ink).toBeLessThan(ARC_HAIRLINE / 10);
+  });
+
+  // The pitch is a fact about how dotted the line looks, so it may not drift
+  // with duration — fitting adjusts it by less than half a dot either way.
+  it("keeps the pitch near its ideal at every duration", () => {
+    for (const minutes of [8, 25, 70, 150]) {
+      expect.soft(pattern(minutes).pitch).toBeGreaterThan(3);
+      expect.soft(pattern(minutes).pitch).toBeLessThan(6);
+    }
   });
 });
 

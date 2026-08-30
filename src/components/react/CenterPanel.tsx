@@ -17,6 +17,7 @@ import {
   colorOf,
   dayLoad,
   joinLink,
+  leaveBy,
   spanLabel,
   statusOf,
   type Calendar,
@@ -395,7 +396,14 @@ export default function CenterPanel({
                       // to midnight dressed as an appointment.
                       const running = today && !occ.event.allDay && status === "now";
                       const lead = occ.key === headline;
-                      const until = occ.start.getTime() - now.getTime();
+                      // The wait is until you have to *go*, which on an event
+                      // with no travel is until it starts. One number, because
+                      // a card counting down to a start beside a notification
+                      // counting down to a departure is two answers to "how
+                      // long have I got".
+                      const goAt = leaveBy(occ);
+                      const until = goAt - now.getTime();
+                      const leaving = !running && goAt < occ.start.getTime();
                       // Cocked, not pulsing: the pulse already means "this one is
                       // running", and two ways of saying different things with the
                       // same signal is one way of saying neither.
@@ -438,7 +446,9 @@ export default function CenterPanel({
                       const trail = running
                         ? `ends in ${formatDuration((occ.end.getTime() - now.getTime()) / 60000)}`
                         : lead
-                          ? untilText(until)
+                          ? leaving && until <= 0
+                            ? "leave now"
+                            : `${leaving ? "leave " : ""}${untilText(until)}`
                           : zone;
 
                       return (

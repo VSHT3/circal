@@ -10,7 +10,7 @@
 import type { CallToolResult, McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod/v4";
 
-import { REMIND_LEAD_MAX } from "@/lib/events";
+import { REMIND_LEAD_MAX, TRAVEL_MAX } from "@/lib/events";
 import type { Store } from "./store";
 import {
   CREATE_BATCH_MAX,
@@ -161,6 +161,17 @@ function eventFieldsShape() {
           "abroad. Stored on the event so every surface prints both clocks; timed events " +
           'only. On update, "" clears it back to floating (local) time, and patched times ' +
           "are read on the event's own zone.",
+      )
+      .optional(),
+    travel: z
+      .number()
+      .int()
+      .min(0)
+      .max(TRAVEL_MAX)
+      .describe(
+        "Minutes of travel before the start, drawn as a run-up ahead of the event and booked " +
+          "as time spent, so nothing else is offered that window. 0 = none (the default), " +
+          `up to ${TRAVEL_MAX}.`,
       )
       .optional(),
     remindLead: z

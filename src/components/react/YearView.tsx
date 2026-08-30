@@ -447,7 +447,10 @@ export default function YearView({
       };
     }
     return out;
-  }, [year, days, events, calendars, settings.theme]);
+    // `P` rather than `settings.theme`: it is `THEME_PALETTES[theme]`, one
+    // stable object per theme, and naming it is what makes the list complete
+    // where the colours are read as `P.emptyMark` rather than off the name.
+  }, [year, days, events, calendars, P]);
 
   /**
    * The days the query lit, over the same `dayTally` `marks` above is built
@@ -1073,7 +1076,8 @@ function Ring({
         ctx.fill();
       }
     }
-  }, [box.width, box.height, days, marks, selected, today, pending, matched, theme, at, amount]);
+    // `P` for the reason `marks` takes it — the palette is what this reads.
+  }, [box.width, box.height, days, marks, selected, today, pending, matched, P, at, amount]);
 
   useMotionValueEvent(at, "change", paint);
   useMotionValueEvent(amount, "change", paint);

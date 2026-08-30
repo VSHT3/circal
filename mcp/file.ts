@@ -154,9 +154,9 @@ export function assertZoneAllowsMutation(contents: MirrorContents, env: NodeJS.P
  * document through `readEvent`, which keeps the fields it has names for and
  * drops the rest. So an older reader writing a newer file is silent data loss
  * of exactly the fields it was too old to know about, and that is measured
- * rather than feared: a published bundle built before `free`, `remindLead`,
- * `organizer` and the guest pair landed dropped nine keys per document on
- * every write, and nothing anywhere said so.
+ * rather than feared: a published bundle built before `free`, `travel`,
+ * `remindLead`, `organizer` and the guest pair landed drops ten keys per
+ * document on every write, and nothing anywhere says so.
  *
  * A read is still allowed, for `assertZoneAllowsMutation`'s reason: reading
  * cannot damage the file, and refusing to *look* at a calendar because its

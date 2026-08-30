@@ -25,11 +25,21 @@ the end are recorded as refusals, so they are argued once instead of re-litigate
    steps issue through a ref because two pointermoves can share one stale
    render closure and a counter in state would step twice.
 
-2. **Travel time on events.** `Where` exists; a "leave by" pip ahead of an arc —
-   walking/driving estimate typed by hand, deliberately no geo API, so the
-   no-runtime-external-requests rule holds — answers the one question a clock face
-   is best at. Cost: one `CalEvent` field through the `readEvent` checklist
-   (hydrate fast path, backup, duplicate, ics as an `X-` line, feeds, MCP patch).
+2. **Travel time on events.** — **Shipped**. `CalEvent.travel`, minutes typed by
+   hand, no geo API as sketched. Three decisions beyond the sketch. The point
+   turned out to be **arithmetic, not the pip**: a commute is time spent, so it
+   is booked, and `bookedBlock` — the run-up plus the event, or nothing — became
+   the single statement of what "busy" means, read by `freeGaps`, `clashesWith`
+   and the face alike, so auto-schedule stops offering you your own commute. It
+   is drawn as the **dotted outline** of the band it books, not as a pip and not
+   as the filled dashed band that shipped first: at the arc's own weight a
+   run-up reads as the meeting with a fault in it, where an outline says "this
+   footprint, none of the event in it" and a broken line says "estimate". And a
+   lead is measured back from `leaveBy` rather than from the start, so the
+   notification, the headline row and the tab title all count down to the minute
+   you have to go. `X-APPLE-TRAVEL-DURATION` on the wire, Apple's own spelling:
+   a private property would round-trip with nothing but circal, and Apple
+   Calendar already reserves the same window and raises the same alert off it.
 
 3. **Day-shape templates.** "Tuesday is a deep-work day": a named waking window and
    default calendar per weekday. Cheap — it is settings — and it feeds `freeGaps`,

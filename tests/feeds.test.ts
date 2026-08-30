@@ -155,6 +155,39 @@ describe("a subscription's busy/free travels with the mirror", () => {
     expect.soft(cached[0].free).toBe(true);
     expect.soft(cached[1].free).toBe(false);
   });
+
+  // Travel is the same class of fact as `TRANSP` — how much of the day this
+  // event takes — so it is mirrored on the same line and refused the same way
+  // when the publisher's value is not a travel time.
+  it("mirrors X-APPLE-TRAVEL-DURATION onto the cached event", async () => {
+    serve(
+      ICS(
+        VEVENT([
+          "UID:commute@example.com",
+          "DTSTART:20260308T090000",
+          "DTEND:20260308T100000",
+          "SUMMARY:Dentist",
+          "X-APPLE-TRAVEL-DURATION;VALUE=DURATION:PT30M",
+        ]),
+        VEVENT([
+          "UID:absurd@example.com",
+          "DTSTART:20260308T110000",
+          "DTEND:20260308T120000",
+          "SUMMARY:Standup",
+          "X-APPLE-TRAVEL-DURATION:PT99999H",
+        ]),
+      ),
+    );
+    const { refreshFeed } = await import("@/lib/feeds");
+    const { store } = await import("@/lib/store");
+
+    const calendar = store.addFeed("https://example.com/cal.ics", "example.com");
+    await refreshFeed(calendar);
+
+    const cached = store.snapshot().feeds[calendar.id];
+    expect.soft(cached[0].travel).toBe(30);
+    expect.soft(cached[1].travel).toBe(0);
+  });
 });
 
 /* -------------------------------- errors ---------------------------------- */

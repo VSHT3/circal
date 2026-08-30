@@ -550,7 +550,11 @@ function LifeGrid({
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     paintReveal(ctx, box, field, reveal.get(), originRef.current, theme);
-  }, [box, reveal]);
+    // `theme` is not optional here: without it a theme switch left the field
+    // painted in the old preset's greys, which on paper is a light ground
+    // carrying midnight's near-white ink. The effect below lists it too, since
+    // it calls `drawField` with it directly.
+  }, [box, reveal, theme]);
 
   /* The canvases are external systems: they are written to, not rendered. */
   useEffect(() => {
@@ -575,7 +579,7 @@ function LifeGrid({
     canvas.width = field.width;
     canvas.height = field.height;
     paint();
-  }, [box, layout, span, density, today, found, paint]);
+  }, [box, layout, span, density, today, found, theme, paint]);
 
   useMotionValueEvent(reveal, "change", paint);
 
@@ -1394,7 +1398,9 @@ function Loupe({
       );
     }
     return { cells: nodes, carried: counted };
-  }, [layout, span, year, today, density, found, theme]);
+    // Both: `theme` is read straight by `washHex`, and `P` is the palette the
+    // rest comes from — one stable object per theme.
+  }, [layout, span, year, today, density, found, theme, P]);
 
   const months = useMemo(
     () => loupeMonths(span, year, layout.weekStart),

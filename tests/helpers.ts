@@ -179,6 +179,8 @@ export function event(
     icon: "",
     // Busy, which is what an event says when it says nothing.
     free: false,
+    // Nowhere to travel from, the same nothing again.
+    travel: 0,
     // Following the setting, which is the same kind of nothing: this event
     // has no opinion about how much warning it wants.
     remindLead: REMIND_INHERIT,

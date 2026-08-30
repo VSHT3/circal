@@ -318,7 +318,7 @@ function decodeRule(field: string): Record<string, unknown> {
  * whatever is on the object — the same walk `duplicateOf` makes, and for
  * two of the fields the same answer.
  *
- * Travelling: `title`, the instants, `allDay`, `free`, `tzid`
+ * Travelling: `title`, the instants, `allDay`, `free`, `travel`, `tzid`
  * (the zone the *rule* is read against, so a series shared out of a feed
  * still lands on the right days), `location`, `url`, `notes`, `color`,
  * `icon` and the whole `Recurrence`. That is what the sender was looking
@@ -396,6 +396,12 @@ export function encodeShare(event: ShareDraft): ShareEncoded {
       escapeText(event.notes),
       escapeText(event.color),
       escapeText(event.icon),
+      // Appended after the last slot, never a flag bit: `free` is one because
+      // it is a boolean, and a count of minutes is not. `0` writes an empty
+      // field, which `pack` then drops with the other trailing empties, so an
+      // untravelled event's link is exactly the length it was before this
+      // field existed.
+      event.travel > 0 ? b36(event.travel) : "",
     ],
     "~",
   );
@@ -458,6 +464,12 @@ export function decodeShare(token: string, calendarId: string): ShareDecoded {
     title: parts[3] ?? "",
     allDay,
     free: (flags & FREE) !== 0,
+    // The one appended slot, and a number rather than a flag bit. Handed over
+    // raw like every other field here: `readEvent`'s own `readTravel` is the
+    // bounds check, and `fromB36` is `NaN` on the mangled tail of a truncated
+    // link where `Number` would read a prefix, so both halves of a bad field
+    // land on `0`.
+    travel: fromB36(parts[11] ?? ""),
     tzid: parts[5] ?? "",
     location: parts[6] ?? "",
     url: parts[7] ?? "",

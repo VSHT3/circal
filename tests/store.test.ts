@@ -1535,6 +1535,10 @@ describe("hydrateEvents", () => {
     // The blob predates busy/free entirely, and every event in one was busy:
     // an absent boolean must not reach `freeGaps` as `undefined`.
     expect.soft(hydrated.free).toBe(false);
+    // And it predates travel: an absent run-up must reach `travelMinutes` and
+    // `bookedBlock` as `0` rather than as `undefined`, which arrives at the
+    // arithmetic as `NaN` and costs the day its whole booked total.
+    expect.soft(hydrated.travel).toBe(0);
     // The same blob predates per-event reminder leads, and an absent one must
     // reach `leadOf` as the inheriting state rather than as `undefined`,
     // which is none of the three and would silently stop matching any of
@@ -1560,6 +1564,20 @@ describe("hydrateEvents", () => {
     );
     const s = await freshStore(storage);
     expect(s.store.snapshot().events[0].free).toBe(true);
+  });
+
+  // The same fast path, and the same loss one field further: the destructure
+  // has to name `travel` or a typed commute comes back as no commute, which is
+  // an arc that silently stops reserving the time it was given.
+  it("keeps a stored travel time across a reload", async () => {
+    const storage = new MemoryStorage();
+    const commute = event({ title: "Studio", start: "2026-03-08 09:30", travel: 25 });
+    storage.setItem(
+      KEY,
+      JSON.stringify({ schema: 2, events: [commute], calendars: [], feeds: {}, settings: {} }),
+    );
+    const s = await freshStore(storage);
+    expect(s.store.snapshot().events[0].travel).toBe(25);
   });
 
   // The same fast path again, and the reason the guest list is in the shape

@@ -98,7 +98,7 @@ export interface MirrorContents extends Mirrored {
    * Read so a writer can refuse a file it does not fully understand. An older
    * reader round-tripping a newer file drops every field it has no name for,
    * silently, on a write it thought was a patch: that is measured rather than
-   * feared — a stale published bundle lost nine keys per document that way.
+   * feared — a stale published bundle drops ten keys per document that way.
    * Refusing is `assertZoneAllowsMutation`'s answer to the same shape of
    * question, one field over.
    */

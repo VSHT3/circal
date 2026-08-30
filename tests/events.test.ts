@@ -15,6 +15,8 @@ import {
   PALETTE,
   DEFAULT_WAKING,
   SLOT_SHARE_MIN,
+  TRAVEL_MAX,
+  bookedBlock,
   clashesWith,
   clipToDay,
   colorOf,
@@ -38,10 +40,13 @@ import {
   occurrencesOn,
   planEvents,
   taskOccurrences,
+  readTravel,
   scoreEvent,
   scoreEventBy,
   spanLabel,
   statusOf,
+  travelMinutes,
+  leaveBy,
   type Gap,
 } from "@/lib/events";
 import { MINUTES_PER_DAY, zonedToUtc } from "@/lib/time";
@@ -489,7 +494,7 @@ describe("dayAgenda: ordering", () => {
 /* -------------------------------- free time -------------------------------- */
 
 describe("freeGaps", () => {
-  type Spec = { start: string; end: string; allDay?: boolean; free?: boolean };
+  type Spec = { start: string; end: string; allDay?: boolean; free?: boolean; travel?: number };
   const build = (specs: Spec[]) =>
     occurrencesOn(
       specs.map((s) => event(s)),
@@ -574,6 +579,24 @@ describe("freeGaps", () => {
         { start: 780, end: DEFAULT_WAKING.to },
       ],
     },
+    {
+      // The arithmetic half of travel time: a commute is time spent, so the
+      // gap in front of the meeting ends when you have to leave for it.
+      name: "a travelled event books its run-up as well as itself",
+      events: [{ start: "2026-03-08 09:00", end: "2026-03-08 10:00", travel: 25 }],
+      min: 30,
+      expected: [
+        { start: DEFAULT_WAKING.from, end: 515 },
+        { start: 600, end: DEFAULT_WAKING.to },
+      ],
+    },
+    {
+      // One rule, both halves: a free event's travel is as inert as the event.
+      name: "a free event's travel books nothing",
+      events: [{ start: "2026-03-08 09:00", end: "2026-03-08 10:00", free: true, travel: 60 }],
+      min: 30,
+      expected: [{ start: DEFAULT_WAKING.from, end: DEFAULT_WAKING.to }],
+    },
   ];
 
   it.each(rows)("$name", ({ events, min, expected }) => {
@@ -582,9 +605,124 @@ describe("freeGaps", () => {
   });
 });
 
+describe("travel time", () => {
+  const occurrence = (spec: { start: string; end: string; free?: boolean; travel?: number }) =>
+    occurrencesOn([event(spec)], [cal], day("2026-03-08"))[0];
+
+  it("books the run-up ahead of the event and nothing behind it", () => {
+    const occ = occurrence({ start: "2026-03-08 09:00", end: "2026-03-08 10:00", travel: 25 });
+    expect.soft(travelMinutes(occ)).toBe(25);
+    expect.soft(bookedBlock(occ)).toEqual({ start: 515, end: 600 });
+  });
+
+  // The clipping rule, and the reason there are two readers of one field: the
+  // face has no earlier minute to draw on, and the reminder does not care.
+  it("clips the drawn run-up to the day but leaves leaveBy on the true instant", () => {
+    const occ = occurrence({ start: "2026-03-08 00:10", end: "2026-03-08 01:00", travel: 30 });
+    expect.soft(travelMinutes(occ)).toBe(10);
+    expect.soft(bookedBlock(occ)).toEqual({ start: 0, end: 60 });
+    expect.soft(new Date(leaveBy(occ))).toBeSameInstantAs(at("2026-03-07 23:40"));
+  });
+
+  it("leaves a free event's travel inert in both halves", () => {
+    const occ = occurrence({
+      start: "2026-03-08 09:00",
+      end: "2026-03-08 10:00",
+      free: true,
+      travel: 60,
+    });
+    expect.soft(bookedBlock(occ)).toBeNull();
+    expect.soft(new Date(leaveBy(occ))).toBeSameInstantAs(at("2026-03-08 09:00"));
+  });
+
+  // The tail of a multi-day event starts at midnight on this face, so there is
+  // nothing in front of it to lead in from — it is already running.
+  it("draws no run-up on the continuing day of an event that began earlier", () => {
+    const occs = occurrencesOn(
+      [event({ start: "2026-03-07 22:00", end: "2026-03-08 02:00", travel: 30 })],
+      [cal],
+      day("2026-03-08"),
+    );
+    expect.soft(occs[0].continuesBefore).toBe(true);
+    expect.soft(travelMinutes(occs[0])).toBe(0);
+  });
+
+  // A commute is a clash: the point of typing one is that those minutes stop
+  // being offered, and `clashesWith` reads the same `bookedBlock` freeGaps does.
+  it("clashes with a span that only overlaps the run-up", () => {
+    const occs = occurrencesOn(
+      [event({ id: "dentist", start: "2026-03-08 09:00", end: "2026-03-08 10:00", travel: 30 })],
+      [cal],
+      day("2026-03-08"),
+    );
+    expect.soft(clashesWith(occs, 8 * 60, 8 * 60 + 45).map((o) => o.event.id)).toEqual(["dentist"]);
+    expect.soft(clashesWith(occs, 7 * 60, 8 * 60 + 30)).toEqual([]);
+  });
+
+  // Lane packing measures the footprint, or the run-up is drawn straight
+  // through the arc before it on the same lane.
+  it("pushes an event onto an inner lane when its run-up reaches the one before", () => {
+    const earlier = event({ id: "earlier", start: "2026-03-08 08:00", end: "2026-03-08 08:50" });
+    const travelled = event({
+      id: "travelled",
+      start: "2026-03-08 09:00",
+      end: "2026-03-08 10:00",
+      travel: 30,
+    });
+    const { timed } = dayAgenda([earlier, travelled], [cal], day("2026-03-08"));
+    expect.soft(timed.map((o) => [o.event.id, o.lane])).toEqual([
+      ["earlier", 0],
+      ["travelled", 1],
+    ]);
+    // Without the travel the same pair shares the outer lane, which is the
+    // control the assertion above needs to mean anything.
+    const plain = dayAgenda([earlier, { ...travelled, travel: 0 }], [cal], day("2026-03-08")).timed;
+    expect.soft(plain.map((o) => o.lane)).toEqual([0, 0]);
+  });
+
+  // The pad is the arc's own. A run-up is butt-capped, overhangs nothing, and
+  // so gets no tolerance: leaving exactly as the arc before it ends shares the
+  // lane, and leaving one minute earlier does not. Six minutes of slack here
+  // put a dash across that arc on screen.
+  it("shares the lane when the run-up leaves exactly as the arc before it ends", () => {
+    const earlier = event({ id: "earlier", start: "2026-03-08 08:00", end: "2026-03-08 08:50" });
+    const lanesFor = (travel: number) =>
+      dayAgenda(
+        [
+          earlier,
+          event({ id: "after", start: "2026-03-08 09:00", end: "2026-03-08 10:00", travel }),
+        ],
+        [cal],
+        day("2026-03-08"),
+      ).timed.map((o) => o.lane);
+    expect.soft(lanesFor(10)).toEqual([0, 0]);
+    expect.soft(lanesFor(11)).toEqual([0, 1]);
+  });
+
+  // One validator, five readers: the bounds live here so no call site spells
+  // them a second time. `readEvent`'s own table proves the wiring.
+  it.each([
+    { value: undefined, read: 0 },
+    { value: "20", read: 0 },
+    { value: -5, read: 0 },
+    { value: 19.5, read: 0 },
+    { value: TRAVEL_MAX + 1, read: 0 },
+    { value: 25, read: 25 },
+    { value: TRAVEL_MAX, read: TRAVEL_MAX },
+  ])("readTravel reads $value as $read", ({ value, read }) => {
+    expect(readTravel(value)).toBe(read);
+  });
+});
+
 describe("dayLoad", () => {
   const load = (
-    specs: Array<{ start: string; end: string; allDay?: boolean; free?: boolean }>,
+    specs: Array<{
+      start: string;
+      end: string;
+      allDay?: boolean;
+      free?: boolean;
+      travel?: number;
+    }>,
     waking: { from: number; to: number } = DEFAULT_WAKING,
   ) =>
     dayLoad(
@@ -611,6 +749,15 @@ describe("dayLoad", () => {
       { start: "2026-03-08 10:00", end: "2026-03-08 12:00" },
     ]);
     expect(overlapping?.booked).toBe(180);
+  });
+
+  // Travel is time spent, so the run-up is in the booked total and off the
+  // free window — the whole point of typing one is that those minutes stop
+  // being offered.
+  it("counts a run-up as booked and takes it off the free window", () => {
+    const commute = load([{ start: "2026-03-08 09:00", end: "2026-03-08 10:00", travel: 25 }])!;
+    expect(commute.booked).toBe(85);
+    expect(commute.free).toBe(DEFAULT_WAKING.to - DEFAULT_WAKING.from - 85);
   });
 
   // Booked is the whole revolution, free is only the given window, and they

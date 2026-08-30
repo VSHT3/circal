@@ -208,7 +208,7 @@ result at 5,000, newest first.
 `undo`, `redo`, `restore`, `adopt`, `sane`), `src/lib/backup.ts` (`readEvent`, `readCalendar`,
 `readBackup`, `exportBackup`), `src/lib/mirror.ts` (`Mirrored`, `mirrorDigest`), `mcp/domain.ts`
 (its patch path round-trips whole documents, so a field it does not know is a field it silently
-drops — the `circal-mcp@0.1.0` lesson, measured at nine keys).
+drops — the `circal-mcp@0.1.0` lesson, measured at ten keys).
 
 ---
 

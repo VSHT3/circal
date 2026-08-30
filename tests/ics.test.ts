@@ -300,6 +300,66 @@ describe("TRANSP round-trip", () => {
   });
 });
 
+/* ------------------------- X-APPLE-TRAVEL-DURATION ------------------------- *
+ * The run-up on the wire, in Apple Calendar's own spelling: it writes this
+ * property, reserves the window as busy and raises its "time to leave" alert
+ * from it, so a travel time survives a trip through a calendar circal does
+ * not own. A private `X-CIRCAL-` line would round-trip with nothing but
+ * circal. `parseDuration` reads it and `readTravel` is the only bounds check,
+ * which is what every hostile case below lands on. */
+
+describe("X-APPLE-TRAVEL-DURATION round-trip", () => {
+  const travelled = (...lines: string[]) =>
+    fromIcs(
+      singleVevent([
+        "SUMMARY:Dentist",
+        "DTSTART:20260615T090000Z",
+        "DTEND:20260615T100000Z",
+        ...lines,
+      ]),
+    ).events[0];
+
+  // Every form `parseDuration` can read arrives as minutes: one parser, so
+  // hours and the mixed form need no second opinion here.
+  it.each([
+    { name: "PT30M", value: "PT30M", minutes: 30 },
+    { name: "an hour in hours", value: "PT1H", minutes: 60 },
+    { name: "the mixed form", value: "PT1H30M", minutes: 90 },
+  ])("reads $name as minutes", ({ value, minutes }) => {
+    expect(travelled(`X-APPLE-TRAVEL-DURATION;VALUE=DURATION:${value}`).travel).toBe(minutes);
+  });
+
+  // `readTravel` refuses a fractional minute rather than rounding it: a
+  // guessed commute is worse than none, and `parseDuration` keeps the seconds
+  // it was given, so the refusal is the model's and happens once.
+  it.each([
+    { name: "no property at all", lines: [] },
+    { name: "a duration past the ceiling", lines: ["X-APPLE-TRAVEL-DURATION:PT99999H"] },
+    { name: "a negative duration", lines: ["X-APPLE-TRAVEL-DURATION:-PT30M"] },
+    { name: "a fractional minute", lines: ["X-APPLE-TRAVEL-DURATION:PT90S"] },
+    { name: "garbage text", lines: ["X-APPLE-TRAVEL-DURATION:soon-ish"] },
+  ])("reads $name as no travel", ({ lines }) => {
+    expect(travelled(...lines).travel).toBe(0);
+  });
+
+  it("writes the property for a travelled event and nothing at all for an untravelled one", () => {
+    const commute = event({ title: "Dentist", start: "2026-03-09 09:00", travel: 30 });
+    const desk = event({ title: "Review", start: "2026-03-09 09:00" });
+    // Zero is the default, so a line naming it names nothing — `TRANSP`'s own
+    // rule, and the reader reads its absence as no travel either way.
+    expect.soft(toIcs([commute], "Work")).toContain("X-APPLE-TRAVEL-DURATION;VALUE=DURATION:PT30M");
+    expect.soft(toIcs([desk], "Work")).not.toContain("X-APPLE-TRAVEL");
+  });
+
+  it("survives the whole trip out and back", () => {
+    const commute = event({ title: "Dentist", start: "2026-03-09 09:00", travel: 45 });
+    const { events } = fromIcs(toIcs([commute], "Work"));
+    expect.soft(events).toHaveLength(1);
+    expect.soft(events[0].travel).toBe(45);
+    expect.soft(events[0].title).toBe("Dentist");
+  });
+});
+
 /* ---------------------------------- VALARM ---------------------------------- *
  * The per-event reminder on the wire, and the second row to leave the block
  * above: a `TRIGGER` is how every other calendar says "warn me this far

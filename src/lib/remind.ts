@@ -10,6 +10,7 @@
 import {
   REMIND_INHERIT,
   REMIND_SILENT,
+  leaveBy,
   occurrencesOn,
   ownLead,
   taskOccurrences,
@@ -85,6 +86,11 @@ export interface Reminder {
   /** Whole minutes from `now` to `start`, as `leadOf` resolved it. `0` means
    *  it is starting. */
   lead: number;
+  /** Minutes of travel the lead was measured back from, `0` when the event
+   *  named none. What lets the text say "leave" rather than "starts" without
+   *  reading the event again — and always `0` on a task, which has no commute
+   *  to a deadline. */
+  travel: number;
   /** `"starts"` for an event or a task's plan; `"due"` for a deadline — one
    *  word, and it is the difference between being told to do something and
    *  being told to be somewhere. */
@@ -104,7 +110,7 @@ export interface Reminder {
  * nothing here decides which of the three states an event is in.
  *
  * The test is unchanged in every way that made it correct, only restated per
- * occurrence: the moment a reminder should be raised is `start - lead`, and
+ * occurrence: the moment a reminder should be raised is `leaveBy - lead`, and
  * it is raised when that instant falls in `[minute, minute + 60_000)` —
  * half-open, so a tick never fires the same occurrence twice and none falls
  * through the gap between two ticks. It never catches up: an occurrence
@@ -112,6 +118,12 @@ export interface Reminder {
  * absence — a notification for a meeting that started an hour ago (tab
  * asleep, lid shut) is worse than none, which is the whole reason this
  * checks "due this minute" rather than "not yet fired".
+ *
+ * `leaveBy`, not `start`, is what a lead is measured back from, and that is
+ * the whole of what travel time cost this file: ten minutes' warning on an
+ * event with a twenty-five minute commute arrives thirty-five minutes ahead,
+ * because the thing you need warning about is leaving. An event with no
+ * travel leaves at its own start, so nothing changed for one.
  */
 export function dueReminders(
   events: CalEvent[],
@@ -128,18 +140,22 @@ export function dueReminders(
   // exactly on the minute, which is all of them.
   const minute = Math.floor(now.getTime() / MINUTE_MS) * MINUTE_MS;
 
-  // One day per distinct lead in use, because a lead is now a property of the
-  // event rather than one number for the whole calendar: a 60-minute lead
-  // legitimately looks into tomorrow while a 0-minute one looks at today, and
-  // an occurrence can only come due `lead` minutes before it starts, so the
-  // day it starts on is the only day worth asking about. Distinct leads, not
-  // events — a calendar of two hundred meetings on the setting's own lead is
-  // still one query, which is what it was before this field existed.
+  // One day per distinct total warning in use, because the lead is now a
+  // property of the event rather than one number for the whole calendar: a
+  // 60-minute lead legitimately looks into tomorrow while a 0-minute one
+  // looks at today, and an occurrence can only come due that far before it
+  // starts, so the day it starts on is the only day worth asking about.
+  // Travel is part of the reach for the same reason a lead is — an hour's
+  // commute looks an hour further ahead — and it is added here rather than
+  // per occurrence because this loop is choosing which *days* to expand.
+  // Distinct totals, not events: a calendar of two hundred meetings on the
+  // setting's own lead is still one query, which is what it was before either
+  // field existed.
   const days = new Map<number, Date>();
   for (const event of events) {
     const lead = leadOf(event, calendars, defaultLead);
     if (lead === null) continue;
-    const day = startOfDay(new Date(minute + lead * MINUTE_MS));
+    const day = startOfDay(new Date(minute + (lead + event.travel) * MINUTE_MS));
     days.set(day.getTime(), day);
   }
 
@@ -163,7 +179,7 @@ export function dueReminders(
       if (seen.has(occ.key)) continue;
       if (fired.has(occ.key)) continue;
 
-      const raiseAt = occ.start.getTime() - lead * MINUTE_MS;
+      const raiseAt = leaveBy(occ) - lead * MINUTE_MS;
       if (raiseAt < minute || raiseAt >= minute + MINUTE_MS) continue;
 
       seen.add(occ.key);
@@ -172,6 +188,9 @@ export function dueReminders(
         title: occ.event.title || "Untitled",
         start: occ.start,
         lead,
+        // Minutes of it, so `reminderText` can say "leave" rather than
+        // "starts" without asking the event a second time.
+        travel: Math.round((occ.start.getTime() - leaveBy(occ)) / MINUTE_MS),
         kind: "starts",
         event: occ.event,
         task: null,
@@ -208,6 +227,7 @@ export function dueReminders(
         title: task.title || "Untitled",
         start: new Date(plan.start),
         lead,
+        travel: 0,
         kind: "starts",
         event: null,
         task,
@@ -223,6 +243,7 @@ export function dueReminders(
       title: task.title || "Untitled",
       start: new Date(task.due),
       lead,
+      travel: 0,
       kind: "due",
       event: null,
       task,
@@ -238,8 +259,16 @@ export function reminderText(reminder: Reminder, clock: Clock): { title: string;
   // An empty notification title renders as the page origin instead, which
   // reads as more alarming than a placeholder ever would — the builder
   // already resolved that.
-  const verb = reminder.kind === "due" ? "Due now" : "Starts now";
-  const when = reminder.lead === 0 ? verb : `in ${formatDuration(reminder.lead)}`;
+  //
+  // A travelled event is told to leave rather than told it starts: the minute
+  // this notification lands on is the one you have to go, and "starts in 35m"
+  // beside a 09:00 time would read as an arithmetic error rather than as a
+  // commute. The event's own time still prints, because where you are going
+  // is the thing being said and when it begins is how you recognise it.
+  const leaving = reminder.kind === "starts" && reminder.travel > 0;
+  const verb = leaving ? "Leave now" : reminder.kind === "due" ? "Due now" : "Starts now";
+  const when =
+    reminder.lead === 0 ? verb : `${leaving ? "Leave in" : "in"} ${formatDuration(reminder.lead)}`;
   return { title: reminder.title, body: `${when} · ${formatTimeShort(reminder.start, clock)}` };
 }
 
@@ -261,6 +290,12 @@ export function reminderText(reminder: Reminder, clock: Clock): { title: string;
  * already uses for exactly this state. Its own end is deliberately not
  * counted down to: that is a second sentence on a line with room for one.
  *
+ * Counted to `leaveBy`, which is the same instant `dueReminders` measures
+ * its lead back from and the same one the headline row prints. On an event
+ * with no travel that is its start, so this is unchanged for one; on a
+ * travelled event the tab agreeing with the notification and the card is the
+ * whole reason the three read one function.
+ *
  * Returns the whole suffix, ready to append to whatever the tab's own title
  * already is — `null` when there is nothing due today.
  */
@@ -279,6 +314,6 @@ export function titleCountdown(
     .find((occ) => !occ.event.allDay && !occ.done && occ.end.getTime() > now.getTime());
   if (!next) return null;
   const title = next.event.title || "Untitled";
-  const minutes = Math.floor((next.start.getTime() - now.getTime()) / MINUTE_MS);
+  const minutes = Math.floor((leaveBy(next) - now.getTime()) / MINUTE_MS);
   return `· ${minutes > 0 ? formatDuration(minutes) : "now"} · ${title}`;
 }

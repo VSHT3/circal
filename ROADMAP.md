@@ -70,9 +70,6 @@ auto-schedule) the delight. Two amendments to the spec:
 
 ## Tier 5 · Ink-earners (small; between big things)
 
-- **IDEAS #2, travel time.** A hand-typed "leave by" pip ahead of an arc — the most
-  clock-face-native feature on any of these lists, one `CalEvent` field through
-  the `readEvent` checklist, and reminders get it for free.
 - **Typical-weekday ghost** (TODO.md). Past instances of the viewed weekday, faint,
   on the same lanes. The one idea that says something the calendar does not
   literally contain.

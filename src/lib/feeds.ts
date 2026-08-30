@@ -88,6 +88,10 @@ export async function refreshFeed(calendar: Calendar): Promise<void> {
         // subscription is where an event marked free somewhere else arrives,
         // and until this line it arrived booking the hour.
         free: e.free,
+        // A subscribed event keeps the travel its publisher declared, and it
+        // books the run-up here for the same reason `free` is mirrored: the
+        // day's arithmetic must agree with the calendar it came from.
+        travel: e.travel,
         // A subscription's own alarm, mirrored like everything else here: a
         // shared calendar that asks for an hour's warning gets one, and one
         // that asks for nothing falls back to the setting rather than to

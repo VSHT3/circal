@@ -51,6 +51,7 @@ import {
   readRecurrence,
   readRemindLead,
   readStamp,
+  readTravel,
   type CalEvent,
   type Calendar,
   type Grave,
@@ -110,9 +111,9 @@ const FEED_BUDGET = 2_000_000;
  * Still 2 through the `clock` default going to `24h`, too. A default is what a
  * blob says when it says nothing; every blob that already exists says `12h` or
  * `24h` out loud, and neither of those changed meaning.
- * Still 2 through `moon`, `remind`, `remindLead` and `free` as well: more
- * fields, filled in on read, none of them a change
- * to what anything already stored means — `moon` arrives from a stored
+ * Still 2 through `moon`, `remind`, `remindLead`, `free` and `travel` as well:
+ * more fields, filled in on read, none of them a change to what anything
+ * already stored means — `moon` arrives from a stored
  * `moonPhase` through `migrateSettings`, which is a shape changing rather
  * than a meaning. And still 2 through the per-event `remindLead` override:
  * an event without one inherits, which is exactly what every event in every
@@ -670,6 +671,7 @@ function seed(): CalEvent[] {
     color: "",
     icon: "",
     free: false,
+    travel: 0,
     remindLead: REMIND_INHERIT,
     organizer: null,
     attendees: [],
@@ -700,7 +702,14 @@ function seed(): CalEvent[] {
     // label and this is not a second one — and it is invisible as a feature
     // until two events on one calendar disagree about it.
     make("Packing", "personal", at(13, 15), at(13, 50), { color: PALETTE[6] }),
-    make("Design review", "work", at(14, 0), at(16, 20), { location: "Studio" }),
+    // The one seeded event with somewhere to be: `Studio` is a place you
+    // travel to, so the dashed run-up in front of this arc is where a first
+    // run meets the feature without being told it exists. Ten minutes, so it
+    // leaves exactly as `Packing` ends: a run-up is part of the arc's
+    // footprint and gets no cap tolerance, so anything longer reaches back
+    // over that arc and takes the lane below — which costs the afternoon
+    // stack the adjacent pair it exists to show.
+    make("Design review", "work", at(14, 0), at(16, 20), { location: "Studio", travel: 10 }),
     // Sky, not the Work violet under it: two arcs of one colour on adjacent
     // lanes are told apart by radius alone, and this pair is the only place
     // the face says anything about overlapping at all.
@@ -937,6 +946,7 @@ function hydrateEvents(value: unknown): CalEvent[] {
       seriesKey,
       icon,
       free,
+      travel,
       remindLead,
       organizer,
       attendees,
@@ -963,20 +973,27 @@ function hydrateEvents(value: unknown): CalEvent[] {
       typeof seriesKey === "string" &&
       typeof icon === "string" &&
       typeof free === "boolean" &&
-      // The one field asked about validity rather than only shape, and the
+      // The first field asked about validity rather than only shape, and the
       // only one where the two differ: every neighbour here is a boolean, a
       // string or an array, where being the right type *is* being legal, but
       // a lead has a range. A stored `4000000` is a number, and left alone it
       // makes `dueReminders` scan a day seven years out, every minute, for
       // ever. Two integer comparisons in the common case is what that costs.
       remindLead === readRemindLead(remindLead) &&
-      // Shape, like every neighbour but the lead: a stored guest list was
-      // written by this app off `readGuests`, so being an array *is* being
-      // legal here, and the boundaries that face a stranger — an `.ics` and a
-      // backup's JSON — are the ones that re-read every row. `organizer` is
-      // asked for null-or-object because `null` is its ordinary value and the
-      // fast path has to recognise it; the count is asked about validity for
-      // one cheap reason, that a stored `NaN` would print "and NaN others".
+      // Validity, matching the lead rather than `free`, because travel is a
+      // bounded number and being a number is not being legal: a stored `-5`
+      // draws a run-up backwards out of the arc and a stored `1e9` dashes the
+      // whole ring. `readTravel` is the one place that decides what a legal
+      // travel is, so the fast path asks it rather than re-spelling the bounds.
+      travel === readTravel(travel) &&
+      // Shape, like every neighbour but the lead and travel: a stored guest
+      // list was written by this app off `readGuests`, so being an array *is*
+      // being legal here, and the boundaries that face a stranger — an `.ics`
+      // and a backup's JSON — are the ones that re-read every row. `organizer`
+      // is asked for null-or-object because `null` is its ordinary value and
+      // the fast path has to recognise it; the count is asked about validity
+      // for one cheap reason, that a stored `NaN` would print "and NaN
+      // others".
       (organizer === null || typeof organizer === "object") &&
       Array.isArray(attendees) &&
       Number.isInteger(attendeeCount) &&
@@ -1002,6 +1019,11 @@ function hydrateEvents(value: unknown): CalEvent[] {
       // path returns the event untouched, so a field left out of it is a
       // field a stored blob never gains.
       free: free === true,
+      // No travel is what every event in a blob written before this field was
+      // already doing, so the absent value and `0` say the same thing —
+      // `readTravel` reads `undefined` as `0` for exactly that reason, which
+      // is why there is no inline test here to disagree with the bounds.
+      travel: readTravel(travel),
       // In the shape question above for the same reason `free` is: a field
       // left out of the fast path is a field a stored blob never gains, so
       // an event written before this one existed would keep arriving without
@@ -2479,6 +2501,9 @@ export function draftEvent(
     icon: "",
     // Busy: a gesture that named a time meant that time to be spoken for.
     free: false,
+    // None: a drag named when to be somewhere, never how long getting there
+    // takes. Travel is typed, so a gesture cannot have meant one.
+    travel: 0,
     // Inheriting, which is the only answer a gesture gives: the drag named a
     // time, not how much warning it wants about it.
     remindLead: REMIND_INHERIT,

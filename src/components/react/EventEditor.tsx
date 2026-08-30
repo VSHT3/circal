@@ -12,6 +12,7 @@ import {
   PARTSTAT_LABELS,
   REMIND_INHERIT,
   REMIND_SILENT,
+  TRAVEL_MAX,
   ownLead,
   colorOf,
   REPEATS,
@@ -31,6 +32,7 @@ import {
   dayKey,
   daysBetween,
   formatRelativeDay,
+  formatTimeShort,
   fromDayKey,
   minutesOfDay,
   startOfDay,
@@ -814,6 +816,40 @@ export default function EventEditor({
                       />
                     </span>
                   </Row>
+
+                  {/* The row prints the minute it produces, because the number
+                  on its own asks the reader to do the arithmetic the app is
+                  for: `20 min · leave by 08:40` is the answer, and 20 is only
+                  the input. Typed rather than picked from a menu of presets —
+                  a commute is 23 minutes as often as it is 15, and this app
+                  has no geo API to guess with, deliberately.
+
+                  Hidden on an all-day event and on a free one, both for the
+                  Remind row's reason below: there would be no effect to have.
+                  An all-day event has no minute to leave for, and a free
+                  event's travel is inert everywhere (`bookedBlock` drops the
+                  occurrence whole, and `leaveBy` raises no early reminder for
+                  one). The cause is the row directly above this, in view. */}
+                  {!draft.allDay && !draft.free && (
+                    <Row label="Travel">
+                      <span className="flex flex-wrap items-center gap-2">
+                        <NumberField
+                          value={draft.travel}
+                          onChange={(travel) => patch({ travel })}
+                          label="Travel time in minutes"
+                          suffix="min"
+                          min={0}
+                          max={TRAVEL_MAX}
+                        />
+                        {draft.travel > 0 && (
+                          <span className="caption">
+                            leave by{" "}
+                            {formatTimeShort(new Date(draft.start - draft.travel * 60_000), clock)}
+                          </span>
+                        )}
+                      </span>
+                    </Row>
+                  )}
 
                   {/* One row, three states, and the default one reads as
                   inheritance rather than as a number — somebody who changes

@@ -231,6 +231,35 @@ export function readRemindLead(value: unknown): number {
   return value;
 }
 
+/* --------------------------------- travel --------------------------------- */
+
+/**
+ * The longest travel this app will store, in minutes: one revolution.
+ *
+ * It bounds nothing the editor can write (that field stops at four hours). It
+ * bounds what a hand-edited backup and a foreign `X-APPLE-TRAVEL-DURATION`
+ * may say, so a run-up cannot arrive longer than the face that has to draw
+ * it, and cannot make `dueReminders` look a fortnight ahead every minute.
+ */
+export const TRAVEL_MAX = MINUTES_PER_DAY;
+
+/**
+ * A stored or imported value read as travel minutes. Unreadable is `0`, which
+ * is what every event written before this field existed already was.
+ *
+ * One validator, five readers, for the reason `readRemindLead` is one:
+ * `backup.readEvent`, `store.hydrateEvents`, `ics.ts`'s duration reader,
+ * `share.ts`'s decoder and the editor's own field all have to agree about
+ * what a legal travel time is, and a copy of the bounds in each would be five
+ * opinions. Whole minutes only: a duration of ninety seconds is not a commute
+ * this app can count down in, and rounding it would be a guess.
+ */
+export function readTravel(value: unknown): number {
+  if (typeof value !== "number" || !Number.isInteger(value)) return 0;
+  if (value < 0 || value > TRAVEL_MAX) return 0;
+  return value;
+}
+
 /* --------------------------------- guests --------------------------------- */
 
 /**
@@ -577,6 +606,34 @@ export interface CalEvent extends Recurrence {
    */
   free: boolean;
   /**
+   * Minutes of travel before this event, typed by hand. `0` is no travel and
+   * the absent value both.
+   *
+   * Hand-typed on purpose. An estimate from a geo API is a network request to
+   * somebody else on every event carrying an address, which is the rule
+   * `location` already lives under, and the number a person types is the one
+   * they actually act on.
+   *
+   * It is time spent, so it is booked: `bookedBlock` is the one place that
+   * says so, `freeGaps` and `clashesWith` both read it, and `dayLoad` counts
+   * the run-up in. That is what stops the palette's slot search and
+   * auto-schedule offering you your own commute. A **free** event's travel
+   * books nothing, for the reason the free event books nothing.
+   *
+   * Two readers, clipping differently, and the difference is deliberate. The
+   * face and the day's arithmetic ask `travelMinutes`, which clips the run-up
+   * to the day it is drawn on; a reminder asks `leaveBy`, which does not,
+   * because you leave at 23:40 for a meeting at 00:10 whatever the face is
+   * able to show. `lib/travel.ts` is an unrelated subject (moving events
+   * between time zones), and this field has nothing to do with it.
+   *
+   * `X-APPLE-TRAVEL-DURATION` on the wire, Apple's own spelling rather than
+   * an `X-CIRCAL-` one: a private property round-trips with nothing but this
+   * app, and Apple Calendar already reserves the same window and raises the
+   * same "time to leave" alert off it.
+   */
+  travel: number;
+  /**
    * How much warning this event gets, overriding `settings.remindLead` — the
    * same kind of field as `color`, and with the same default: name nothing
    * and follow what the app was told once, so changing that setting still
@@ -696,6 +753,45 @@ export interface Occurrence {
   done: boolean;
   /** 0 = outermost ring. Assigned by `packLanes`. */
   lane: number;
+}
+
+/**
+ * The run-up this occurrence draws and books ahead of its own start, in
+ * minutes of the day it is drawn on.
+ *
+ * Clipped to the day, which is every other span's rule here: a commute that
+ * begins before midnight shows the part that lands on this face and no more,
+ * and `continuesBefore` puts `startMin` at `0`, so the tail of a multi-day
+ * event correctly leads into nothing. The day *before* draws nothing either
+ * way, because an occurrence exists on a day when the event is running during
+ * it and travel is not the event.
+ *
+ * A task's occurrence never has one: a plan is the work, and a deadline is an
+ * instant you do not commute to.
+ */
+export function travelMinutes(occ: Occurrence): number {
+  if (occ.task) return 0;
+  return Math.min(occ.event.travel, occ.startMin);
+}
+
+/**
+ * The instant you have to leave to arrive on time, in epoch ms.
+ *
+ * Unclipped, `travelMinutes`' opposite half: what a reminder counts down to
+ * and what the headline row prints. The face cannot draw a run-up onto the
+ * previous day and does not try; a notification at 23:40 for a meeting at
+ * 00:10 is simply correct, and clipping it would silence exactly the commute
+ * most worth being told about.
+ *
+ * A **free** event leaves at its own start, which is to say it has no travel
+ * here either. Its run-up books nothing and draws nothing — `bookedBlock`
+ * drops the whole occurrence — and an app that stayed silent about a commute
+ * on the face while ringing about it in a notification would be holding two
+ * answers to one question. The editor hides the field for the same reason.
+ */
+export function leaveBy(occ: Occurrence): number {
+  if (occ.event.free) return occ.start.getTime();
+  return occ.start.getTime() - occ.event.travel * 60_000;
 }
 
 /* ------------------------------- occurrences ------------------------------ */
@@ -833,6 +929,17 @@ export function occurrencesOn(events: CalEvent[], calendars: Calendar[], day: Da
  * `pad` widens the overlap test by the arc's round caps, so two events that
  * merely touch (10:00–11:00, 11:00–12:00) still share a ring, while two that
  * would visually collide do not.
+ *
+ * An arc's footprint starts at its run-up, not at its start: travel is drawn
+ * on the same lane in the same width, so packing from `startMin` would put a
+ * commute straight through the meeting before it.
+ *
+ * And the pad is the arc's own, so a run-up does not get it. `pad` is there
+ * to absorb the round caps two abutting arcs overhang each other with — six
+ * minutes at this radius is about half a cap — while a run-up's leading end
+ * is butt-capped and overhangs nothing. Given the tolerance anyway it lay
+ * five minutes across the arc before it, which reads as a rendering fault
+ * where two kissing caps read as two events. Driven out in a browser.
  */
 function packLanes(occurrences: Occurrence[], pad = 6): Occurrence[] {
   const laneEnds: number[] = [];
@@ -845,7 +952,9 @@ function packLanes(occurrences: Occurrence[], pad = 6): Occurrence[] {
     // the outer ring during a booked hour is the honest picture of a deadline
     // during a meeting. A *plan* has width and packs like anything else.
     if (occ.task && occ.startMin === occ.endMin) return occ;
-    let lane = laneEnds.findIndex((end) => end <= occ.startMin + pad);
+    const travel = travelMinutes(occ);
+    const from = occ.startMin - travel;
+    let lane = laneEnds.findIndex((end) => end <= from + (travel > 0 ? 0 : pad));
     if (lane === -1) lane = laneEnds.length;
     laneEnds[lane] = occ.endMin;
     return { ...occ, lane };
@@ -901,6 +1010,8 @@ function taskEvent(task: Task, start: number, end: number): CalEvent {
     color: task.color,
     icon: task.icon,
     free: false,
+    // You do not commute to a deadline, and a plan is the work itself.
+    travel: 0,
     remindLead: REMIND_INHERIT,
     organizer: null,
     attendees: [],
@@ -1012,14 +1123,35 @@ export interface Gap {
 export const DEFAULT_WAKING = { from: 8 * 60, to: 22 * 60 };
 
 /**
+ * The minutes this occurrence takes off the day, or `null` when it takes
+ * none — the one statement of what "busy" means on a face.
+ *
+ * Three surfaces read it and so cannot come to disagree: `freeGaps` (and
+ * through it `dayLoad` and auto-schedule), `clashesWith`, and the dial, which
+ * draws exactly the block this returns. What does not book: an **all-day**
+ * event, which is context (an all-day "Berlin" does not stop you booking
+ * lunch); a **free** one, the placeholder the search exists to find room
+ * around; and anything with no width at all, which is how a due date's pip
+ * drops out without being named here.
+ *
+ * The block starts at the run-up, so a commute is time spent. That line is
+ * the point of the travel field; the drawing only shows it.
+ */
+export function bookedBlock(occ: Occurrence): Gap | null {
+  if (occ.event.allDay || occ.event.free) return null;
+  const start = occ.startMin - travelMinutes(occ);
+  return occ.endMin > start ? { start, end: occ.endMin } : null;
+}
+
+/**
  * The holes in a day, at least `minMinutes` wide, inside `[from, to]`.
  *
  * The dial already makes gaps the most legible thing on the face; this only
- * makes them addressable. Two kinds of occurrence do not occupy a gap. An
- * all-day event never did — an all-day "Berlin" does not stop you booking
- * lunch — and a **free** one does not either: it is exactly the placeholder
- * this function exists to find room around, and counting it made the palette
- * refuse a slot that a birthday was the only thing in.
+ * makes them addressable. What counts as taken is `bookedBlock`'s answer
+ * rather than this function's, so the totals line, the slot search and the
+ * clash notice cannot drift apart: an all-day event never occupied a gap, a
+ * **free** one is exactly the placeholder this exists to find room around,
+ * and a travelled event brings its run-up with it.
  */
 export function freeGaps(
   occurrences: Occurrence[],
@@ -1028,8 +1160,9 @@ export function freeGaps(
   to: number,
 ): Gap[] {
   const busy = occurrences
-    .filter((o) => !o.event.allDay && !o.event.free)
-    .map((o) => ({ start: Math.max(o.startMin, from), end: Math.min(o.endMin, to) }))
+    .map(bookedBlock)
+    .filter((block): block is Gap => block !== null)
+    .map((block) => ({ start: Math.max(block.start, from), end: Math.min(block.end, to) }))
     .filter((b) => b.end > b.start)
     .sort((a, b) => a.start - b.start);
 
@@ -1178,13 +1311,13 @@ export function dayCleared(occurrences: Occurrence[]): boolean {
  * lanes — so every other route to a new event already answers this. A typed
  * line does not, and the toast is the only thing left that can.
  *
- * Busy means exactly what `freeGaps` means by it, deliberately reusing the
- * rule rather than restating it: an all-day event is context and does not
- * clash (an all-day "Berlin" is not a conflict with lunch), a **free** one is
- * the placeholder you are meant to book over, and anything holding no minutes
- * at all — a due date's pip — is dropped on width, `freeGaps`' own test.
- * Three surfaces now read that one idea of busy: the totals line, the slot
- * search, and this. They cannot come to disagree about it.
+ * Busy is `bookedBlock`'s answer, called rather than restated: an all-day
+ * event is context and does not clash (an all-day "Berlin" is not a conflict
+ * with lunch), a **free** one is the placeholder you are meant to book over,
+ * anything holding no minutes at all — a due date's pip — is dropped on
+ * width, and a travelled event clashes from the minute you have to leave,
+ * which is when it actually starts costing you. Three surfaces read that one
+ * idea of busy: the totals line, the slot search, and this.
  *
  * Touching ends do not clash, because `end` is exclusive here as everywhere:
  * a 10:00 meeting after a 09:00–10:00 one is the next thing, not a collision.
@@ -1202,14 +1335,10 @@ export function clashesWith(
   endMin: number,
 ): Occurrence[] {
   if (endMin <= startMin) return [];
-  return occurrences.filter(
-    (occ) =>
-      !occ.event.allDay &&
-      !occ.event.free &&
-      occ.endMin > occ.startMin &&
-      occ.startMin < endMin &&
-      occ.endMin > startMin,
-  );
+  return occurrences.filter((occ) => {
+    const block = bookedBlock(occ);
+    return block !== null && block.start < endMin && block.end > startMin;
+  });
 }
 
 /* --------------------------------- search --------------------------------- */

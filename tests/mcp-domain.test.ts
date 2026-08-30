@@ -11,6 +11,7 @@ import {
   REMIND_INHERIT,
   REMIND_LEAD_MAX,
   REMIND_SILENT,
+  TRAVEL_MAX,
   type CalEvent,
   type Calendar,
 } from "@/lib/events";
@@ -321,6 +322,7 @@ describe("buildEventRecord invents nothing the arguments did not say", () => {
   it("the fields no tool argument names are the safe answer, not an invented one", () => {
     const record = build({ date: "2026-03-08", start: "09:00" });
     expect.soft(record.free).toBe(false);
+    expect.soft(record.travel).toBe(0);
     expect.soft(record.organizer).toBeNull();
     expect.soft(record.attendees).toEqual([]);
     expect.soft(record.attendeeCount).toBe(0);
@@ -339,6 +341,7 @@ describe("applyPatchToEvent keeps every field the patch did not name", () => {
     location: "Room 2",
     notes: "bring the laptop",
     free: true,
+    travel: 45,
     remindLead: 30,
     attendees: [attendee("ada@example.test", "accepted")],
     attendeeCount: 1,
@@ -352,10 +355,11 @@ describe("applyPatchToEvent keeps every field the patch did not name", () => {
     expect.soft(record.end).toBe(ms("2026-03-08 11:30"));
   });
 
-  it("a title-only patch carries free, reminder lead and the guest list through", () => {
+  it("a title-only patch carries free, travel, reminder lead and the guest list through", () => {
     const record = applyPatchToEvent(base, { title: "Standup (short)" }, cals, settings());
     expect.soft(record.title).toBe("Standup (short)");
     expect.soft(record.free).toBe(true);
+    expect.soft(record.travel).toBe(45);
     expect.soft(record.remindLead).toBe(30);
     expect.soft(record.attendees).toEqual(base.attendees);
     expect.soft(record.attendeeCount).toBe(1);
@@ -1410,6 +1414,39 @@ describe("remindLead crosses the tool boundary loudly or not at all", () => {
     expect.soft(() => make(REMIND_LEAD_MAX + 1)).toThrow(/remindLead/);
     expect.soft(() => make(-3)).toThrow(/remindLead/);
     expect.soft(() => make(2.5)).toThrow(/remindLead/);
+  });
+});
+
+describe("travel crosses the tool boundary on both paths, or not at all", () => {
+  it("a create names the run-up and it is stored as given", () => {
+    const { mutated } = performCreateEvent(contents(), {
+      title: "Dentist",
+      date: "2026-03-08",
+      start: "09:30",
+      travel: 25,
+    });
+    expect(mutated.events[0]!.travel).toBe(25);
+  });
+
+  it("a patch naming it sets it on an event created without one", () => {
+    const c = contents({ events: [event({ id: "e1", calendarId: CAL })] });
+    const { mutated } = performUpdateEvent(c, "e1", undefined, undefined, { travel: 40 });
+    expect(mutated.events[0]!.travel).toBe(40);
+  });
+
+  it("a patch not naming it cannot erase a run-up somebody typed", () => {
+    const c = contents({ events: [event({ id: "e1", calendarId: CAL, travel: 45 })] });
+    const { mutated } = performUpdateEvent(c, "e1", undefined, undefined, { title: "renamed" });
+    expect(mutated.events[0]!.travel).toBe(45);
+  });
+
+  it("an out-of-range value reads as no travel, the field's own absent value", () => {
+    const make = (travel: number) =>
+      performCreateEvent(contents(), { title: "x", date: "2026-03-08", start: "09:00", travel })
+        .mutated.events[0]!.travel;
+    expect.soft(make(TRAVEL_MAX + 1)).toBe(0);
+    expect.soft(make(-30)).toBe(0);
+    expect.soft(make(12.5)).toBe(0);
   });
 });
 

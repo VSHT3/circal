@@ -49,7 +49,7 @@ src/pages/index.astro   static HTML shell  (src/pages/manifesto.astro = prose, n
 - `mcp/` — MCP server, two transports; nothing in `src/` may import it (see `mcp/README.md`)
 - `mac/` — macOS shell, `main.swift`; no domain logic (see `APP.md`)
 - `supabase/migrations/` — the whole server side, in SQL
-- `tests/` — 2,261 cases over 38 files; `helpers.ts` = fixtures + matchers; `west/` = TZ re-runs
+- `tests/` — 2,378 cases over 38 files; `helpers.ts` = fixtures + matchers; `west/` = TZ re-runs
 
 Full per-file map with exported symbols: `docs/agent/map.md`.
 

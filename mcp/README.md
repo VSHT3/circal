@@ -47,11 +47,11 @@ your client below, swap the path if it picked up the wrong file, then
 restart the client.
 
 > **Use `circal-mcp@0.3.0` or newer** (`npx -y circal-mcp` resolves it).
-> The cautionary tale behind that floor: `0.1.0` predated nine fields in
-> `src/lib` (`free`, `remindLead`, `organizer` and the guest pair on an
-> event; `backupNudge`, `backupInterval`, `deviceZone`, `stampedZones` in
-> settings), and every write round-trips the whole document through its
-> reader, so it silently dropped all nine — measured, same fixture, two
+> The cautionary tale behind that floor: `0.1.0` predated ten fields in
+> `src/lib` (`free`, `travel`, `remindLead`, `organizer` and the guest pair
+> on an event; `backupNudge`, `backupInterval`, `deviceZone`, `stampedZones`
+> in settings), and every write round-trips the whole document through its
+> reader, so it silently dropped all ten — measured, same fixture, two
 > bundles. A current server refuses to write a document whose format is
 > newer than its own, so a stale bundle can no longer damage one unnoticed;
 > it will simply refuse. Contributors run against their own build with

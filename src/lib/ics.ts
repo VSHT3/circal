@@ -45,6 +45,7 @@ import {
   readGuests,
   readPerson,
   readRemindLead,
+  readTravel,
   type Attendee,
   type CalEvent,
   type Person,
@@ -91,6 +92,15 @@ export interface IcsEvent extends Recurrence {
    * says nothing means.
    */
   free: boolean;
+  /**
+   * `X-APPLE-TRAVEL-DURATION`, in whole minutes, `0` for a VEVENT that named
+   * no travel. Apple Calendar's own spelling, and the reason this is not an
+   * `X-CIRCAL-` line: Apple writes it, reserves the same window as busy and
+   * raises its "time to leave" alert from it, so a run-up round-trips through
+   * a calendar somebody else already owns. `X-APPLE-TRAVEL-START` is not
+   * read or written — it is a place, and circal holds none.
+   */
+  travel: number;
   /**
    * The lead from the first `VALARM` this reader could model, in
    * `CalEvent.remindLead`'s own three-state vocabulary — `REMIND_INHERIT`
@@ -253,6 +263,14 @@ function dateStamp(d: Date): string {
 function zonedStamp(d: Date): string {
   const p = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}T${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+}
+
+/** The §3.3.6 duration value for a count of whole minutes — the only unit
+ *  this app writes a duration in, so the one form covers a task's planned
+ *  block and an event's travel run-up both. `parseDuration` is its opposite
+ *  half, and reads every longer form back. */
+function minutesDuration(minutes: number): string {
+  return `PT${minutes}M`;
 }
 
 /* ------------------------------- recurrence -------------------------------- */
@@ -447,6 +465,14 @@ export function toIcs(events: CalEvent[], name: string, tasks: Task[] = []): str
     // every other calendar reads an absent `TRANSP` as busy, so a line
     // saying so is a line saying nothing.
     if (event.free) lines.push("TRANSP:TRANSPARENT");
+    // Apple Calendar's property, not an `X-CIRCAL-` one: it writes this,
+    // reserves the window as busy and raises its own "time to leave" alert
+    // from it, so a run-up survives a trip through a calendar circal does not
+    // own. `VALUE=DURATION` is stated because an `X-` property has no
+    // registered type. Zero writes nothing, `TRANSP`'s reason: a line naming
+    // the default names nothing.
+    if (event.travel > 0)
+      lines.push(`X-APPLE-TRAVEL-DURATION;VALUE=DURATION:${minutesDuration(event.travel)}`);
     // `ORGANIZER` and `ATTENDEE`, the two properties that make a VEVENT an
     // invitation rather than a notice. Written back because they came in: a
     // file whose guest list survives one import and is gone from the next
@@ -523,7 +549,7 @@ export function toIcs(events: CalEvent[], name: string, tasks: Task[] = []): str
     const [first, ...rest] = task.plans;
     if (first) {
       lines.push(`DTSTART:${utcStamp(new Date(first.start))}`);
-      lines.push(`DURATION:PT${Math.round((first.end - first.start) / 60_000)}M`);
+      lines.push(`DURATION:${minutesDuration(Math.round((first.end - first.start) / 60_000))}`);
     }
     for (const plan of rest) {
       lines.push(`X-CIRCAL-PLAN:${utcStamp(new Date(plan.start))}/${utcStamp(new Date(plan.end))}`);
@@ -955,6 +981,15 @@ function buildEvent(block: Block): IcsEvent | null {
   const uidValue = props.UID?.value;
   const uid = uidValue ? unescapeText(uidValue) : derivedUid(props, dtstart.ms, end);
 
+  // `parseDuration` is this module's one duration reader, so `PT1H` and
+  // `PT1H30M` both arrive as minutes rather than needing a second parser
+  // that could disagree with the first. It keeps seconds, and a fractional
+  // minute (`PT90S`) is left for `readTravel` to refuse rather than rounded
+  // here: a guessed commute is worse than none, and that refusal is the
+  // model's own rule, stated once.
+  const travelProp = props["X-APPLE-TRAVEL-DURATION"];
+  const travelMs = travelProp ? parseDuration(travelProp.value.trim()) : null;
+
   return {
     uid,
     // `RANGE=THISANDFUTURE` is handled after every VEVENT is read, in
@@ -973,6 +1008,10 @@ function buildEvent(block: Block): IcsEvent | null {
     // value this standard does not have — is busy, which is the default the
     // RFC itself names.
     free: props.TRANSP?.value.trim().toUpperCase() === "TRANSPARENT",
+    // `readTravel` is the only bounds check, its five readers' reason: an
+    // absent property, a negative duration, `PT99999H` and a value no parser
+    // recognises all land on `0` by the one rule.
+    travel: readTravel((travelMs ?? 0) / 60_000),
     remindLead: readAlarmLead(block.alarms),
     // Who asked, and who was asked. `readGuests` and `readPerson` own the
     // caps and the de-duplication, because a hand-edited backup and a

@@ -24,6 +24,7 @@ import {
   occurrencesOn,
   taskOccurrences,
   readRemindLead,
+  readTravel,
   recurrenceOf,
   scoreEventBy,
   spanLabel,
@@ -251,6 +252,11 @@ export interface EventFieldsInput {
   /** IANA zone the times are written in — a deadline abroad. `""` clears an
    *  existing zone back to floating (this reader's own clock). */
   zone?: string;
+  /** Minutes of travel before the start, 0 to `TRAVEL_MAX`. Read through
+   *  `readTravel` rather than refused like `remindLead`: an unreadable travel
+   *  is no travel, which is what every event written before this field was,
+   *  and the tool schema's own bound refuses a caller loudly before this. */
+  travel?: number;
   /** Minutes before start; or `"silent"` (never fires) / `"inherit"` (follow
    *  the calendar, then the setting — every event's default). */
   remindLead?: number | "inherit" | "silent";
@@ -438,6 +444,9 @@ export function buildEventRecord(
     // Busy. There is no tool argument for this yet, and an agent asked to put
     // an hour in the diary means the hour to be spoken for.
     free: false,
+    // No run-up unless the caller named one — an invented commute would be an
+    // agent deciding when its user has to leave the house.
+    travel: input.travel !== undefined ? readTravel(input.travel) : 0,
     // Inheriting unless the caller named a lead of its own — an event created
     // with one it was not asked for would be an agent quietly deciding how
     // much warning its user wants.
@@ -495,6 +504,10 @@ export function applyPatchToEvent(
     // to busy — so leaving it out would quietly rebook a free event the
     // moment its title was edited.
     free: base.free,
+    // Carried for `free`'s reason, one field over: `readEvent` defaults an
+    // absent travel to none, so leaving it out would erase a commute the
+    // moment an assistant fixed a typo in the title.
+    travel: input.travel !== undefined ? readTravel(input.travel) : base.travel,
     // Carried unless the patch names one — `readEvent` reads an absent lead
     // as inheriting, so leaving it out would un-silence an event the user
     // silenced the moment an assistant fixed a typo in its title.
@@ -520,7 +533,7 @@ export function applyPatchToEvent(
  *
  * A mutation here round-trips the *whole* document, so a field this module
  * does not name is a field it silently drops — measured rather than feared:
- * the published `circal-mcp@0.1.0` bundle dropped nine keys per document that
+ * the published `circal-mcp@0.1.0` bundle drops ten keys per document that
  * way. `graves` and `settingsAt` are the two that would be lost most quietly,
  * because nothing on either side would look wrong afterwards; the browser
  * would simply resurrect every event an agent had deleted on the next merge.

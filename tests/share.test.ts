@@ -72,6 +72,7 @@ describe("encodeShare / decodeShare — what travels", () => {
       color: "#7ce3d8",
       icon: "barbell",
       free: true,
+      travel: 25,
     });
     const draft = roundTrip(source);
     expect.soft(draft.start).toBeSameInstantAs("2026-03-08 09:00");
@@ -83,6 +84,7 @@ describe("encodeShare / decodeShare — what travels", () => {
     expect.soft(draft.color).toBe("#7ce3d8");
     expect.soft(draft.icon).toBe("barbell");
     expect.soft(draft.free).toBe(true);
+    expect.soft(draft.travel).toBe(25);
     expect.soft(draft.allDay).toBe(false);
   });
 
@@ -268,6 +270,19 @@ describe("the payload's shape", () => {
     expect.soft(token(encodeShare(source)).length).toBeLessThan(naive / 4);
   });
 
+  it("costs an untravelled event no characters at all", () => {
+    // The appended slot is empty for `travel: 0`, and `pack` drops trailing
+    // empties, so an ordinary timed event is still the four fields it was
+    // before the field existed. A field that lengthened every link ever minted
+    // would be the wrong trade for one somebody types on a few events.
+    const plain = event({ title: "Standup", start: "2026-03-08 09:00" });
+    const commute = event({ title: "Standup", start: "2026-03-08 09:00", travel: 25 });
+    expect.soft(payload(token(encodeShare(plain))).split("~")).toHaveLength(4);
+    expect
+      .soft(token(encodeShare(commute)).length)
+      .toBeGreaterThan(token(encodeShare(plain)).length);
+  });
+
   it("round-trips through the fragment it is carried in", () => {
     const payloadText = token(encodeShare(event({ title: "Standup" })));
     expect.soft(shareToken(shareFragment(payloadText))).toBe(payloadText);
@@ -412,6 +427,32 @@ describe("decodeShare — a string from a stranger", () => {
     expect.soft(draft.exdates).toEqual([]);
     expect.soft(draft.byMonthDay).toEqual([]);
     expect.soft(draft.wkst).toBe(NEVER.wkst);
+  });
+
+  // The appended slot, index 11, with everything between it and the title
+  // empty. `fromB36` is `NaN` on the mangled tail of a truncated link where
+  // `Number` would read a prefix, and `readTravel` refuses the rest, so no
+  // hostile spelling arrives as a run-up.
+  const travelRecord = (field: string) => `0~tbkm80~1e0~Standup${"~".repeat(8)}${field}`;
+
+  it.each([
+    { name: "a travel past the ceiling", field: "zzzzzz" },
+    { name: "a negative travel", field: "-u" },
+    { name: "a fraction of a minute", field: "1.5" },
+    { name: "a mangled tail", field: "p=" },
+    { name: "prose", field: "soon ish" },
+  ])("reads $name as no travel", ({ field }) => {
+    const read = decodeShare(forge(travelRecord(field)), CALENDAR);
+    expect.soft(read.ok).toBe(true);
+    expect.soft(read.ok && read.draft.travel).toBe(0);
+  });
+
+  it("reads a legal travel slot, so the refusals above are about the value", () => {
+    // The control for the table: `p` is 25 in base36, and the rows above
+    // differ from it only in the field being made wrong.
+    const read = decodeShare(forge(travelRecord("p")), CALENDAR);
+    expect.soft(read.ok).toBe(true);
+    expect.soft(read.ok && read.draft.travel).toBe(25);
   });
 });
 

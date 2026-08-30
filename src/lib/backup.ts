@@ -34,6 +34,7 @@ import {
   readRecurrence,
   readRemindLead,
   readStamp,
+  readTravel,
   recurrenceOf,
   type CalEvent,
   type Calendar,
@@ -386,6 +387,10 @@ export function readEvent(value: unknown): CalEvent | null {
     // exported before this field existed was. A truthy string in a
     // hand-edited blob must not quietly take a meeting off the day's total.
     free: value.free === true,
+    // What a legal travel is lives in `events.ts`, beside the clipping and the
+    // ceiling it shares bounds with: a hand-edited blob's `-5` or `"20"` comes
+    // back `0`, which is what an event exported before this field existed was.
+    travel: readTravel(value.travel),
     // What a legal lead is lives in `remind.ts`, beside the three states it
     // has to distinguish: an unreadable one comes back inheriting, which is
     // what an event exported before this field existed already did.
@@ -584,6 +589,10 @@ export function importIcs(text: string, filename: string) {
         // `TRANSP`, which every calendar writes: an event another app marked
         // free arrives free here rather than silently booking the hour.
         free: e.free,
+        // `X-APPLE-TRAVEL-DURATION`, which Apple Calendar writes and reserves
+        // as busy: the run-up is part of what the sender said the event costs,
+        // so dropping it would import a meeting you arrive late to.
+        travel: e.travel,
         // The first `VALARM` this reader could model, or inheriting when the
         // VEVENT carried none — a sender's alarm is a fact about that event
         // and travels with it, the same way `TRANSP` does.

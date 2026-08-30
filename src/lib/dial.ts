@@ -199,11 +199,12 @@ export const ARC_HAIRLINE = DIAL.ARC_WIDTH / 8;
  * The outline of a round-capped arc: what a *free* event is drawn as, in place
  * of the filled stroke a busy one gets.
  *
- * Hollow rather than fainter or dashed, and neither of those is available
- * here. Alpha is spoken for — a past arc is already drawn at 0.42, so "free"
- * meaning "dimmer" would make a past meeting and a future placeholder the
- * same picture — and a dashed stroke reads as tentative, a third meaning
- * nobody asked for.
+ * Hollow rather than fainter, and alpha was never available here: a past arc
+ * is already drawn at 0.42, so "free" meaning "dimmer" would make a past
+ * meeting and a future placeholder the same picture. What the outline says is
+ * "this footprint, with none of the event in it" — which is why the travel
+ * run-up borrows the same construction and dots the hairline (`travelDots`):
+ * a free event is a whole arc of that, a commute is a run-up of one.
  *
  * Traced at `ARC_HAIRLINE / 2` *inside* the filled arc's own silhouette, so
  * stroking the result at that weight paints exactly the same footprint: the
@@ -220,7 +221,15 @@ export const ARC_HAIRLINE = DIAL.ARC_WIDTH / 8;
  *
  * `width` is the stroke being hollowed, so a hovered arc passes its grown one.
  */
-export function hollowPath(r: number, from: number, to: number, width = DIAL.ARC_WIDTH): string {
+export function hollowPath(
+  r: number,
+  from: number,
+  to: number,
+  // Annotated, not inferred: `DIAL` is `as const`, so a bare default types
+  // this as the literal 14 and the grown width the docstring offers is a type
+  // error at the one call site that finally passed one.
+  width: number = DIAL.ARC_WIDTH,
+): string {
   const off = (width - ARC_HAIRLINE) / 2;
   if (to - from >= 360) return `${arcPath(r + off, from, to)} ${arcPath(r - off, from, to)}`;
   const outer = { head: polar(r + off, from), tail: polar(r + off, to) };
@@ -236,6 +245,62 @@ export function hollowPath(r: number, from: number, to: number, width = DIAL.ARC
     `A ${off} ${off} 0 0 1 ${outer.head.x} ${outer.head.y}`,
     "Z",
   ].join(" ");
+}
+
+/* --------------------------------- travel --------------------------------- */
+
+/**
+ * Centre-to-centre spacing of the run-up's dots, in user units of outline
+ * length.
+ *
+ * The run-up is drawn as the *outline* of the band it books — `hollowPath`,
+ * the free arc's own construction — with that hairline dotted rather than
+ * continuous. Two encodings composed, each keeping its meaning: an outline is
+ * the footprint with none of the event in it, which is what a commute is, and
+ * a broken line is an estimate, which is what a hand-typed one is. A filled
+ * dashed band was built first and came out heavy: at `ARC_WIDTH` the run-up
+ * has the visual weight of the meeting it leads into, so the pair read as one
+ * event with a fault in it rather than as an approach.
+ *
+ * 4.5 against the 1.75-unit hairline leaves rather more black than ink, which
+ * is the proportion that reads as dotted rather than as a worn line.
+ *
+ * It does not survive the whole strip, and that is measured rather than
+ * hoped: at a floor-sized face a dot is 0.335 css px every 0.877, about a
+ * tenth of a pixel's coverage, so the run-up is simply absent there. A
+ * continuous hairline survives that size — the free arc's faint hoop does —
+ * and a fatter dot would too, but a dot fat enough to read at the floor is a
+ * bead at dial scale, and doubling it on hover welded the beads into a chain.
+ * Absent is the better failure: nothing on the strip is drawn *wrongly*, the
+ * arc the run-up leads into is unchanged, and a face 180 px across draws a
+ * minute in a tenth of a pixel — the dial is where a departure is read.
+ */
+const TRAVEL_DOT_PITCH = 4.5;
+
+/**
+ * A dot pattern for the outline of a run-up of `sweep` degrees on radius `r`,
+ * fitted so the loop closes on a whole number of dots.
+ *
+ * Fitted rather than fixed because the outline is a closed racetrack: a
+ * repeating pattern that does not divide into its length leaves a pinch where
+ * the pattern wraps, at whichever end of the run-up the arithmetic lands it.
+ * The length is the racetrack's own — two edges of `sweep` at `r ± off`, whose
+ * arc lengths sum to twice the centre line's, plus the two semicircular caps,
+ * which together make one circle of `off`.
+ *
+ * `width` is the band being outlined, so a caller whose arc has grown under
+ * the pointer hands the grown one and the dots stay evenly spaced round the
+ * longer loop rather than crowding at its ends.
+ *
+ * A zero-length dash under a round cap paints a dot of the stroke's own
+ * width; 0.01 rather than 0 because a genuinely empty dash is a case
+ * renderers disagree about.
+ */
+export function travelDots(r: number, sweep: number, width: number = DIAL.ARC_WIDTH): string {
+  const off = (width - ARC_HAIRLINE) / 2;
+  const length = 2 * ((Math.abs(sweep) * Math.PI) / 180) * r + 2 * Math.PI * off;
+  const dots = Math.max(3, Math.round(length / TRAVEL_DOT_PITCH));
+  return `0.01 ${length / dots - 0.01}`;
 }
 
 /* --------------------------------- labels ---------------------------------- */

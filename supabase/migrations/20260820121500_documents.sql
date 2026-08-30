@@ -20,7 +20,7 @@ create table if not exists public.documents (
   -- `MIRROR_VERSION`, and it lives out here rather than inside the ciphertext
   -- because a reader has to be able to refuse a document it is too old to
   -- round-trip *before* it decrypts anything. Measured rather than feared: a
-  -- stale reader writing a newer document back dropped nine keys per record.
+  -- stale reader writing a newer document back drops ten keys per record.
   version integer not null,
 
   -- The IANA zone the writer was in. Outside the ciphertext for the same

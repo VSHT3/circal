@@ -5,7 +5,7 @@
 
 ## Testing & QA
 
-**Suite exists. Read before writing one.** Vitest, `tests/`, 2,261 cases, 38 files, ~3 s, wired into `verify`. Coverage = cases in file owning module. Never scaffold second harness, second fixture style, `*.spec.ts`.
+**Suite exists. Read before writing one.** Vitest, `tests/`, 2,378 cases, 38 files, ~3 s, wired into `verify`. Coverage = cases in file owning module. Never scaffold second harness, second fixture style, `*.spec.ts`.
 
 | test file                    | covers                                                                                                                                                                                                                                  |
 | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
