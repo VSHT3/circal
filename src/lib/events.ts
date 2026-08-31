@@ -1466,6 +1466,14 @@ function luminance(color: string): number | null {
 }
 
 /**
+ * Where black and white draw level on a background, in WCAG relative
+ * luminance: `1.05 / (L + 0.05) = (L + 0.05) / 0.05` solves to
+ * `L = sqrt(0.0525) - 0.05`. Above it black is the stronger ink, below it
+ * white is — there is no band where the choice is a matter of taste.
+ */
+const INK_CROSSOVER = Math.sqrt(0.0525) - 0.05;
+
+/**
  * Ink for text drawn *on* a colour — an arc's label sits inside the stroke, so
  * it is set in the arc's own darkness rather than in the app's greys.
  *
@@ -1478,7 +1486,7 @@ function luminance(color: string): number | null {
  */
 export function inkOn(color: string): string {
   const l = luminance(color);
-  return l !== null && l < 0.4 ? "#ffffff" : "#000000";
+  return l !== null && l < INK_CROSSOVER ? "#ffffff" : "#000000";
 }
 
 /** Where an occurrence sits relative to `now`: before it, inside it, after it. */
