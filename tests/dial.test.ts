@@ -320,6 +320,31 @@ describe("arcLabel decides by glyphs, not by minutes", () => {
     // costs no radius and reads the same on every lane.
     expect(ARC_LABEL_SIZE * 0.7).toBeLessThan(DIAL.ARC_WIDTH);
   });
+
+  /**
+   * A glyph stands on its baseline, so text set straight on the arc's own
+   * radius has all its ink to one side of the centre line: outward on the
+   * clockwise path, inward on the flipped one, half of every letter hanging
+   * off the stroke. `dominant-baseline` is the CSS answer and WebKit ignores
+   * it on a `textPath`, so the label path carries the half-cap itself.
+   */
+  it("rides a half-cap off the arc, so the ink lands on the centre line", () => {
+    const head = (d: string) => {
+      const [, x, y] = /^M (-?[\d.]+) (-?[\d.]+)/.exec(d) ?? [];
+      return Math.hypot(Number(x) - DIAL.C, Number(y) - DIAL.C);
+    };
+    const off = ARC_LABEL_SIZE * 0.35;
+    // Through the top of the face, where the path runs clockwise and the ink
+    // would otherwise sit outside the stroke.
+    expect
+      .soft(head(arcLabel(DIAL.LANE, -45, 45, "Standup")?.d ?? ""))
+      .toBeCloseTo(DIAL.LANE - off, 6);
+    // And through the bottom, where the path is reversed and the ink would
+    // fall inwards instead.
+    expect
+      .soft(head(arcLabel(DIAL.LANE, 135, 225, "Standup")?.d ?? ""))
+      .toBeCloseTo(DIAL.LANE + off, 6);
+  });
 });
 
 describe("arcLabel makes room for a mark without costing the name", () => {

@@ -341,6 +341,13 @@ const ARC_LABEL_PAD = 2;
 const ARC_LABEL_MIN = 5;
 
 /**
+ * Half a cap, in user units: how far a glyph's ink sits from the baseline it
+ * stands on, and therefore how far the label's path has to be moved to put
+ * that ink on the arc's centre line. A mono cap is about 0.7 of the size.
+ */
+const ARC_LABEL_BASELINE = ARC_LABEL_SIZE * 0.35;
+
+/**
  * How much of the budget a mark takes, in glyphs.
  *
  * The glyph is drawn square at `ARC_LABEL_SIZE`, which is 1.67 mono advances,
@@ -421,7 +428,17 @@ export function arcLabel(
   // three and nine o'clock boundaries the text is vertical either way.
   const mid = ((((from + to) / 2) % 360) + 360) % 360;
   const back = mid > 90 && mid < 270;
-  const d = arcPath(r, from, to, back);
+  // Glyphs stand *on* a text path's baseline, so their ink is a half-cap off
+  // the arc's centre line — outward on a clockwise path, inward on a flipped
+  // one, which is the letters hanging half off the stroke. `dominant-baseline`
+  // is the CSS answer to it and WebKit ignores it on a `textPath` (measured:
+  // `central`, a `dy`, and no rule at all render byte-identical bounding
+  // boxes), so the correction is geometry instead: the label rides its own
+  // radius, a half-cap the other side of the arc's, and lands centred in the
+  // stroke on every engine.
+  const labelR = r + (back ? ARC_LABEL_BASELINE : -ARC_LABEL_BASELINE);
+  const labelLength = (((to - from) * Math.PI) / 180) * labelR;
+  const d = arcPath(labelR, from, to, back);
   if (!marked) return { d, text: cut, startOffset: 50, mark: null };
 
   // The run is `mark + text`, centred on the path's own midpoint. The text
@@ -434,15 +451,16 @@ export function arcLabel(
   // letter. Centred, that slack was split, and half of it read as a symbol
   // stuck to the D of "Design".
   const lead = (markWidth + textWidth) / 2 - ARC_LABEL_SIZE / 2;
-  // A distance along the path is a distance along the circumference, so it is
-  // an angle; which way it leans depends on which way the path was drawn.
-  const lean = ((lead / r) * 180) / Math.PI;
+  // A distance along the label's own path is a distance along its
+  // circumference, so it is an angle; which way it leans depends on which way
+  // the path was drawn.
+  const lean = ((lead / labelR) * 180) / Math.PI;
   const at = (from + to) / 2 + (back ? lean : -lean);
   const { x, y } = polar(r, at);
   return {
     d,
     text: cut,
-    startOffset: 50 + (markWidth / 2 / length) * 100,
+    startOffset: 50 + (markWidth / 2 / labelLength) * 100,
     // A glyph on a ring stands radially, the same way the letters do — and on
     // the flipped path it is upside down for the same reason they are.
     mark: { x, y, rotate: back ? at + 180 : at, size: ARC_LABEL_SIZE },

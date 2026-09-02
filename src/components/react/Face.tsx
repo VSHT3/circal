@@ -1633,7 +1633,9 @@ function EventArc({
             fontSize={ARC_LABEL_SIZE}
             fontWeight={600}
             letterSpacing="0.01em"
-            dominantBaseline="central"
+            // No `dominantBaseline`: WebKit ignores it on a `textPath`, so the
+            // half-cap between a baseline and the ink above it is corrected in
+            // `arcLabel`'s own geometry instead — see `ARC_LABEL_BASELINE`.
             // Full alpha even on a past arc. The ink is the *absence* of
             // light, so dimming it with the body would take both towards the
             // black behind them and the label would vanish at 1.5:1; left
