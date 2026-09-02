@@ -542,13 +542,52 @@ private let SNOOZE_SECONDS: TimeInterval = 600
  *  a discovery, so it is off by default and lives in `UserDefaults`. */
 private let MENU_BAR_ONLY = "menuBarOnly"
 
+/** The preset the page last named, remembered so a cold launch paints its
+ *  ground before any JavaScript has run — the white-flash fix in reverse,
+ *  since black behind `paper` is a black flash. */
+private let THEME_NAME = "theme"
+
+/**
+ * Each preset's `--void`, and whether that ground is a light one.
+ *
+ * Copied from `global.css`, where the three token blocks live, and equal to
+ * `THEME_PALETTES[…].void` in `src/lib/theme.ts` — which exists for the same
+ * reason: a canvas cannot read a CSS token and neither can a window. This is
+ * the second table in the shell that repeats the app (the feed proxy's SSRF
+ * list is the first), and it fails the same visible way: a wrong colour here
+ * is a strip that does not match the page, never a crash.
+ *
+ * The appearance rides along because the traffic lights are drawn by the
+ * system: dark glyphs over `paper`, light over the other two.
+ */
+private let GROUNDS: [String: (color: NSColor, light: Bool)] = [
+    "midnight": (rgb(0x00_00_00), false),
+    "ember": (rgb(0x15_11_10), false),
+    "paper": (rgb(0xF2_EF_E8), true),
+]
+
+/** Midnight, which is also the bare-`:root` block in `global.css` — so an
+ *  install that has never opened Settings gets the colour it paints. */
+private let DEFAULT_GROUND = GROUNDS["midnight"]!
+
+private func rgb(_ hex: UInt32) -> NSColor {
+    NSColor(
+        srgbRed: CGFloat((hex >> 16) & 0xFF) / 255,
+        green: CGFloat((hex >> 8) & 0xFF) / 255,
+        blue: CGFloat(hex & 0xFF) / 255,
+        alpha: 1
+    )
+}
+
 /* ------------------------------- the bridge ------------------------------- */
 
 /**
- * The four capabilities the page cannot get from WebKit, and nothing else.
+ * The four capabilities the page cannot get from WebKit, plus the two things it
+ * tells the shell about itself (it is ready; this is its theme), and nothing
+ * else.
  *
  * `WKScriptMessageHandlerWithReply` rather than one-way `postMessage`, because
- * every one of these is a question: may I notify, what did the user pick, what
+ * most of these are questions: may I notify, what did the user pick, what
  * does the file say, and where did the save go. A one-way channel would need a
  * second one back and an id scheme to match them up, which is a promise
  * reimplemented by hand.
@@ -558,6 +597,10 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
     /** Called when the page signals it can receive work — the shell flushes any
      *  `.ics` the Dock handed over during launch. Set by the app delegate. */
     var onReady: (() -> Void)?
+
+    /** Called with the preset written on `<html data-theme>`, on load and on
+     *  every change. Set by the app delegate, which owns the window. */
+    var onTheme: ((String) -> Void)?
 
     /**
      * Which of the two delivery paths this build got, remembered across launches.
@@ -660,6 +703,10 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
 
         case "ready":
             onReady?()
+            replyHandler(nil, nil)
+
+        case "theme":
+            onTheme?(arg["name"] as? String ?? "")
             replyHandler(nil, nil)
 
         case "save":
@@ -822,13 +869,16 @@ private func strike() {
 /**
  * The page's side of the bridge, injected before its first script runs.
  *
- * Every one of these is a *shim over an absence*, not a new API: `feedback.ts`
- * already calls `navigator.vibrate`, `hooks.ts` already constructs a
- * `Notification` and reads `Notification.permission`, `mirrorLink.ts` looks
- * for `window.__circalMirror` beside the File System Access picker it prefers,
- * and `backup.ts` reaches for `window.__circalSave` beside the `<a download>`
- * a WKWebView silently drops. So the app is unchanged on the web and gains
- * four capabilities in the shell, without a single `if (isApp)` in a component.
+ * Every capability here is a *shim over an absence*, not a new API:
+ * `feedback.ts` already calls `navigator.vibrate`, `hooks.ts` already
+ * constructs a `Notification` and reads `Notification.permission`,
+ * `mirrorLink.ts` looks for `window.__circalMirror` beside the File System
+ * Access picker it prefers, and `backup.ts` reaches for `window.__circalSave`
+ * beside the `<a download>` a WKWebView silently drops. So the app is
+ * unchanged on the web and gains four capabilities in the shell, without a
+ * single `if (isApp)` in a component. The last block asks the page for
+ * nothing: it reports the theme the page already writes on `<html>`, because
+ * the window around it has to be painted in the same colour.
  */
 private let BRIDGE_JS = """
 (() => {
@@ -896,6 +946,19 @@ private let BRIDGE_JS = """
   // The shell's save, so an export lands in a file the user chose. `backup.ts`
   // prefers this over the `<a download>` a WKWebView silently drops.
   window.__circalSave = (filename, body) => post("save", { filename, body });
+
+  // The window, its titlebar strip and the over-scroll are painted by the
+  // shell, and none of the three can read a CSS token. `App` writes the preset
+  // onto `<html data-theme>`, so the shell follows that attribute rather than
+  // the store: one writer, and it reports again the moment the user picks
+  // another theme. Not a shim over an absence like the four above — the page
+  // asks for nothing here, it is only overheard.
+  const theme = () => post("theme", { name: document.documentElement.dataset.theme ?? "" });
+  new MutationObserver(theme).observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ["data-theme"],
+  });
+  void theme();
 
 })();
 """
@@ -978,6 +1041,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         installHotKey()
         observeWake()
         bridge.onReady = { [weak self] in self?.flushPendingIcs() }
+        bridge.onTheme = { [weak self] name in self?.applyTheme(name) }
         webView.load(URLRequest(url: URL(string: "http://\(HOST):\(PORT)/")!))
         NSApp.activate(ignoringOtherApps: true)
     }
@@ -1067,6 +1131,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     /* ------------------------------ window ------------------------------ */
 
     private func buildWindow() {
+        let ground = GROUNDS[UserDefaults.standard.string(forKey: THEME_NAME) ?? ""] ?? DEFAULT_GROUND
         let configuration = WKWebViewConfiguration()
         // The default (persistent) store, keyed by this bundle id and the fixed
         // origin above — which is what makes `circal.v1` survive a quit.
@@ -1074,6 +1139,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         // Right-click → Inspect Element. This shell has no devtools of its own
         // and a webview you cannot open is one you cannot verify.
         configuration.preferences.setValue(true, forKey: "developerExtrasEnabled")
+        // Element fullscreen, which is off by default in a WKWebView and is not
+        // the window's own fullscreen: `⇧F` asks for the screen through
+        // `documentElement.requestFullscreen`, and measured on this engine that
+        // method is *undefined* until this line runs — `document.fullscreenEnabled`
+        // false, the request rejected, and `App.tsx` catches the rejection
+        // silently on purpose. So ambient arrived in the app with its chrome
+        // withdrawn and the display untouched, which is the half of the mode
+        // that reads as a bug.
+        configuration.preferences.isElementFullscreenEnabled = true
         configuration.userContentController.addScriptMessageHandler(
             bridge,
             contentWorld: .page,
@@ -1099,8 +1173,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         // `underPageBackgroundColor` is the over-scroll and the colour WebKit
         // paints before the page names one; `drawsBackground` (KVC, because the
         // property is not in the public header) stops it painting an opaque sheet
-        // at all, so what shows through is this window's black.
-        webView.underPageBackgroundColor = .black
+        // at all, so what shows through is this window's own ground.
+        webView.underPageBackgroundColor = ground.color
         webView.setValue(false, forKey: "drawsBackground")
         // The app steps days through `history.pushState`, so a two-finger swipe
         // would be "yesterday" — a gesture nobody aimed, mid-drag on the dial.
@@ -1115,12 +1189,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         )
         window.title = "circal"
         window.delegate = self
-        window.appearance = NSAppearance(named: .darkAqua)
-        window.backgroundColor = .black
-        // A transparent titlebar over a black window is a black strip with the
-        // traffic lights in it. Deliberately *not* `fullSizeContentView`: the
-        // lights would then sit on top of `TopBar`'s left button group, and
-        // three buttons under three buttons is a bar nobody can aim at.
+        // Last launch's theme, since the page cannot say which one it wants
+        // until its island has mounted, and by then the window has painted.
+        window.appearance = NSAppearance(named: ground.light ? .aqua : .darkAqua)
+        window.backgroundColor = ground.color
+        // A transparent titlebar over the window's ground is a strip of that
+        // colour with the traffic lights in it. Deliberately *not*
+        // `fullSizeContentView`: the lights would then sit on top of `TopBar`'s
+        // left button group, and three buttons under three buttons is a bar
+        // nobody can aim at.
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
         window.tabbingMode = .disallowed
@@ -1129,9 +1206,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         window.minSize = NSSize(width: 420, height: 480)
         window.contentView = webView
         window.setFrameAutosaveName("circal.window")
-        // Ordered front now, black and empty: the view has to be in a visible
-        // window or WebKit will not render into it at all.
+        // Ordered front now, empty and in the remembered ground: the view has to
+        // be in a visible window or WebKit will not render into it at all.
         window.makeKeyAndOrderFront(nil)
+    }
+
+    /**
+     * The window's colour follows the page's theme preset, and is remembered
+     * for the next launch.
+     *
+     * Three whites became three grounds. `paper` on this window was a black
+     * titlebar strip and a black over-scroll under a near-white page, with the
+     * traffic lights drawn for a dark window on a light one — the flash the
+     * shell already fixed, arriving from the other direction the day the app
+     * gained more than one theme.
+     *
+     * A name that is not one of the three is ignored rather than defaulted:
+     * the page writes `data-theme` from a `sane()`-pinned setting, so an
+     * unknown one means a build newer than this shell, and the last colour it
+     * was told about is a better guess than midnight.
+     */
+    private func applyTheme(_ name: String) {
+        guard let ground = GROUNDS[name] else { return }
+        UserDefaults.standard.set(name, forKey: THEME_NAME)
+        webView.underPageBackgroundColor = ground.color
+        window.backgroundColor = ground.color
+        window.appearance = NSAppearance(named: ground.light ? .aqua : .darkAqua)
     }
 
     /** The red button puts the window away rather than ending the session, and

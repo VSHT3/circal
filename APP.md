@@ -1,7 +1,7 @@
 # app
 
 circal as a desktop app alongside the website. Researched 2026-08-07, **built for macOS 2026-08-15**:
-`mac/` is a Swift shell around a `WKWebView`, and `pnpm mac` produces a 1.3 MB `.app` (1.6 MB
+`mac/` is a Swift shell around a `WKWebView`, and `pnpm mac` produces a 1.7 MB `.app` (2.0 MB
 universal). Windows is still unwritten and still wants Tauri. Linux gets the PWA.
 
 The reason to do it was never the icon — it is that a browser eats six of the app's shortcuts,
@@ -21,7 +21,7 @@ in the project is `/api/feed`.
 
 | file         | what it is                                                                        |
 | ------------ | --------------------------------------------------------------------------------- |
-| `main.swift` | the shell: loopback server, webview, menu, status item, hot key, three bridges    |
+| `main.swift` | the shell: loopback server, webview, menu, status item, hot key, the bridge       |
 | `Info.plist` | bundle id `app.circal.mac`, single-instance, ATS local networking                 |
 | `icon.svg`   | the favicon's mark on Apple's icon grid — an 824px body in 1024, radius 185.4     |
 | `build.sh`   | `rsvg-convert` × 10 → `iconutil` → `swiftc` → `codesign`. ~3s, `--universal` ~40s |
@@ -97,6 +97,26 @@ its timer on `focus` and `visibilitychange` (`AGENTS.md`); the shell's only job 
 synthetic one at the page. A reload would fix the same one-minute skew and was rejected on purpose:
 it throws away scroll position, an open editor and an unsaved draft to correct a clock nobody would
 otherwise have noticed was wrong.
+
+**Ambient can take the screen.** `⇧F` withdraws the chrome and asks for the display through
+`documentElement.requestFullscreen`, and in a `WKWebView` that method is undefined until
+`WKPreferences.isElementFullscreenEnabled` is set: `document.fullscreenEnabled` reads false, the
+request rejects, and `App.tsx` swallows the rejection on purpose (it is rejected rather than thrown
+outside a user gesture in browsers too). So the mode shipped in the app half-done, chrome away and
+the display untouched, which reads as a bug rather than a setting. One line in the configuration,
+and `Esc` leaves through `fullscreenchange` exactly as it does on the web. Measured next door in the
+same probe: `navigator.wakeLock` **is** here and `request("screen")` resolves, so the mode's other
+half needed nothing.
+
+**The window is the theme's colour, not black.** Three presets arrived after the shell did, and the
+shell painted one of them: `paper` had a black titlebar strip and a black over-scroll around a
+near-white page, with the traffic lights drawn for a dark window on a light one. `App` writes the
+preset onto `<html data-theme>`, so `BRIDGE_JS` watches that attribute with a `MutationObserver` and
+reports it; the shell holds each preset's `--void` (the same three `THEME_PALETTES` carries, for the
+same reason: neither a canvas nor a window can read a CSS token) and sets the window's background,
+the webview's `underPageBackgroundColor` and the window's appearance from it. Remembered in
+`UserDefaults`, because the page cannot name a theme until its island has mounted and the window has
+painted long before that — the white-flash fix arriving from the other side.
 
 **The mirror file, so the MCP server works in the app.** `WKWebView` ships none of the File System
 Access API (`showSaveFilePicker`, `showOpenFilePicker`, `showDirectoryPicker` are all undefined —
@@ -223,7 +243,7 @@ from malware. The fix is an Apple Developer account and a `Developer ID Applicat
 the owner has refused to buy one; the subject does not get raised again. `clone && pnpm mac` is the
 distribution, permanently, not a step toward a wider one.
 
-`--universal` (`bash mac/build.sh --universal`, two `swiftc` passes and a `lipo`, 1.6 MB) and
+`--universal` (`bash mac/build.sh --universal`, two `swiftc` passes and a `lipo`, 2.0 MB) and
 `CIRCAL_SIGN_ID` (switches `codesign` to hardened runtime with `--timestamp --options runtime`, which
 notarisation would need) stay wired anyway — not because signing is coming, but so the choice stays
 somebody else's to make later without re-deriving the build script first. What the shell earns does
@@ -238,7 +258,7 @@ Tauri's macOS target **is** `WKWebView`. So on this platform Rust owns the windo
 nothing on the render path — same engine, same frame time, same SVG and canvas — and the entire delta
 is what the shell weighs and what it costs to build. Swift wins both here: the toolchain ships with
 the Command Line Tools, where Tauri wants a ~1.5 GB Rust install before it can print a window, and
-the result is 1.3 MB with nothing bundled.
+the result is 1.7 MB with nothing bundled.
 
 That is not an argument against Tauri, it is an argument about which platform is asking. **Windows
 still wants it**: WebView2 is Chromium, the engine Chrome visitors already run, and nobody is writing
@@ -324,4 +344,4 @@ expand/limit cascade), `ics.ts` (hand-rolled parser with folding, EXDATE, RECURR
 `life.ts`, `sun.ts` — plus the suite that pins their correctness. Redrawing the instrument is days;
 re-earning that correctness in another language is the cost, and it buys nothing a webview does not
 already deliver. The Swift in `mac/main.swift` is the whole of what native was actually good for
-here: a window, a menu, six keys, and the three capabilities WebKit withholds from a page.
+here: a window, a menu, six keys, and the four capabilities WebKit withholds from a page.

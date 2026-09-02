@@ -76,7 +76,7 @@ pnpm install
 pnpm dev        # astro dev — http://localhost:4321. NO /api/feed here
 pnpm dev:worker # astro build && wrangler dev — the only way to exercise /api/feed
 pnpm build:mcp  # esbuild → mcp/dist/circal-mcp.mjs, the MCP server's single-file bundle
-pnpm build:mac  # astro build && mac/build.sh → mac/build/circal.app (1.3M)
+pnpm build:mac  # astro build && mac/build.sh → mac/build/circal.app (1.7M)
 pnpm mac        # the same, then opens it. `bash mac/build.sh --universal` for both arches
 pnpm test       # vitest run — two TZ-pinned projects
 pnpm test:watch # vitest
