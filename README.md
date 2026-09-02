@@ -120,9 +120,11 @@ minute or not at all, because a notification for a meeting that started an
 hour ago is worse than none.
 
 The tab title is the other half, and it needs no permission and no switch:
-while circal is in a background tab it reads `· 14m · Standup`, so the answer
-is in the tab strip of whatever you went off to do instead. It goes back to
-plain the moment you come back to it, because the dial is already saying it.
+while circal is in a background tab it reads `· Standup · in 14m`, or
+`· Standup · 40m` once that meeting is running and forty minutes of it are
+left, so the answer is in the tab strip of whatever you went off to do
+instead. It goes back to plain the moment you come back to it, because the
+dial is already saying it.
 
 ## Editing something that repeats
 

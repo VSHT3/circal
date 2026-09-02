@@ -876,9 +876,11 @@ private func strike() {
  * Access picker it prefers, and `backup.ts` reaches for `window.__circalSave`
  * beside the `<a download>` a WKWebView silently drops. So the app is
  * unchanged on the web and gains four capabilities in the shell, without a
- * single `if (isApp)` in a component. The last block asks the page for
- * nothing: it reports the theme the page already writes on `<html>`, because
- * the window around it has to be painted in the same colour.
+ * single `if (isApp)` in a component. The last two blocks ask the page for
+ * nothing. One reports the theme the page already writes on `<html>`,
+ * because the window around it has to be painted in the same colour; the
+ * other sets `__circalShell`, the one fact the page cannot infer — that the
+ * surface reading `document.title` is a menu bar item rather than a tab.
  */
 private let BRIDGE_JS = """
 (() => {
@@ -946,6 +948,13 @@ private let BRIDGE_JS = """
   // The shell's save, so an export lands in a file the user chose. `backup.ts`
   // prefers this over the `<a download>` a WKWebView silently drops.
   window.__circalSave = (filename, body) => post("save", { filename, body });
+
+  // Which surface is reading the title. `useTitleCountdown` writes it only
+  // while the page is hidden, which is right for a tab strip and wrong here:
+  // the status item is beside the system clock whatever is frontmost, so the
+  // gate would blank it every time circal came forward. The page cannot
+  // infer this one, so the shell says it.
+  window.__circalShell = true;
 
   // The window, its titlebar strip and the over-scroll are painted by the
   // shell, and none of the three can read a CSS token. `App` writes the preset
@@ -1250,11 +1259,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
      * The menu bar item earns its place by carrying the countdown, not by being
      * a second way to open a window.
      *
-     * `useTitleCountdown` already writes `· 14m · Standup` into `document.title`
-     * **while the tab is hidden**, and a window ordered out is hidden — measured.
-     * So the shell observes the webview's title and prints the suffix beside the
+     * `useTitleCountdown` writes `· Standup · 40m` into `document.title`, and
+     * the shell observes the webview's title and prints the suffix beside the
      * ring: the reminder that survives a put-away window, with no new state, no
-     * second clock and nothing asked of the page.
+     * second clock and nothing asked of the page. The suffix names its subject
+     * first and says what is left of it, or `in 20m` for something still ahead,
+     * so the strip reads the same each glance while the number moves.
+     *
+     * The hook's own gate is the page being hidden, which is a tab strip's
+     * rule: this item is beside the system clock whether circal is frontmost
+     * or put away, so gated it would empty itself down to the bare ring every
+     * time the window came forward. `BRIDGE_JS` sets `__circalShell` and the
+     * hook writes unconditionally here.
      */
     private func buildStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)

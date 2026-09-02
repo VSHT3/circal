@@ -518,6 +518,10 @@ export function useReminders(options: {
   }, [now, enabled]);
 }
 
+interface ShellWindow {
+  __circalShell?: boolean;
+}
+
 /**
  * The document title as the reminder that survives a backgrounded tab.
  * `useReminders`' notification needs the browser's permission and is an
@@ -528,6 +532,15 @@ export function useReminders(options: {
  * answer on screen, in the ring and the headline row, and a title repeating
  * it is the same fact twice — the mistake this app's own readouts have
  * already been rewritten once to avoid.
+ *
+ * **The macOS shell is the exception, and it is not a tab.** There the title
+ * is read by the status item (`mac/main.swift`), a strip of menu bar that is
+ * on screen whatever is frontmost, so the hidden gate would blank it every
+ * time circal came forward and paint it again on the way out — the menu bar
+ * flickering as the user switches apps. Nothing is repeated either: the
+ * status item is beside the clock, not inside the window. `__circalShell` is
+ * the shell saying which surface is reading, the one thing the page cannot
+ * infer.
  *
  * The title found on mount is the one restored: on the last occurrence
  * clearing, on the tab coming back to the front, and on unmount, so this
@@ -550,7 +563,8 @@ export function useTitleCountdown(
 
   useEffect(() => {
     if (original.current === null) original.current = document.title;
-    const countdown = hidden ? titleCountdown(events, calendars, tasks, now) : null;
+    const always = (window as unknown as ShellWindow).__circalShell === true;
+    const countdown = hidden || always ? titleCountdown(events, calendars, tasks, now) : null;
     document.title = countdown ? `${original.current} ${countdown}` : original.current;
     return () => {
       if (original.current !== null) document.title = original.current;

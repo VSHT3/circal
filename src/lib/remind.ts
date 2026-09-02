@@ -277,24 +277,38 @@ export function reminderText(reminder: Reminder, clock: Clock): { title: string;
  * -------------------------------------------------------------------------- */
 
 /**
- * The tab title's countdown to the next thing today: the first timed,
+ * The tab title's line about the next thing today: the first timed,
  * non-past occurrence, which is the same subject `CenterPanel`'s headline
  * row already resolves — an all-day event is context there and is never it
  * here either. `occurrencesOn` already returns the day in start order, so
  * the first survivor of the filter is the answer.
  *
- * Rounds *down*, as `untilText` does: a title promising more time than is
- * left is worse than a plain one. An occurrence already running reads `now`
- * rather than `0m` — `0m` is a countdown that has arrived and stays arrived
- * for the whole meeting, and "Now" is the word `CenterPanel`'s headline row
- * already uses for exactly this state. Its own end is deliberately not
- * counted down to: that is a second sentence on a line with room for one.
+ * Name first, then the number, because the number changes every minute and
+ * the name does not: read out of the corner of an eye, in a menu bar strip
+ * beside eight other items, a line that starts with its subject is the same
+ * line each time it is glanced at. It also matches the headline row's own
+ * order.
  *
- * Counted to `leaveBy`, which is the same instant `dueReminders` measures
- * its lead back from and the same one the headline row prints. On an event
- * with no travel that is its start, so this is unchanged for one; on a
- * travelled event the tab agreeing with the notification and the card is the
- * whole reason the three read one function.
+ * Two states, two sentences. Something running prints what is **left** of
+ * it (`Standup · 40m`); something ahead prints the wait (`Standup · in
+ * 20m`). The word carries the difference, so the number never has to be
+ * guessed at, and neither reading is a countdown that has arrived and then
+ * stays arrived for the whole meeting — the `0m` this used to print.
+ *
+ * The wait rounds *down*, as `untilText` does: a title promising more time
+ * than is left is worse than a plain one. What is left of a running
+ * occurrence rounds *up*, which is the same rule from the other side — on a
+ * minute-aligned clock and a minute-aligned end the two agree, and where
+ * they do not, the last part-minute of a meeting reads `1m` rather than
+ * `0m`. The minute before something starts is still `now`: a floored zero
+ * wait and a running occurrence are the same fact.
+ *
+ * The wait is counted to `leaveBy`, which is the same instant
+ * `dueReminders` measures its lead back from and the same one the headline
+ * row prints. On an event with no travel that is its start, so this is
+ * unchanged for one; on a travelled event the tab agreeing with the
+ * notification and the card is the whole reason the three read one
+ * function.
  *
  * Returns the whole suffix, ready to append to whatever the tab's own title
  * already is — `null` when there is nothing due today.
@@ -314,6 +328,11 @@ export function titleCountdown(
     .find((occ) => !occ.event.allDay && !occ.done && occ.end.getTime() > now.getTime());
   if (!next) return null;
   const title = next.event.title || "Untitled";
-  const minutes = Math.floor((leaveBy(next) - now.getTime()) / MINUTE_MS);
-  return `· ${minutes > 0 ? formatDuration(minutes) : "now"} · ${title}`;
+  if (next.start.getTime() <= now.getTime()) {
+    // The filter guarantees the end is still ahead, so this is never `0m`.
+    const left = Math.ceil((next.end.getTime() - now.getTime()) / MINUTE_MS);
+    return `· ${title} · ${formatDuration(left)}`;
+  }
+  const wait = Math.floor((leaveBy(next) - now.getTime()) / MINUTE_MS);
+  return `· ${title} · ${wait > 0 ? `in ${formatDuration(wait)}` : "now"}`;
 }

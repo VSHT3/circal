@@ -141,10 +141,18 @@ which is earlier than the island mounting, its effects running and, now that `Se
 `EventEditor` are their own lazy chunks, its imports landing. Closed entirely in menu-bar-only mode —
 see below — since without a Dock tile there is nothing to drop it on.
 
-**A menu bar item that carries the countdown.** `useTitleCountdown` already writes `· 14m · Standup`
-into `document.title` while the tab is hidden, and a window ordered out **is** hidden (measured). So
-the shell observes the webview's title and prints the suffix beside the ring: the reminder that
-survives a put-away window, with no new state, no second clock and nothing asked of the page.
+**A menu bar item that carries the countdown.** `useTitleCountdown` writes `· Standup · in 14m` into
+`document.title`, and the shell observes the webview's title and prints the suffix beside the ring:
+the reminder that survives a put-away window, with no new state, no second clock and nothing asked
+of the page. Subject first, then the number — the number moves every minute and the name does not,
+and in a strip beside eight other items a line that starts with its subject is the same line each
+glance. Something running says what is left of it (`Standup · 40m`), something ahead says the wait
+(`Standup · in 20m`). The hook's own rule is to write only while the page is hidden, which is a tab
+strip's rule and not this one: the status item sits beside the system clock whether circal is
+frontmost or put away, so the gate emptied it down to the bare ring every time the window came
+forward. `BRIDGE_JS` sets `window.__circalShell`, the hook drops the gate when it is there, and
+that flag is the only thing the shell asserts about itself — every other block is a shim over an
+absence.
 
 **Open at Login and Show in Dock, from the status item's own menu.** `SMAppService.mainApp` registers
 or unregisters a login item, off until asked — a calendar adding itself to login items unbidden is

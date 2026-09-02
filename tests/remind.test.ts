@@ -628,11 +628,11 @@ describe("reminderText", () => {
  * -------------------------------------------------------------------------- */
 
 describe("titleCountdown", () => {
-  it("counts down to the next timed occurrence, floored like untilText", () => {
+  it("names the subject first, then the wait, floored like untilText", () => {
     // 899s to go, which is 14m59s — a round-to-nearest read would say 15m.
     const e = event({ title: "Standup", start: "2026-03-09 09:14:59" });
     const got = titleCountdown([e], [cal], [], at("2026-03-09 09:00:00"));
-    expect(got).toBe("· 14m · Standup");
+    expect(got).toBe("· Standup · in 14m");
   });
 
   it("returns null when nothing timed is left today", () => {
@@ -645,40 +645,47 @@ describe("titleCountdown", () => {
     const allDay = event({ allDay: true, start: "2026-03-09", end: "2026-03-10" });
     const timed = event({ title: "Standup", start: "2026-03-09 10:00" });
     const got = titleCountdown([allDay, timed], [cal], [], at("2026-03-09 09:00"));
-    expect(got).toBe("· 1h · Standup");
+    expect(got).toBe("· Standup · in 1h");
   });
 
   it("picks the earliest qualifying occurrence, not the first in the array", () => {
     const later = event({ title: "Lunch", start: "2026-03-09 12:00" });
     const sooner = event({ title: "Standup", start: "2026-03-09 09:30" });
     const got = titleCountdown([later, sooner], [cal], [], at("2026-03-09 09:00"));
-    expect(got).toBe("· 30m · Standup");
+    expect(got).toBe("· Standup · in 30m");
   });
 
-  it('reads "now" rather than 0m for an occurrence already running', () => {
-    const e = event({ title: "Standup", start: "2026-03-09 08:45", end: "2026-03-09 09:15" });
+  it("prints what is left of an occurrence already running, with no preposition", () => {
+    const e = event({ title: "Standup", start: "2026-03-09 08:45", end: "2026-03-09 09:40" });
     const got = titleCountdown([e], [cal], [], at("2026-03-09 09:00"));
-    expect(got).toBe("· now · Standup");
+    expect(got).toBe("· Standup · 40m");
   });
 
-  // The minute it starts in is still "now": a floored zero and a running
-  // occurrence are the same fact, and printing `0m` for either is a
-  // countdown that has arrived and then stays there.
+  // Rounded up from the other side of the same rule: the last part-minute of
+  // a meeting is a minute of it, and `0m` is the reading this replaced.
+  it("never prints 0m for the part-minute a running occurrence has left", () => {
+    const e = event({ title: "Standup", start: "2026-03-09 08:45", end: "2026-03-09 09:00:30" });
+    const got = titleCountdown([e], [cal], [], at("2026-03-09 09:00:00"));
+    expect(got).toBe("· Standup · 1m");
+  });
+
+  // A floored zero wait and a running occurrence are the same fact, and
+  // `in 0m` is a countdown that has arrived and then stays arrived.
   it('reads "now" in the minute an occurrence starts', () => {
     const e = event({ title: "Standup", start: "2026-03-09 09:00:30" });
     const got = titleCountdown([e], [cal], [], at("2026-03-09 09:00:00"));
-    expect(got).toBe("· now · Standup");
+    expect(got).toBe("· Standup · now");
   });
 
   it('falls back to "Untitled" for an event with no title', () => {
     const e = event({ title: "", start: "2026-03-09 09:30" });
     const got = titleCountdown([e], [cal], [], at("2026-03-09 09:00"));
-    expect(got).toBe("· 30m · Untitled");
+    expect(got).toBe("· Untitled · in 30m");
   });
 
   it("a task's timed deadline counts as the next thing; a ticked one does not", () => {
     const open = task({ title: "Essay", due: "2026-03-09 09:30" });
-    expect.soft(titleCountdown([], [cal], [open], at("2026-03-09 09:00"))).toBe("· 30m · Essay");
+    expect.soft(titleCountdown([], [cal], [open], at("2026-03-09 09:00"))).toBe("· Essay · in 30m");
     expect
       .soft(titleCountdown([], [cal], [{ ...open, done: true }], at("2026-03-09 09:00")))
       .toBeNull();
