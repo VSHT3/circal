@@ -11,16 +11,26 @@
 
 import {
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
+  type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { DIAL, VIEW_SIZE, minutesAtPoint } from "@/lib/dial";
 import { clipToDay, colorOf, type Calendar, type Occurrence } from "@/lib/events";
 import { cue, type Cue } from "@/lib/feedback";
 import { ambientLevel, type Place } from "@/lib/sun";
-import { MINUTES_PER_DAY, addDays, daysBetween, snap, startOfDay } from "@/lib/time";
+import {
+  MINUTES_PER_DAY,
+  addDays,
+  dayKey,
+  daysBetween,
+  formatTime,
+  snap,
+  startOfDay,
+} from "@/lib/time";
 import { INTRO_SWEEP_MS } from "@/lib/motion";
 import type { Settings } from "@/lib/store";
 import type { Task } from "@/lib/tasks";
@@ -449,6 +459,22 @@ export default function Dial({
    *  in. See `capture`. */
   const svgRef = useRef<SVGSVGElement>(null);
   const [hovered, setHovered] = useState<string | null>(null);
+  const listId = useId();
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [listFocused, setListFocused] = useState(false);
+  const dateKey = dayKey(day);
+  const [cursorDay, setCursorDay] = useState(dateKey);
+  if (cursorDay !== dateKey) {
+    setCursorDay(dateKey);
+    setCursor(null);
+  }
+  // Keep identity across edits and ticks; a removed occurrence falls back to the first.
+  const cursorIndex = Math.max(
+    0,
+    occurrences.findIndex((occ) => occ.key === cursor),
+  );
+  const cursorOccurrence = occurrences[cursorIndex];
+  const active = listFocused && !covered ? (cursorOccurrence?.key ?? null) : hovered;
   const [draw, setDraw] = useState<Draw | null>(null);
   const [adjust, setAdjust] = useState<Adjust | null>(null);
   /** The dragged task's ghost, in minutes of this day — `null` while the
@@ -533,8 +559,8 @@ export default function Dial({
   const deleteHovered = () => {
     // Never mid-gesture: the drag in flight is about to write to this same arc,
     // and a press that both deletes and commits is neither.
-    if (draw || adjust || !hovered) return;
-    const occ = occurrences.find((o) => o.key === hovered);
+    if (draw || adjust || !active) return;
+    const occ = occurrences.find((o) => o.key === active);
     // Somebody else's calendar: that arc opens, it does not change.
     if (!occ || calendars.some((c) => c.id === occ.event.calendarId && c.feed)) return;
     setHovered(null);
@@ -936,6 +962,39 @@ export default function Dial({
     cancelAdjust();
   }
 
+  function onListKeyDown(e: ReactKeyboardEvent<HTMLUListElement>) {
+    if (covered || draw || adjust || e.altKey || e.metaKey || e.ctrlKey) return;
+    let next = cursorIndex;
+    switch (e.key) {
+      case "ArrowRight":
+      case "ArrowDown":
+        next++;
+        break;
+      case "ArrowLeft":
+      case "ArrowUp":
+        next--;
+        break;
+      case "Home":
+        next = 0;
+        break;
+      case "End":
+        next = occurrences.length - 1;
+        break;
+      case "Enter":
+      case " ":
+        e.preventDefault();
+        e.stopPropagation();
+        if (cursorOccurrence) onOpen(cursorOccurrence);
+        return;
+      default:
+        return;
+    }
+    e.preventDefault();
+    e.stopPropagation();
+    setHovered(null);
+    setCursor(occurrences[Math.max(0, Math.min(occurrences.length - 1, next))]?.key ?? null);
+  }
+
   /* ------------------------------- render ------------------------------- */
 
   return (
@@ -971,7 +1030,7 @@ export default function Dial({
         // to stay a shape when it is read from across a room.
         arcLabels={ambient ? ambientArcLabels : arcLabels}
         inheritMarks={inheritMarks}
-        hovered={hovered}
+        hovered={active}
         dragging={dragging}
         ghost={about}
         slots={slotGhosts}
@@ -986,6 +1045,32 @@ export default function Dial({
         onPointerUp={onGestureUp}
         onPointerCancel={onGestureCancel}
       />
+
+      <ul
+        role="listbox"
+        tabIndex={covered || occurrences.length === 0 ? -1 : 0}
+        aria-label={`Events for ${day.toLocaleDateString(undefined, { dateStyle: "full" })}. Arrows browse, Home and End jump, Enter opens`}
+        aria-activedescendant={cursorOccurrence ? `${listId}-${cursorIndex}` : undefined}
+        className="sr-only"
+        onFocus={() => {
+          setHovered(null);
+          setListFocused(true);
+        }}
+        onBlur={() => setListFocused(false)}
+        onKeyDown={onListKeyDown}
+      >
+        {occurrences.map((occ, i) => (
+          <li key={occ.key} id={`${listId}-${i}`} role="option" aria-selected={i === cursorIndex}>
+            {occ.event.title},{" "}
+            {occ.event.allDay
+              ? "All day"
+              : occ.startMin === occ.endMin
+                ? `Due ${formatTime(occ.start, clock)}`
+                : `${formatTime(occ.start, clock)} to ${formatTime(occ.end, clock)}`}
+            {occ.task ? (occ.task.done ? ", completed task" : ", task") : ""}
+          </li>
+        ))}
+      </ul>
 
       {/* A static wrapper, so an absolutely-positioned interior still resolves
           against the stage and costs no layout — it exists to hold the one
@@ -1014,7 +1099,7 @@ export default function Dial({
           drag={
             draw && draw.sweep !== 0 ? drawnSpan(draw, day) : adjust ? dragSpan(adjust, day) : null
           }
-          hovered={hovered}
+          hovered={active}
           onHover={setHovered}
           onOpen={onOpen}
           onToggleDone={onToggleDone}

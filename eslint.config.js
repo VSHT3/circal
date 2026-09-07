@@ -16,6 +16,7 @@ export default defineConfig([
   // variable, which is a paragraph of warnings about code nobody wrote.
   // `mac/build/` is the same build again, copied inside an .app bundle.
   globalIgnores([
+    ".delta/",
     "dist/",
     ".astro/",
     ".wrangler/",
@@ -53,6 +54,7 @@ export default defineConfig([
   {
     languageOptions: {
       globals: { ...globals.browser, ...globals.node },
+      parserOptions: { tsconfigRootDir: import.meta.dirname },
     },
     rules: {
       "@typescript-eslint/no-unused-vars": [

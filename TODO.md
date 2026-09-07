@@ -32,13 +32,6 @@ and scan with the other machine. Three fields must not travel, by the rule `shar
 `stampedZones` (what _this_ browser's answer stamped) and `defaultCalendar` (an id that does not
 exist over there).
 
-**Ended events on today are still pointer-only.** The keyboard half of this landed — focus peeks
-the arc, and a row can no longer unmount from under its own focus ring — but an event that ended
-_before_ you arrived is filtered out of today's card and the face is `aria-hidden`, so there is
-nothing to tab to. Reaching one needs the dial's own `sr-only` listbox, the answer the year ring and
-the life grid both already have. That is a real item, not a line: 365 marks and 30,000 dots each
-needed one, and a day's arcs would be the third.
-
 **Typical-weekday ghost.** Past instances of the viewed weekday drawn faint behind the real arcs,
 on the same lanes so it costs no radius. The one idea here that would tell you something the
 calendar does not already contain — what a Tuesday is usually like, rather than what this Tuesday

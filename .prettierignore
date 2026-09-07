@@ -4,3 +4,4 @@ mac/build/
 node_modules/
 pnpm-lock.yaml
 .wrangler/
+.delta/

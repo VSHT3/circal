@@ -617,12 +617,16 @@ this device throughout, the way it is whenever the link is not working.
 | `T`                       | Today                                                                             |
 | `F` / `⇧F`                | Ambient — chrome away, and with the screen as well                                |
 | `⌘↵` / `⌘⌫` / `esc`       | Save / delete / cancel in the editor                                              |
-| `⌘⌫`                      | Delete the arc you are pointing at, on the dial                                   |
+| `⌘⌫`                      | Delete the event previewed by pointer or keyboard on the dial                     |
 | `⌘`-drag an arc           | Duplicate it: the original stays, the copy lands where you let go                 |
 | `⌘↵` on a `⌘P` event row  | Duplicate it into the editor, where you can say when                              |
 
 `⌘` throughout means Ctrl on Windows and Linux — every shortcut here takes
 either, and the app prints whichever one your keyboard actually has.
+
+Tab to the dial's event list to browse the whole day, including events that have
+already ended. Arrow keys preview an event; Home and End jump to the first and
+last. Enter or Space opens its editor. Tab leaves the list.
 
 Type a duration into `⌘P` — `45m`, `1h30`, `free 20` — and the palette lists
 the gaps in the day that fit it. Picking one opens a draft already filling the

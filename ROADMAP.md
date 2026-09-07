@@ -78,8 +78,7 @@ auto-schedule) the delight. Two amendments to the spec:
 
 ## Tier 6 · Chores basket
 
-Settings cleanup pass · mark pinning · the dial's `sr-only` listbox for ended
-events (the third listbox; a real a11y gap) · IDEAS #10 day notes, re-evaluated
+Settings cleanup pass · mark pinning · IDEAS #10 day notes, re-evaluated
 after tasks land (a task's own notes may eat the demand) · **a sitemap**
 (`@astrojs/sitemap`, four pages — worthless alone, worth one line when `/tour/`
 gives crawlers something to find) · a hand-crafted-blob crash: valid JSON in
