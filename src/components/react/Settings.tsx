@@ -58,6 +58,7 @@ import {
   LIFE_EXPECTANCY_RANGE,
   TOTALS_POSITIONS,
   YEAR_QUOTE_MAX,
+  defaultCalendarId,
   hostLabel,
   store,
 } from "@/lib/store";
@@ -1396,18 +1397,11 @@ export default function Settings({
                         <FieldRow label="Calendar" last>
                           <Select
                             label="Calendar for new events and tasks"
-                            value={
-                              calendars.some((c) => c.id === defaultCalendar && !c.feed)
-                                ? defaultCalendar
-                                : ""
-                            }
+                            value={defaultCalendarId(calendars, defaultCalendar)}
                             onChange={store.setDefaultCalendar}
-                            options={[
-                              { value: "", label: "First one" },
-                              ...calendars
-                                .filter((c) => !c.feed)
-                                .map((c) => ({ value: c.id, label: c.name })),
-                            ]}
+                            options={calendars
+                              .filter((c) => !c.feed)
+                              .map((c) => ({ value: c.id, label: c.name }))}
                           />
                         </FieldRow>
                       </Section>
