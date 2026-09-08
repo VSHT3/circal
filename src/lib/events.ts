@@ -9,7 +9,7 @@
 import { fuzzyScore } from "./fuzzy";
 import { MINUTES_PER_DAY, addDays, daysBetween, minutesOfDay, startOfDay } from "./time";
 import { NEVER, instantKey, startsBetweenIn, type Recurrence, type Repeat } from "./recur";
-import type { Task, TaskList } from "./tasks";
+import { readTaskOrder, type Task, type TaskList } from "./tasks";
 
 export {
   FREQUENCIES,
@@ -461,6 +461,9 @@ export function readTaskList(value: unknown): TaskList | null {
     id: list.id,
     name: list.name.trim(),
     parentId: typeof list.parentId === "string" ? list.parentId : "",
+    ...(typeof list.color === "string" ? { color: list.color } : {}),
+    ...(typeof list.icon === "string" ? { icon: readMark(list.icon) } : {}),
+    ...(readTaskOrder(list.order) !== undefined ? { order: readTaskOrder(list.order) } : {}),
     updatedAt: readStamp(list.updatedAt),
   };
 }

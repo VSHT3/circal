@@ -27,6 +27,8 @@ export interface Task {
   calendarId: string;
   /** Empty means unlisted; calendar membership is independent. */
   listId: string;
+  /** Manual position within its list; absent keeps deadline ordering. */
+  order?: number;
   /** The mark vocabulary, unchanged — a Phosphor name or a literal emoji. */
   icon: string;
   /** `""` = follow the calendar, as on an event. */
@@ -65,6 +67,9 @@ export interface TaskList {
   id: string;
   name: string;
   parentId: string;
+  color?: string;
+  icon?: string;
+  order?: number;
   updatedAt: number;
 }
 
@@ -85,9 +90,7 @@ export function taskListDescendants(lists: TaskList[], id: string): Set<string> 
 
 /** Concurrent moves can form cycles; every list remains reachable on screen. */
 export function taskListTree(lists: TaskList[]): { list: TaskList; depth: number }[] {
-  const sorted = [...lists].sort(
-    (a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id),
-  );
+  const sorted = [...lists].sort(compareTaskLists);
   const ids = new Set(sorted.map((list) => list.id));
   const children = new Map<string, TaskList[]>();
   for (const list of sorted) {
@@ -114,6 +117,27 @@ export function taskListTree(lists: TaskList[]): { list: TaskList; depth: number
   walk(children.get("") ?? []);
   walk(sorted.filter((list) => !seen.has(list.id)));
   return result;
+}
+
+/** Missing positions follow explicitly ordered records, with deterministic ties. */
+export function compareTaskLists(a: TaskList, b: TaskList): number {
+  return (
+    (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER) ||
+    a.name.localeCompare(b.name) ||
+    a.id.localeCompare(b.id)
+  );
+}
+
+export function compareTaskOrder(a: Task, b: Task): number {
+  return (
+    (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER) ||
+    compareTasks(a, b) ||
+    a.id.localeCompare(b.id)
+  );
+}
+
+export function readTaskOrder(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
 }
 
 /* ------------------------------- validators -------------------------------- */

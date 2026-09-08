@@ -35,7 +35,13 @@ const baseEvent = { start: START, end: END };
 
 it("reads nested lists and membership from backups without inventing lists in old backups", () => {
   const root = taskList({ id: "root" });
-  const child = taskList({ id: "child", parentId: root.id });
+  const child = taskList({
+    id: "child",
+    parentId: root.id,
+    color: "#a3d9e4",
+    icon: "briefcase",
+    order: 2,
+  });
   const legacy = { app: "circal", calendars: [calendar()], tasks: [{ id: "old", due: START }] };
   const old = readBackup(legacy);
   expect(old.ok && old.taskLists).toEqual([]);
@@ -43,10 +49,11 @@ it("reads nested lists and membership from backups without inventing lists in ol
   const restored = readBackup({
     ...legacy,
     taskLists: [root, child, { id: "broken", name: " " }, null],
-    tasks: [task({ listId: child.id })],
+    tasks: [task({ listId: child.id, order: 3 })],
   });
   expect(restored.ok && restored.taskLists).toEqual([root, child]);
   expect(restored.ok && restored.tasks[0].listId).toBe(child.id);
+  expect(restored.ok && restored.tasks[0].order).toBe(3);
 });
 
 /* ---------------------------------- readEvent --------------------------- */

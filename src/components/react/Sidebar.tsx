@@ -12,44 +12,18 @@
  * ------------------------------------------------------------------ */
 
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import {
-  CalendarPlus,
-  ChevronLeft,
-  ChevronRight,
-  FolderPlus,
-  List,
-  Pencil,
-  Plus,
-  Sparkles,
-  Check,
-} from "lucide-react";
+import { ChevronLeft, ChevronRight, Pencil, Plus, Check } from "lucide-react";
 import { useMemo, useState } from "react";
-import { colorOf, markOf, occurrencesOn, taskOccurrences } from "@/lib/events";
-import {
-  compareTasks,
-  taskListDescendants,
-  taskListTree,
-  taskState,
-  unplanned,
-  type Task,
-  type TaskState,
-} from "@/lib/tasks";
-import {
-  addMonths,
-  formatDuration,
-  formatRelativeDay,
-  formatTimeShort,
-  isSameDay,
-  weekOffset,
-  WEEKDAYS,
-} from "@/lib/time";
+import { colorOf, occurrencesOn, taskOccurrences } from "@/lib/events";
+import { addMonths, isSameDay, weekOffset, WEEKDAYS } from "@/lib/time";
 import { EASE } from "@/lib/motion";
 import type { SidebarProps } from "@/components/react/types";
 import { cn } from "@/lib/utils";
-import { ActionPill, IconButton } from "@/components/react/ui/primitives";
+import { IconButton } from "@/components/react/ui/primitives";
 import { useFocusTrap } from "@/components/react/hooks";
 import { CalendarMark } from "@/components/react/ui/icons";
 import MoonPanel from "@/components/react/MoonPanel";
+import TaskLists from "@/components/react/TaskLists";
 
 /**
  * The column's width, in pixels, and the shell needs the number: it decides
@@ -109,48 +83,6 @@ export default function Sidebar({
     () => Array.from({ length: 7 }, (_, i) => (weekStart + i) % 7),
     [weekStart],
   );
-
-  const [selectedList, setSelectedList] = useState<string | null>(null);
-  const activeList =
-    selectedList && !taskLists.some((list) => list.id === selectedList) ? null : selectedList;
-  const listTree = useMemo(() => taskListTree(taskLists), [taskLists]);
-  const listedTasks = useMemo(() => {
-    if (activeList === null) return tasks;
-    const included = activeList ? taskListDescendants(taskLists, activeList) : null;
-    const known = new Set(taskLists.map((list) => list.id));
-    return tasks.filter((task) => (included ? included.has(task.listId) : !known.has(task.listId)));
-  }, [tasks, taskLists, activeList]);
-  const listCounts = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const task of tasks) {
-      if (!task.done) counts.set(task.listId, (counts.get(task.listId) ?? 0) + 1);
-    }
-    return counts;
-  }, [tasks]);
-
-  /**
-   * The list of work by deadline, `taskState`'s own grouping so this column
-   * and any future badge cannot disagree. Rows inside a group take the one
-   * order (`compareTasks`); a group with nothing in it is not drawn — a
-   * header counting zero is a shelf with a label and no shelf.
-   */
-  const groups = useMemo(() => {
-    const by: Record<TaskState, Task[]> = { done: [], overdue: [], "due-soon": [], later: [] };
-    for (const t of listedTasks) by[taskState(t, now)].push(t);
-    for (const list of Object.values(by)) list.sort(compareTasks);
-    return [
-      { id: "overdue", title: "Overdue", rows: by.overdue },
-      { id: "due-soon", title: "Due soon", rows: by["due-soon"] },
-      { id: "later", title: "Later", rows: by.later },
-      // Done tasks leave the groups on tick and land here, so a tick can be
-      // taken back without a second surface.
-      { id: "done", title: "Done", rows: by.done },
-    ].filter((group) => group.rows.length > 0);
-  }, [listedTasks, now]);
-
-  /** Which groups are folded. Session state, not a setting: Done starts
-   *  collapsed — finished work is reachable, never ambient. */
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({ done: true });
 
   const body = (
     <div className="fade-y no-scrollbar flex h-full w-[260px] flex-col gap-5 overflow-y-auto p-3">
@@ -225,218 +157,14 @@ export default function Sidebar({
         </div>
       </section>
 
-      {/* TASKS.md §6: work grouped by deadline, above the calendars. Two
-          things this must not become — a second agenda (the interior answers
-          the day) and a card stack: these are rows, at the mini-month's own
-          rhythm. */}
-      <section className="flex w-full shrink-0 flex-col gap-1">
-        <div className="flex items-center justify-between">
-          <span className="label text-ink-2">Tasks</span>
-          <div className="flex items-center">
-            {/* TASKS.md §9: the auto-scheduler's hand-run — drops every
-                unplanned, sized task into free gaps, soonest deadline
-                first, and toasts what landed. */}
-            <IconButton label="Fill free time" onClick={actions.fillFreeTime} className="size-6">
-              <Sparkles size={12} strokeWidth={1.75} />
-            </IconButton>
-            <IconButton
-              label="New task list"
-              onClick={() => actions.newTaskList()}
-              className="size-6"
-            >
-              <FolderPlus size={13} strokeWidth={1.75} />
-            </IconButton>
-            <IconButton
-              label="New task"
-              onClick={() => actions.newTaskInList(activeList ?? "")}
-              className="size-6"
-            >
-              <Plus size={13} strokeWidth={1.75} />
-            </IconButton>
-          </div>
-        </div>
-        {taskLists.length > 0 && (
-          <div className="mb-2 flex flex-col gap-0.5 border-b border-hairline pb-2">
-            <div className="flex gap-1">
-              <ActionPill
-                label="All tasks"
-                icon={<span>All tasks</span>}
-                aria-pressed={activeList === null}
-                onClick={() => setSelectedList(null)}
-                className={cn("text-[12px]", activeList === null && "bg-surface-2 text-ink")}
-              />
-              <ActionPill
-                label="Unlisted tasks"
-                icon={<span>Unlisted</span>}
-                aria-pressed={activeList === ""}
-                onClick={() => setSelectedList("")}
-                className={cn("text-[12px]", activeList === "" && "bg-surface-2 text-ink")}
-              />
-            </div>
-            {listTree.map(({ list, depth }) => (
-              <div
-                key={list.id}
-                className="group flex min-w-0 items-center gap-0.5"
-                style={{ paddingLeft: Math.min(depth, 3) * 10 }}
-              >
-                <ActionPill
-                  label={`Show ${list.name}`}
-                  aria-pressed={activeList === list.id}
-                  onClick={() => setSelectedList(list.id)}
-                  className={cn(
-                    "min-w-0 flex-1 text-left text-[12.5px]",
-                    activeList === list.id && "bg-surface-2 text-ink",
-                  )}
-                  icon={
-                    <>
-                      <List size={13} strokeWidth={1.75} className="shrink-0" />
-                      <span className="truncate">{list.name}</span>
-                      <span className="ml-auto text-[10px] text-ink-3">
-                        {listCounts.get(list.id) || ""}
-                      </span>
-                    </>
-                  }
-                />
-                <IconButton
-                  label={`New sublist in ${list.name}`}
-                  onClick={() => actions.newTaskList(list.id)}
-                  className="size-6 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100"
-                >
-                  <Plus size={12} strokeWidth={1.75} />
-                </IconButton>
-                <IconButton
-                  label={`Edit list ${list.name}`}
-                  onClick={() => actions.editTaskList(list.id)}
-                  className="size-6 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100"
-                >
-                  <Pencil size={12} strokeWidth={1.75} />
-                </IconButton>
-              </div>
-            ))}
-          </div>
-        )}
-        {groups.map((group) => (
-          <div key={group.id} className="flex flex-col gap-0.5">
-            <button
-              type="button"
-              aria-expanded={!collapsed[group.id]}
-              onClick={() => setCollapsed((open) => ({ ...open, [group.id]: !open[group.id] }))}
-              className="flex h-6 items-center gap-1 rounded-[7px] px-1 transition-colors hover:bg-white/6"
-            >
-              <ChevronRight
-                size={11}
-                strokeWidth={1.75}
-                className={cn(
-                  "shrink-0 text-ink-4 transition-transform",
-                  !collapsed[group.id] && "rotate-90",
-                )}
-              />
-              <span className="label text-[9px] text-ink-3">{group.title}</span>
-              <span className="label text-[9px] text-ink-4">{group.rows.length}</span>
-            </button>
-            {!collapsed[group.id] &&
-              group.rows.map((task) => (
-                <div
-                  key={task.id}
-                  className="group flex items-center gap-1.5 pl-1"
-                  // The drag's start, and only its start: a press that moves
-                  // past a slop hands the task to the shell (`dragTask`), and
-                  // the dial's own window listeners carry the rest. Not for
-                  // touch — moving a finger here is scrolling the column, and
-                  // the Schedule verb below is the touch path (TASKS.md §7).
-                  // The listener pair lives exactly as long as the press.
-                  onPointerDown={(e) => {
-                    if (e.button !== 0 || e.pointerType === "touch" || task.done) return;
-                    const x0 = e.clientX;
-                    const y0 = e.clientY;
-                    const move = (ev: PointerEvent) => {
-                      if (Math.hypot(ev.clientX - x0, ev.clientY - y0) < 6) return;
-                      end();
-                      actions.dragTask(task.id);
-                    };
-                    const end = () => {
-                      window.removeEventListener("pointermove", move);
-                      window.removeEventListener("pointerup", end);
-                    };
-                    window.addEventListener("pointermove", move);
-                    window.addEventListener("pointerup", end);
-                  }}
-                >
-                  {/* The pip is the control, the face's own vocabulary: filled
-                      while it stands, hollow once done. */}
-                  <button
-                    type="button"
-                    aria-pressed={task.done}
-                    aria-label={task.done ? `Reopen ${task.title}` : `Complete ${task.title}`}
-                    onClick={() => actions.toggleTask(task.id)}
-                    className="grid size-6 shrink-0 place-items-center"
-                  >
-                    <span
-                      className="size-[9px] rounded-full"
-                      style={
-                        task.done
-                          ? { border: `1.5px solid ${colorOf(task, calendars)}` }
-                          : { backgroundColor: colorOf(task, calendars) }
-                      }
-                    />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => actions.editTask(task.id)}
-                    className="flex h-8 min-w-0 flex-1 flex-col justify-center rounded-[8px] px-1 text-left"
-                  >
-                    <span className="flex min-w-0 items-center gap-1.5">
-                      <span
-                        className={cn(
-                          "truncate text-[12.5px]",
-                          task.done ? "text-ink-3 line-through" : "text-ink",
-                        )}
-                      >
-                        {task.title || "Untitled"}
-                      </span>
-                      {/* "Already on the face somewhere" is the one thing to
-                          know before dragging it again: a small filled dot,
-                          never a dimming. */}
-                      {!task.done && !unplanned(task) && (
-                        <span
-                          aria-label="Already planned"
-                          className="ml-auto size-[5px] shrink-0 rounded-full bg-ink-3"
-                        />
-                      )}
-                    </span>
-                    {/* One line, truncating: the due date, the estimate, and
-                        the calendar's mark — the row's whole meta budget. */}
-                    <span className="label flex min-w-0 items-center gap-1 text-[9px] text-ink-3">
-                      <span className="truncate">
-                        {formatRelativeDay(new Date(task.due), now)}
-                        {!task.dueAllDay && ` ${formatTimeShort(new Date(task.due), clock)}`}
-                        {task.estimate !== null && ` · ${formatDuration(task.estimate)}`}
-                      </span>
-                      <CalendarMark
-                        icon={markOf(task, calendars, true)}
-                        color={colorOf(task, calendars)}
-                        size={10}
-                      />
-                    </span>
-                  </button>
-                  {/* The drag's keyboard and touch equivalent: in drawer mode
-                      this column covers the face, and there is nothing to
-                      drag onto. Hidden until pointed at, the pencil's rule. */}
-                  {!task.done && (
-                    <IconButton
-                      label={`Schedule ${task.title || "Untitled"}`}
-                      onClick={() => actions.scheduleTask(task.id)}
-                      className="size-6 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
-                    >
-                      <CalendarPlus size={12} strokeWidth={1.75} />
-                    </IconButton>
-                  )}
-                </div>
-              ))}
-          </div>
-        ))}
-        {groups.length === 0 && <span className="caption px-1">Nothing due</span>}
-      </section>
+      <TaskLists
+        tasks={tasks}
+        taskLists={taskLists}
+        calendars={calendars}
+        clock={clock}
+        now={now}
+        actions={actions}
+      />
 
       <section className="flex w-full shrink-0 flex-col gap-1">
         <div className="flex items-center justify-between">

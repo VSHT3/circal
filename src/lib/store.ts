@@ -47,6 +47,7 @@ import {
   keyToInstant,
   readGraves,
   readGuests,
+  readMark,
   readPerson,
   readRecurrence,
   readRemindLead,
@@ -60,6 +61,9 @@ import {
 } from "./events";
 import {
   PLANS_MAX,
+  compareTaskLists,
+  compareTaskOrder,
+  readTaskOrder,
   readEstimate,
   readPlans,
   readPriority,
@@ -1112,6 +1116,7 @@ function hydrateTasks(value: unknown): Task[] {
       typeof notes === "string" &&
       typeof calendarId === "string" &&
       typeof task.listId === "string" &&
+      task.order === readTaskOrder(task.order) &&
       typeof icon === "string" &&
       typeof color === "string" &&
       typeof due === "number" &&
@@ -1132,6 +1137,7 @@ function hydrateTasks(value: unknown): Task[] {
       notes: typeof notes === "string" ? notes : "",
       calendarId: typeof calendarId === "string" ? calendarId : "",
       listId: typeof task.listId === "string" ? task.listId : "",
+      order: readTaskOrder(task.order),
       icon: typeof icon === "string" ? icon : "",
       color: typeof color === "string" ? color : "",
       due: typeof due === "number" && Number.isFinite(due) ? due : Date.now(),
@@ -1687,16 +1693,26 @@ export const store = {
 
   /* -------------------------------- tasks --------------------------------- */
 
-  addTaskList(name: string, parentId = ""): TaskList | null {
+  addTaskList(name: string, parentId = "", color: string = PALETTE[0], icon = ""): TaskList | null {
     const base = fresh();
     if (!name.trim() || (parentId && !base.taskLists.some((list) => list.id === parentId)))
       return null;
-    const list = { id: newId(), name: name.trim(), parentId, updatedAt: Date.now() };
+    const list = {
+      id: newId(),
+      name: name.trim(),
+      parentId,
+      color,
+      icon: readMark(icon),
+      updatedAt: Date.now(),
+    };
     commit({ ...base, taskLists: [...base.taskLists, list] });
     return list;
   },
 
-  updateTaskList(id: string, patch: Partial<Pick<TaskList, "name" | "parentId">>): boolean {
+  updateTaskList(
+    id: string,
+    patch: Partial<Pick<TaskList, "name" | "parentId" | "color" | "icon">>,
+  ): boolean {
     const base = fresh();
     const list = base.taskLists.find((item) => item.id === id);
     if (!list) return false;
@@ -1712,9 +1728,77 @@ export const store = {
     commit({
       ...base,
       taskLists: base.taskLists.map((item) =>
-        item.id === id ? { ...item, name, parentId, updatedAt: Date.now() } : item,
+        item.id === id
+          ? {
+              ...item,
+              ...patch,
+              name,
+              parentId,
+              icon: readMark(patch.icon ?? item.icon),
+              updatedAt: Date.now(),
+            }
+          : item,
       ),
     });
+    return true;
+  },
+
+  moveTaskList(id: string, parentId: string, beforeId?: string): boolean {
+    const base = fresh();
+    const list = base.taskLists.find((item) => item.id === id);
+    if (
+      !list ||
+      beforeId === id ||
+      (parentId &&
+        (!base.taskLists.some((item) => item.id === parentId) ||
+          taskListDescendants(base.taskLists, id).has(parentId)))
+    )
+      return false;
+    const siblings = base.taskLists
+      .filter((item) => item.parentId === parentId && item.id !== id)
+      .sort(compareTaskLists);
+    const index =
+      beforeId === undefined ? siblings.length : siblings.findIndex((item) => item.id === beforeId);
+    if (index < 0) return false;
+    siblings.splice(index, 0, list);
+    const positions = new Map(siblings.map((item, order) => [item.id, order]));
+    const now = Date.now();
+    const taskLists = base.taskLists.map((item) => {
+      const order = positions.get(item.id);
+      return order === undefined || (item.order === order && item.parentId === parentId)
+        ? item
+        : { ...item, parentId, order, updatedAt: now };
+    });
+    if (taskLists.every((item, i) => item === base.taskLists[i])) return false;
+    commit({ ...base, taskLists });
+    return true;
+  },
+
+  moveTask(id: string, listId: string, beforeId?: string): boolean {
+    const base = fresh();
+    const task = base.tasks.find((item) => item.id === id);
+    if (!task || beforeId === id || (listId && !base.taskLists.some((list) => list.id === listId)))
+      return false;
+    const known = new Set(base.taskLists.map((list) => list.id));
+    const siblings = base.tasks
+      .filter(
+        (item) => item.id !== id && (listId ? item.listId === listId : !known.has(item.listId)),
+      )
+      .sort(compareTaskOrder);
+    const index =
+      beforeId === undefined ? siblings.length : siblings.findIndex((item) => item.id === beforeId);
+    if (index < 0) return false;
+    siblings.splice(index, 0, task);
+    const positions = new Map(siblings.map((item, order) => [item.id, order]));
+    const now = Date.now();
+    const tasks = base.tasks.map((item) => {
+      const order = positions.get(item.id);
+      return order === undefined || (item.order === order && item.listId === listId)
+        ? item
+        : { ...item, listId, order, updatedAt: now };
+    });
+    if (tasks.every((item, i) => item === base.tasks[i])) return false;
+    commit({ ...base, tasks });
     return true;
   },
 

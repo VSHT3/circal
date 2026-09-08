@@ -66,6 +66,18 @@ describe("readTaskList", () => {
       updatedAt: 0,
     });
   });
+  it("keeps long icon names and rejects invalid manual positions", () => {
+    const list = {
+      id: "list",
+      name: "Work",
+      icon: "currency-circle-dollar",
+      color: PALETTE[0],
+      order: 2,
+    };
+    expect(readTaskList(list)).toMatchObject(list);
+    expect(readTaskList({ ...list, order: Infinity })?.order).toBeUndefined();
+    expect(readTaskList({ ...list, order: -1 })?.order).toBeUndefined();
+  });
 });
 /* ------------------------------- occurrences ------------------------------ */
 

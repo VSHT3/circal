@@ -2642,10 +2642,10 @@ function Shell() {
             target={editedTaskList}
             taskLists={taskLists}
             seedParentId={taskListEditor.parentId}
-            onSave={(name, parentId) => {
+            onSave={(name, parentId, color, icon) => {
               const saved = editedTaskList
-                ? store.updateTaskList(editedTaskList.id, { name, parentId })
-                : store.addTaskList(name, parentId) !== null;
+                ? store.updateTaskList(editedTaskList.id, { name, parentId, color, icon })
+                : store.addTaskList(name, parentId, color, icon) !== null;
               if (saved) setTaskListEditor(null);
               return saved;
             }}

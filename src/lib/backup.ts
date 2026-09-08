@@ -41,7 +41,14 @@ import {
   type Calendar,
   type Grave,
 } from "./events";
-import { readEstimate, readPlans, readPriority, type Task, type TaskList } from "./tasks";
+import {
+  readEstimate,
+  readPlans,
+  readPriority,
+  readTaskOrder,
+  type Task,
+  type TaskList,
+} from "./tasks";
 
 const BACKUP_VERSION = 1;
 
@@ -462,6 +469,7 @@ export function readTask(value: unknown): Task | null {
     notes: typeof value.notes === "string" ? value.notes : "",
     calendarId: typeof value.calendarId === "string" ? value.calendarId : "",
     listId: typeof value.listId === "string" ? value.listId : "",
+    ...(readTaskOrder(value.order) !== undefined ? { order: readTaskOrder(value.order) } : {}),
     // The mark and the colour take an event's own validators and defaults.
     icon: readMark(value.icon),
     color: typeof value.color === "string" ? value.color : "",

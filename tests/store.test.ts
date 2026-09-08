@@ -13,6 +13,7 @@ import { mirrorDigest, readMirrorFile, serialiseMirror } from "@/lib/mirror";
 import { MINUTES_PER_DAY, addDays, addMonths, dayKey, daysBetween, startOfDay } from "@/lib/time";
 import type * as StoreModule from "@/lib/store";
 import type * as NotifyModule from "@/lib/notify";
+import { compareTaskOrder, taskListTree } from "@/lib/tasks";
 
 const KEY = "circal.v1";
 
@@ -222,6 +223,77 @@ describe("remove", () => {
 });
 
 describe("task lists", () => {
+  it("moves and orders tasks atomically without changing their calendar or deadline", async () => {
+    const s = await freshStore();
+    const source = s.store.addTaskList("Source")!;
+    const target = s.store.addTaskList("Target")!;
+    const a = s.store.addTask(task({ title: "A", listId: source.id }));
+    const b = s.store.addTask(task({ title: "B", listId: target.id }));
+    const c = s.store.addTask(task({ title: "C", listId: target.id }));
+    const ids = () =>
+      s.store
+        .snapshot()
+        .tasks.filter((t) => t.listId === target.id)
+        .sort(compareTaskOrder)
+        .map((t) => t.id);
+    expect(s.store.moveTask(a.id, target.id, c.id)).toBe(true);
+    expect(ids()).toEqual([b.id, a.id, c.id]);
+    const moved = s.store.snapshot().tasks.find((t) => t.id === a.id)!;
+    expect(moved.calendarId).toBe(a.calendarId);
+    expect(moved.due).toBeSameInstantAs(a.due);
+    s.store.undo();
+    expect(ids()).toEqual([b.id, c.id]);
+    expect(s.store.snapshot().tasks.find((t) => t.id === a.id)?.listId).toBe(source.id);
+    s.store.redo();
+    const reloaded = await freshStore(s.storage);
+    expect(
+      reloaded.store
+        .snapshot()
+        .tasks.filter((t) => t.listId === target.id)
+        .sort(compareTaskOrder)
+        .map((t) => t.id),
+    ).toEqual([b.id, a.id, c.id]);
+    expect(reloaded.store.moveTask(a.id, "", undefined)).toBe(true);
+    expect(reloaded.store.snapshot().tasks.find((t) => t.id === a.id)?.listId).toBe("");
+  });
+
+  it("persists list appearance and sibling order and rejects cyclic drag destinations", async () => {
+    const s = await freshStore();
+    const a = s.store.addTaskList("A", "", PALETTE[2], "briefcase")!;
+    const b = s.store.addTaskList("B")!;
+    const child = s.store.addTaskList("Child", a.id)!;
+    expect(s.store.moveTaskList(b.id, "", a.id)).toBe(true);
+    expect(taskListTree(s.store.snapshot().taskLists).map(({ list }) => list.id)).toEqual([
+      b.id,
+      a.id,
+      child.id,
+    ]);
+    const before = s.storage.getItem(KEY);
+    expect(s.store.moveTaskList(a.id, child.id)).toBe(false);
+    expect(s.store.moveTaskList(a.id, "", "missing")).toBe(false);
+    expect(s.store.moveTaskList(a.id, "", a.id)).toBe(false);
+    expect(s.storage.getItem(KEY)).toBe(before);
+    expect(s.store.moveTaskList(b.id, a.id, child.id)).toBe(true);
+    expect(
+      taskListTree(s.store.snapshot().taskLists).map(({ list, depth }) => [list.id, depth]),
+    ).toEqual([
+      [a.id, 0],
+      [b.id, 1],
+      [child.id, 1],
+    ]);
+    s.store.undo();
+    const reloaded = await freshStore(s.storage);
+    expect(taskListTree(reloaded.store.snapshot().taskLists).map(({ list }) => list.id)).toEqual([
+      b.id,
+      a.id,
+      child.id,
+    ]);
+    expect(reloaded.store.snapshot().taskLists.find((list) => list.id === a.id)).toMatchObject({
+      color: PALETTE[2],
+      icon: "briefcase",
+    });
+  });
+
   it("deleting a list preserves its tasks and children, and undo restores membership", async () => {
     const s = await freshStore();
     const root = s.store.addTaskList("Work")!;

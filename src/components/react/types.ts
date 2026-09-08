@@ -358,7 +358,7 @@ export interface TaskListEditorProps {
   target: TaskList | null;
   taskLists: TaskList[];
   seedParentId: string;
-  onSave: (name: string, parentId: string) => boolean;
+  onSave: (name: string, parentId: string, color: string, icon: string) => boolean;
   onDelete: () => void;
   onClose: () => void;
 }

@@ -5,6 +5,7 @@ import {
   ESTIMATE_MAX,
   PLANS_MAX,
   compareTasks,
+  compareTaskOrder,
   plannedMinutes,
   readEstimate,
   readPlans,
@@ -207,6 +208,18 @@ describe("compareTasks — one order for every list of tasks", () => {
 });
 
 describe("task list hierarchy", () => {
+  it("manual positions override names and deadlines only in list views", () => {
+    const later = task({ id: "later", due: ms("2026-03-10"), order: 0 });
+    const earlier = task({ id: "earlier", due: ms("2026-03-09"), order: 1 });
+    expect([earlier, later].sort(compareTaskOrder).map((t) => t.id)).toEqual(["later", "earlier"]);
+    expect([later, earlier].sort(compareTasks).map((t) => t.id)).toEqual(["earlier", "later"]);
+    expect(
+      taskListTree([
+        taskList({ id: "a", name: "A", order: 1 }),
+        taskList({ id: "z", name: "Z", order: 0 }),
+      ]).map(({ list }) => list.id),
+    ).toEqual(["z", "a"]);
+  });
   it("walks parents before children and keeps orphaned and cyclic lists reachable", () => {
     const lists = [
       taskList({ id: "child", name: "Child", parentId: "root" }),

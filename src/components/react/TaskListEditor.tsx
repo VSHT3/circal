@@ -2,7 +2,16 @@ import { useEffect, useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { taskListDescendants, taskListTree } from "@/lib/tasks";
 import { useFocusTrap } from "@/components/react/hooks";
-import { ActionPill, FieldRow, Select, TextField } from "@/components/react/ui/primitives";
+import {
+  ActionPill,
+  ColorPicker,
+  FieldRow,
+  Select,
+  TextField,
+} from "@/components/react/ui/primitives";
+import { PALETTE } from "@/lib/events";
+import { MarkPicker } from "@/components/react/MarkPicker";
+import { CalendarMark } from "@/components/react/ui/icons";
 import type { TaskListEditorProps } from "@/components/react/types";
 
 export default function TaskListEditor({
@@ -17,6 +26,10 @@ export default function TaskListEditor({
   const reducedMotion = useReducedMotion();
   const [name, setName] = useState(target?.name ?? "");
   const [parentId, setParentId] = useState(target?.parentId ?? seedParentId);
+  const [color, setColor] = useState(target?.color ?? PALETTE[0]);
+  const [icon, setIcon] = useState(target?.icon ?? "");
+  const [browsing, setBrowsing] = useState(false);
+  const [markQuery, setMarkQuery] = useState("");
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState("");
   const excluded = target ? taskListDescendants(taskLists, target.id) : new Set<string>();
@@ -24,8 +37,8 @@ export default function TaskListEditor({
   const validParent = parentId === "" || parents.some(({ list }) => list.id === parentId);
 
   function save() {
-    if (!name.trim()) return;
-    if (!onSave(name.trim(), parentId))
+    if (!name.trim() || browsing) return;
+    if (!onSave(name.trim(), parentId, color, icon))
       setError("Choose an existing parent list, or keep this at the top level.");
   }
 
@@ -35,6 +48,14 @@ export default function TaskListEditor({
 
   useEffect(() => {
     function keydown(event: KeyboardEvent) {
+      if (browsing) {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          setBrowsing(false);
+        }
+        return;
+      }
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopPropagation();
@@ -70,41 +91,59 @@ export default function TaskListEditor({
         animate={{ opacity: 1, scale: 1 }}
         transition={{ duration: reducedMotion ? 0 : 0.18 }}
       >
-        <div className="border-b border-hairline px-3.5 py-3 text-[19px] font-medium text-ink">
+        <div className="flex shrink-0 items-center gap-2 border-b border-hairline px-3.5 py-3 text-[19px] font-medium text-ink">
+          <CalendarMark color={color} icon={icon} size={18} />
           {target ? "Edit task list" : "New task list"}
         </div>
-        <FieldRow label="Name">
-          <TextField
-            label="List name"
-            value={name}
-            onChange={setName}
-            placeholder="List name"
-            onEnter={save}
-            className="w-full"
-          />
-        </FieldRow>
-        <FieldRow label="Parent" last>
-          <Select
-            label="Parent list"
-            value={parentId}
-            onChange={setParentId}
-            options={[
-              { value: "", label: "Top level" },
-              ...(!validParent ? [{ value: parentId, label: "Choose a parent" }] : []),
-              ...parents.map(({ list, depth }) => ({
-                value: list.id,
-                label: `${"› ".repeat(depth)}${list.name}`,
-              })),
-            ]}
-          />
-        </FieldRow>
+        <div className="no-scrollbar min-h-0 overflow-y-auto">
+          <FieldRow label="Name">
+            <TextField
+              label="List name"
+              value={name}
+              onChange={setName}
+              placeholder="List name"
+              onEnter={save}
+              className="w-full"
+            />
+          </FieldRow>
+          <FieldRow label="Parent">
+            <Select
+              label="Parent list"
+              value={parentId}
+              onChange={setParentId}
+              options={[
+                { value: "", label: "Top level" },
+                ...(!validParent ? [{ value: parentId, label: "Choose a parent" }] : []),
+                ...parents.map(({ list, depth }) => ({
+                  value: list.id,
+                  label: `${"› ".repeat(depth)}${list.name}`,
+                })),
+              ]}
+            />
+          </FieldRow>
+          <FieldRow label="Color">
+            <ColorPicker value={color} onChange={setColor} />
+          </FieldRow>
+          <FieldRow label="Icon" align="top" last>
+            <MarkPicker
+              icon={icon}
+              color={color}
+              noneLabel="No icon, just the colour"
+              onChange={setIcon}
+              query={markQuery}
+              onQuery={setMarkQuery}
+              browsing={browsing}
+              onBrowse={setBrowsing}
+            />
+          </FieldRow>
+        </div>
         {error && (
           <p role="alert" className="caption px-3.5 py-2">
             {error}
           </p>
         )}
         {confirming ? (
-          <div className="border-t border-hairline p-3">
+          <div className="shrink-0 border-t border-hairline p-3">
             <p className="caption">
               {destination
                 ? `Tasks and sublists move to ${destination}.`
@@ -126,7 +165,7 @@ export default function TaskListEditor({
             </div>
           </div>
         ) : (
-          <div className="flex items-center gap-1 border-t border-hairline p-3">
+          <div className="flex shrink-0 items-center gap-1 border-t border-hairline p-3">
             {target && (
               <ActionPill
                 label="Delete list"
