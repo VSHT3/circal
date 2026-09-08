@@ -20,7 +20,7 @@ import type { MirrorContents } from "@/lib/mirror";
  */
 export type Mutated = Pick<
   MirrorContents,
-  "events" | "calendars" | "tasks" | "settings" | "settingsAt" | "graves"
+  "events" | "calendars" | "tasks" | "taskLists" | "settings" | "settingsAt" | "graves"
 >;
 
 export interface Loaded {

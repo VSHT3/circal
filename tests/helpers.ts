@@ -22,7 +22,7 @@ import {
   type Partstat,
   type Recurrence,
 } from "@/lib/events";
-import type { Plan, Task } from "@/lib/tasks";
+import type { Plan, Task, TaskList } from "@/lib/tasks";
 
 /* -------------------------------- parsing --------------------------------- */
 
@@ -214,6 +214,7 @@ export function task(
     title: "Task",
     notes: "",
     calendarId: "cal-work",
+    listId: "",
     icon: "",
     color: "",
     due: due === undefined ? ms("2026-03-08 18:30") : typeof due === "string" ? ms(due) : +due,
@@ -225,6 +226,10 @@ export function task(
     updatedAt: 0,
     ...rest,
   };
+}
+
+export function taskList(overrides: Partial<TaskList> = {}): TaskList {
+  return { id: id("list"), name: "List", parentId: "", updatedAt: 0, ...overrides };
 }
 
 /** One plan, both ends as stamps. */

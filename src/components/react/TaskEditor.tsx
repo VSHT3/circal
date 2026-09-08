@@ -12,7 +12,7 @@
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useEffect, useState } from "react";
 import { X, Clock as ClockIcon } from "lucide-react";
-import { ESTIMATE_MAX, type Plan, type Task } from "@/lib/tasks";
+import { ESTIMATE_MAX, taskListTree, type Plan, type Task } from "@/lib/tasks";
 import { PALETTE, colorOf } from "@/lib/events";
 import {
   atMinutes,
@@ -50,6 +50,8 @@ export default function TaskEditor({
   target,
   seedDue,
   calendars,
+  taskLists,
+  seedListId,
   defaultCalendar,
   clock,
   onSave,
@@ -63,6 +65,7 @@ export default function TaskEditor({
   const [title, setTitle] = useState(target?.title ?? "");
   const [notes, setNotes] = useState(target?.notes ?? "");
   const [calendarId, setCalendarId] = useState(target?.calendarId ?? defaultCalendar);
+  const [listId, setListId] = useState(target?.listId ?? seedListId);
   const [due, setDue] = useState(target?.due ?? seedDue);
   // A new task's deadline is a day, not a minute: "due Friday" is the
   // ordinary deadline, and the Day only switch is how the rare timed one
@@ -94,6 +97,7 @@ export default function TaskEditor({
       title: title.trim() || "New task",
       notes,
       calendarId,
+      listId,
       icon,
       color,
       due,
@@ -241,6 +245,21 @@ export default function TaskEditor({
                 above to inherit from. */}
             <Row label="Color">
               <ColorPicker value={color} fallback={calendarColor} onChange={setColor} />
+            </Row>
+
+            <Row label="List">
+              <Select
+                label="Task list"
+                value={taskLists.some((list) => list.id === listId) ? listId : ""}
+                onChange={setListId}
+                options={[
+                  { value: "", label: "Unlisted" },
+                  ...taskListTree(taskLists).map(({ list, depth }) => ({
+                    value: list.id,
+                    label: `${"› ".repeat(depth)}${list.name}`,
+                  })),
+                ]}
+              />
             </Row>
 
             <Row label="Mark" align="top">

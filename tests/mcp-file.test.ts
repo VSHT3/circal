@@ -39,6 +39,7 @@ const ctx = (env: NodeJS.ProcessEnv = {}) => ({ path, env });
 const snapshot = (events: CalEvent[] = []): Mutated => ({
   events,
   tasks: [],
+  taskLists: [],
   calendars: [calendar({ id: CAL })],
   settings: DEFAULT_SETTINGS,
   settingsAt: 0,

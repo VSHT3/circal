@@ -18,7 +18,14 @@ import { PALETTE, REMIND_INHERIT, REMIND_SILENT, ownLead } from "@/lib/events";
 import { REMIND_LEADS, remindLabel } from "@/lib/remind";
 import { cn } from "@/lib/utils";
 import { useFocusTrap } from "@/components/react/hooks";
-import { ColorPicker, FieldRow as Row, Kbd, MOD, Select } from "@/components/react/ui/primitives";
+import {
+  ActionPill,
+  ColorPicker,
+  FieldRow as Row,
+  Kbd,
+  MOD,
+  Select,
+} from "@/components/react/ui/primitives";
 import { CalendarMark } from "@/components/react/ui/icons";
 import { MarkPicker } from "@/components/react/MarkPicker";
 import type { CalendarEditorProps } from "@/components/react/types";
@@ -32,6 +39,8 @@ function removalNote(holds: number, into: string): string {
 
 export default function CalendarEditor({
   target,
+  isDefault,
+  onSetDefault,
   removal,
   remind,
   remindLead,
@@ -127,6 +136,23 @@ export default function CalendarEditor({
               className="w-full min-w-0 border-none bg-transparent text-[19px] font-medium text-ink outline-none placeholder:text-ink-3"
             />
           </div>
+
+          {target && !feed && (
+            <Row label="Default">
+              <div className="flex flex-col gap-1 py-2">
+                {isDefault ? (
+                  <span className="text-[13px] text-ink">Default calendar</span>
+                ) : (
+                  <ActionPill
+                    label="Make default"
+                    icon={<span>Make default</span>}
+                    onClick={onSetDefault}
+                  />
+                )}
+                <span className="caption">For new events and tasks</span>
+              </div>
+            </Row>
+          )}
 
           <Row label="Color">
             <ColorPicker value={color} onChange={setColor} />

@@ -1,7 +1,14 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import "./helpers";
-import { MemoryStorage, attendee, calendar, event, ms, plan, task } from "./helpers";
-import { readEvent, readSettings, readCalendar, readTask, backupDue } from "@/lib/backup";
+import { MemoryStorage, attendee, calendar, event, ms, plan, task, taskList } from "./helpers";
+import {
+  readBackup,
+  readEvent,
+  readSettings,
+  readCalendar,
+  readTask,
+  backupDue,
+} from "@/lib/backup";
 import { DEFAULT_SETTINGS } from "@/lib/store";
 import {
   ATTENDEE_MAX,
@@ -25,6 +32,22 @@ import { placeForZone } from "@/lib/places";
 const START = ms("2026-03-08 09:00");
 const END = ms("2026-03-08 10:00");
 const baseEvent = { start: START, end: END };
+
+it("reads nested lists and membership from backups without inventing lists in old backups", () => {
+  const root = taskList({ id: "root" });
+  const child = taskList({ id: "child", parentId: root.id });
+  const legacy = { app: "circal", calendars: [calendar()], tasks: [{ id: "old", due: START }] };
+  const old = readBackup(legacy);
+  expect(old.ok && old.taskLists).toEqual([]);
+  expect(old.ok && old.tasks[0].listId).toBe("");
+  const restored = readBackup({
+    ...legacy,
+    taskLists: [root, child, { id: "broken", name: " " }, null],
+    tasks: [task({ listId: child.id })],
+  });
+  expect(restored.ok && restored.taskLists).toEqual([root, child]);
+  expect(restored.ok && restored.tasks[0].listId).toBe(child.id);
+});
 
 /* ---------------------------------- readEvent --------------------------- */
 

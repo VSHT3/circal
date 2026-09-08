@@ -221,6 +221,64 @@ describe("remove", () => {
   });
 });
 
+describe("task lists", () => {
+  it("deleting a list preserves its tasks and children, and undo restores membership", async () => {
+    const s = await freshStore();
+    const root = s.store.addTaskList("Work")!;
+    const child = s.store.addTaskList("Launch", root.id)!;
+    const grandchild = s.store.addTaskList("Design", child.id)!;
+    const assigned = s.store.addTask(task({ listId: child.id }));
+    const nested = s.store.addTask(task({ listId: grandchild.id }));
+    s.store.removeTaskList(child.id);
+    expect(s.store.snapshot().taskLists.find((list) => list.id === grandchild.id)?.parentId).toBe(
+      root.id,
+    );
+    expect(s.store.snapshot().tasks.find((t) => t.id === assigned.id)?.listId).toBe(root.id);
+    expect(s.store.snapshot().tasks.find((t) => t.id === nested.id)?.listId).toBe(grandchild.id);
+    expect(s.store.snapshot().graves.some((grave) => grave.id === child.id)).toBe(true);
+    s.store.undo();
+    expect(s.store.snapshot().taskLists.find((list) => list.id === grandchild.id)?.parentId).toBe(
+      child.id,
+    );
+    expect(s.store.snapshot().tasks.find((t) => t.id === assigned.id)?.listId).toBe(child.id);
+    s.store.redo();
+    const reloaded = await freshStore(s.storage);
+    expect(reloaded.store.snapshot().tasks.find((t) => t.id === assigned.id)?.listId).toBe(root.id);
+    expect(reloaded.store.snapshot().taskLists.map((list) => list.id)).not.toContain(child.id);
+  });
+
+  it("refuses cyclic moves and invalid parents without altering persisted state", async () => {
+    const s = await freshStore();
+    const root = s.store.addTaskList("Work")!;
+    const child = s.store.addTaskList("Project", root.id)!;
+    const before = s.storage.getItem(KEY);
+    expect(s.store.updateTaskList(root.id, { parentId: child.id })).toBe(false);
+    expect(s.store.updateTaskList(root.id, { parentId: root.id })).toBe(false);
+    expect(s.store.updateTaskList(child.id, { parentId: "missing" })).toBe(false);
+    expect(s.store.addTaskList(" ", root.id)).toBeNull();
+    expect(s.storage.getItem(KEY)).toBe(before);
+  });
+
+  it("uses fresh lists when another tab deletes the task's destination", async () => {
+    const s = await freshStore();
+    const list = s.store.addTaskList("Work")!;
+    const other = await freshStore(s.storage);
+    other.store.removeTaskList(list.id);
+    const created = s.store.addTask(task({ listId: list.id }));
+    expect(created.listId).toBe("");
+    expect(s.store.snapshot().taskLists).toEqual([]);
+  });
+
+  it("keeps old tasks unlisted when hydrating storage without lists", async () => {
+    const storage = new MemoryStorage();
+    const { listId: _listId, ...legacy } = task({ id: "old" });
+    storage.setItem(KEY, JSON.stringify({ schema: 2, tasks: [legacy], calendars: [calendar()] }));
+    const s = await freshStore(storage);
+    expect(s.store.snapshot().tasks[0].listId).toBe("");
+    expect(s.store.snapshot().taskLists).toEqual([]);
+  });
+});
+
 /* ------------------------------ tasks ------------------------------ */
 
 describe("task actions", () => {
@@ -797,6 +855,7 @@ describe("undo / redo", () => {
       events: [],
       calendars: [calendar({ id: "imported", name: "Imported" })],
       tasks: [],
+      taskLists: [],
       settings: { ...DEFAULT_SETTINGS, clock: "24h" },
       settingsAt: ms("2026-03-08 09:00"),
       graves: [],
@@ -826,6 +885,7 @@ describe("adopt", () => {
           events: [],
           calendars: [calendar({ id: "imported", name: "Imported" })],
           tasks: [],
+          taskLists: [],
           settings,
           settingsAt: ms("2026-03-08 09:00"),
           graves: [],
@@ -1892,6 +1952,7 @@ describe("feed payloads live outside the blob", () => {
       events: [],
       calendars: [],
       tasks: [],
+      taskLists: [],
       settings: DEFAULT_SETTINGS,
       settingsAt: 0,
       graves: [],

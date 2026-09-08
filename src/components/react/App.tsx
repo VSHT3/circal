@@ -152,6 +152,7 @@ declare global {
 // renders, or React resuspends the panel on every re-render of `Shell`.
 const EventEditor = lazy(() => import("./EventEditor"));
 const TaskEditor = lazy(() => import("./TaskEditor"));
+const TaskListEditor = lazy(() => import("./TaskListEditor"));
 const Settings = lazy(() => import("./Settings"));
 
 /* --------------------------------- measures -------------------------------- */
@@ -367,7 +368,7 @@ export default function App() {
 }
 
 function Shell() {
-  const { events, tasks, calendars, feeds, settings } = useStore();
+  const { events, tasks, taskLists, calendars, feeds, settings } = useStore();
   /**
    * Ambient: the chrome withdraws and the dial becomes the window. View state
    * and deliberately not a setting — a mode that survives a reload, with no
@@ -453,7 +454,11 @@ function Shell() {
   );
   /** The task card's target: an id to edit, or `null` for a new draft — the
    *  calendar card's own shape, resolved from the store every render. */
-  const [taskEditor, setTaskEditor] = useState<{ id: string | null } | null>(null);
+  const [taskEditor, setTaskEditor] = useState<{ id: string | null; listId?: string } | null>(null);
+  const [taskListEditor, setTaskListEditor] = useState<{
+    id: string | null;
+    parentId: string;
+  } | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   /**
@@ -997,6 +1002,7 @@ function Shell() {
     ask !== null ||
     calendarEditor !== null ||
     taskEditor !== null ||
+    taskListEditor !== null ||
     travel !== null;
   /**
    * `busy` plus the one panel that has no state on it but does cover the
@@ -1548,6 +1554,21 @@ function Shell() {
         // the calendar editor's shape, not the event editor's.
         setTaskEditor({ id: null });
       },
+      newTaskInList: (listId) => {
+        setPaletteOpen(false);
+        setAmbient("off");
+        setTaskEditor({ id: null, listId });
+      },
+      newTaskList: (parentId = "") => {
+        setPaletteOpen(false);
+        setAmbient("off");
+        setTaskListEditor({ id: null, parentId });
+      },
+      editTaskList: (id) => {
+        setPaletteOpen(false);
+        setAmbient("off");
+        setTaskListEditor({ id, parentId: "" });
+      },
       editTask: (id: string) => {
         setPaletteOpen(false);
         setAmbient("off");
@@ -1999,6 +2020,7 @@ function Shell() {
         title: draft.title.trim() || "New task",
         notes: draft.notes,
         calendarId: draft.calendarId,
+        listId: "",
         icon: draft.icon,
         color: draft.color,
         due: draft.allDay ? startOfDay(new Date(at)).getTime() : at,
@@ -2202,6 +2224,10 @@ function Shell() {
    */
   const editedTask = taskEditor?.id ? (tasks.find((t) => t.id === taskEditor.id) ?? null) : null;
   const taskCardOpen = taskEditor !== null && (!taskEditor.id || !!editedTask);
+  const editedTaskList = taskListEditor?.id
+    ? (taskLists.find((list) => list.id === taskListEditor.id) ?? null)
+    : null;
+  const taskListCardOpen = taskListEditor !== null && (!taskListEditor.id || !!editedTaskList);
 
   const saveTask = useCallback(
     (draft: Omit<Task, "id" | "updatedAt">) => {
@@ -2360,6 +2386,8 @@ function Shell() {
           events={visible}
           calendars={calendars}
           tasks={tasks}
+          taskLists={taskLists}
+          defaultCalendar={defaultCalendar}
           clock={settings.clock}
           moon={settings.moon}
           theme={settings.theme}
@@ -2568,6 +2596,8 @@ function Shell() {
             target={editedTask}
             seedDue={atMinutes(day, defaultStart(day, 0)).getTime()}
             calendars={calendars}
+            taskLists={taskLists}
+            seedListId={taskEditor?.listId ?? ""}
             defaultCalendar={defaultCalendar}
             clock={settings.clock}
             onSave={saveTask}
@@ -2606,9 +2636,37 @@ function Shell() {
         onSearch={setSearch}
       />
 
+      {taskListCardOpen && (
+        <Suspense fallback={null}>
+          <TaskListEditor
+            target={editedTaskList}
+            taskLists={taskLists}
+            seedParentId={taskListEditor.parentId}
+            onSave={(name, parentId) => {
+              const saved = editedTaskList
+                ? store.updateTaskList(editedTaskList.id, { name, parentId })
+                : store.addTaskList(name, parentId) !== null;
+              if (saved) setTaskListEditor(null);
+              return saved;
+            }}
+            onDelete={() => {
+              if (editedTaskList && store.removeTaskList(editedTaskList.id)) {
+                notify(`Deleted “${editedTaskList.name}”. Tasks and sublists kept`);
+              }
+              setTaskListEditor(null);
+            }}
+            onClose={() => setTaskListEditor(null)}
+          />
+        </Suspense>
+      )}
+
       {calendarCardOpen && (
         <CalendarEditor
           target={editedCalendar}
+          isDefault={editedCalendar?.id === defaultCalendar}
+          onSetDefault={() => {
+            if (editedCalendar) store.setDefaultCalendar(editedCalendar.id);
+          }}
           removal={calendarRemoval}
           remind={settings.remind}
           remindLead={settings.remindLead}

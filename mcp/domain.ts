@@ -543,6 +543,7 @@ function carried(contents: MirrorContents): Mutated {
     events: contents.events,
     calendars: contents.calendars,
     tasks: contents.tasks,
+    taskLists: contents.taskLists,
     settings: contents.settings,
     settingsAt: contents.settingsAt,
     graves: contents.graves,
@@ -1048,6 +1049,7 @@ export function performCreateTask(
     title: input.title ?? "",
     notes: input.notes ?? "",
     calendarId: calendar.id,
+    listId: "",
     icon: input.icon ?? "",
     color: input.color ?? "",
     due: dueAllDay

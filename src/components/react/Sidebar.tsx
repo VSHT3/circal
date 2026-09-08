@@ -12,10 +12,28 @@
  * ------------------------------------------------------------------ */
 
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { CalendarPlus, ChevronLeft, ChevronRight, Pencil, Plus, Sparkles } from "lucide-react";
+import {
+  CalendarPlus,
+  ChevronLeft,
+  ChevronRight,
+  FolderPlus,
+  List,
+  Pencil,
+  Plus,
+  Sparkles,
+  Check,
+} from "lucide-react";
 import { useMemo, useState } from "react";
 import { colorOf, markOf, occurrencesOn, taskOccurrences } from "@/lib/events";
-import { compareTasks, taskState, unplanned, type Task, type TaskState } from "@/lib/tasks";
+import {
+  compareTasks,
+  taskListDescendants,
+  taskListTree,
+  taskState,
+  unplanned,
+  type Task,
+  type TaskState,
+} from "@/lib/tasks";
 import {
   addMonths,
   formatDuration,
@@ -28,7 +46,7 @@ import {
 import { EASE } from "@/lib/motion";
 import type { SidebarProps } from "@/components/react/types";
 import { cn } from "@/lib/utils";
-import { IconButton } from "@/components/react/ui/primitives";
+import { ActionPill, IconButton } from "@/components/react/ui/primitives";
 import { useFocusTrap } from "@/components/react/hooks";
 import { CalendarMark } from "@/components/react/ui/icons";
 import MoonPanel from "@/components/react/MoonPanel";
@@ -49,6 +67,8 @@ export default function Sidebar({
   events,
   calendars,
   tasks,
+  taskLists,
+  defaultCalendar,
   clock,
   moon,
   theme,
@@ -90,6 +110,24 @@ export default function Sidebar({
     [weekStart],
   );
 
+  const [selectedList, setSelectedList] = useState<string | null>(null);
+  const activeList =
+    selectedList && !taskLists.some((list) => list.id === selectedList) ? null : selectedList;
+  const listTree = useMemo(() => taskListTree(taskLists), [taskLists]);
+  const listedTasks = useMemo(() => {
+    if (activeList === null) return tasks;
+    const included = activeList ? taskListDescendants(taskLists, activeList) : null;
+    const known = new Set(taskLists.map((list) => list.id));
+    return tasks.filter((task) => (included ? included.has(task.listId) : !known.has(task.listId)));
+  }, [tasks, taskLists, activeList]);
+  const listCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const task of tasks) {
+      if (!task.done) counts.set(task.listId, (counts.get(task.listId) ?? 0) + 1);
+    }
+    return counts;
+  }, [tasks]);
+
   /**
    * The list of work by deadline, `taskState`'s own grouping so this column
    * and any future badge cannot disagree. Rows inside a group take the one
@@ -98,7 +136,7 @@ export default function Sidebar({
    */
   const groups = useMemo(() => {
     const by: Record<TaskState, Task[]> = { done: [], overdue: [], "due-soon": [], later: [] };
-    for (const t of tasks) by[taskState(t, now)].push(t);
+    for (const t of listedTasks) by[taskState(t, now)].push(t);
     for (const list of Object.values(by)) list.sort(compareTasks);
     return [
       { id: "overdue", title: "Overdue", rows: by.overdue },
@@ -108,7 +146,7 @@ export default function Sidebar({
       // taken back without a second surface.
       { id: "done", title: "Done", rows: by.done },
     ].filter((group) => group.rows.length > 0);
-  }, [tasks, now]);
+  }, [listedTasks, now]);
 
   /** Which groups are folded. Session state, not a setting: Done starts
    *  collapsed — finished work is reachable, never ambient. */
@@ -201,11 +239,82 @@ export default function Sidebar({
             <IconButton label="Fill free time" onClick={actions.fillFreeTime} className="size-6">
               <Sparkles size={12} strokeWidth={1.75} />
             </IconButton>
-            <IconButton label="New task" onClick={actions.newTask} className="size-6">
+            <IconButton
+              label="New task list"
+              onClick={() => actions.newTaskList()}
+              className="size-6"
+            >
+              <FolderPlus size={13} strokeWidth={1.75} />
+            </IconButton>
+            <IconButton
+              label="New task"
+              onClick={() => actions.newTaskInList(activeList ?? "")}
+              className="size-6"
+            >
               <Plus size={13} strokeWidth={1.75} />
             </IconButton>
           </div>
         </div>
+        {taskLists.length > 0 && (
+          <div className="mb-2 flex flex-col gap-0.5 border-b border-hairline pb-2">
+            <div className="flex gap-1">
+              <ActionPill
+                label="All tasks"
+                icon={<span>All tasks</span>}
+                aria-pressed={activeList === null}
+                onClick={() => setSelectedList(null)}
+                className={cn("text-[12px]", activeList === null && "bg-surface-2 text-ink")}
+              />
+              <ActionPill
+                label="Unlisted tasks"
+                icon={<span>Unlisted</span>}
+                aria-pressed={activeList === ""}
+                onClick={() => setSelectedList("")}
+                className={cn("text-[12px]", activeList === "" && "bg-surface-2 text-ink")}
+              />
+            </div>
+            {listTree.map(({ list, depth }) => (
+              <div
+                key={list.id}
+                className="group flex min-w-0 items-center gap-0.5"
+                style={{ paddingLeft: Math.min(depth, 3) * 10 }}
+              >
+                <ActionPill
+                  label={`Show ${list.name}`}
+                  aria-pressed={activeList === list.id}
+                  onClick={() => setSelectedList(list.id)}
+                  className={cn(
+                    "min-w-0 flex-1 text-left text-[12.5px]",
+                    activeList === list.id && "bg-surface-2 text-ink",
+                  )}
+                  icon={
+                    <>
+                      <List size={13} strokeWidth={1.75} className="shrink-0" />
+                      <span className="truncate">{list.name}</span>
+                      <span className="ml-auto text-[10px] text-ink-3">
+                        {listCounts.get(list.id) || ""}
+                      </span>
+                    </>
+                  }
+                />
+                <IconButton
+                  label={`New sublist in ${list.name}`}
+                  onClick={() => actions.newTaskList(list.id)}
+                  className="size-6 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100"
+                >
+                  <Plus size={12} strokeWidth={1.75} />
+                </IconButton>
+                <IconButton
+                  label={`Edit list ${list.name}`}
+                  onClick={() => actions.editTaskList(list.id)}
+                  className="size-6 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100"
+                >
+                  <Pencil size={12} strokeWidth={1.75} />
+                </IconButton>
+              </div>
+            ))}
+          </div>
+        )}
         {groups.map((group) => (
           <div key={group.id} className="flex flex-col gap-0.5">
             <button
@@ -367,10 +476,15 @@ export default function Sidebar({
                 {calendar.name}
               </span>
             </button>
+            {calendar.id === defaultCalendar && (
+              <span title="Default calendar" aria-label="Default calendar" className="text-ink-2">
+                <Check size={11} strokeWidth={1.75} />
+              </span>
+            )}
             <IconButton
               label={`Edit ${calendar.name}`}
               onClick={() => actions.editCalendar(calendar.id)}
-              className="size-6 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+              className="size-6 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"
             >
               <Pencil size={12} strokeWidth={1.75} />
             </IconButton>

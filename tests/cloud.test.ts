@@ -43,6 +43,7 @@ function snapshot(
 ) {
   return {
     tasks: [],
+    taskLists: [],
     events,
     calendars: over.calendars ?? [calendar({ id: CAL })],
     settings: DEFAULT_SETTINGS,

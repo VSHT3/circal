@@ -9,7 +9,7 @@
 import { fuzzyScore } from "./fuzzy";
 import { MINUTES_PER_DAY, addDays, daysBetween, minutesOfDay, startOfDay } from "./time";
 import { NEVER, instantKey, startsBetweenIn, type Recurrence, type Repeat } from "./recur";
-import type { Task } from "./tasks";
+import type { Task, TaskList } from "./tasks";
 
 export {
   FREQUENCIES,
@@ -449,6 +449,20 @@ export function readGuests(
 export function readStamp(value: unknown): number {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return 0;
   return Math.floor(value);
+}
+
+/** Shared by local hydration and backup reads, so neither admits an unusable list. */
+export function readTaskList(value: unknown): TaskList | null {
+  if (!value || typeof value !== "object") return null;
+  const list = value as Record<string, unknown>;
+  if (typeof list.id !== "string" || !list.id || typeof list.name !== "string" || !list.name.trim())
+    return null;
+  return {
+    id: list.id,
+    name: list.name.trim(),
+    parentId: typeof list.parentId === "string" ? list.parentId : "",
+    updatedAt: readStamp(list.updatedAt),
+  };
 }
 
 /**

@@ -51,13 +51,23 @@ import {
   readRecurrence,
   readRemindLead,
   readStamp,
+  readTaskList,
   readTravel,
   type CalEvent,
   type Calendar,
   type Grave,
   type Repeat,
 } from "./events";
-import { PLANS_MAX, readEstimate, readPlans, readPriority, type Plan, type Task } from "./tasks";
+import {
+  PLANS_MAX,
+  readEstimate,
+  readPlans,
+  readPriority,
+  taskListDescendants,
+  type Plan,
+  type Task,
+  type TaskList,
+} from "./tasks";
 import { applyRemove, applySplit, applyTruncate, applyUpdate } from "./mutate";
 import { pruneGraves, restamped } from "./merge";
 import { DEFAULT_DURATION, MIN_DURATION } from "./quickadd";
@@ -433,6 +443,7 @@ export interface Snapshot {
    * due pips in as `Occurrence`s.
    */
   tasks: Task[];
+  taskLists: TaskList[];
   /**
    * Events pulled from subscribed feeds, keyed by their calendar's id. Kept
    * apart from `events` so a refresh can replace a feed wholesale, and so
@@ -742,6 +753,7 @@ function seedTasks(): Task[] {
       title: "Water the plants",
       notes: "",
       calendarId: "personal",
+      listId: "",
       icon: "",
       color: "",
       due: today.getTime() + (18 * 60 + 30) * 60_000,
@@ -761,6 +773,7 @@ const EMPTY: Snapshot = {
   schema: SCHEMA,
   events: [],
   tasks: [],
+  taskLists: [],
   calendars: DEFAULT_CALENDARS,
   feeds: {},
   settings: DEFAULT_SETTINGS,
@@ -1098,6 +1111,7 @@ function hydrateTasks(value: unknown): Task[] {
       typeof title === "string" &&
       typeof notes === "string" &&
       typeof calendarId === "string" &&
+      typeof task.listId === "string" &&
       typeof icon === "string" &&
       typeof color === "string" &&
       typeof due === "number" &&
@@ -1117,6 +1131,7 @@ function hydrateTasks(value: unknown): Task[] {
       title: typeof title === "string" ? title : "Untitled",
       notes: typeof notes === "string" ? notes : "",
       calendarId: typeof calendarId === "string" ? calendarId : "",
+      listId: typeof task.listId === "string" ? task.listId : "",
       icon: typeof icon === "string" ? icon : "",
       color: typeof color === "string" ? color : "",
       due: typeof due === "number" && Number.isFinite(due) ? due : Date.now(),
@@ -1140,6 +1155,9 @@ function parse(stored: Partial<Snapshot>): Persisted {
     schema: SCHEMA,
     events: hydrateEvents(stored.events),
     tasks: hydrateTasks(stored.tasks),
+    taskLists: (Array.isArray(stored.taskLists) ? stored.taskLists : [])
+      .map(readTaskList)
+      .filter((list): list is TaskList => list !== null),
     calendars: hydrateCalendars(stored.calendars),
     // Both of these can be stored *wrong* rather than merely missing, and both
     // draw something broken if they are.
@@ -1437,6 +1455,7 @@ function baseSignature(s: Snapshot): string {
   return JSON.stringify([
     s.events,
     s.tasks,
+    s.taskLists,
     s.calendars.map(({ feed: _feed, ...rest }) => rest),
     s.settings,
   ]);
@@ -1668,16 +1687,74 @@ export const store = {
 
   /* -------------------------------- tasks --------------------------------- */
 
+  addTaskList(name: string, parentId = ""): TaskList | null {
+    const base = fresh();
+    if (!name.trim() || (parentId && !base.taskLists.some((list) => list.id === parentId)))
+      return null;
+    const list = { id: newId(), name: name.trim(), parentId, updatedAt: Date.now() };
+    commit({ ...base, taskLists: [...base.taskLists, list] });
+    return list;
+  },
+
+  updateTaskList(id: string, patch: Partial<Pick<TaskList, "name" | "parentId">>): boolean {
+    const base = fresh();
+    const list = base.taskLists.find((item) => item.id === id);
+    if (!list) return false;
+    const name = (patch.name ?? list.name).trim();
+    const parentId = patch.parentId ?? list.parentId;
+    if (
+      !name ||
+      (parentId &&
+        (!base.taskLists.some((item) => item.id === parentId) ||
+          taskListDescendants(base.taskLists, id).has(parentId)))
+    )
+      return false;
+    commit({
+      ...base,
+      taskLists: base.taskLists.map((item) =>
+        item.id === id ? { ...item, name, parentId, updatedAt: Date.now() } : item,
+      ),
+    });
+    return true;
+  },
+
+  removeTaskList(id: string): boolean {
+    const base = fresh();
+    const list = base.taskLists.find((item) => item.id === id);
+    if (!list) return false;
+    const descendants = taskListDescendants(base.taskLists, id);
+    const parentId =
+      !descendants.has(list.parentId) && base.taskLists.some((item) => item.id === list.parentId)
+        ? list.parentId
+        : "";
+    const now = Date.now();
+    commit({
+      ...base,
+      taskLists: base.taskLists
+        .filter((item) => item.id !== id)
+        .map((item) => (item.parentId === id ? { ...item, parentId, updatedAt: now } : item)),
+      tasks: base.tasks.map((task) =>
+        task.listId === id ? { ...task, listId: parentId, updatedAt: now } : task,
+      ),
+      graves: [...base.graves, { id, at: now }],
+    });
+    return true;
+  },
+
   /** Stamped at the line where it becomes a record, `create`'s own bargain. */
   addTask(task: Omit<Task, "id" | "updatedAt">): Task {
     const base = fresh();
-    const created: Task = { ...task, id: newId(), updatedAt: Date.now() };
+    const listId = base.taskLists.some((list) => list.id === task.listId) ? task.listId : "";
+    const created: Task = { ...task, listId, id: newId(), updatedAt: Date.now() };
     commit({ ...base, tasks: [...base.tasks, created] });
     return created;
   },
 
   updateTask(id: string, patch: Partial<Task>) {
     const base = fresh();
+    if (patch.listId !== undefined && !base.taskLists.some((list) => list.id === patch.listId)) {
+      patch = { ...patch, listId: "" };
+    }
     commit({
       ...base,
       tasks: base.tasks.map((t) => (t.id === id ? { ...t, ...patch, updatedAt: Date.now() } : t)),
@@ -2337,7 +2414,10 @@ export const store = {
    * stops the other machine resurrecting every event this restore dropped.
    */
   restore(
-    next: Pick<Snapshot, "events" | "calendars" | "tasks" | "settings" | "settingsAt" | "graves">,
+    next: Pick<
+      Snapshot,
+      "events" | "calendars" | "tasks" | "taskLists" | "settings" | "settingsAt" | "graves"
+    >,
   ) {
     // Only for its side effect: `commit` records the *current* snapshot as the
     // step to undo onto, and a stale one would undo into another tab's past.
@@ -2376,7 +2456,10 @@ export const store = {
    * a reconnect, and this action knows neither.
    */
   adopt(
-    next: Pick<Snapshot, "events" | "calendars" | "tasks" | "settings" | "settingsAt" | "graves">,
+    next: Pick<
+      Snapshot,
+      "events" | "calendars" | "tasks" | "taskLists" | "settings" | "settingsAt" | "graves"
+    >,
   ) {
     // Only for its side effect, the same reason `restore` calls it: `commit`
     // records the *current* snapshot as the step to undo onto.
@@ -2393,6 +2476,7 @@ export const store = {
         events: next.events,
         calendars: next.calendars,
         tasks: next.tasks,
+        taskLists: next.taskLists,
         graves: next.graves,
         settings: sane({ ...DEFAULT_SETTINGS, ...next.settings }),
         settingsAt: next.settingsAt,

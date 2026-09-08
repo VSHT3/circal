@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calendar, event, ms } from "./helpers";
+import { calendar, event, ms, task, taskList } from "./helpers";
 import { DEFAULT_SETTINGS } from "@/lib/store";
 import {
   MIRROR_VERSION,
@@ -28,6 +28,7 @@ function snapshot(
 ) {
   return {
     tasks: [],
+    taskLists: [],
     events,
     calendars,
     settings: DEFAULT_SETTINGS,
@@ -37,6 +38,23 @@ function snapshot(
     graves: over.graves ?? [],
   };
 }
+
+it("round-trips nested lists and task membership, and includes list edits in its digest", () => {
+  const root = taskList({ id: "root", name: "Work" });
+  const child = taskList({ id: "child", name: "Launch", parentId: root.id });
+  const original = {
+    ...snapshot([]),
+    taskLists: [root, child],
+    tasks: [task({ calendarId: CAL, listId: child.id })],
+  };
+  const restored = readMirrorFile(serialiseMirror(original, 1))!;
+  expect(restored.taskLists).toEqual(original.taskLists);
+  expect(restored.tasks).toEqual(original.tasks);
+  expect(mirrorDigest(restored)).toBe(mirrorDigest(original));
+  expect(mirrorDigest({ ...original, taskLists: [{ ...root, name: "Home" }, child] })).not.toBe(
+    mirrorDigest(original),
+  );
+});
 
 /** A file body with fields spliced in, for the cases a serialiser will not
  *  produce — which is most of what a reader has to survive. */

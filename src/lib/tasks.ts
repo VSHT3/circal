@@ -25,6 +25,8 @@ export interface Task {
   title: string;
   notes: string;
   calendarId: string;
+  /** Empty means unlisted; calendar membership is independent. */
+  listId: string;
   /** The mark vocabulary, unchanged — a Phosphor name or a literal emoji. */
   icon: string;
   /** `""` = follow the calendar, as on an event. */
@@ -57,6 +59,61 @@ export interface Task {
   /** Epoch ms of the last change, `CalEvent.updatedAt`'s own contract:
    *  stamped by whoever commits, `0` on a record nobody has saved. */
   updatedAt: number;
+}
+
+export interface TaskList {
+  id: string;
+  name: string;
+  parentId: string;
+  updatedAt: number;
+}
+
+/** Includes the root, so the same set excludes self-parenting and cycles. */
+export function taskListDescendants(lists: TaskList[], id: string): Set<string> {
+  const found = new Set([id]);
+  const children = new Map<string, string[]>();
+  for (const list of lists) {
+    const siblings = children.get(list.parentId) ?? [];
+    siblings.push(list.id);
+    children.set(list.parentId, siblings);
+  }
+  for (const parent of found) {
+    for (const child of children.get(parent) ?? []) found.add(child);
+  }
+  return found;
+}
+
+/** Concurrent moves can form cycles; every list remains reachable on screen. */
+export function taskListTree(lists: TaskList[]): { list: TaskList; depth: number }[] {
+  const sorted = [...lists].sort(
+    (a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id),
+  );
+  const ids = new Set(sorted.map((list) => list.id));
+  const children = new Map<string, TaskList[]>();
+  for (const list of sorted) {
+    const parent = ids.has(list.parentId) ? list.parentId : "";
+    const siblings = children.get(parent) ?? [];
+    siblings.push(list);
+    children.set(parent, siblings);
+  }
+  const result: { list: TaskList; depth: number }[] = [];
+  const seen = new Set<string>();
+  function walk(roots: TaskList[]) {
+    const stack = roots.map((list) => ({ list, depth: 0 })).reverse();
+    while (stack.length) {
+      const row = stack.pop()!;
+      if (seen.has(row.list.id)) continue;
+      seen.add(row.list.id);
+      result.push(row);
+      const next = children.get(row.list.id) ?? [];
+      for (let i = next.length - 1; i >= 0; i--) {
+        stack.push({ list: next[i], depth: row.depth + 1 });
+      }
+    }
+  }
+  walk(children.get("") ?? []);
+  walk(sorted.filter((list) => !seen.has(list.id)));
+  return result;
 }
 
 /* ------------------------------- validators -------------------------------- */

@@ -25,7 +25,7 @@
  * ------------------------------------------------------------------ */
 
 import { GRAVE_MAX, GRAVE_TTL, type CalEvent, type Calendar, type Grave } from "./events";
-import type { Task } from "./tasks";
+import type { Task, TaskList } from "./tasks";
 
 /** The stamp and identity every merged record carries — `CalEvent`, `Calendar`
  *  and `Task` alike. The union rules below read nothing else. */
@@ -41,6 +41,7 @@ export interface Records {
   events: CalEvent[];
   calendars: Calendar[];
   tasks: Task[];
+  taskLists: TaskList[];
   graves: Grave[];
 }
 
@@ -108,6 +109,7 @@ export function stamped(document: Records & Pick<Mergeable, "settingsAt">): bool
     document.events.some((e) => e.updatedAt > 0) ||
     document.calendars.some((c) => c.updatedAt > 0) ||
     document.tasks.some((t) => t.updatedAt > 0) ||
+    document.taskLists.some((list) => list.updatedAt > 0) ||
     // A grave is a stamp: it is the record of a deletion, and the machine that
     // made it must be able to merge rather than adopt, or the deletion is the
     // thing that gets adopted away.
@@ -214,12 +216,16 @@ export function mergeDocuments<S>(
   const events = unite(mine.events, theirs.events).filter(alive);
   const calendars = unite(mine.calendars, theirs.calendars).filter(alive);
   const tasks = unite(mine.tasks, theirs.tasks).filter(alive);
-  const survived = new Set([...events, ...calendars, ...tasks].map((record) => record.id));
+  const taskLists = unite(mine.taskLists, theirs.taskLists).filter(alive);
+  const survived = new Set(
+    [...events, ...calendars, ...tasks, ...taskLists].map((record) => record.id),
+  );
 
   return {
     events,
     calendars,
     tasks,
+    taskLists,
     graves: graves.filter((grave) => !survived.has(grave.id)),
     // Equal stamps take the same tie-break the records take, for the same
     // reason: without it two machines that changed a setting in one
@@ -262,15 +268,25 @@ export function mergeDocuments<S>(
  */
 export function restamped(next: Records, current: Records, now: number): Records {
   const before = new Map<string, string>();
-  for (const record of [...current.events, ...current.calendars, ...current.tasks]) {
+  for (const record of [
+    ...current.events,
+    ...current.calendars,
+    ...current.tasks,
+    ...current.taskLists,
+  ]) {
     before.set(record.id, body(record));
   }
   const held = new Set(
-    [...next.events, ...next.calendars, ...next.tasks].map((record) => record.id),
+    [...next.events, ...next.calendars, ...next.tasks, ...next.taskLists].map(
+      (record) => record.id,
+    ),
   );
-  const gone = [...current.events, ...current.calendars, ...current.tasks].filter(
-    (record) => !held.has(record.id),
-  );
+  const gone = [
+    ...current.events,
+    ...current.calendars,
+    ...current.tasks,
+    ...current.taskLists,
+  ].filter((record) => !held.has(record.id));
 
   return {
     events: next.events.map((e) => (before.get(e.id) === body(e) ? e : { ...e, updatedAt: now })),
@@ -278,6 +294,9 @@ export function restamped(next: Records, current: Records, now: number): Records
       before.get(c.id) === body(c) ? c : { ...c, updatedAt: now },
     ),
     tasks: next.tasks.map((t) => (before.get(t.id) === body(t) ? t : { ...t, updatedAt: now })),
+    taskLists: next.taskLists.map((list) =>
+      before.get(list.id) === body(list) ? list : { ...list, updatedAt: now },
+    ),
     // Graves are never wound back, and both sides' are kept: a deletion is a
     // thing that happened, and undoing one is answered by the stamp above
     // outrunning the grave rather than by forgetting it. Dropping them here

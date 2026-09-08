@@ -2,7 +2,19 @@ import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } fr
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { at, attendee, calendar, day, event, grave, ms, plan, resetIds, task } from "./helpers";
+import {
+  at,
+  attendee,
+  calendar,
+  day,
+  event,
+  grave,
+  ms,
+  plan,
+  resetIds,
+  task,
+  taskList,
+} from "./helpers";
 import { DEFAULT_SETTINGS, type Settings } from "@/lib/store";
 import { MIRROR_VERSION, localZone, serialiseMirror, type MirrorContents } from "@/lib/mirror";
 import type { Task } from "@/lib/tasks";
@@ -75,6 +87,7 @@ function contents(over: Partial<MirrorContents> = {}): MirrorContents {
   return {
     events: [],
     tasks: [],
+    taskLists: [],
     calendars: [calendar({ id: CAL })],
     settings: DEFAULT_SETTINGS,
     settingsAt: ms("2026-03-08 09:00"),
@@ -85,6 +98,19 @@ function contents(over: Partial<MirrorContents> = {}): MirrorContents {
     ...over,
   };
 }
+
+it("assistant edits preserve nested lists and the task's list membership", () => {
+  const root = taskList({ id: "root" });
+  const child = taskList({ id: "child", parentId: root.id });
+  const original = contents({
+    taskLists: [root, child],
+    tasks: [task({ id: "t", listId: child.id })],
+  });
+  const edited = performUpdateTask(original, "t", { title: "Renamed" }).mutated;
+  expect(edited.tasks[0].title).toBe("Renamed");
+  expect(edited.tasks[0].listId).toBe(child.id);
+  expect(edited.taskLists).toEqual(original.taskLists);
+});
 
 const settings = (over: Partial<Settings> = {}): Settings => ({ ...DEFAULT_SETTINGS, ...over });
 
@@ -1582,6 +1608,7 @@ describe("--find reports the mirror files it can actually read", () => {
       {
         events,
         tasks: [],
+        taskLists: [],
         calendars: [calendar({ id: CAL })],
         settings: DEFAULT_SETTINGS,
         settingsAt: 0,

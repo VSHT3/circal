@@ -4,7 +4,7 @@ import type { RefObject } from "react";
 import type { ThemeName } from "@/lib/theme";
 import type { Clock, WeekStart } from "@/lib/time";
 import type { CalEvent, Calendar, Occurrence } from "@/lib/events";
-import type { Task } from "@/lib/tasks";
+import type { Task, TaskList } from "@/lib/tasks";
 import type { LifeRun, LifeStage } from "@/lib/life";
 import type { WeekStage } from "@/lib/week";
 import type { Settings } from "@/lib/store";
@@ -118,6 +118,9 @@ export interface ShellActions {
    *  hour ⌘N would open on: a task and an event are the same question about
    *  a different width, so they must not disagree about when. */
   newTask: () => void;
+  newTaskInList: (listId: string) => void;
+  newTaskList: (parentId?: string) => void;
+  editTaskList: (id: string) => void;
   /** The task editor over an existing task. */
   editTask: (id: string) => void;
   /** Tick a task off, or back on — the store's own toggle, with the shell's
@@ -238,6 +241,8 @@ export interface SidebarProps {
   /** The task list, for the tasks section and the mini-month's dots — a due
    *  day carries something too. */
   tasks: Task[];
+  taskLists: TaskList[];
+  defaultCalendar: string;
   /** The viewer's clock, for the rows' printed due times. */
   clock: Clock;
   /**
@@ -262,6 +267,8 @@ export interface TaskEditorProps {
    *  Ignored when `target` is set. */
   seedDue: number;
   calendars: Calendar[];
+  taskLists: TaskList[];
+  seedListId: string;
   /** The calendar a new draft lands on, `defaultCalendarId`'s answer. */
   defaultCalendar: string;
   clock: Clock;
@@ -322,6 +329,8 @@ export interface EventEditorProps {
 export interface CalendarEditorProps {
   /** The calendar being edited, or `null` for one that does not exist yet. */
   target: Calendar | null;
+  isDefault: boolean;
+  onSetDefault: () => void;
   /**
    * What deleting would cost — how many of your own events it holds, and the
    * calendar they would move to — or `null` when it may not be deleted at all.
@@ -341,6 +350,15 @@ export interface CalendarEditorProps {
   remind: boolean;
   remindLead: number;
   onSave: (name: string, color: string, icon: string, remindLead: number) => void;
+  onDelete: () => void;
+  onClose: () => void;
+}
+
+export interface TaskListEditorProps {
+  target: TaskList | null;
+  taskLists: TaskList[];
+  seedParentId: string;
+  onSave: (name: string, parentId: string) => boolean;
   onDelete: () => void;
   onClose: () => void;
 }

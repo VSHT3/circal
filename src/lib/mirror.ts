@@ -39,7 +39,8 @@ export { localZone };
  *  with no `tasks` key at all, erasing every task the MCP server had written,
  *  while its own events survived. The version gates exist for exactly that
  *  writer, and they can only stop what they can see coming. */
-export const MIRROR_VERSION = 3;
+// Version 4 also protects task lists and membership from older whole-document writers.
+export const MIRROR_VERSION = 4;
 
 /** The envelope meaning merging actually depends on — *every record carries a
  *  stamp, and deletions are tombstoned* — which is version 2's, and did not
@@ -63,7 +64,7 @@ export const STAMPED_VERSION = 2;
  */
 type Mirrored = Pick<
   Snapshot,
-  "events" | "calendars" | "tasks" | "settings" | "settingsAt" | "graves"
+  "events" | "calendars" | "tasks" | "taskLists" | "settings" | "settingsAt" | "graves"
 >;
 
 export interface MirrorFile extends Mirrored {
@@ -161,6 +162,7 @@ export function mirrorDigest(s: Mirrored): string {
   return canonicalJson([
     ordered(s.events),
     ordered(s.tasks),
+    ordered(s.taskLists),
     ordered(settled(s.calendars)),
     s.settings,
     s.settingsAt,
@@ -177,6 +179,7 @@ export function serialiseMirror(s: Mirrored, rev: number, zone = localZone()): s
     rev,
     events: s.events,
     tasks: s.tasks,
+    taskLists: s.taskLists,
     calendars: settled(s.calendars),
     settings: s.settings,
     settingsAt: s.settingsAt,
@@ -209,6 +212,7 @@ export function readMirrorFile(text: string): MirrorContents | null {
   return {
     events: read.events,
     tasks: read.tasks,
+    taskLists: read.taskLists,
     calendars: read.calendars,
     settings: read.settings,
     // Both through `readBackup`, which is the boundary that already assumes

@@ -86,7 +86,6 @@ import {
   FieldRow,
   IconButton,
   Kbd,
-  MOD,
   NumberField,
   PositionField,
   Segmented,
@@ -1370,7 +1369,7 @@ export default function Settings({
                   {tab === "events" && (
                     <>
                       <Section
-                        title="New event"
+                        title="Defaults"
                         onInfo={setInfo}
                         info={
                           <>
@@ -1378,7 +1377,7 @@ export default function Settings({
                               The span a new event starts with when nothing names one.
                             </InfoEntry>
                             <InfoEntry name="Calendar">
-                              Where {MOD}N, a drag on the dial and a quick-add line put an event.
+                              Where new events and tasks are created unless you choose a calendar.
                               Subscriptions are read-only and never offered.
                             </InfoEntry>
                           </>
@@ -1396,8 +1395,12 @@ export default function Settings({
                         </FieldRow>
                         <FieldRow label="Calendar" last>
                           <Select
-                            label="Calendar for new events"
-                            value={defaultCalendar}
+                            label="Calendar for new events and tasks"
+                            value={
+                              calendars.some((c) => c.id === defaultCalendar && !c.feed)
+                                ? defaultCalendar
+                                : ""
+                            }
                             onChange={store.setDefaultCalendar}
                             options={[
                               { value: "", label: "First one" },

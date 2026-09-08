@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calendar, event, grave, ms, task } from "./helpers";
+import { calendar, event, grave, ms, task, taskList } from "./helpers";
 import { DEFAULT_SETTINGS, type Settings } from "@/lib/store";
 import { GRAVE_TTL } from "@/lib/events";
 import { canonicalJson, mergeDocuments, pruneGraves, restamped, stamped } from "@/lib/merge";
@@ -33,6 +33,7 @@ function doc(over: Partial<Mergeable<Settings>> = {}): Mergeable<Settings> {
   return {
     events: [],
     tasks: [],
+    taskLists: [],
     calendars: [calendar({ id: "cal-work", updatedAt: TUESDAY })],
     graves: [],
     settings: DEFAULT_SETTINGS,
@@ -41,6 +42,32 @@ function doc(over: Partial<Mergeable<Settings>> = {}): Mergeable<Settings> {
   };
 }
 
+describe("task list merge", () => {
+  it("unites nested lists, keeps later moves, and does not resurrect deleted lists", () => {
+    const root = taskList({ id: "root", updatedAt: TUESDAY });
+    const child = taskList({ id: "child", parentId: root.id, updatedAt: TUESDAY });
+    const mine = doc({ taskLists: [root], graves: [{ id: child.id, at: WEDNESDAY }] });
+    const theirs = doc({
+      taskLists: [root, child, taskList({ id: "new", parentId: root.id, updatedAt: WEDNESDAY })],
+    });
+    const merged = mergeDocuments(mine, theirs, NOW);
+    expect(merged.taskLists.map((list) => list.id)).toEqual(["new", "root"]);
+    expect(merged).toEqual(mergeDocuments(theirs, mine, NOW));
+    expect(mergeDocuments(merged, theirs, NOW)).toEqual(merged);
+    const moved = doc({ taskLists: [{ ...root, parentId: "new", updatedAt: NOW }] });
+    expect(
+      mergeDocuments(merged, moved, NOW).taskLists.find((list) => list.id === root.id)?.parentId,
+    ).toBe("new");
+  });
+
+  it("list-only edits mark an otherwise empty document as changed", () => {
+    const empty = doc({ calendars: [], settingsAt: 0 });
+    const edited = { ...empty, taskLists: [taskList({ updatedAt: TUESDAY })] };
+    expect(stamped(edited)).toBe(true);
+    const undone = restamped(empty, edited, NOW);
+    expect(undone.graves).toContainEqual({ id: edited.taskLists[0].id, at: NOW });
+  });
+});
 const ids = (records: { id: string }[]) => records.map((r) => r.id).sort();
 
 describe("commutativity and idempotence", () => {
@@ -339,6 +366,7 @@ describe("an unstamped document is not merged", () => {
     events: [],
     calendars: [],
     tasks: [],
+    taskLists: [],
     graves: [],
     settings: DEFAULT_SETTINGS,
     settingsAt: 0,
@@ -390,12 +418,14 @@ describe("restamped", () => {
       events: [kept, event({ id: "new", title: "created", updatedAt: WEDNESDAY })],
       calendars: [calendar({ id: "cal-work", updatedAt: TUESDAY })],
       tasks: [],
+      taskLists: [],
       graves: [],
     };
     const step = {
       events: [kept, event({ id: "old", title: "deleted earlier", updatedAt: TUESDAY })],
       calendars: [calendar({ id: "cal-work", name: "Renamed", updatedAt: TUESDAY })],
       tasks: [],
+      taskLists: [],
       graves: [],
     };
     const marked = restamped(step, current, NOW);
@@ -413,8 +443,8 @@ describe("restamped", () => {
   it("compares by content, not by reference, because a cross-tab read rebuilds every object", () => {
     const rehydrated = { ...kept };
     const marked = restamped(
-      { events: [rehydrated], calendars: [], tasks: [], graves: [] },
-      { events: [kept], calendars: [], tasks: [], graves: [] },
+      { events: [rehydrated], calendars: [], tasks: [], taskLists: [], graves: [] },
+      { events: [kept], calendars: [], tasks: [], taskLists: [], graves: [] },
       NOW,
     );
     expect(marked.events[0].updatedAt).toBe(TUESDAY);

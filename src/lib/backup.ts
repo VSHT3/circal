@@ -28,6 +28,7 @@ import { dayKey, isZone } from "./time";
 import { isRecord } from "./utils";
 import {
   readGraves,
+  readTaskList,
   readGuests,
   readMark,
   readPerson,
@@ -40,7 +41,7 @@ import {
   type Calendar,
   type Grave,
 } from "./events";
-import { readEstimate, readPlans, readPriority, type Task } from "./tasks";
+import { readEstimate, readPlans, readPriority, type Task, type TaskList } from "./tasks";
 
 const BACKUP_VERSION = 1;
 
@@ -51,6 +52,7 @@ interface Backup {
   events: CalEvent[];
   calendars: Calendar[];
   tasks: Task[];
+  taskLists: TaskList[];
   settings: Settings;
   /**
    * The deletions and the settings stamp travel with the events, because a
@@ -149,6 +151,7 @@ export async function exportBackup(snapshot: Snapshot) {
       c.feed ? { ...c, feed: { ...c.feed, fetchedAt: 0, error: "" } } : c,
     ),
     tasks: snapshot.tasks,
+    taskLists: snapshot.taskLists,
     settings: snapshot.settings,
     settingsAt: snapshot.settingsAt,
     graves: snapshot.graves,
@@ -458,6 +461,7 @@ export function readTask(value: unknown): Task | null {
     title: typeof title === "string" ? title : "Untitled",
     notes: typeof value.notes === "string" ? value.notes : "",
     calendarId: typeof value.calendarId === "string" ? value.calendarId : "",
+    listId: typeof value.listId === "string" ? value.listId : "",
     // The mark and the colour take an event's own validators and defaults.
     icon: readMark(value.icon),
     color: typeof value.color === "string" ? value.color : "",
@@ -486,6 +490,7 @@ export type BackupRead =
       events: CalEvent[];
       calendars: Calendar[];
       tasks: Task[];
+      taskLists: TaskList[];
       settings: Settings;
       settingsAt: number;
       graves: Grave[];
@@ -503,6 +508,9 @@ export function readBackup(parsed: unknown): BackupRead {
   const tasks = (Array.isArray(parsed.tasks) ? parsed.tasks : [])
     .map(readTask)
     .filter((t): t is Task => t !== null);
+  const taskLists = (Array.isArray(parsed.taskLists) ? parsed.taskLists : [])
+    .map(readTaskList)
+    .filter((list): list is TaskList => list !== null);
 
   if (calendars.length === 0) return { ok: false, reason: "no-calendars" };
   // An event pointing at a calendar the backup did not carry would render in
@@ -523,6 +531,7 @@ export function readBackup(parsed: unknown): BackupRead {
         : parented;
     }),
     calendars,
+    taskLists,
     // A task's calendar is parked the same way an event's is, same reason.
     tasks: tasks.map((t) => (known.has(t.calendarId) ? t : { ...t, calendarId: fallback })),
     settings: readSettings(parsed.settings),
@@ -618,6 +627,7 @@ export function importIcs(text: string, filename: string) {
       id: newId(),
       title: t.title,
       notes: t.notes,
+      listId: "",
       icon: "",
       color: "",
       due: t.due,

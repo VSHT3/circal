@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { at, ms, plan, task } from "./helpers";
+import { at, ms, plan, task, taskList } from "./helpers";
 import {
   DUE_SOON_DAYS,
   ESTIMATE_MAX,
@@ -12,6 +12,8 @@ import {
   scoreTask,
   scoreTaskBy,
   taskState,
+  taskListTree,
+  taskListDescendants,
   unplanned,
 } from "@/lib/tasks";
 
@@ -201,5 +203,27 @@ describe("compareTasks — one order for every list of tasks", () => {
     const a = task({ title: "Same", due: ms("2026-03-10 09:00") });
     const b = task({ title: "Same", due: ms("2026-03-10 09:00") });
     expect(compareTasks(a, b)).toBe(0);
+  });
+});
+
+describe("task list hierarchy", () => {
+  it("walks parents before children and keeps orphaned and cyclic lists reachable", () => {
+    const lists = [
+      taskList({ id: "child", name: "Child", parentId: "root" }),
+      taskList({ id: "root", name: "Root" }),
+      taskList({ id: "orphan", name: "Orphan", parentId: "deleted" }),
+      taskList({ id: "a", name: "A", parentId: "b" }),
+      taskList({ id: "b", name: "B", parentId: "a" }),
+    ];
+    expect(taskListTree(lists).map(({ list, depth }) => [list.id, depth])).toEqual([
+      ["orphan", 0],
+      ["root", 0],
+      ["child", 1],
+      ["a", 0],
+      ["b", 1],
+    ]);
+    expect(taskListDescendants(lists, "root")).toEqual(new Set(["root", "child"]));
+    expect(taskListDescendants(lists, "a")).toEqual(new Set(["a", "b"]));
+    expect(taskListTree([...lists].reverse())).toEqual(taskListTree(lists));
   });
 });

@@ -5,6 +5,7 @@ import {
   GRAVE_MAX,
   readGraves,
   readStamp,
+  readTaskList,
   GUEST_ADDRESS_MAX,
   GUEST_NAME_MAX,
   ICON_MAX,
@@ -53,6 +54,19 @@ import { MINUTES_PER_DAY, zonedToUtc } from "@/lib/time";
 
 const cal = calendar();
 
+describe("readTaskList", () => {
+  it("rejects unusable names and ids and normalizes legacy metadata", () => {
+    expect(readTaskList(null)).toBeNull();
+    expect(readTaskList({ id: "", name: "Work" })).toBeNull();
+    expect(readTaskList({ id: "list", name: " " })).toBeNull();
+    expect(readTaskList({ id: "list", name: " Work ", updatedAt: -1 })).toEqual({
+      id: "list",
+      name: "Work",
+      parentId: "",
+      updatedAt: 0,
+    });
+  });
+});
 /* ------------------------------- occurrences ------------------------------ */
 
 describe("occurrencesOn: clipping to the day", () => {
