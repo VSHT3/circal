@@ -1,0 +1,367 @@
+---
+import { IconButton, TextField } from "@/components/react/ui/primitives";
+import { Check, ChevronsUpDown, Search } from "lucide-react";
+
+interface Props {
+  id: string;
+  label: string;
+  value: string;
+  options: { value: string; label: string }[];
+  searchLabel?: string;
+}
+const { id, label, value, options, searchLabel } = Astro.props;
+---
+
+<circal-dropdown id={id} data-value={value}>
+  <IconButton
+    label={label}
+    aria-haspopup="listbox"
+    aria-expanded="false"
+    aria-controls={`${id}-options`}
+    data-trigger
+    className="dropdown-trigger"
+  >
+    <span data-selected-label>{options.find((option) => option.value === value)?.label}</span>
+    <ChevronsUpDown size={15} strokeWidth={1.75} />
+  </IconButton>
+  <div data-popup hidden class="dropdown-popup">
+    {
+      searchLabel && (
+        <div class="dropdown-search">
+          <>
+            <Search size={17} strokeWidth={1.75} />
+            <TextField
+              defaultValue=""
+              label={searchLabel}
+              placeholder="Search clients…"
+              autoComplete="off"
+              className="dropdown-input"
+            />
+          </>
+        </div>
+      )
+    }
+    <ul
+      id={`${id}-options`}
+      role="listbox"
+      aria-label={label}
+      tabindex="-1"
+      class="dropdown-options no-scrollbar"
+    >
+      {
+        options.map((option, index) => (
+          <li role="none">
+            <IconButton
+              id={`${id}-option-${index}`}
+              label={option.label}
+              role="option"
+              aria-selected={option.value === value}
+              tabIndex={-1}
+              data-option={option.value}
+              className="dropdown-option"
+            >
+              <>
+                <span>{option.label}</span>
+                <span data-check hidden={option.value !== value}>
+                  <Check size={15} strokeWidth={1.75} />
+                </span>
+              </>
+            </IconButton>
+          </li>
+        ))
+      }
+    </ul>
+    <p data-empty hidden class="px-4 py-5 text-[14px] text-ink-2">No clients found.</p>
+  </div>
+</circal-dropdown>
+
+<style>
+  circal-dropdown {
+    display: block;
+    min-width: 0;
+  }
+  [hidden] {
+    display: none !important;
+  }
+  :global(.dropdown-trigger) {
+    display: flex;
+    width: 100%;
+    height: 40px;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 0 14px;
+    border: 1px solid var(--hairline);
+    border-radius: 8px;
+    background: var(--surface-2);
+    color: var(--ink);
+    font-size: 14px;
+  }
+  :global(.dropdown-trigger:hover) {
+    background: var(--surface-2);
+    border-color: var(--ink-3);
+  }
+  :global(.dropdown-trigger [data-selected-label]) {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  circal-dropdown[data-open] :global(.dropdown-trigger) {
+    visibility: hidden;
+  }
+  .dropdown-popup {
+    position: fixed;
+    z-index: 30;
+    overflow: hidden;
+    border: 1px solid var(--hairline);
+    border-radius: 10px;
+    background: var(--surface);
+  }
+  .dropdown-search {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 40px;
+    padding: 4px 14px;
+    border-bottom: 1px solid var(--hairline);
+    color: var(--ink-2);
+  }
+  :global(.dropdown-input) {
+    width: 100%;
+    height: 32px;
+    padding: 0;
+    border-radius: 0;
+    background: transparent;
+    font-size: 14px;
+  }
+  :global(.dropdown-input:focus-visible) {
+    outline: none;
+  }
+  .dropdown-search:focus-within {
+    box-shadow: inset 0 -1px var(--ink-3);
+  }
+  .dropdown-options {
+    overflow-y: auto;
+    padding: 6px;
+  }
+  :global(.dropdown-option) {
+    display: flex;
+    width: 100%;
+    height: 36px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 0 12px;
+    border-radius: 6px;
+    color: var(--ink-2);
+    font-size: 14px;
+    font-weight: 400;
+  }
+  :global(.dropdown-option:hover),
+  :global(.dropdown-option[data-active]) {
+    background: var(--veil-08);
+    color: var(--ink);
+  }
+  :global(.dropdown-option[aria-selected="true"]) {
+    color: var(--ink);
+  }
+  @media (pointer: coarse) {
+    :global(.dropdown-option) {
+      height: 40px;
+    }
+  }
+</style>
+
+<script>
+  class CircalDropdown extends HTMLElement {
+    static observedAttributes = ["data-value"];
+    private abort?: AbortController;
+    private active = 0;
+    private opened = false;
+    private trigger!: HTMLButtonElement;
+    private popup!: HTMLElement;
+    private list!: HTMLElement;
+    private search: HTMLInputElement | null = null;
+    private options: HTMLButtonElement[] = [];
+
+    connectedCallback() {
+      this.abort = new AbortController();
+      const { signal } = this.abort;
+      this.trigger = this.querySelector<HTMLButtonElement>("[data-trigger]")!;
+      this.popup = this.querySelector<HTMLElement>("[data-popup]")!;
+      this.list = this.querySelector<HTMLElement>('[role="listbox"]')!;
+      this.search = this.querySelector<HTMLInputElement>("input");
+      this.options = Array.from(this.querySelectorAll<HTMLButtonElement>("[data-option]"));
+      if (this.search) {
+        this.search.setAttribute("role", "combobox");
+        this.search.setAttribute("aria-controls", this.list.id);
+        this.search.setAttribute("aria-autocomplete", "list");
+        this.search.setAttribute("aria-expanded", "false");
+        this.search.addEventListener("input", () => this.filter(), { signal });
+      }
+      this.trigger.addEventListener("click", () => (this.opened ? this.close() : this.open()), {
+        signal,
+      });
+      this.trigger.addEventListener(
+        "keydown",
+        (event) => {
+          if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+            event.preventDefault();
+            this.open();
+          }
+        },
+        { signal },
+      );
+      this.options.forEach((option) =>
+        option.addEventListener("click", () => this.choose(option), { signal }),
+      );
+      this.popup.addEventListener("keydown", (event) => this.keydown(event), { signal });
+      document.addEventListener(
+        "pointerdown",
+        (event) => {
+          if (this.opened && !this.contains(event.target as Node)) this.close(false);
+        },
+        { signal },
+      );
+      this.addEventListener(
+        "focusout",
+        (event) => {
+          if (this.opened && event.relatedTarget && !this.contains(event.relatedTarget as Node))
+            this.close(false);
+        },
+        { signal },
+      );
+      window.addEventListener("resize", () => this.position(), { signal });
+      window.addEventListener("scroll", () => this.position(), { capture: true, signal });
+      window.visualViewport?.addEventListener("resize", () => this.position(), { signal });
+      window.visualViewport?.addEventListener("scroll", () => this.position(), { signal });
+      this.reflectValue();
+    }
+
+    disconnectedCallback() {
+      this.abort?.abort();
+    }
+    attributeChangedCallback() {
+      if (this.trigger) this.reflectValue();
+    }
+
+    private reflectValue() {
+      const selected = this.options.find((option) => option.dataset.option === this.dataset.value);
+      this.querySelector<HTMLElement>("[data-selected-label]")!.textContent =
+        selected?.querySelector("span")?.textContent ?? "";
+      this.options.forEach((option) => {
+        const picked = option === selected;
+        option.setAttribute("aria-selected", String(picked));
+        option.querySelector<HTMLElement>("[data-check]")!.hidden = !picked;
+      });
+    }
+
+    private visibleOptions() {
+      return this.options.filter((option) => !option.parentElement!.hidden);
+    }
+    private filter() {
+      const query = this.search?.value.trim().toLocaleLowerCase() ?? "";
+      this.options.forEach((option) => {
+        option.parentElement!.hidden = !option
+          .getAttribute("aria-label")!
+          .toLocaleLowerCase()
+          .includes(query);
+      });
+      this.querySelector<HTMLElement>("[data-empty]")!.hidden = this.visibleOptions().length > 0;
+      this.active = 0;
+      this.highlight();
+      this.position();
+    }
+
+    private open() {
+      document.querySelectorAll<CircalDropdown>("circal-dropdown").forEach((dropdown) => {
+        if (dropdown !== this) dropdown.close(false);
+      });
+      this.opened = true;
+      this.setAttribute("data-open", "");
+      this.popup.hidden = false;
+      this.trigger.setAttribute("aria-expanded", "true");
+      this.search?.setAttribute("aria-expanded", "true");
+      if (this.search) this.search.value = "";
+      this.filter();
+      this.active = Math.max(
+        0,
+        this.visibleOptions().findIndex((option) => option.dataset.option === this.dataset.value),
+      );
+      this.highlight();
+      this.position();
+      (this.search ?? this.list).focus();
+    }
+
+    private close(restoreFocus = true) {
+      this.opened = false;
+      this.removeAttribute("data-open");
+      this.popup.hidden = true;
+      this.trigger.setAttribute("aria-expanded", "false");
+      this.search?.setAttribute("aria-expanded", "false");
+      if (restoreFocus) this.trigger.focus();
+    }
+
+    private choose(option: HTMLButtonElement) {
+      this.dataset.value = option.dataset.option;
+      this.close();
+      this.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+
+    private highlight() {
+      const active = this.visibleOptions()[this.active];
+      this.options.forEach((option) => option.toggleAttribute("data-active", option === active));
+      for (const owner of [this.search, this.list]) {
+        if (active) owner?.setAttribute("aria-activedescendant", active.id);
+        else owner?.removeAttribute("aria-activedescendant");
+      }
+      active?.scrollIntoView({ block: "nearest" });
+    }
+
+    private keydown(event: KeyboardEvent) {
+      const visible = this.visibleOptions();
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        this.close();
+        return;
+      }
+      if (event.key === "Tab") {
+        this.close(false);
+        return;
+      }
+      if (event.key === "Enter") {
+        event.preventDefault();
+        if (visible[this.active]) this.choose(visible[this.active]);
+        return;
+      }
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        this.active = visible.length
+          ? (this.active + (event.key === "ArrowDown" ? 1 : -1) + visible.length) % visible.length
+          : 0;
+        this.highlight();
+      } else if (!this.search && (event.key === "Home" || event.key === "End")) {
+        event.preventDefault();
+        this.active = event.key === "Home" ? 0 : visible.length - 1;
+        this.highlight();
+      }
+    }
+
+    private position() {
+      if (!this.opened) return;
+      const rect = this.trigger.getBoundingClientRect();
+      const viewport = window.visualViewport;
+      const bottom = (viewport?.height ?? window.innerHeight) + (viewport?.offsetTop ?? 0);
+      const top = Math.max(viewport?.offsetTop ?? 0, Math.min(rect.top, bottom - 160));
+      const room = Math.max(100, bottom - top - 16);
+      const width = Math.min(rect.width, window.innerWidth - 32);
+      this.popup.style.width = `${width}px`;
+      this.popup.style.left = `${Math.max(16, Math.min(rect.left, window.innerWidth - width - 16))}px`;
+      this.list.style.maxHeight = `${Math.min(360, room - (this.search ? 42 : 0) - 12)}px`;
+      this.popup.style.top = `${top}px`;
+      this.list.classList.toggle("fade-b", this.list.scrollHeight > this.list.clientHeight);
+    }
+  }
+  if (!customElements.get("circal-dropdown"))
+    customElements.define("circal-dropdown", CircalDropdown);
+</script>

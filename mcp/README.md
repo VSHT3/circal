@@ -129,6 +129,19 @@ neither named nor pinned says so in its own summary
 (`calendar defaulted, not named`), so a wrong-calendar write is loud rather
 than discovered by whoever gets the reminder.
 
+## Agent skill
+
+Install circal's tool-use instructions from this repository:
+
+```sh
+npx skills add VSHT3/circal --skill circal
+```
+
+The skill covers connection checks, calendar ownership, recurrence scopes, task deadlines and
+planning, and keyed event imports. It does not configure MCP or authenticate cloud sync.
+See [the skill README](../skills/README.md) for supported-agent selection, manual installation and
+local packaging checks.
+
 ## From source (contributors)
 
 Building from a checkout instead of the published package:

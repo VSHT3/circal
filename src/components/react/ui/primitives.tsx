@@ -550,6 +550,7 @@ export function NumberField({
  */
 export function TextField({
   value,
+  defaultValue,
   onChange,
   label,
   placeholder,
@@ -559,9 +560,10 @@ export function TextField({
   maxLength,
   onEnter,
   className,
-}: {
-  value: string;
-  onChange: (next: string) => void;
+}: (
+  | { value: string; defaultValue?: never; onChange: (next: string) => void }
+  | { value?: never; defaultValue: string; onChange?: never }
+) & {
   label: string;
   placeholder?: string;
   type?: "text" | "email" | "url" | "password";
@@ -575,13 +577,14 @@ export function TextField({
     <input
       type={type}
       value={value}
+      defaultValue={defaultValue}
       aria-label={label}
       placeholder={placeholder}
       inputMode={inputMode}
       autoComplete={autoComplete}
       maxLength={maxLength}
       spellCheck={false}
-      onChange={(e) => onChange(e.target.value)}
+      onChange={onChange ? (e) => onChange(e.target.value) : undefined}
       onKeyDown={(e) => {
         if (e.key !== "Enter" || !onEnter) return;
         e.preventDefault();

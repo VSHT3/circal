@@ -1,248 +1,648 @@
 ---
 import Base from "@/layouts/Base.astro";
+import { ActionPill, IconButton, TextField } from "@/components/react/ui/primitives";
+import Dropdown from "@/components/assistant/Dropdown.astro";
+import { Copy } from "lucide-react";
 
-/**
- * `/assistant/` — the on-ramp from "circal keeps a live copy of my calendar"
- * to "an assistant can read it". Static markup, no island, same reasoning as
- * `manifesto.astro`: this is a page you read once and leave, and shipping
- * React to print a JSON snippet would cost more than the snippet.
- *
- * Two doors, because the Settings panel keeps at most one live copy at a
- * time: the mirror file on this computer, or the encrypted cloud copy. The
- * server (`circal-mcp`) serves either; the page's job is to route the reader
- * to the right one and be honest about what each costs.
- *
- * The file half cannot be smarter than the platform lets it be. A
- * `FileSystemFileHandle` exposes `.name` and nothing else — no path, by
- * design, because a page knowing where on your disk a file sits is the exact
- * privacy leak the File System Access API exists to prevent. So this page
- * cannot look up the path and cannot pre-fill it anywhere; it can only point
- * at `circal-mcp --find`, the one thing standing outside the browser that is
- * allowed to look. The cloud half needs no path at all, and its sign-in has
- * to be a terminal's for a harder reason: the passphrase derives the key on
- * the machine that will hold it, and no web flow may ever see it.
- *
- * Linked from Settings → Mirror and Settings → Cloud ("Set up an assistant")
- * once either copy is live, and from the README. Not linked from the app
- * shell itself: it is setup, not a feature, and the instrument has nowhere
- * to put a link to it.
- */
+import { clients, clientConfiguration } from "@/components/assistant/clients";
+
+const initialClient = clients.find((client) => client.value === "omp")!;
+const initialConfig = clientConfiguration(initialClient, "cloud", "");
+const examples = [
+  "What’s on Thursday?",
+  "Find me an hour free tomorrow afternoon.",
+  "Book dentist next Tuesday at 2.",
+  "Move my standup to 10.",
+];
 ---
 
 <Base
-  title="Set up an assistant · circal"
-  description="Three steps to let an MCP-speaking assistant read and write your calendar, through its mirror file or its encrypted cloud copy."
+  title="Connect your AI agent · circal"
+  description="Choose your MCP client and connect it to circal’s mirror file or encrypted cloud copy with copyable setup instructions."
   scroll
 >
-  <main class="mx-auto w-full max-w-[36rem] px-6 pt-14 pb-24 sm:pt-20">
-    <a
-      href="/"
-      class="inline-flex items-center gap-2 text-ink-2 transition-colors hover:text-ink"
-      aria-label="Open circal"
-    >
-      <svg viewBox="0 0 24 24" class="size-[15px]" aria-hidden="true">
-        <circle cx="12" cy="12" r="10.5" fill="none" stroke="currentColor" stroke-width="1.5"
-        ></circle>
-      </svg>
-      <span class="text-[15px] font-medium tracking-[-0.02em]">circal</span>
-    </a>
-
-    <h1
-      class="mt-14 text-[34px] leading-[1.08] font-medium tracking-[-0.035em] text-balance text-ink sm:text-[44px]"
-    >
-      Let an assistant read your calendar.
-    </h1>
-
-    <p class="mt-5 text-[15px] leading-[1.6] text-ink-3">Three steps, one of them in a terminal.</p>
-
-    <p class="mt-10 text-[17px] leading-[1.75] text-ink-2">
-      Your calendar lives in this browser, and circal keeps at most one live copy of it: a mirror
-      file on your computer, or the encrypted cloud copy, whichever you switched on in Settings. An
-      assistant reads and writes whichever copy you have, through a small server that runs on your
-      own machine. With the file, nothing touches the internet at all. With the cloud copy, the
-      assistant works on the same sealed record the app syncs with, and the seal holds both ways: it
-      is opened and closed on your machine, with a key made from your passphrase, and the server
-      behind it never holds anything it can read.
-    </p>
-
-    <div class="mt-12">
-      <h2 class="label text-ink-2">What you need</h2>
-      <p class="mt-3 text-[15px] leading-[1.7] text-ink-2">
-        Node.js 22 or later, from <a
-          href="https://nodejs.org"
-          class="text-ink underline decoration-hairline underline-offset-2 hover:decoration-ink-2"
-          >nodejs.org</a
-        >, and an assistant that speaks MCP: Claude Desktop, Claude Code, Cursor, VS Code and Zed
-        all do. One step below needs a terminal, and there is no way around it: outside the browser
-        is the only place allowed to find your file, and the only place your passphrase may go.
-      </p>
-    </div>
-
-    {
-      /* `flex flex-col gap-*` rather than `space-y-*`: this page was the only
-        place in the app reaching for `space-y`, and the utility is not in the
-        generated stylesheet at all, so every gap it claimed to set measured
-        zero. `gap` cannot fail quietly the same way. */
-    }
-    <ol class="mt-12 flex flex-col gap-10">
-      <li>
-        <h2 class="label text-ink-2">Step 1 · Connect the server</h2>
-        <p class="mt-3 text-[15px] leading-[1.7] text-ink-2">
-          <span class="text-ink">Using the cloud copy?</span> Sign the server in, once per machine:
-        </p>
-        <pre
-          class="mt-4 overflow-x-auto rounded-[10px] border border-hairline bg-surface-2 p-3.5"><code class="text-[13px] leading-[1.6] text-ink font-mono">npx -y circal-mcp login</code></pre>
-        <p class="mt-3 text-[15px] leading-[1.7] text-ink-2">
-          Three prompts: your email, the code it receives, your passphrase. The passphrase is never
-          stored and never sent; the key it derives stays on this machine, in a file only your user
-          account can read, and the cloud copy stays sealed to its server exactly as before. The
-          session renews itself, so this is a one-time step. <code
-            class="font-mono text-[13px] text-ink-2">npx -y circal-mcp logout</code
-          > withdraws the key immediately.
-        </p>
-        <p class="mt-4 text-[15px] leading-[1.7] text-ink-2">
-          <span class="text-ink">Mirroring to a file instead?</span> circal can't tell you where the file
-          is. The browser only ever hands the page a handle to it, never a path, on purpose: a web page
-          is not supposed to know your filesystem layout. Run this instead:
-        </p>
-        <pre
-          class="mt-4 overflow-x-auto rounded-[10px] border border-hairline bg-surface-2 p-3.5"><code class="text-[13px] leading-[1.6] text-ink font-mono">npx -y circal-mcp --find</code></pre>
-        <p class="mt-3 text-[15px] leading-[1.7] text-ink-2">
-          It searches the usual places, prints the path to every valid mirror file it finds, and a
-          config block underneath ready to paste into the next step.
-        </p>
-      </li>
-
-      <li>
-        <h2 class="label text-ink-2">Step 2 · Tell your assistant</h2>
-        <p class="mt-3 text-[15px] leading-[1.7] text-ink-2">
-          Most MCP clients read a JSON file. For the cloud copy, put this in it, exactly as printed,
-          no path needed:
-        </p>
-        <pre
-          class="mt-4 overflow-x-auto rounded-[10px] border border-hairline bg-surface-2 p-3.5"><code class="text-[13px] leading-[1.6] text-ink font-mono">{`{
-  "mcpServers": {
-    "circal": {
-      "command": "npx",
-      "args": ["-y", "circal-mcp", "--cloud"]
-    }
-  }
-}`}</code></pre>
-        <p class="mt-3 text-[15px] leading-[1.7] text-ink-2">
-          For a mirror file, the last two args are <code class="font-mono text-[13px] text-ink-2"
-            >"--file", "/absolute/path/to/circal.json"</code
-          > instead, with the path from Step 1 in place of the placeholder.
-        </p>
-        <p class="mt-4 text-[15px] leading-[1.7] text-ink-2">
-          <span class="text-ink">Claude Desktop</span> reads it from Settings → Developer → Edit Config,
-          which opens <code class="font-mono text-[13px] text-ink-2"
-            >claude_desktop_config.json</code
-          >.
-        </p>
-        <p class="mt-3 text-[15px] leading-[1.7] text-ink-2">
-          <span class="text-ink">Cursor</span> reads it from <code
-            class="font-mono text-[13px] text-ink-2">~/.cursor/mcp.json</code
-          >, or <code class="font-mono text-[13px] text-ink-2">.cursor/mcp.json</code> in one project
-          only.
-        </p>
-        <p class="mt-3 text-[15px] leading-[1.7] text-ink-2">
-          <span class="text-ink">Claude Code</span> is easier from the command line, no file to find or
-          edit:
-        </p>
-        <pre
-          class="mt-4 overflow-x-auto rounded-[10px] border border-hairline bg-surface-2 p-3.5"><code class="text-[13px] leading-[1.6] text-ink font-mono">claude mcp add circal -- npx -y circal-mcp --cloud</code></pre>
-      </li>
-
-      <li>
-        <h2 class="label text-ink-2">Step 3 · Restart it and ask</h2>
-        <p class="mt-3 text-[15px] leading-[1.7] text-ink-2">
-          Restart the assistant so it picks up the new server, then talk to it the way you would
-          talk to a person:
-        </p>
-        <ul class="mt-4 flex flex-col gap-2">
-          <li
-            class="rounded-[10px] border border-hairline bg-surface p-3 text-[14px] text-ink-2 italic"
-          >
-            "What's on Thursday?"
-          </li>
-          <li
-            class="rounded-[10px] border border-hairline bg-surface p-3 text-[14px] text-ink-2 italic"
-          >
-            "Find me an hour free tomorrow afternoon."
-          </li>
-          <li
-            class="rounded-[10px] border border-hairline bg-surface p-3 text-[14px] text-ink-2 italic"
-          >
-            "Book dentist next Tuesday at 2."
-          </li>
-          <li
-            class="rounded-[10px] border border-hairline bg-surface p-3 text-[14px] text-ink-2 italic"
-          >
-            "Move my standup to 10."
-          </li>
-        </ul>
-      </li>
-    </ol>
-
-    <div class="mt-14">
-      <h2 class="label text-ink-2">What it will not do</h2>
-      <ul class="mt-3 flex flex-col gap-2.5 text-[15px] leading-[1.7] text-ink-2">
-        <li class="flex gap-2.5">
-          <span class="text-ink-4" aria-hidden="true">·</span>
-          <span>It will not touch a subscribed calendar. Those stay read-only.</span>
-        </li>
-        <li class="flex gap-2.5">
-          <span class="text-ink-4" aria-hidden="true">·</span>
-          <span>
-            It will not guess what "delete my standup" means for a repeating event. It asks which
-            occurrences you meant, every time.
-          </span>
-        </li>
-        <li class="flex gap-2.5">
-          <span class="text-ink-4" aria-hidden="true">·</span>
-          <span>
-            It will not write at all if it is running in a different timezone from the one your
-            calendar was written in.
-          </span>
-        </li>
-        <li class="flex gap-2.5">
-          <span class="text-ink-4" aria-hidden="true">·</span>
-          <span>
-            It will not create the cloud copy, or an account. Signing up, choosing the passphrase
-            and the first upload all belong to Settings → Cloud; the assistant only ever opens a box
-            that already exists.
-          </span>
-        </li>
-      </ul>
-    </div>
-
-    <div class="mt-14 border-t border-hairline pt-8">
-      <h2 class="label text-ink-2">The trade</h2>
-      <p class="mt-3 text-[15px] leading-[1.7] text-ink-2">
-        While a mirror file is connected, anything on your computer that can read files can read and
-        change your calendar. Turning the mirror off in Settings stops it.
-      </p>
-      <p class="mt-3 text-[15px] leading-[1.7] text-ink-2">
-        While the server is signed in to the cloud copy, this machine holds a key that can read and
-        change the calendar on every device on the account, so anyone who can read your files holds
-        it too. <code class="font-mono text-[13px] text-ink-2">circal-mcp logout</code> withdraws it now,
-        not at the next launch.
-      </p>
-    </div>
-
-    <div class="mt-16 flex flex-wrap items-center gap-3 border-t border-hairline pt-8">
+  <main class="mx-auto w-full max-w-[60rem] px-5 pt-10 pb-20 sm:px-8 sm:pt-14">
+    <nav class="flex items-center justify-between" aria-label="Page navigation">
       <a
         href="/"
-        class="inline-flex h-9 items-center rounded-[9px] bg-ink px-4 text-[13.5px] font-medium text-void transition-opacity hover:opacity-90"
+        class="inline-flex items-center gap-2 text-[15px] font-medium tracking-[-0.02em] text-ink-2 transition-colors hover:text-ink"
+        aria-label="Open circal"
       >
-        Open circal
+        <svg viewBox="0 0 24 24" class="size-[15px]" aria-hidden="true"
+          ><circle cx="12" cy="12" r="10.5" fill="none" stroke="currentColor" stroke-width="1.5"
+          ></circle></svg
+        >
+        circal
       </a>
       <a
-        href="/manifesto/"
-        class="inline-flex h-9 items-center rounded-[9px] border border-hairline px-4 text-[13.5px] font-medium text-ink-2 transition-colors hover:text-ink"
+        href="https://github.com/VSHT3/circal/tree/main/mcp"
+        class="text-[13px] text-ink-2 underline decoration-hairline underline-offset-4 hover:text-ink"
+        >Server documentation ↗</a
       >
-        Read the manifesto
-      </a>
+    </nav>
+
+    <header class="mt-14 mb-10 sm:mt-18">
+      <p class="label text-ink-2">MCP setup</p>
+      <h1
+        class="mt-4 text-[34px] leading-[1.1] font-medium tracking-[-0.035em] text-balance text-ink sm:text-[46px]"
+      >
+        Connect your AI agent.
+      </h1>
+      <p class="mt-4 max-w-[38rem] text-[16px] leading-[1.7] text-ink-2">
+        Let your agent check your agenda and make changes to your calendar. Choose a client and the
+        copy of your calendar it should use.
+      </p>
+    </header>
+
+    <div id="assistant-setup">
+      <section
+        class="rounded-xl border border-hairline bg-surface px-5 sm:px-7"
+        aria-labelledby="connection-heading"
+      >
+        <h2 id="connection-heading" class="sr-only">Connection options</h2>
+        <div class="setup-row">
+          <p class="text-[14px] text-ink">Client</p>
+          <Dropdown
+            id="client-picker"
+            label="MCP client"
+            value="omp"
+            options={clients}
+            searchLabel="Search MCP clients"
+          />
+        </div>
+        <div class="setup-row border-t border-hairline">
+          <div>
+            <p class="text-[14px] text-ink">Calendar connection</p>
+            <p class="mt-1 text-[13px] text-ink-2">Use the copy connected in circal Settings.</p>
+          </div>
+          <div
+            id="connection-picker"
+            role="radiogroup"
+            aria-label="Calendar connection"
+            data-value="cloud"
+            class="flex flex-wrap gap-3"
+          >
+            <IconButton
+              label="Cloud copy"
+              role="radio"
+              aria-checked={true}
+              tabIndex={0}
+              data-connection="cloud"
+              className="connection-radio"
+            >
+              <span class="radio-circle" aria-hidden="true"><span data-radio-dot></span></span>Cloud
+              copy
+            </IconButton>
+            <IconButton
+              label="Mirror file"
+              role="radio"
+              aria-checked={false}
+              tabIndex={-1}
+              data-connection="file"
+              className="connection-radio"
+            >
+              <span class="radio-circle" aria-hidden="true"
+                ><span data-radio-dot hidden></span></span
+              >Mirror file
+            </IconButton>
+          </div>
+        </div>
+        <div data-file-only hidden class="setup-row border-t border-hairline">
+          <div>
+            <p class="text-[14px] text-ink">Mirror file path</p><p
+              class="mt-1 text-[13px] text-ink-2"
+            >
+              Paste the full path reported by --find.
+            </p>
+          </div>
+          <div data-field="path">
+            <TextField
+              defaultValue=""
+              label="Mirror file path"
+              placeholder="/absolute/path/to/calendar.json"
+              autoComplete="off"
+              className="w-full font-mono"
+            /><p id="path-note" class="mt-2 text-[12px] leading-relaxed text-ink-2">
+              The browser cannot read your file’s full path. This field stays on this page.
+            </p>
+          </div>
+        </div>
+      </section>
+      <aside
+        id="client-limitation"
+        hidden
+        class="mt-5 rounded-lg border border-hairline bg-surface p-4 text-[14px] leading-[1.8] text-ink-2"
+        aria-live="polite"
+      >
+      </aside>
+
+      <p class="mt-5 text-[13px] leading-[1.7] text-ink-2">
+        Requires <a
+          href="https://nodejs.org/en/download"
+          class="text-ink underline decoration-hairline underline-offset-4"
+          >Node.js 22.22.3 or later</a
+        > on the computer running your agent. The server runs locally over stdio, including when you use
+        the cloud copy.
+      </p>
+      <noscript
+        ><p class="mt-4 text-[14px] text-ink-2">
+          Enable JavaScript to switch clients and generate configuration. The steps below connect
+          omp to an existing cloud copy.
+        </p></noscript
+      >
+
+      <section class="mt-12" aria-labelledby="steps-heading">
+        <div
+          class="flex flex-wrap items-center justify-between gap-3 border-b border-hairline pb-5"
+        >
+          <h2 id="steps-heading" class="text-[20px] font-medium tracking-[-0.025em] text-ink">
+            Follow these steps
+          </h2>
+          <ActionPill
+            label="Copy setup prompt"
+            icon="Copy prompt"
+            data-copy="setup"
+            className="border border-hairline px-3 text-[13px]"
+          />
+        </div>
+        <p id="copy-status" role="status" class="mt-2 min-h-5 text-[12px] text-ink-2"></p>
+        <div id="manual-copy" hidden class="code-box mt-4">
+          <p class="code-heading text-[13px] text-ink-2">Copy this text manually</p>
+          <pre id="manual-copy-text" tabindex="-1" class="whitespace-pre-wrap"></pre>
+        </div>
+
+        <ol class="flex flex-col">
+          <li data-requires-local class="step-row">
+            <div class="step-heading">
+              <span class="step-number" aria-hidden="true">1</span><div>
+                <h3 class="text-[15px] font-medium text-ink">Prepare your calendar</h3><p
+                  class="mt-1 text-[13px] leading-relaxed text-ink-2"
+                >
+                  Connect a live copy before adding the server.
+                </p>
+              </div>
+            </div>
+            <div class="min-w-0">
+              <div data-cloud-only>
+                <p class="setup-copy">
+                  In <a href="/" class="setup-link">circal</a>, open Settings → Cloud. Sign in and
+                  unlock your cloud copy with your passphrase. If this is your first time, let
+                  circal upload the calendar before continuing.
+                </p>
+                <p class="setup-copy mt-3">
+                  On the computer running your agent, run the command below. Enter your email, the
+                  emailed code and the same passphrase in the terminal. Keep them out of agent chat.
+                </p>
+              </div>
+              <div data-file-only hidden>
+                <p class="setup-copy">
+                  In <a href="/" class="setup-link">circal</a>, open Settings → Mirror and connect a
+                  .json file. The macOS app creates a default mirror on first launch unless you have
+                  disconnected it.
+                </p>
+                <p class="setup-copy mt-3">
+                  Run the command below. It searches common locations and reports valid mirror files
+                  without changing them. Paste your calendar’s full path into the field above. If it
+                  finds nothing, use the path of the file you selected in Settings.
+                </p>
+              </div>
+              <div class="code-box mt-4">
+                <div class="code-heading">
+                  <span class="text-[12px] text-ink-2">Terminal</span><IconButton
+                    label="Copy preparation command"
+                    data-copy="prepare"><Copy size={14} strokeWidth={1.75} /></IconButton
+                  >
+                </div><pre><code id="prepare-code">npx -y circal-mcp@latest login</code></pre>
+              </div>
+              <p data-cloud-only class="mt-3 text-[13px] leading-relaxed text-ink-2">
+                Login stores a session and a derived key on this computer. It never stores or sends
+                your passphrase.
+              </p>
+              <p data-file-only hidden class="mt-3 text-[13px] leading-relaxed text-ink-2">
+                The agent can use the file while circal is closed. Keep Mirror connected when you
+                open circal so changes can sync back.
+              </p>
+            </div>
+          </li>
+          <li class="step-row border-t border-hairline">
+            <div class="step-heading">
+              <span data-requires-local class="step-number" aria-hidden="true">2</span><div>
+                <h3 id="configure-heading" class="text-[15px] font-medium text-ink">
+                  Configure your client
+                </h3><p id="client-caption" class="mt-1 text-[13px] leading-relaxed text-ink-2">
+                  For omp
+                </p>
+              </div>
+            </div>
+            <div class="min-w-0">
+              <p id="client-instruction" class="setup-copy">{initialClient.instruction}</p>
+              <p id="config-warning" hidden class="mt-3 text-[13px] text-ink-2">
+                Enter your mirror file path above before copying this configuration.
+              </p>
+              <div id="client-config-box" class="code-box mt-4">
+                <div class="code-heading">
+                  <span
+                    id="config-destination"
+                    class="min-w-0 truncate font-mono text-[12px] text-ink-2"
+                    >{initialClient.destination}</span
+                  ><IconButton label="Copy client configuration" data-copy="config"
+                    ><Copy size={14} strokeWidth={1.75} /></IconButton
+                  >
+                </div><pre><code id="config-code">{initialConfig}</code></pre>
+              </div>
+              <p id="client-alternative" class="mt-3 text-[13px] leading-[1.7] text-ink-2">
+                {initialClient.alternative}
+              </p>
+              <a
+                id="client-docs"
+                href={initialClient.docs}
+                class="setup-link mt-3 inline-block text-[13px]">View omp docs ↗</a
+              >
+            </div>
+          </li>
+          <li data-requires-local class="step-row border-t border-hairline">
+            <div class="step-heading">
+              <span class="step-number" aria-hidden="true">3</span><div>
+                <h3 class="text-[15px] font-medium text-ink">Check the connection</h3><p
+                  class="mt-1 text-[13px] leading-relaxed text-ink-2"
+                >
+                  Confirm the right calendar before making changes.
+                </p>
+              </div>
+            </div>
+            <div class="min-w-0">
+              <p id="client-restart" class="setup-copy">{initialClient.restart}</p>
+              <p class="setup-copy mt-3">
+                Ask your agent to call sync_status. Check the connection type, timezone and record
+                counts against your calendar.
+              </p>
+              <div class="code-box mt-4">
+                <div class="code-heading">
+                  <span class="text-[12px] text-ink-2">Ask your agent</span><IconButton
+                    label="Copy connection check prompt"
+                    data-copy="check"><Copy size={14} strokeWidth={1.75} /></IconButton
+                  >
+                </div><pre
+                  class="whitespace-pre-wrap"><code id="check-code">Call circal’s sync_status and tell me the transport, timezone and record counts. Do not change anything.</code></pre>
+              </div>
+            </div>
+          </li>
+          <li data-requires-local class="step-row border-t border-hairline">
+            <div class="step-heading">
+              <span class="step-number" aria-hidden="true">4</span><div>
+                <h3 class="text-[15px] font-medium text-ink">
+                  Install the circal skill <span class="font-normal text-ink-2">(optional)</span>
+                </h3>
+                <p class="mt-1 text-[13px] leading-relaxed text-ink-2">
+                  Give your agent instructions for using the calendar tools.
+                </p>
+              </div>
+            </div>
+            <div class="min-w-0">
+              <p class="setup-copy">
+                The circal skill explains how to check the connection, work with events and tasks,
+                and handle recurring events without changing the wrong occurrences. It adds
+                instructions, not calendar access; the MCP connection above is still required.
+              </p>
+              <div class="code-box mt-4">
+                <div class="code-heading">
+                  <span class="text-[12px] text-ink-2">Terminal</span><IconButton
+                    label="Copy skill installation command"
+                    data-copy="skills"><Copy size={14} strokeWidth={1.75} /></IconButton
+                  >
+                </div><pre><code id="skills-code">npx skills add VSHT3/circal --skill circal</code></pre>
+              </div>
+              <p class="mt-3 text-[13px] leading-[1.7] text-ink-2">
+                Choose your agent in the installer and the scope you want. If it is not listed,
+                follow your client’s skill installation instructions and copy the complete <code
+                  class="font-mono text-[12px]">skills/circal</code
+                > folder, including its references. Some clients do not support skills.
+              </p>
+              <a
+                href="https://github.com/VSHT3/circal/tree/main/skills/circal"
+                class="setup-link mt-3 inline-block text-[13px]">Read the circal skill ↗</a
+              >
+            </div>
+          </li>
+        </ol>
+      </section>
     </div>
+
+    <section class="mt-5 border-t border-hairline pt-8" aria-labelledby="try-heading">
+      <h2 id="try-heading" class="text-[20px] font-medium tracking-[-0.025em] text-ink">
+        Try it with your calendar
+      </h2>
+      <p class="mt-2 text-[14px] leading-relaxed text-ink-2">
+        Start with a question. Review the date and calendar before approving a change.
+      </p>
+      <ul class="mt-5 grid gap-3 sm:grid-cols-2">
+        {
+          examples.map((example) => (
+            <li class="rounded-lg bg-surface px-4 py-3 text-[14px] leading-relaxed text-ink-2">
+              “{example}”
+            </li>
+          ))
+        }
+      </ul>
+    </section>
+
+    <section class="mt-10 border-t border-hairline pt-8" aria-labelledby="access-heading">
+      <h2 id="access-heading" class="text-[20px] font-medium tracking-[-0.025em] text-ink">
+        What you’re giving access to
+      </h2>
+      <p class="mt-3 max-w-[44rem] text-[14px] leading-[1.8] text-ink-2">
+        The server can read and change your own events and tasks. Cloud storage holds encrypted
+        data, but your agent receives readable results from the server. Your AI provider’s data
+        policy applies to those results.
+      </p>
+      <ul class="mt-4 flex flex-col gap-2 text-[13px] leading-[1.8] text-ink-2">
+        <li>
+          Subscribed calendars stay read-only. Their feed events are not in the connected copy, so
+          availability checks cannot account for them. Editing or deleting a repeating event
+          requires an explicit scope: one occurrence, future occurrences or the whole series.
+        </li>
+        <li>
+          Writes are refused when the server’s timezone differs from the calendar’s recorded
+          timezone, unless you explicitly override that guard.
+        </li>
+        <li>
+          Cloud setup requires an existing account and uploaded copy. The MCP server does not create
+          either.
+        </li>
+        <li>
+          There is no server-wide read-only setting. Use your client’s tool permissions to restrict
+          changes.
+        </li>
+      </ul>
+      <div class="mt-6 grid gap-6 sm:grid-cols-2">
+        <div>
+          <h3 class="text-[14px] font-medium text-ink">Disconnect a file</h3><p
+            class="mt-2 text-[13px] leading-[1.8] text-ink-2"
+          >
+            Remove circal from your client’s MCP configuration and stop its server. Disconnecting
+            Mirror in circal stops app sync; it does not revoke access to the file. Protect or
+            remove that file separately.
+          </p>
+        </div>
+        <div>
+          <h3 class="text-[14px] font-medium text-ink">Disconnect the cloud copy</h3><p
+            class="mt-2 text-[13px] leading-[1.8] text-ink-2"
+          >
+            Run <code class="font-mono text-[12px] text-ink">npx -y circal-mcp@latest logout</code> to
+            remove this machine’s saved session and key. Remove circal from your client’s configuration
+            too. Anyone who can read the credentials file can access your calendar.
+          </p>
+        </div>
+      </div>
+    </section>
+    <footer class="mt-12 flex flex-wrap gap-5 border-t border-hairline pt-6 text-[13px] text-ink-2">
+      <a href="/" class="setup-link">Open circal</a><a href="/manifesto/" class="setup-link"
+        >Read the manifesto</a
+      >
+    </footer>
   </main>
 </Base>
+
+<style>
+  [hidden] {
+    display: none !important;
+  }
+  .setup-row {
+    display: grid;
+    gap: 1rem;
+    padding-block: 1.5rem;
+  }
+  .setup-row[hidden] {
+    display: none;
+  }
+  .step-row {
+    display: grid;
+    gap: 1.25rem;
+    padding-block: 1.75rem;
+  }
+  .step-heading {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+  .step-number {
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    width: 1.75rem;
+    height: 1.75rem;
+    border: 1px solid var(--hairline);
+    border-radius: 0.5rem;
+    font: 12px var(--font-mono);
+    color: var(--ink-2);
+  }
+  .setup-copy {
+    font-size: 14px;
+    line-height: 1.8;
+    color: var(--ink-2);
+  }
+  .setup-link {
+    color: var(--ink);
+    text-decoration: underline;
+    text-decoration-color: var(--hairline);
+    text-underline-offset: 4px;
+  }
+  .setup-link:hover {
+    text-decoration-color: var(--ink-2);
+  }
+  .code-box {
+    overflow: hidden;
+    border: 1px solid var(--hairline);
+    border-radius: 0.625rem;
+    background: var(--surface);
+  }
+  .code-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--hairline);
+  }
+  pre {
+    overflow-x: auto;
+    padding: 1rem;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.8;
+    color: var(--ink);
+  }
+  :global(.connection-radio) {
+    display: flex;
+    width: auto;
+    height: 40px;
+    gap: 9px;
+    padding: 0 12px;
+    font-size: 14px;
+    color: var(--ink-2);
+  }
+  :global(.connection-radio[aria-checked="true"]) {
+    color: var(--ink);
+  }
+  .radio-circle {
+    display: grid;
+    place-items: center;
+    width: 16px;
+    height: 16px;
+    border: 1px solid var(--ink-3);
+    border-radius: 50%;
+  }
+  .radio-circle span {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--ink);
+  }
+  @media (min-width: 640px) {
+    .setup-row {
+      grid-template-columns: 15rem minmax(0, 1fr);
+      align-items: center;
+      gap: 2rem;
+    }
+    .step-row {
+      grid-template-columns: 15rem minmax(0, 1fr);
+      gap: 2rem;
+    }
+  }
+</style>
+
+<script>
+  import { clients, clientConfiguration } from "@/components/assistant/clients";
+
+  const root = document.querySelector<HTMLElement>("#assistant-setup");
+  if (root) {
+    const client = root.querySelector<HTMLElement>("#client-picker")!;
+    const connection = root.querySelector<HTMLElement>("#connection-picker")!;
+    const path = root.querySelector<HTMLInputElement>('[data-field="path"] input')!;
+    const status = root.querySelector<HTMLElement>("#copy-status")!;
+    const manual = root.querySelector<HTMLElement>("#manual-copy")!;
+    const text = (id: string, value: string) => {
+      root.querySelector<HTMLElement>(`#${id}`)!.textContent = value;
+    };
+    const requestedConnection = new URLSearchParams(location.search).get("connection");
+    if (requestedConnection === "file" || requestedConnection === "cloud")
+      connection.dataset.value = requestedConnection;
+
+    function update() {
+      const selected = clients.find((item) => item.value === client.dataset.value)!;
+      const file = connection.dataset.value === "file";
+      connection.querySelectorAll<HTMLButtonElement>("[data-connection]").forEach((radio) => {
+        const selected = radio.dataset.connection === connection.dataset.value;
+        radio.setAttribute("aria-checked", String(selected));
+        radio.tabIndex = selected ? 0 : -1;
+        radio.querySelector<HTMLElement>("[data-radio-dot]")!.hidden = !selected;
+      });
+      const missingPath = selected.supported && file && !path.value.trim();
+      const config = clientConfiguration(selected, file ? "file" : "cloud", path.value.trim());
+      root!.querySelectorAll<HTMLElement>("[data-file-only]").forEach((element) => {
+        element.hidden = !file || !selected.supported;
+      });
+      root!.querySelectorAll<HTMLElement>("[data-cloud-only]").forEach((element) => {
+        element.hidden = file;
+      });
+      root!.querySelectorAll<HTMLElement>("[data-requires-local]").forEach((element) => {
+        element.hidden = !selected.supported;
+      });
+      const limitation = root!.querySelector<HTMLElement>("#client-limitation")!;
+      limitation.hidden = !selected.limitation;
+      limitation.textContent = selected.limitation ?? "";
+      root!.querySelector<HTMLElement>("#client-config-box")!.hidden = !selected.supported;
+      root!.querySelector<HTMLElement>("#config-warning")!.hidden = !missingPath;
+      root!.querySelector<HTMLButtonElement>('[data-copy="config"]')!.disabled =
+        missingPath || !selected.supported;
+      root!.querySelector<HTMLButtonElement>('[data-copy="setup"]')!.disabled = missingPath;
+      text("steps-heading", selected.supported ? "Follow these steps" : "Client compatibility");
+      text(
+        "configure-heading",
+        selected.supported ? "Configure your client" : "Use a local MCP client",
+      );
+      text(
+        "prepare-code",
+        file ? "npx -y circal-mcp@latest --find" : "npx -y circal-mcp@latest login",
+      );
+      text("client-caption", `For ${selected.label}`);
+      text("client-instruction", selected.instruction);
+      text("client-alternative", selected.alternative);
+      text("client-restart", selected.restart);
+      text("config-destination", selected.destination);
+      text("config-code", config);
+      const docs = root!.querySelector<HTMLAnchorElement>("#client-docs")!;
+      docs.href = selected.docs;
+      docs.textContent = `View ${selected.label} docs ↗`;
+      manual.hidden = true;
+      status.textContent = "";
+    }
+
+    client.addEventListener("change", update);
+    const radios = Array.from(connection.querySelectorAll<HTMLButtonElement>("[data-connection]"));
+    radios.forEach((radio, index) => {
+      const choose = () => {
+        connection.dataset.value = radio.dataset.connection;
+        update();
+      };
+      radio.addEventListener("click", choose);
+      radio.addEventListener("keydown", (event) => {
+        if (
+          ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)
+        ) {
+          event.preventDefault();
+          const next =
+            event.key === "Home"
+              ? 0
+              : event.key === "End"
+                ? radios.length - 1
+                : (index + 1) % radios.length;
+          radios[next].click();
+          radios[next].focus();
+        }
+      });
+    });
+    path.addEventListener("input", update);
+    update();
+
+    root.querySelectorAll<HTMLButtonElement>("[data-copy]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const kind = button.dataset.copy;
+        let content: string;
+        if (kind === "setup") {
+          const selected = clients.find((item) => item.value === client.dataset.value)!;
+          const requirements = selected.supported
+            ? "Requires Node.js 22.22.3 or later on the computer running your agent. circal uses a local stdio server, including for its cloud copy."
+            : (selected.limitation ?? selected.instruction);
+          // Copy the displayed steps so client-specific notes and optional installation cannot drift.
+          content = `Connect ${selected.label} to circal (${connection.dataset.value === "cloud" ? "encrypted cloud copy" : "mirror file"}).\n${requirements}\n\n${root!.querySelector<HTMLElement>("ol")!.innerText}\n\nYour agent receives readable calendar results. Review its tool permissions before allowing changes.\nClient docs: ${selected.docs}`;
+          if (selected.supported)
+            content += "\nSkill source: https://github.com/VSHT3/circal/tree/main/skills/circal";
+        } else {
+          const ids: Record<string, string> = {
+            prepare: "prepare-code",
+            config: "config-code",
+            check: "check-code",
+            skills: "skills-code",
+          };
+          content = root!.querySelector(`#${ids[kind!]}`)!.textContent ?? "";
+        }
+        try {
+          await navigator.clipboard.writeText(content);
+          manual.hidden = true;
+          status.textContent = kind === "setup" ? "Setup prompt copied." : "Copied.";
+        } catch {
+          text("manual-copy-text", content);
+          manual.hidden = false;
+          status.textContent = "Clipboard unavailable. Copy the selected text below.";
+          const copyText = root!.querySelector<HTMLElement>("#manual-copy-text")!;
+          copyText.focus();
+          const range = document.createRange();
+          range.selectNodeContents(copyText);
+          window.getSelection()?.removeAllRanges();
+          window.getSelection()?.addRange(range);
+        }
+      });
+    });
+  }
+</script>

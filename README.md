@@ -554,11 +554,20 @@ event asks the same three-way question the editor asks — and **refuses** to
 act on one until it is answered, rather than guessing that "delete my standup"
 meant all fifty-two of them. Subscriptions stay read-only there too.
 
-Setup is a page, not a manual: connect a file above, then open **`/assistant/`**
-in this app for the client config, or run this in a terminal:
+Open [the assistant setup page](https://circal.day/assistant/) to choose your
+client and a mirror or cloud connection. It generates the client configuration
+and copies the complete setup prompt, including optional agent skill installation.
+For a mirror file, find its path with:
 
 ```sh
 npx -y circal-mcp --find
+```
+
+The [circal agent skill](skills/README.md) teaches the connected agent to check
+the document, find availability, manage tasks and choose recurrence scopes:
+
+```sh
+npx skills add VSHT3/circal --skill circal
 ```
 
 Building from source instead: `pnpm build:mcp` produces

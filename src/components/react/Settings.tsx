@@ -1719,7 +1719,7 @@ export default function Settings({
                                       this file once it is live, and setup is a
                                       page, not an action. */}
                                     <a
-                                      href="/assistant/"
+                                      href="/assistant/?connection=file"
                                       target="_blank"
                                       rel="noopener"
                                       className="flex h-8 w-fit items-center gap-1.5 rounded-[8px] border border-hairline bg-surface-2 px-2.5 text-[13px] text-ink transition-colors hover:bg-(--veil-10)"
@@ -1871,7 +1871,7 @@ export default function Settings({
                                         reason: setup is a page, not an
                                         action. */}
                                       <a
-                                        href="/assistant/"
+                                        href="/assistant/?connection=cloud"
                                         target="_blank"
                                         rel="noopener"
                                         className="flex h-8 w-fit items-center gap-1.5 rounded-[8px] border border-hairline bg-surface-2 px-2.5 text-[13px] text-ink transition-colors hover:bg-(--veil-10)"
