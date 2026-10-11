@@ -10,12 +10,23 @@ browser.
 The argument, on one page: **[the
 manifesto](https://circal.day/manifesto/)**, also reachable from Settings.
 
+The **[tour](https://circal.day/tour/)** explains the four views, event gestures,
+task planning and optional connections, with images from the app and a keyboard reference.
+
 The first time you open it, the face builds itself: the hand goes round once
 and every tick, hour and event arrives as it passes, each one delayed by the
 time it stands for. Then the hand carries on to the current minute and settles
 onto it. The day in day order, which is the whole argument, in about three
 seconds. Nothing waits on it — the dial is live throughout. Settings → About
 has `Play again`, and `prefers-reduced-motion` skips it.
+
+A one-time teaching card follows the intro, with the palette shortcut, four views and
+event and task gestures. Dismiss it with **Start using circal** or Escape. Its dismissal
+stays on this device, independent of calendar backups and sync.
+
+**Settings → Data → Save face** saves the selected day or year as SVG or a 1600-pixel
+PNG. It includes the visible event details and readout, uses the selected theme and
+clock, and creates the image locally without uploading it.
 
 The **Dial** setting (`⌘,`) picks how the face names its hours:
 

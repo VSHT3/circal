@@ -716,7 +716,20 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
                 // The boolean is whether a file was written: a dismissed panel
                 // is not an error, but the page must be able to tell it from a
                 // save, or an export toast fires over a cancel.
-                replyHandler(try save(filename: name, body: body), nil)
+                let data: Data
+                if arg["encoding"] as? String == "base64url" {
+                    var encoded = body.replacingOccurrences(of: "-", with: "+")
+                        .replacingOccurrences(of: "_", with: "/")
+                    encoded += String(repeating: "=", count: (4 - encoded.count % 4) % 4)
+                    guard let decoded = Data(base64Encoded: encoded) else {
+                        replyHandler(nil, "Invalid export bytes")
+                        return
+                    }
+                    data = decoded
+                } else {
+                    data = Data(body.utf8)
+                }
+                replyHandler(try save(filename: name, data: data), nil)
             } catch {
                 replyHandler(nil, describe(error))
             }
@@ -840,13 +853,13 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
      * it writes nothing and answers `false`, and the page holds its toast rather
      * than claiming an export the user cancelled.
      */
-    private func save(filename: String, body: String) throws -> Bool {
+    private func save(filename: String, data: Data) throws -> Bool {
         let panel = NSSavePanel()
         panel.nameFieldStringValue = filename
         panel.canCreateDirectories = true
         guard panel.runModal() == .OK, let url = panel.url else { return false }
         do {
-            try Data(body.utf8).write(to: url)
+            try data.write(to: url)
             return true
         } catch {
             throw MirrorError.unreadable(error.localizedDescription)
@@ -947,7 +960,7 @@ private let BRIDGE_JS = """
 
   // The shell's save, so an export lands in a file the user chose. `backup.ts`
   // prefers this over the `<a download>` a WKWebView silently drops.
-  window.__circalSave = (filename, body) => post("save", { filename, body });
+  window.__circalSave = (filename, body, encoding) => post("save", { filename, body, encoding });
 
   // Which surface is reading the title. `useTitleCountdown` writes it only
   // while the page is hidden, which is right for a tab strip and wrong here:

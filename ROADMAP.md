@@ -31,20 +31,6 @@ auto-schedule) the delight. Two amendments to the spec:
 
 ## Tier 4 · Spread the product (parallel-friendly)
 
-- **IDEAS #14, Save this face.** SVG/PNG export of a day or year. Screenshots of
-  dials are already how circal spreads; give them a verb. `window.__circalSave`
-  answers the WKWebView half already. Build first in this tier: its output is the
-  next item's artwork.
-- **`/tour/` — the missing page.** The site answers _why_ (`/manifesto/`) and _how
-  to wire an AI_ (`/assistant/`) and never _what_. One static page in the same
-  voice: the four views, AI access, sync, the mac app, the keyboard table — each
-  illustrated with a real exported face from #14, not screenshots that rot. Also
-  the whole of circal's SEO surface: the app is `client:only`, so today a crawler
-  sees nearly nothing. Linked from Settings beside the manifesto, and the future
-  onboarding card's "show me around" points here. **Not** a separate marketing
-  site, no hero section, no pricing page: `/` opening into a working dial is the
-  strongest landing page a local-first product can have, and a brochure would
-  concede the manifesto's argument.
 - **A `.mcpb` desktop extension.** One-click circal in Claude Desktop's connector
   directory with the promise intact: the bundle runs the MCP server _locally_
   (no terminal, no Node install, no JSON), sensitive config lands in the OS
@@ -73,8 +59,6 @@ auto-schedule) the delight. Two amendments to the spec:
 - **Typical-weekday ghost** (TODO.md). Past instances of the viewed weekday, faint,
   on the same lanes. The one idea that says something the calendar does not
   literally contain.
-- **Onboarding's teaching half** (TODO.md). One `BirthPrompt`-shaped card: ⌘P, the
-  four views, the drag. The intro animation seduces; nothing yet teaches.
 
 ## Tier 6 · Chores basket
 

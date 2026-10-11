@@ -69,6 +69,7 @@ import { cue } from "@/lib/feedback";
 import { THEME_PALETTES, type ThemeName } from "@/lib/theme";
 import { useElementSize, useHotkeys } from "./hooks";
 import { cn } from "@/lib/utils";
+import { registerCanvasSnapshot } from "@/components/react/ui/canvasSnapshot";
 
 /**
  * How white an *empty* day goes when it is the one being pointed at. Empty,
@@ -777,6 +778,8 @@ export default function YearView({
   return (
     <motion.div
       ref={stageRef}
+      data-export-face="year"
+      data-export-name={year}
       className="relative h-full w-full"
       // No fade when the ring is rolling up out of the grid: the canvas
       // arrives already drawn on the dots it is lifting off, and dimming that
@@ -902,7 +905,10 @@ export default function YearView({
         ))}
       </ul>
 
-      <div style={{ opacity: flying ? 0 : 1, transition: `opacity ${CHROME_MS}ms var(--ease)` }}>
+      <div
+        data-export-readout
+        style={{ opacity: flying ? 0 : 1, transition: `opacity ${CHROME_MS}ms var(--ease)` }}
+      >
         <Readout
           year={year}
           date={active === null ? null : dateOfYear(year, active)}
@@ -992,95 +998,122 @@ function Ring({
   const P = THEME_PALETTES[theme];
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  const paint = useCallback(() => {
-    const canvas = canvasRef.current;
-    const ctx = canvas?.getContext("2d");
-    if (!canvas || !ctx) return;
+  const paint = useCallback(
+    (snapshot?: SVGGElement) => {
+      const canvas = canvasRef.current;
+      const ctx = canvas?.getContext("2d");
+      if (!canvas || !ctx) return;
 
-    const dpr = window.devicePixelRatio || 1;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, box.width, box.height);
-    ctx.lineCap = "butt";
+      const dpr = window.devicePixelRatio || 1;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, box.width, box.height);
+      ctx.lineCap = "butt";
 
-    const face = faceToPanel(box.width, box.height);
-    const centre = at.get();
-    const strength = amount.get();
-    // The pending range hoisted to two numbers, so the loop is a comparison
-    // rather than a null check three hundred and sixty-five times.
-    const from = pending ? pending.lo : Infinity;
-    const to = pending ? pending.hi : -Infinity;
-    const ink = pending ? pending.color : "";
+      const face = faceToPanel(box.width, box.height);
+      const centre = at.get();
+      const strength = amount.get();
+      // The pending range hoisted to two numbers, so the loop is a comparison
+      // rather than a null check three hundred and sixty-five times.
+      const from = pending ? pending.lo : Infinity;
+      const to = pending ? pending.hi : -Infinity;
+      const ink = pending ? pending.color : "";
 
-    for (let i = 0; i < days; i++) {
-      const mark = marks[i];
-      // The slot's own middle against the pointer's exact place, so the day
-      // being pointed at gets the whole bulge rather than half of it.
-      const delta = strength > 0.001 ? ringDelta(i + 0.5, centre, days) : YEAR.REACH + 1;
-      const lift = strength * magnify(delta);
-      const shift = strength * YEAR.PUSH * spread(delta);
+      for (let i = 0; i < days; i++) {
+        const mark = marks[i];
+        // The slot's own middle against the pointer's exact place, so the day
+        // being pointed at gets the whole bulge rather than half of it.
+        const delta = strength > 0.001 ? ringDelta(i + 0.5, centre, days) : YEAR.REACH + 1;
+        const lift = strength * magnify(delta);
+        const shift = strength * YEAR.PUSH * spread(delta);
 
-      // The tip goes out, the baseline stays. It is the day rising to meet
-      // the pointer, and the three parts of it lean on the bell by different
-      // amounts: the neighbours come along in length and barely at all in
-      // width or light, so the emphasis stays on the one day being named.
-      //
-      // A day the pending event covers is drawn as a day that *carries* it —
-      // one more thing on it, in its ink — so the picture does not change shape
-      // when the drag hands over to the editor or when the editor saves. It is
-      // the ghost arc's job in this face's own terms.
-      const carries = i >= from && i <= to;
-      const searchHit = matched !== null && matched[i];
-      const searchMiss = matched !== null && !matched[i];
-      const angle = dayAngle(i + shift, days);
-      const base = carries || searchHit ? markRadius(mark.count + 1) : mark.outer;
-      const grown = base + YEAR.GROW_OUT * lift ** FALLOFF.length;
-      const inner = face.at(...radial(YEAR.DAY_INNER, angle));
-      const outer = face.at(...radial(grown, angle));
+        // The tip goes out, the baseline stays. It is the day rising to meet
+        // the pointer, and the three parts of it lean on the bell by different
+        // amounts: the neighbours come along in length and barely at all in
+        // width or light, so the emphasis stays on the one day being named.
+        //
+        // A day the pending event covers is drawn as a day that *carries* it —
+        // one more thing on it, in its ink — so the picture does not change shape
+        // when the drag hands over to the editor or when the editor saves. It is
+        // the ghost arc's job in this face's own terms.
+        const carries = i >= from && i <= to;
+        const searchHit = matched !== null && matched[i];
+        const searchMiss = matched !== null && !matched[i];
+        const angle = dayAngle(i + shift, days);
+        const base = carries || searchHit ? markRadius(mark.count + 1) : mark.outer;
+        const grown = base + YEAR.GROW_OUT * lift ** FALLOFF.length;
+        const inner = face.at(...radial(YEAR.DAY_INNER, angle));
+        const outer = face.at(...radial(grown, angle));
 
-      ctx.lineWidth = YEAR.DAY_WIDTH * (1 + YEAR.GROW_WIDTH * lift ** FALLOFF.width) * face.u;
-      ctx.beginPath();
-      ctx.moveTo(inner.x, inner.y);
-      ctx.lineTo(outer.x, outer.y);
-      ctx.strokeStyle = carries ? ink : searchMiss ? P.emptyMark : mark.color;
-      ctx.stroke();
-
-      // Light instead of a colour, never over one. An empty day has nothing
-      // to say with its fill, so the magnifier lights it; a day with events
-      // is already saying it, and washing that to white to announce a hover
-      // spends the only information this face carries on a highlight the
-      // growth has already given.
-      //
-      // The selection is the exception and is full white whatever it carries:
-      // it is not a hover, it is where the dial will land and where the unroll
-      // leaves from. A pending day takes no light at all — its ink already is
-      // the highlight, and white over a chosen colour would hide the choice.
-      const white = carries
-        ? 0
-        : i === selected
-          ? 1
-          : mark.count > 0
-            ? 0
-            : LIT_HOVER * lift ** FALLOFF.light;
-      if (white > 0.004) {
-        ctx.globalAlpha = white;
-        ctx.strokeStyle = P.tick;
-        ctx.stroke();
-        ctx.globalAlpha = 1;
-      }
-
-      if (i === today) {
-        const pip = face.at(...radial(YEAR.TODAY_RING, angle));
+        ctx.lineWidth = YEAR.DAY_WIDTH * (1 + YEAR.GROW_WIDTH * lift ** FALLOFF.width) * face.u;
         ctx.beginPath();
-        ctx.arc(pip.x, pip.y, YEAR.TODAY_PIP * face.u, 0, Math.PI * 2);
-        ctx.fillStyle = P.accent;
-        ctx.fill();
-      }
-    }
-    // `P` for the reason `marks` takes it — the palette is what this reads.
-  }, [box.width, box.height, days, marks, selected, today, pending, matched, P, at, amount]);
+        ctx.moveTo(inner.x, inner.y);
+        ctx.lineTo(outer.x, outer.y);
+        ctx.strokeStyle = carries ? ink : searchMiss ? P.emptyMark : mark.color;
+        ctx.stroke();
+        if (snapshot) {
+          const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+          line.setAttribute("x1", String(inner.x));
+          line.setAttribute("y1", String(inner.y));
+          line.setAttribute("x2", String(outer.x));
+          line.setAttribute("y2", String(outer.y));
+          line.setAttribute("stroke", String(ctx.strokeStyle));
+          line.setAttribute("stroke-width", String(ctx.lineWidth));
+          snapshot.append(line);
+        }
 
-  useMotionValueEvent(at, "change", paint);
-  useMotionValueEvent(amount, "change", paint);
+        // Light instead of a colour, never over one. An empty day has nothing
+        // to say with its fill, so the magnifier lights it; a day with events
+        // is already saying it, and washing that to white to announce a hover
+        // spends the only information this face carries on a highlight the
+        // growth has already given.
+        //
+        // The selection is the exception and is full white whatever it carries:
+        // it is not a hover, it is where the dial will land and where the unroll
+        // leaves from. A pending day takes no light at all — its ink already is
+        // the highlight, and white over a chosen colour would hide the choice.
+        const white = carries
+          ? 0
+          : i === selected
+            ? 1
+            : mark.count > 0
+              ? 0
+              : LIT_HOVER * lift ** FALLOFF.light;
+        if (white > 0.004) {
+          ctx.globalAlpha = white;
+          ctx.strokeStyle = P.tick;
+          ctx.stroke();
+          if (snapshot) {
+            const light = snapshot.lastElementChild!.cloneNode(true) as SVGElement;
+            light.setAttribute("stroke", P.tick);
+            light.setAttribute("opacity", String(white));
+            snapshot.append(light);
+          }
+          ctx.globalAlpha = 1;
+        }
+
+        if (i === today) {
+          const pip = face.at(...radial(YEAR.TODAY_RING, angle));
+          ctx.beginPath();
+          ctx.arc(pip.x, pip.y, YEAR.TODAY_PIP * face.u, 0, Math.PI * 2);
+          ctx.fillStyle = P.accent;
+          ctx.fill();
+          if (snapshot) {
+            const dot = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+            dot.setAttribute("cx", String(pip.x));
+            dot.setAttribute("cy", String(pip.y));
+            dot.setAttribute("r", String(YEAR.TODAY_PIP * face.u));
+            dot.setAttribute("fill", P.accent);
+            snapshot.append(dot);
+          }
+        }
+      }
+      // `P` for the reason `marks` takes it — the palette is what this reads.
+    },
+    [box.width, box.height, days, marks, selected, today, pending, matched, P, at, amount],
+  );
+
+  useMotionValueEvent(at, "change", () => paint());
+  useMotionValueEvent(amount, "change", () => paint());
 
   /* The canvas is an external system: written to, not rendered. */
   useEffect(() => {
@@ -1090,6 +1123,11 @@ function Ring({
     canvas.width = Math.round(box.width * dpr);
     canvas.height = Math.round(box.height * dpr);
     paint();
+    return registerCanvasSnapshot(canvas, () => {
+      const snapshot = document.createElementNS("http://www.w3.org/2000/svg", "g");
+      paint(snapshot);
+      return snapshot;
+    });
   }, [box.width, box.height, paint]);
 
   return <canvas ref={canvasRef} className="pointer-events-none absolute inset-0 h-full w-full" />;

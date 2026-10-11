@@ -11,11 +11,6 @@ short list of things that finish something already started. The _ordering_ acros
 
 ## open
 
-**Onboarding, and only its teaching half.** The intro animation shipped and answers a different
-question — it says angle-is-time and says nothing about ⌘P, the four views, or the drag. The shape
-this should take is `BirthPrompt`'s: one screen, at the moment it is needed, never again. Not a
-four-step carousel over the dial.
-
 **A whole calendar as a link — open question, not a decision.** Measured first: a thousand events
 is ~32 KB gzipped, ~43 KB as base64url. That rules out the two carriers that make the one-event
 link worth having (a chat message, a QR code — the latter caps at 2,953 bytes), and everything that

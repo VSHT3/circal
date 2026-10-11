@@ -26,6 +26,7 @@ import {
 import { notify } from "./notify";
 import { dayKey, isZone } from "./time";
 import { isRecord } from "./utils";
+import { bytesToBase64Url } from "@/lib/base64";
 import {
   readGraves,
   readTaskList,
@@ -80,10 +81,14 @@ interface Backup {
  * the shell writes what it is given and knows nothing about the contents.
  */
 interface SaveWindow {
-  __circalSave?: (filename: string, body: string) => Promise<boolean>;
+  __circalSave?: (filename: string, body: string, encoding?: "base64url") => Promise<boolean>;
 }
 
-async function download(filename: string, mime: string, body: string): Promise<boolean> {
+export async function download(
+  filename: string,
+  mime: string,
+  body: string | Blob,
+): Promise<boolean> {
   const shell = (window as unknown as SaveWindow).__circalSave;
   if (shell) {
     // The one place either path is chosen, so no call site learns there are
@@ -91,9 +96,15 @@ async function download(filename: string, mime: string, body: string): Promise<b
     // picker beside `showSaveFilePicker`. The boolean is whether a file was
     // written: the shell's save panel can be cancelled, and a caller that
     // toasts "Exported" over a cancel is lying.
+    if (body instanceof Blob) {
+      const bytes = new Uint8Array(await body.arrayBuffer());
+      return shell(filename, bytesToBase64Url(bytes), "base64url");
+    }
     return shell(filename, body);
   }
-  const url = URL.createObjectURL(new Blob([body], { type: `${mime};charset=utf-8` }));
+  const url = URL.createObjectURL(
+    body instanceof Blob ? body : new Blob([body], { type: `${mime};charset=utf-8` }),
+  );
   const link = document.createElement("a");
   link.href = url;
   link.download = filename;

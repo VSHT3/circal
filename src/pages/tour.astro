@@ -1,0 +1,436 @@
+---
+import Base from "@/layouts/Base.astro";
+
+const shortcuts = [
+  [
+    "⌘P",
+    "Command palette: write an event, search, jump to a date, find free time or run a command",
+  ],
+  ["⌘N / ⇧⌘N", "New event / new task"],
+  ["⌘,", "Settings"],
+  ["⌘Z / ⇧⌘Z", "Undo / redo"],
+  ["⌘D / ⌘E / ⌘Y / ⌘L", "Day / week / year / life view. Use ⌘E for week; browsers reserve ⌘W."],
+  ["⌘B", "Sidebar"],
+  ["← →", "Previous / next day; a week in week view, a year in year and life views"],
+  ["T", "Today"],
+  ["F / ⇧F", "Ambient / fullscreen ambient"],
+  ["⌘↵ / ⌘⌫ / Esc", "Save / delete / cancel in the editor"],
+  ["⌘⌫", "Delete the event previewed by pointer or keyboard on the dial"],
+  ["⌘-drag an arc", "Duplicate it. The original stays; the copy lands where you let go."],
+  ["⌘↵ on a ⌘P event row", "Duplicate it into the editor to choose its time"],
+];
+---
+
+<Base
+  title="Tour · circal"
+  description="Read the day dial, week strip, year ring and life grid. Learn event gestures, task planning, keyboard shortcuts and optional calendar connections."
+  scroll
+>
+  <main class="mx-auto w-full max-w-[60rem] px-5 pt-10 pb-20 sm:px-8 sm:pt-14">
+    <nav class="flex flex-wrap items-center justify-between gap-5" aria-label="Page navigation">
+      <a
+        href="/"
+        class="inline-flex items-center gap-2 text-[15px] font-medium tracking-[-0.02em] text-ink-2 transition-colors hover:text-ink"
+        aria-label="Open circal"
+      >
+        <svg viewBox="0 0 24 24" class="size-[15px]" aria-hidden="true">
+          <circle cx="12" cy="12" r="10.5" fill="none" stroke="currentColor" stroke-width="1.5"
+          ></circle>
+        </svg>
+        circal
+      </a>
+      <div class="flex flex-wrap gap-5 text-[13px] text-ink-2">
+        <a href="/assistant/" class="tour-link">Connect an AI agent</a>
+        <a href="/manifesto/" class="tour-link">Manifesto</a>
+      </div>
+    </nav>
+
+    <header class="mt-14 sm:mt-18">
+      <p class="label text-ink-2">Using circal</p>
+      <h1
+        class="mt-4 text-[34px] leading-[1.1] font-medium tracking-[-0.035em] text-ink sm:text-[46px]"
+      >
+        Tour
+      </h1>
+      <p class="tour-copy mt-4 max-w-[38rem]">
+        A day takes one revolution. Events occupy arcs on that circle, and longer views show the
+        same calendar at the scale of a week, a year or a life. Your calendar stays on this device
+        unless you connect a copy.
+      </p>
+      <nav
+        class="mt-7 flex flex-wrap gap-x-5 gap-y-3 text-[13px] text-ink-2"
+        aria-label="Tour contents"
+      >
+        <a href="#views" class="tour-link">Four views</a>
+        <a href="#events" class="tour-link">Events</a>
+        <a href="#tasks" class="tour-link">Tasks</a>
+        <a href="#assistant" class="tour-link">AI agent</a>
+        <a href="#data" class="tour-link">Data and sync</a>
+        <a href="#mac" class="tour-link">macOS</a>
+        <a href="#keyboard" class="tour-link">Keyboard</a>
+      </nav>
+    </header>
+
+    <section id="views" class="tour-section" aria-labelledby="views-heading">
+      <h2 id="views-heading" class="section-heading">Four views</h2>
+      <article class="view-layout mt-8" aria-labelledby="day-heading">
+        <div>
+          <div class="view-heading">
+            <h3 id="day-heading">Day dial</h3><kbd>⌘D</kbd>
+          </div>
+          <p class="tour-copy mt-3">
+            One turn is twenty-four hours. Read an event’s start at the beginning of its arc and its
+            duration along the curve. Overlapping events occupy separate lanes. The hand marks the
+            current minute; the light around the rim shows the elapsed day.
+          </p>
+          <p class="tour-copy mt-3">
+            The 24-hour face puts midnight at the top. Choose 12-hour time in Settings to put noon
+            there instead. The setting also changes how times are printed throughout the app.
+          </p>
+        </div>
+        <figure>
+          <img
+            src="/tour/day.svg"
+            width="1600"
+            height="1600"
+            alt="A day dial with hour labels around its circumference, coloured event arcs and the selected date in its centre"
+            class="view-image"
+            decoding="async"
+          />
+          <figcaption>The centre shows the agenda and the next or current event.</figcaption>
+        </figure>
+      </article>
+
+      <article class="mt-12" aria-labelledby="week-heading">
+        <div class="view-heading">
+          <h3 id="week-heading">Week strip</h3><kbd>⌘E</kbd>
+        </div>
+        <p class="tour-copy mt-3 max-w-[44rem]">
+          Seven day faces share the same rotation, so an appointment at the same hour occupies the
+          same angle across the week. Select a face to open its day dial. The week starts on the day
+          you choose in Settings.
+        </p>
+        <figure class="mt-5">
+          <img
+            src="/tour/week.svg"
+            width="1600"
+            height="300"
+            alt="Seven small day dials arranged in a week strip, each showing that day’s events as coloured arcs"
+            class="view-image"
+            loading="lazy"
+            decoding="async"
+          />
+          <figcaption>
+            Compare occupied hours across seven days without changing the clock.
+          </figcaption>
+        </figure>
+      </article>
+
+      <article class="view-layout mt-12" aria-labelledby="year-heading">
+        <div>
+          <div class="view-heading">
+            <h3 id="year-heading">Year ring</h3><kbd>⌘Y</kbd>
+          </div>
+          <p class="tour-copy mt-3">
+            One revolution is a year, with one mark per day. Event colours show which days carry
+            something. Point at a mark to magnify it and read its date; select it to open that day.
+          </p>
+          <p class="tour-copy mt-3">
+            Drag across the ring to create a multi-day event. A search in the command palette lights
+            matching days, and the result stays visible after the palette closes.
+          </p>
+        </div>
+        <figure>
+          <img
+            src="/tour/year.svg"
+            width="1600"
+            height="1600"
+            alt="A year ring with month labels and individual daily marks around the circumference, including coloured marks for days with events"
+            class="view-image"
+            loading="lazy"
+            decoding="async"
+          />
+          <figcaption>Read the year in day order around the ring.</figcaption>
+        </figure>
+      </article>
+
+      <article class="mt-12" aria-labelledby="life-heading">
+        <div class="view-heading">
+          <h3 id="life-heading">Life grid</h3><kbd>⌘L</kbd>
+        </div>
+        <p class="tour-copy mt-3 max-w-[44rem]">
+          Give circal your birth date and an expectancy to see one dot per day across that span.
+          Lived days and future days have different tones, with today marked in the grid. Expectancy
+          is an estimate you choose, not a predicted date.
+        </p>
+        <figure class="mt-5">
+          <img
+            src="/tour/life.png"
+            width="1799"
+            height="1190"
+            alt="A life grid containing rows of daily dots, with different tones for lived and future days and a marker for today"
+            class="view-image"
+            loading="lazy"
+            decoding="async"
+          />
+          <figcaption>
+            Point at a day to read it, select it to open the dial, or drag a run of days for a
+            multi-day event. Search lights matching days across the grid.
+          </figcaption>
+        </figure>
+      </article>
+    </section>
+
+    <section id="events" class="tour-section" aria-labelledby="events-heading">
+      <h2 id="events-heading" class="section-heading">Make and move events</h2>
+      <div class="tour-copy mt-4 max-w-[44rem]">
+        <p>
+          Drag on an empty part of the day ring to draw a time range. Let go to name the event in
+          the editor. A click creates an event of the default length. Drag an existing arc’s middle
+          to move it, or either end to resize it, in fifteen-minute steps. Escape abandons a drag.
+        </p>
+        <p class="mt-4">
+          Hold <kbd>⌘</kbd> while dragging an arc to make a copy. Moving or deleting a repeating event
+          asks whether you mean one occurrence, that occurrence and all future ones, or the whole series.
+          Subscribed calendars are read-only.
+        </p>
+        <p class="mt-4">
+          For a typed entry, open <kbd>⌘P</kbd> and write
+          <code>lunch tomorrow 1pm 45m</code>. The palette shows the resolved date and time before
+          you commit. A duration such as <code>45m</code> on its own lists free gaps that fit it.
+        </p>
+        <p class="mt-4">
+          Save a day or year face as SVG or PNG from Settings, Data, Save face. The image includes
+          visible event details and is made on this device without an upload.
+        </p>
+      </div>
+    </section>
+
+    <section id="tasks" class="tour-section" aria-labelledby="tasks-heading">
+      <h2 id="tasks-heading" class="section-heading">Plan time for tasks</h2>
+      <div class="tour-copy mt-4 max-w-[44rem]">
+        <p>
+          Create a task with <kbd>⇧⌘N</kbd>. A task has a deadline and can have an estimate and
+          planned blocks of work. A timed deadline appears as a pip on the dial’s rim; a planned
+          block occupies an arc. Tick the task off when the work is done.
+        </p>
+        <p class="mt-4">
+          Open the sidebar with <kbd>⌘B</kbd> to find tasks grouped by deadline. Drag a task onto the
+          day dial to place a work block at a particular time, or onto a week face to plan it for that
+          day. The block uses its estimate, or the default duration if it has no estimate.
+        </p>
+        <p class="mt-4">
+          The sidebar’s <strong>Fill free time</strong> plans unfinished tasks that have an estimate and
+          no blocks yet. It looks up to fourteen days ahead, soonest deadline first, for gaps within your
+          waking hours that end before the task’s deadline. Existing blocks stay where you placed them.
+          The notice reports tasks that do not fit, and <kbd>⌘Z</kbd> undoes the run.
+        </p>
+        <p class="mt-4">
+          <strong>Auto-schedule</strong> runs that same rule on load and when a task arrives. It is off
+          by default; turn it on in Settings under Day if you want circal to plan those blocks for you.
+        </p>
+      </div>
+    </section>
+
+    <section id="assistant" class="tour-section" aria-labelledby="assistant-heading">
+      <h2 id="assistant-heading" class="section-heading">Connect an AI agent</h2>
+      <div class="tour-copy mt-4 max-w-[44rem]">
+        <p>
+          The circal MCP server runs locally on your computer. It lets a connected agent read your
+          agenda, find free time and change your own events and tasks. It uses a mirror file or your
+          optional encrypted cloud copy, so the calendar tab does not need to stay open.
+        </p>
+        <p class="mt-4">
+          The agent receives readable calendar results even when the stored copy is encrypted. Your
+          AI provider’s data policy applies to those results. Subscription feed events are absent
+          from the connected copy, so the agent’s availability checks cannot account for them.
+          Review the date and calendar before approving a change.
+        </p>
+        <p class="mt-4">
+          <a href="/assistant/" class="tour-link text-ink">Open the assistant setup page</a> to choose
+          your client and connection, get its configuration and install the optional circal agent skill.
+        </p>
+      </div>
+    </section>
+
+    <section id="data" class="tour-section" aria-labelledby="data-heading">
+      <h2 id="data-heading" class="section-heading">Keep a copy of your calendar</h2>
+      <div class="tour-copy mt-4 max-w-[44rem]">
+        <p>
+          Your calendar is stored on this device. You can use circal without an account. Settings
+          offers a JSON backup and restore, plus ICS import and export for other calendars. Clearing
+          browser storage can remove your local calendar, so keep a backup somewhere else.
+        </p>
+        <p class="mt-4">
+          A mirror file keeps a live JSON copy on disk. A cloud copy lets devices signed in to the
+          same account sync one calendar. These are optional connections, and only one can be live
+          at a time.
+        </p>
+        <p class="mt-4">
+          Cloud sync encrypts the calendar on your device before uploading it. You sign in with an
+          email code and unlock the copy with a passphrase. The service knows your sign-in email; it
+          stores the calendar as ciphertext. Losing the passphrase loses access to that cloud copy,
+          and there is no passphrase reset. Your local calendar remains on this device.
+        </p>
+        <p class="mt-4">
+          Public ICS subscriptions appear as read-only calendars. Install circal using your
+          browser’s install control or Add to Home Screen for offline use.
+        </p>
+      </div>
+    </section>
+
+    <section id="mac" class="tour-section" aria-labelledby="mac-heading">
+      <h2 id="mac-heading" class="section-heading">The macOS shell</h2>
+      <div class="tour-copy mt-4 max-w-[44rem]">
+        <p>
+          The repository includes a Swift macOS shell around the same app. It adds a menu bar
+          countdown, native reminders, trackpad haptics and a local mirror file. Its global
+          <kbd>⌥⌘C</kbd> shortcut opens the command palette from another app.
+        </p>
+        <p class="mt-4">
+          Build it from a source checkout with <code>pnpm mac</code>. The
+          <a href="https://github.com/VSHT3/circal/blob/main/APP.md" class="tour-link text-ink"
+            >macOS documentation</a
+          > explains the shell and its build requirements. Browser installation remains available without
+          building a native app.
+        </p>
+      </div>
+    </section>
+
+    <section id="keyboard" class="tour-section" aria-labelledby="keyboard-heading">
+      <h2 id="keyboard-heading" class="section-heading">Keyboard reference</h2>
+      <p class="tour-copy mt-4 max-w-[44rem]">
+        <kbd>⌘</kbd> means Ctrl on Windows and Linux. The app accepts either modifier and prints the one
+        your keyboard uses. Some browsers reserve app shortcuts; the macOS shell passes them through to
+        circal.
+      </p>
+      <table class="mt-6 w-full border-collapse text-left text-[13px]">
+        <caption class="sr-only">circal keyboard shortcuts and gestures</caption>
+        <thead>
+          <tr class="border-b border-hairline text-ink">
+            <th scope="col" class="pr-4 pb-3 font-medium">Shortcut</th>
+            <th scope="col" class="pb-3 font-medium">Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {
+            shortcuts.map(([shortcut, action]) => (
+              <tr class="border-b border-hairline align-top">
+                <td class="w-[36%] py-3 pr-4 text-ink">
+                  <kbd>{shortcut}</kbd>
+                </td>
+                <td class="py-3 leading-[1.7] text-ink-2">{action}</td>
+              </tr>
+            ))
+          }
+        </tbody>
+      </table>
+      <p class="tour-copy mt-5 max-w-[44rem]">
+        Tab to the dial’s event list to browse the whole day. Arrow keys preview events; Home and
+        End jump to the first and last. Enter or Space opens the editor, and Tab leaves the list.
+      </p>
+    </section>
+
+    <footer class="mt-12 flex flex-wrap gap-5 border-t border-hairline pt-6 text-[13px] text-ink-2">
+      <a href="/" class="tour-link">Open circal</a>
+      <a href="/assistant/" class="tour-link">Connect an AI agent</a>
+      <a href="/manifesto/" class="tour-link">Read the manifesto</a>
+      <a href="#keyboard" class="tour-link">Keyboard reference</a>
+    </footer>
+  </main>
+</Base>
+
+<style>
+  .tour-link {
+    text-decoration: underline;
+    text-decoration-color: var(--hairline);
+    text-underline-offset: 4px;
+  }
+
+  .tour-link:hover {
+    color: var(--ink);
+  }
+
+  .tour-section {
+    margin-top: 3rem;
+    border-top: 1px solid var(--hairline);
+    padding-top: 2rem;
+    scroll-margin-top: 2rem;
+  }
+
+  .section-heading {
+    color: var(--ink);
+    font-size: 20px;
+    font-weight: 500;
+    letter-spacing: -0.025em;
+  }
+
+  .tour-copy {
+    color: var(--ink-2);
+    font-size: 15px;
+    line-height: 1.8;
+  }
+
+  .tour-copy strong {
+    color: var(--ink);
+    font-weight: 500;
+  }
+
+  .view-layout {
+    display: grid;
+    gap: 1.5rem;
+  }
+
+  .view-heading {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+    color: var(--ink);
+  }
+
+  .view-heading h3 {
+    font-size: 17px;
+    font-weight: 500;
+    letter-spacing: -0.02em;
+  }
+
+  .view-image {
+    display: block;
+    width: 100%;
+    height: auto;
+    border: 1px solid var(--hairline);
+    border-radius: 12px;
+    background: var(--void);
+  }
+
+  figcaption {
+    margin-top: 0.75rem;
+    color: var(--ink-2);
+    font-size: 12px;
+    line-height: 1.7;
+  }
+
+  kbd,
+  code {
+    font-family: var(--font-mono);
+    font-size: 0.85em;
+    color: var(--ink);
+  }
+
+  kbd {
+    border: 1px solid var(--hairline);
+    border-radius: 4px;
+    padding: 2px 5px;
+    background: var(--surface);
+    box-decoration-break: clone;
+  }
+
+  @media (min-width: 768px) {
+    .view-layout {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+      align-items: center;
+      gap: 2.5rem;
+    }
+  }
+</style>

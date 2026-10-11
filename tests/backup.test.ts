@@ -804,6 +804,14 @@ describe("importBackup", () => {
     const { store } = await import("@/lib/store");
     return { backup, store };
   }
+  it("does not reset the backup clock when the native save panel is cancelled", async () => {
+    const previous = String(ms("2026-03-01 09:00"));
+    storage.setItem("circal.backup", previous);
+    vi.stubGlobal("window", { __circalSave: async () => false });
+    const { backup, store } = await load();
+    await backup.exportBackup(store.snapshot());
+    expect(storage.getItem("circal.backup")).toBe(previous);
+  });
 
   it("parks an event on the first calendar when its own calendar was not carried", async () => {
     const { backup, store } = await load();
@@ -951,10 +959,3 @@ describe("importBackup", () => {
     expect.soft(settings.wakingTo).toBe(DEFAULT_SETTINGS.wakingTo);
   });
 });
-
-/* ----------------------------------------------------------------------- *
- * exportBackup/exportIcs both end in `download()`, which creates a Blob,
- * an <a> element and calls document.createElement — reachable only with a
- * document. Testing them would mean pulling in jsdom for two call sites in
- * one file; the plan explicitly asks not to. Skipped, reported instead.
- * ----------------------------------------------------------------------- */

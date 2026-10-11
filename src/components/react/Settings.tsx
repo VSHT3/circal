@@ -96,6 +96,7 @@ import {
   Toggle,
 } from "@/components/react/ui/primitives";
 import { CalendarMark } from "@/components/react/ui/icons";
+import SaveFace from "@/components/react/SaveFace";
 
 const EASE = [0.32, 0.72, 0, 1] as const;
 
@@ -1616,6 +1617,9 @@ export default function Settings({
                             </DataButton>
                           </div>
                         </FieldRow>
+                        <FieldRow label="Save face" align="top">
+                          <SaveFace />
+                        </FieldRow>
 
                         <FieldRow label="Nudge" last>
                           <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
@@ -1950,6 +1954,20 @@ export default function Settings({
 
                   {tab === "about" && (
                     <Section title="About">
+                      <FieldRow label="Tour" align="top">
+                        <a
+                          href="/tour/"
+                          target="_blank"
+                          rel="noopener"
+                          className="flex h-8 w-fit items-center gap-1.5 rounded-[8px] border border-hairline bg-surface-2 px-2.5 text-[13px] text-ink transition-colors hover:bg-(--veil-10)"
+                        >
+                          <ArrowUpRight size={13} strokeWidth={1.75} />
+                          Learn the four views
+                        </a>
+                        <span className="caption">
+                          Events, tasks, keyboard shortcuts and your calendar’s copies
+                        </span>
+                      </FieldRow>
                       <FieldRow label="Manifesto" align="top" last={!!reducedMotion}>
                         {/* An anchor rather than a button: it is a real page, so
                           middle-click and "open in new tab" have to work. It

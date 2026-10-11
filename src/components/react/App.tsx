@@ -116,6 +116,7 @@ import { BackupNudge } from "./BackupNudge";
 import { SlotsNotice } from "./SlotsNotice";
 import { ReplyNotice } from "./ReplyNotice";
 import { TravelPrompt } from "./TravelPrompt";
+import TeachingCard from "./TeachingCard";
 import CommandPalette from "./CommandPalette";
 import Dial, { type DragPreview } from "./Dial";
 import LifeView from "./LifeView";
@@ -367,6 +368,17 @@ export default function App() {
   );
 }
 
+// Teaching belongs to this device: restoring or syncing a calendar must not reset it.
+const TEACHING_KEY = "circal.teaching";
+
+function teachingSeen(): boolean {
+  try {
+    return localStorage.getItem(TEACHING_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
 function Shell() {
   const { events, tasks, taskLists, calendars, feeds, settings } = useStore();
   /**
@@ -557,6 +569,35 @@ function Shell() {
     const done = setTimeout(() => setIntro(false), INTRO_MS + 120);
     return () => clearTimeout(done);
   }, [intro]);
+  const [taught, setTaught] = useState(teachingSeen);
+  const dismissTeaching = useCallback(() => {
+    // Dismissal still works for this session if storage is unavailable or full.
+    setTaught(true);
+    try {
+      localStorage.setItem(TEACHING_KEY, "1");
+    } catch {
+      // Device storage is optional; it must never prevent using the calendar.
+    }
+  }, []);
+  const [pointerBusy, setPointerBusy] = useState(false);
+  useEffect(() => {
+    if (taught) return;
+    // A drag begun during the intro must finish before the teaching card arrives.
+    const down = (event: PointerEvent) => {
+      if (event.target instanceof Element && event.target.closest("main")) setPointerBusy(true);
+    };
+    const up = () => setPointerBusy(false);
+    window.addEventListener("pointerdown", down);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+    window.addEventListener("blur", up);
+    return () => {
+      window.removeEventListener("pointerdown", down);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+      window.removeEventListener("blur", up);
+    };
+  }, [taught]);
 
   /** A move or a delete on a repeating event, waiting on its scope. */
   const [ask, setAsk] = useState<ScopeAsk | null>(null);
@@ -995,7 +1036,7 @@ function Shell() {
   // The travel notice counts: it covers the stage and owns the screen until
   // it is answered, so ← must not step the day behind it and ⌘Z must not undo
   // into a calendar the user has not decided about yet.
-  const busy =
+  const panelBusy =
     paletteOpen ||
     settingsOpen ||
     editor !== null ||
@@ -1004,6 +1045,23 @@ function Shell() {
     taskEditor !== null ||
     taskListEditor !== null ||
     travel !== null;
+  // Wait for the zone check to finish hydrating before offering teaching.
+  const showTeaching =
+    !taught &&
+    !intro &&
+    !pointerBusy &&
+    !panelBusy &&
+    settings.deviceZone === DEVICE_ZONE &&
+    !inAmbient &&
+    !sidebarOpen &&
+    slots === null &&
+    reply === null &&
+    preview === null &&
+    lifeRun === null &&
+    dragTaskId === null &&
+    !search &&
+    (view !== "life" || settings.birth !== "");
+  const busy = panelBusy || showTeaching;
   /**
    * `busy` plus the one panel that has no state on it but does cover the
    * face. The two questions are not the same: ← under an open editor would
@@ -1779,6 +1837,10 @@ function Shell() {
   // does not switch off.
   useHotkeys({
     escape: () => {
+      if (showTeaching) {
+        dismissTeaching();
+        return;
+      }
       // A task being carried is the very front of the queue, before even the
       // panels: TASKS.md §7 — a drag is the one thing here you can start by
       // accident, and abandoning it must never also close what is open.
@@ -2354,48 +2416,49 @@ function Shell() {
         inAmbient && cursorIdle && "cursor-none",
       )}
     >
-      {/* The chrome does not vanish, it withdraws — and it leaves on the same
+      <div inert={showTeaching} className="flex min-h-0 flex-1 flex-col">
+        {/* The chrome does not vanish, it withdraws — and it leaves on the same
           beat the dial takes to grow into the space, because two curves would
           read as two events rather than as one movement. */}
-      <motion.div
-        className="shrink-0 overflow-hidden"
-        initial={false}
-        animate={{ height: inAmbient ? 0 : TOP_BAR_H, opacity: inAmbient ? 0 : 1 }}
-        transition={reducedMotion ? { duration: 0 } : { duration: MODE_MS / 1000, ease: EASE }}
-      >
-        <TopBar
-          day={day}
-          view={view}
-          sidebarOpen={sidebarOpen}
-          onStep={step}
-          weekStart={settings.weekStart}
-          actions={actions}
-        />
-      </motion.div>
+        <motion.div
+          className="shrink-0 overflow-hidden"
+          initial={false}
+          animate={{ height: inAmbient ? 0 : TOP_BAR_H, opacity: inAmbient ? 0 : 1 }}
+          transition={reducedMotion ? { duration: 0 } : { duration: MODE_MS / 1000, ease: EASE }}
+        >
+          <TopBar
+            day={day}
+            view={view}
+            sidebarOpen={sidebarOpen}
+            onStep={step}
+            weekStart={settings.weekStart}
+            actions={actions}
+          />
+        </motion.div>
 
-      {/* `relative`, because the drawer and its scrim are absolute inside this
+        {/* `relative`, because the drawer and its scrim are absolute inside this
           row rather than over the whole app: the top bar stays above them, so
           the button that opened the drawer is still the button that closes
           it, and it needs no close verb of its own. */}
-      <div ref={rowRef} className="relative flex min-h-0 flex-1">
-        <Sidebar
-          open={sidebarOpen && !inAmbient}
-          mode={sidebarMode}
-          day={day}
-          now={now}
-          events={visible}
-          calendars={calendars}
-          tasks={tasks}
-          taskLists={taskLists}
-          defaultCalendar={defaultCalendar}
-          clock={settings.clock}
-          moon={settings.moon}
-          theme={settings.theme}
-          weekStart={settings.weekStart}
-          actions={actions}
-        />
+        <div ref={rowRef} className="relative flex min-h-0 flex-1">
+          <Sidebar
+            open={sidebarOpen && !inAmbient}
+            mode={sidebarMode}
+            day={day}
+            now={now}
+            events={visible}
+            calendars={calendars}
+            tasks={tasks}
+            taskLists={taskLists}
+            defaultCalendar={defaultCalendar}
+            clock={settings.clock}
+            moon={settings.moon}
+            theme={settings.theme}
+            weekStart={settings.weekStart}
+            actions={actions}
+          />
 
-        {/* One view at a time, and never abruptly. Day ⇄ life is a zoom: the
+          {/* One view at a time, and never abruptly. Day ⇄ life is a zoom: the
             dial collapses onto the dot of the day it is showing while the life
             grid's wave leaves that same dot, and back the other way. Everything
             else is a crossfade. `initial={false}` so a reload lands on its view
@@ -2408,289 +2471,291 @@ function Shell() {
             The exiting panel gives up its pointer events at once: for the best
             part of a second it is still on top of the incoming one, and a click
             landing on the view you just left is a bug you cannot see. */}
-        <main ref={stageRef} className="relative min-w-0 flex-1">
-          <AnimatePresence initial={false}>
-            <motion.div
-              key={view}
-              className="absolute inset-0 p-2"
-              style={{ transformOrigin: origin }}
-              custom={flow}
-              // Only `exit` is a label: see `PANEL`. The other two are
-              // resolved here, so the panel that is leaving carries the answer
-              // it had before the flow moved rather than re-deriving the
-              // arriving panel's — and the objects below outrank the table's
-              // own `initial`/`active`, so passing it whole costs nothing and
-              // is what gives `exit` something to resolve against.
-              variants={reducedMotion ? undefined : PANEL}
-              initial={reducedMotion ? false : PANEL.initial(arrival)}
-              animate={reducedMotion ? undefined : PANEL.active(arrival)}
-              exit="exit"
-            >
-              {view === "day" && (
-                <Dial
-                  day={day}
-                  now={now}
-                  occurrences={agenda.all}
-                  calendars={calendars}
-                  settings={settings}
-                  zonePlace={zonePlace}
-                  pending={pending}
-                  slots={slots}
-                  onBookSlot={bookSlot}
-                  onOpen={openOccurrence}
-                  onCreate={(startMin, endMin, on) => openDraft(startMin, endMin, on)}
-                  onAdjust={adjustOccurrence}
-                  onDelete={deleteOccurrence}
-                  onDuplicate={duplicateOccurrence}
-                  onToggleDone={toggleDone}
-                  dragTask={draggedTask}
-                  onDropTask={dropTask}
-                  onPreview={setPreview}
-                  onStepDay={step}
-                  ambient={inAmbient}
-                  covered={shaded}
-                  intro={intro}
-                  shimmer={shimmer}
-                />
-              )}
-              {view === "week" && (
-                <WeekView
-                  stage={weekBox}
-                  now={now}
-                  selected={day}
-                  events={visible}
-                  calendars={calendars}
-                  tasks={tasks}
-                  settings={settings}
-                  onSelectDay={(next) => actions.goDay(next)}
-                  onOpenEvent={openOccurrence}
-                  pending={pendingDays}
-                  slots={slots}
-                  onBookSlot={bookSlot}
-                  // The strip's own span drag, handed to the same function the
-                  // ring and the grid use: which face drew the run is not
-                  // something the editor can tell, and must not be.
-                  onCreateSpan={(from, days) => openDraft(0, days * MINUTES_PER_DAY, from)}
-                  dragging={dragTaskId !== null}
-                  onDropTask={(on) => dragTaskId && dropTaskOnDay(dragTaskId, on)}
-                />
-              )}
-              {view === "year" && (
-                <YearView
-                  year={day.getFullYear()}
-                  today={now}
-                  selected={day}
-                  events={spanned}
-                  calendars={calendars}
-                  settings={settings}
-                  stage={stage}
-                  flow={flow}
-                  pending={pendingDays}
-                  search={search}
-                  onClearSearch={() => setSearch("")}
-                  onSelectDay={(next) => actions.goDay(next)}
-                  // A run of whole days, in the minutes `draftEvent` decides
-                  // all-day by: the ring gesture and this one hand over to the
-                  // same function, and the editor cannot tell which drew it.
-                  onCreateSpan={(from, days) => openDraft(0, days * MINUTES_PER_DAY, from)}
-                />
-              )}
-              {view === "life" && (
-                <LifeView
-                  stage={stage}
-                  flow={flow}
-                  settings={settings}
-                  now={now}
-                  selected={day}
-                  events={spanned}
-                  calendars={calendars}
-                  search={search}
-                  pending={pendingDays}
-                  onClearSearch={() => setSearch("")}
-                  draw={lifeRun}
-                  onDraw={setLifeRun}
-                  onSelectDay={(next) => actions.goDay(next)}
-                  // The same run of whole days the ring hands over, through the
-                  // same function: which face drew it is not something the
-                  // editor can tell, and must not be.
-                  onCreateSpan={(from, days) => openDraft(0, days * MINUTES_PER_DAY, from)}
-                />
-              )}
-            </motion.div>
-          </AnimatePresence>
-          {/* Over the stage, outside the panel transform so the zoom does not
+          <main ref={stageRef} className="relative min-w-0 flex-1">
+            <AnimatePresence initial={false}>
+              <motion.div
+                key={view}
+                className="absolute inset-0 p-2"
+                style={{ transformOrigin: origin }}
+                custom={flow}
+                // Only `exit` is a label: see `PANEL`. The other two are
+                // resolved here, so the panel that is leaving carries the answer
+                // it had before the flow moved rather than re-deriving the
+                // arriving panel's — and the objects below outrank the table's
+                // own `initial`/`active`, so passing it whole costs nothing and
+                // is what gives `exit` something to resolve against.
+                variants={reducedMotion ? undefined : PANEL}
+                initial={reducedMotion ? false : PANEL.initial(arrival)}
+                animate={reducedMotion ? undefined : PANEL.active(arrival)}
+                exit="exit"
+              >
+                {view === "day" && (
+                  <Dial
+                    day={day}
+                    now={now}
+                    occurrences={agenda.all}
+                    calendars={calendars}
+                    settings={settings}
+                    zonePlace={zonePlace}
+                    pending={pending}
+                    slots={slots}
+                    onBookSlot={bookSlot}
+                    onOpen={openOccurrence}
+                    onCreate={(startMin, endMin, on) => openDraft(startMin, endMin, on)}
+                    onAdjust={adjustOccurrence}
+                    onDelete={deleteOccurrence}
+                    onDuplicate={duplicateOccurrence}
+                    onToggleDone={toggleDone}
+                    dragTask={draggedTask}
+                    onDropTask={dropTask}
+                    onPreview={setPreview}
+                    onStepDay={step}
+                    ambient={inAmbient}
+                    covered={shaded}
+                    intro={intro}
+                    shimmer={shimmer}
+                  />
+                )}
+                {view === "week" && (
+                  <WeekView
+                    stage={weekBox}
+                    now={now}
+                    selected={day}
+                    events={visible}
+                    calendars={calendars}
+                    tasks={tasks}
+                    settings={settings}
+                    onSelectDay={(next) => actions.goDay(next)}
+                    onOpenEvent={openOccurrence}
+                    pending={pendingDays}
+                    slots={slots}
+                    onBookSlot={bookSlot}
+                    // The strip's own span drag, handed to the same function the
+                    // ring and the grid use: which face drew the run is not
+                    // something the editor can tell, and must not be.
+                    onCreateSpan={(from, days) => openDraft(0, days * MINUTES_PER_DAY, from)}
+                    dragging={dragTaskId !== null}
+                    onDropTask={(on) => dragTaskId && dropTaskOnDay(dragTaskId, on)}
+                  />
+                )}
+                {view === "year" && (
+                  <YearView
+                    year={day.getFullYear()}
+                    today={now}
+                    selected={day}
+                    events={spanned}
+                    calendars={calendars}
+                    settings={settings}
+                    stage={stage}
+                    flow={flow}
+                    pending={pendingDays}
+                    search={search}
+                    onClearSearch={() => setSearch("")}
+                    onSelectDay={(next) => actions.goDay(next)}
+                    // A run of whole days, in the minutes `draftEvent` decides
+                    // all-day by: the ring gesture and this one hand over to the
+                    // same function, and the editor cannot tell which drew it.
+                    onCreateSpan={(from, days) => openDraft(0, days * MINUTES_PER_DAY, from)}
+                  />
+                )}
+                {view === "life" && (
+                  <LifeView
+                    stage={stage}
+                    flow={flow}
+                    settings={settings}
+                    now={now}
+                    selected={day}
+                    events={spanned}
+                    calendars={calendars}
+                    search={search}
+                    pending={pendingDays}
+                    onClearSearch={() => setSearch("")}
+                    draw={lifeRun}
+                    onDraw={setLifeRun}
+                    onSelectDay={(next) => actions.goDay(next)}
+                    // The same run of whole days the ring hands over, through the
+                    // same function: which face drew it is not something the
+                    // editor can tell, and must not be.
+                    onCreateSpan={(from, days) => openDraft(0, days * MINUTES_PER_DAY, from)}
+                  />
+                )}
+              </motion.div>
+            </AnimatePresence>
+            {/* Over the stage, outside the panel transform so the zoom does not
               carry it. Its own presence, so it animates away when a backup
               clears it or a modal opens over it. */}
-          <AnimatePresence>
-            {showReply && reply && (
-              <ReplyNotice
-                key="reply"
-                onCopy={() => shareEvent(reply)}
-                onIcs={() => void exportEventIcs(reply)}
-                onDismiss={() => setReply(null)}
-              />
-            )}
-            {showSlots && slots && (
-              <SlotsNotice key="slots" slots={slots} onDismiss={() => setSlots(null)} />
-            )}
-            {showNudge && (
-              <BackupNudge
-                key="nudge"
-                onBackup={() => void exportBackup(store.snapshot())}
-                onDismiss={dismissBackupNudge}
-              />
-            )}
-          </AnimatePresence>
-          {/* Over the same stage, and over everything on it: until this is
+            <AnimatePresence>
+              {showReply && reply && (
+                <ReplyNotice
+                  key="reply"
+                  onCopy={() => shareEvent(reply)}
+                  onIcs={() => void exportEventIcs(reply)}
+                  onDismiss={() => setReply(null)}
+                />
+              )}
+              {showSlots && slots && (
+                <SlotsNotice key="slots" slots={slots} onDismiss={() => setSlots(null)} />
+              )}
+              {showNudge && (
+                <BackupNudge
+                  key="nudge"
+                  onBackup={() => void exportBackup(store.snapshot())}
+                  onDismiss={dismissBackupNudge}
+                />
+              )}
+            </AnimatePresence>
+            {/* Over the same stage, and over everything on it: until this is
               answered the face is drawing hours on a clock the events were not
               written on, so it is the screen rather than a notice beside one.
               Inside `main` for the reason the nudge is — the panel transform
               must not carry it — and it never coexists with the nudge, which
               `shaded` already suppresses. */}
-          {travel && (
-            <TravelPrompt
-              notice={travel}
-              now={now}
-              clock={settings.clock}
-              onMove={() => answerTravel(true)}
-              onKeep={() => answerTravel(false)}
-            />
-          )}
-        </main>
-      </div>
+            {travel && (
+              <TravelPrompt
+                notice={travel}
+                now={now}
+                clock={settings.clock}
+                onMove={() => answerTravel(true)}
+                onKeep={() => answerTravel(false)}
+              />
+            )}
+          </main>
+        </div>
 
-      {/* The way out, said once. A mode with no chrome on screen has to
+        {/* The way out, said once. A mode with no chrome on screen has to
           answer "how do I leave" itself, and it has to stop saying it — a
           permanent caption is chrome by another name. Remounted on every
           entry, so it plays again the next time and never during. */}
-      {inAmbient && (
-        <motion.div
-          className="pointer-events-none absolute inset-x-0 bottom-5 flex justify-center"
-          initial={{ opacity: 0 }}
-          animate={reducedMotion ? { opacity: 0 } : { opacity: [0, 1, 1, 0] }}
-          transition={{ duration: 3.4, times: [0, 0.1, 0.62, 1], ease: "linear" }}
-        >
-          <span className="label text-ink-3">Esc to exit</span>
-        </motion.div>
-      )}
+        {inAmbient && (
+          <motion.div
+            className="pointer-events-none absolute inset-x-0 bottom-5 flex justify-center"
+            initial={{ opacity: 0 }}
+            animate={reducedMotion ? { opacity: 0 } : { opacity: [0, 1, 1, 0] }}
+            transition={{ duration: 3.4, times: [0, 0.1, 0.62, 1], ease: "linear" }}
+          >
+            <span className="label text-ink-3">Esc to exit</span>
+          </motion.div>
+        )}
 
-      {editor && (
+        {editor && (
+          <Suspense fallback={null}>
+            <EventEditor
+              target={editor}
+              settings={settings}
+              calendars={calendars}
+              onSave={saveEvent}
+              onDelete={deleteEvent}
+              onShare={shareEvent}
+              onDraftChange={trackDraft}
+              onConvert={convertToTask}
+              onClose={() => setEditor(null)}
+            />
+          </Suspense>
+        )}
+
+        {taskCardOpen && (
+          <Suspense fallback={null}>
+            <TaskEditor
+              target={editedTask}
+              seedDue={atMinutes(day, defaultStart(day, 0)).getTime()}
+              calendars={calendars}
+              taskLists={taskLists}
+              seedListId={taskEditor?.listId ?? ""}
+              defaultCalendar={defaultCalendar}
+              clock={settings.clock}
+              onSave={saveTask}
+              onDelete={deleteTask}
+              onConvert={convertToEvent}
+              onClose={() => setTaskEditor(null)}
+            />
+          </Suspense>
+        )}
+
         <Suspense fallback={null}>
-          <EventEditor
-            target={editor}
+          <Settings
+            open={settingsOpen}
+            onClose={() => setSettingsOpen(false)}
             settings={settings}
+            events={events}
             calendars={calendars}
-            onSave={saveEvent}
-            onDelete={deleteEvent}
-            onShare={shareEvent}
-            onDraftChange={trackDraft}
-            onConvert={convertToTask}
-            onClose={() => setEditor(null)}
+            actions={actions}
           />
         </Suspense>
-      )}
 
-      {taskCardOpen && (
-        <Suspense fallback={null}>
-          <TaskEditor
-            target={editedTask}
-            seedDue={atMinutes(day, defaultStart(day, 0)).getTime()}
-            calendars={calendars}
-            taskLists={taskLists}
-            seedListId={taskEditor?.listId ?? ""}
-            defaultCalendar={defaultCalendar}
-            clock={settings.clock}
-            onSave={saveTask}
-            onDelete={deleteTask}
-            onConvert={convertToEvent}
-            onClose={() => setTaskEditor(null)}
-          />
-        </Suspense>
-      )}
-
-      <Suspense fallback={null}>
-        <Settings
-          open={settingsOpen}
-          onClose={() => setSettingsOpen(false)}
-          settings={settings}
-          events={events}
+        <CommandPalette
+          open={paletteOpen}
+          onClose={() => setPaletteOpen(false)}
+          day={day}
+          now={now}
+          view={view}
+          sidebarOpen={sidebarOpen}
+          ambient={inAmbient}
+          events={visible}
           calendars={calendars}
+          occurrences={agenda.all}
+          tasks={tasks}
+          settings={settings}
           actions={actions}
+          onSearch={setSearch}
         />
-      </Suspense>
 
-      <CommandPalette
-        open={paletteOpen}
-        onClose={() => setPaletteOpen(false)}
-        day={day}
-        now={now}
-        view={view}
-        sidebarOpen={sidebarOpen}
-        ambient={inAmbient}
-        events={visible}
-        calendars={calendars}
-        occurrences={agenda.all}
-        tasks={tasks}
-        settings={settings}
-        actions={actions}
-        onSearch={setSearch}
-      />
+        {taskListCardOpen && (
+          <Suspense fallback={null}>
+            <TaskListEditor
+              target={editedTaskList}
+              taskLists={taskLists}
+              seedParentId={taskListEditor.parentId}
+              onSave={(name, parentId, color, icon) => {
+                const saved = editedTaskList
+                  ? store.updateTaskList(editedTaskList.id, { name, parentId, color, icon })
+                  : store.addTaskList(name, parentId, color, icon) !== null;
+                if (saved) setTaskListEditor(null);
+                return saved;
+              }}
+              onDelete={() => {
+                if (editedTaskList && store.removeTaskList(editedTaskList.id)) {
+                  notify(`Deleted “${editedTaskList.name}”. Tasks and sublists kept`);
+                }
+                setTaskListEditor(null);
+              }}
+              onClose={() => setTaskListEditor(null)}
+            />
+          </Suspense>
+        )}
 
-      {taskListCardOpen && (
-        <Suspense fallback={null}>
-          <TaskListEditor
-            target={editedTaskList}
-            taskLists={taskLists}
-            seedParentId={taskListEditor.parentId}
-            onSave={(name, parentId, color, icon) => {
-              const saved = editedTaskList
-                ? store.updateTaskList(editedTaskList.id, { name, parentId, color, icon })
-                : store.addTaskList(name, parentId, color, icon) !== null;
-              if (saved) setTaskListEditor(null);
-              return saved;
+        {calendarCardOpen && (
+          <CalendarEditor
+            target={editedCalendar}
+            isDefault={editedCalendar?.id === defaultCalendar}
+            onSetDefault={() => {
+              if (editedCalendar) store.setDefaultCalendar(editedCalendar.id);
             }}
-            onDelete={() => {
-              if (editedTaskList && store.removeTaskList(editedTaskList.id)) {
-                notify(`Deleted “${editedTaskList.name}”. Tasks and sublists kept`);
-              }
-              setTaskListEditor(null);
-            }}
-            onClose={() => setTaskListEditor(null)}
+            removal={calendarRemoval}
+            remind={settings.remind}
+            remindLead={settings.remindLead}
+            onSave={saveCalendar}
+            onDelete={removeEditedCalendar}
+            onClose={() => setCalendarEditor(null)}
           />
-        </Suspense>
-      )}
+        )}
 
-      {calendarCardOpen && (
-        <CalendarEditor
-          target={editedCalendar}
-          isDefault={editedCalendar?.id === defaultCalendar}
-          onSetDefault={() => {
-            if (editedCalendar) store.setDefaultCalendar(editedCalendar.id);
-          }}
-          removal={calendarRemoval}
-          remind={settings.remind}
-          remindLead={settings.remindLead}
-          onSave={saveCalendar}
-          onDelete={removeEditedCalendar}
-          onClose={() => setCalendarEditor(null)}
-        />
-      )}
-
-      {/* A move or a delete on a repeating arc, waiting to be told what it
+        {/* A move or a delete on a repeating arc, waiting to be told what it
           meant. Its own card rather than the editor's footer: the gesture is
           finished and there is no panel on screen to ask inside. */}
-      {ask && (
-        <ScopeDialog
-          title={ask.occ.event.title || "Untitled"}
-          detail={askSpan(ask, settings.clock)}
-          heading={ask.kind === "delete" ? "Delete" : "Apply this change to"}
-          danger={ask.kind === "delete"}
-          onPick={answerAsk}
-          onCancel={cancelAsk}
-        />
-      )}
+        {ask && (
+          <ScopeDialog
+            title={ask.occ.event.title || "Untitled"}
+            detail={askSpan(ask, settings.clock)}
+            heading={ask.kind === "delete" ? "Delete" : "Apply this change to"}
+            danger={ask.kind === "delete"}
+            onPick={answerAsk}
+            onCancel={cancelAsk}
+          />
+        )}
 
-      <Toast />
+        <Toast />
+      </div>
+      {showTeaching && <TeachingCard onDismiss={dismissTeaching} />}
     </div>
   );
 }

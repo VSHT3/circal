@@ -1000,6 +1000,8 @@ export default function Dial({
   return (
     <div
       ref={stageRef}
+      data-export-face="day"
+      data-export-name={dayKey(day)}
       // The drift is a few pixels over five minutes, so that a face left on a
       // desk all evening never burns its numerals into the panel. Imperceptible
       // by design, and off under `prefers-reduced-motion` with everything else.
@@ -1079,6 +1081,7 @@ export default function Dial({
           answer before the question is a clock with a ring drawn round it
           afterwards. */}
       <div
+        data-export-readout
         className={intro ? "intro-in" : undefined}
         style={
           intro ? { animationDelay: `${INTRO_SWEEP_MS}ms`, animationDuration: "620ms" } : undefined
