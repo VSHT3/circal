@@ -4,7 +4,7 @@
  * ------------------------------------------------------------------ */
 
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { Calendar as CalendarIcon, Clock as ClockIcon, Link2 } from "lucide-react";
+import { Calendar as CalendarIcon, Clock as ClockIcon, ExternalLink, Link2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
   NEVER,
@@ -56,6 +56,7 @@ import {
 import { CalendarMark } from "@/components/react/ui/icons";
 import { MarkPicker } from "@/components/react/MarkPicker";
 import { ScopeChoices } from "@/components/react/ScopePrompt";
+import { NotesField } from "@/components/react/NotesField";
 import type { EditScope, EventEditorProps } from "@/components/react/types";
 
 /**
@@ -757,6 +758,18 @@ export default function EventEditor({
                       aria-label="URL"
                       className="w-full min-w-0 border-none bg-transparent text-ink outline-none placeholder:text-ink-3"
                     />
+                    {/^https?:\/\/\S+$/i.test(draft.url.trim()) && (
+                      <a
+                        href={draft.url.trim()}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        aria-label="Open event URL"
+                        title="Open event URL"
+                        className="grid size-7 shrink-0 place-items-center rounded-[7px] text-ink-2 hover:bg-(--veil-08) hover:text-ink pointer-coarse:size-10"
+                      >
+                        <ExternalLink size={14} strokeWidth={1.75} />
+                      </a>
+                    )}
                   </Row>
 
                   {/* Where, then the link, then who — and then every control,
@@ -1023,13 +1036,10 @@ export default function EventEditor({
                 one side is 130px the other side has nothing to answer with. */}
               <div className="border-t border-hairline px-3.5 py-3">
                 <span className="label text-ink-2">Notes</span>
-                <textarea
-                  rows={4}
+                <NotesField
                   value={draft.notes}
-                  onChange={(e) => patch({ notes: e.target.value })}
-                  placeholder="Add notes"
-                  aria-label="Notes"
-                  className="mt-1.5 [field-sizing:content] min-h-[68px] w-full resize-none border-none bg-transparent text-[13.5px] text-ink outline-none placeholder:text-ink-3"
+                  onChange={(notes) => patch({ notes })}
+                  readOnly={readOnly}
                 />
               </div>
             </fieldset>

@@ -34,6 +34,10 @@ Events take their colour from their calendar. Any one event can override that
 from the editor's **Color** row: ten digital pastels, or a picker for anything
 else.
 
+Notes in event and task cards make web addresses and email addresses clickable.
+Use the pencil to edit notes and the checkmark to return to clickable text.
+The event's **URL** row also has a control to open its link in a new tab.
+
 Calendars are yours to make. The sidebar's **Calendars** list has a `+` for a
 new one and a pencil on each row, and ⌘P has `New calendar…` and `Edit …` for
 both without reaching for the sidebar. Deleting one never deletes what is in

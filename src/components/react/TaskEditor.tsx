@@ -36,6 +36,7 @@ import {
   TimeField,
 } from "@/components/react/ui/primitives";
 import { MarkPicker } from "@/components/react/MarkPicker";
+import { NotesField } from "@/components/react/NotesField";
 import { useFocusTrap } from "@/components/react/hooks";
 import type { TaskEditorProps } from "@/components/react/types";
 
@@ -310,14 +311,7 @@ export default function TaskEditor({
             </Row>
 
             <Row label="Notes" align="top" last>
-              <textarea
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                rows={3}
-                aria-label="Notes"
-                placeholder="Notes"
-                className="w-full resize-none rounded-[8px] bg-surface-2 px-2.5 py-2 text-[13px] text-ink outline-none placeholder:text-ink-3"
-              />
+              <NotesField value={notes} onChange={setNotes} />
             </Row>
           </div>
 
