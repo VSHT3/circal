@@ -15,11 +15,19 @@
  * ------------------------------------------------------------------ */
 
 import { McpServer } from "@modelcontextprotocol/server";
-import { serveStdio } from "@modelcontextprotocol/server/stdio";
+import { serveStdio, StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 
 import { cloudStore, credentialsPath, readCredentials, runLogin, runLogout } from "./cloud";
 import { fileStore, resolveFilePath } from "./file";
 import { runFind } from "./find";
+import {
+  registerResourceNotifications,
+  resourceNotificationTransport,
+  type ResourceNotifications,
+} from "./notifications";
+import { version } from "./package.json";
+import { registerPrompts } from "./prompts";
+import { registerResources } from "./resources";
 import type { Store } from "./store";
 import { registerTools } from "./tools";
 
@@ -109,13 +117,21 @@ const calendarFlag = argv.indexOf("--calendar");
 const pinned =
   (calendarFlag >= 0 ? argv[calendarFlag + 1] : undefined) || process.env.CIRCAL_CALENDAR;
 
+let notifications: ResourceNotifications | undefined;
+
 function createServer(): McpServer {
-  const server = new McpServer({ name: "circal", version: "1.0.0" });
+  const server = new McpServer({ name: "circal", version });
   registerTools(server, store, pinned);
+  registerResources(server, store);
+  registerPrompts(server, store);
+  notifications = registerResourceNotifications(server, store);
   return server;
 }
 
 // stdout is the protocol channel — every log line here goes to stderr, or
 // one stray write corrupts the JSON-RPC stream a client is trying to parse.
-void serveStdio(createServer);
+const transport = resourceNotificationTransport(new StdioServerTransport(), () => notifications);
+const connection = serveStdio(createServer, { transport });
+// The SDK transport does not observe stdin EOF; stand polling down when its client leaves.
+process.stdin.once("end", () => void connection.close());
 console.error("circal MCP server running on stdio");

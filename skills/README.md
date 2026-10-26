@@ -1,6 +1,6 @@
 # circal agent skill
 
-The `circal` skill teaches an agent how to use circal's MCP tools for agendas, availability, deadlines, planned work and recurring events. It checks the connected document before writes and documents subscriptions, recurrence scopes and keyed imports.
+The `circal` skill teaches an agent how to use circal's MCP tools, resources, prompts and subscriptions for agendas, availability, tasks, daily notes and preferences. It checks the connected document before writes and preserves recurrence scopes, timezone warnings and explicit write authorization.
 
 It is distributed from this repository at `skills/circal/SKILL.md`. The skill supplies instructions. Configure the MCP connection separately using the [assistant setup page](https://circal.day/assistant/) or [MCP README](../mcp/README.md).
 
@@ -33,6 +33,20 @@ npx skills add VSHT3/circal --skill circal --agent claude-code codex cursor
 The CLI also lists Gemini CLI, GitHub Copilot, Cline, Roo Code, OpenCode, Windsurf, Antigravity, Kiro CLI, Kilo Code and Goose among its supported targets. Support for a client's MCP connection does not imply support for skill installation. Check the [current CLI agent list](https://github.com/vercel-labs/skills#supported-agents) for your client.
 
 For an agent with a documented custom skill directory, copy the whole `skills/circal/` folder there, including `references/`, and follow that agent's loading instructions. The Skills CLI documentation does not specify a custom destination flag. For clients without skill loading, you can supply the instructions and tool reference as context; this is not an installed or automatically discovered skill.
+
+## Refresh an installed skill
+
+MCP reloads and skill updates are separate. To refresh only a globally installed
+Circal skill from its recorded source:
+
+```sh
+pnpm dlx skills update circal --global --yes
+```
+
+Use `--project` instead for a project-scoped installation. Start a new agent
+session if the client caches skill text. Resources, prompts and resource-change
+notifications also require MCP server 0.7.0 or newer; a skill update does not
+install or authenticate that server.
 
 ## Local packaging check
 

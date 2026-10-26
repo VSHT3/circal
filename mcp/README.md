@@ -88,6 +88,32 @@ notification permissions or expose credentials, encryption keys, mirror handles,
 `deviceZone` or `stampedZones`. Change a lightcycle place with
 `{"place":{"zone":"Europe/Berlin"}}`; circal derives its coordinates and label.
 
+### Resources, prompts and notifications
+
+Version 0.7.0 adds read-only context through `resources/list`, dated templates
+through `resources/templates/list`, and three workflows through `prompts/list`.
+
+Resources: `circal://today`, `circal://calendars`, `circal://tasks`,
+`circal://settings`, `circal://notes` (an index of nonempty note dates), and
+`circal://sync-status`. Templates: `circal://days/{date}` and
+`circal://notes/{date}`, where `date` is a real local `YYYY-MM-DD` date.
+
+Prompts: `plan_day` takes an optional `date`; `review_week` takes `from` and covers
+exactly seven local days inclusive; `review_note` takes an optional `date`.
+Omitted dates mean today in the server timezone. Prompts read a snapshot and
+prepare suggestions; they never book, edit or delete anything.
+
+Supporting clients can subscribe to resource changes. Legacy clients use
+`resources/subscribe` and `resources/unsubscribe`. Modern 2026-07-28 clients use
+`subscriptions/listen` with resource URI filters and cancel the listen request
+when finished. Notifications name the changed URI; the client reads it again.
+They are not operating-system notifications or event reminders.
+
+The server checks subscribed resources every 3 seconds for a mirror file or
+30 seconds for cloud sync. It uses one nonoverlapping snapshot per check, emits
+only changed content, and stops polling after the last subscription or disconnect.
+No new network service or app route is introduced.
+
 ### Claude Desktop
 
 Add to `claude_desktop_config.json`:
