@@ -2455,7 +2455,7 @@ function Shell() {
             taskLists={taskLists}
             defaultCalendar={defaultCalendar}
             clock={settings.clock}
-            moon={settings.moon}
+            moon={settings.moon && settings.moonAt === "sidebar"}
             theme={settings.theme}
             weekStart={settings.weekStart}
             actions={actions}

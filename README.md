@@ -290,11 +290,11 @@ exactly as it was: the elapsed day as a ramp of light around the rim.
 
 ## The moon
 
-In the sidebar rather than on the face, because every radius the dial gains
-costs legibility and the moon is not a fact about the day the way the light on
-the rim is. It reads the day you have selected, so arrowing through a week
-walks the moon through its week. Off until you ask for it, in **Settings** →
-**Sidebar**.
+Enable the moon in **Settings → Face → Dial → Moon**. Keep it in the sidebar,
+or choose **Dial** and use the nine-position grid, just like day totals. The
+centre position sits below the readout; totals and moon stack when they share a
+position. The moon reads your selected day, so stepping through a week walks it
+through its phases. It stays off until you ask for it.
 
 It draws the astronomy, in the app's own black and white, and it draws only the
 lit part: the terminator as an ellipse over it, no outline and no dark limb, so

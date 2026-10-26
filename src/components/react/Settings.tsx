@@ -120,8 +120,7 @@ const AMBIENT_OPTIONS = AMBIENT_DELAYS.map((minutes) => ({
   label: minutes === 0 ? "Never" : minutes === 60 ? "After 1 hour" : `After ${minutes} min`,
 }));
 
-/** The nine cells of the totals picker, row-major, each named for a reader
- *  who cannot see which cell it is. */
+/** Shared dial positions, row-major, named for readers who cannot see the cells. */
 const TOTALS_LABELS = [
   "Top left",
   "Top",
@@ -295,6 +294,7 @@ export default function Settings({
     yearQuote,
     inheritMarks,
     moon,
+    moonAt,
     remind,
     remindLead,
     backupNudge,
@@ -960,6 +960,10 @@ export default function Settings({
                               Booked and free hours, printed on the face. Booked counts the whole
                               day; free only your waking hours.
                             </InfoEntry>
+                            <InfoEntry name="Moon">
+                              The selected day's moon, in the sidebar or on the dial. The centre
+                              position sits below the readout and agenda.
+                            </InfoEntry>
                             <InfoEntry name="Arc names">
                               When an event's name is drawn along its arc.
                             </InfoEntry>
@@ -999,6 +1003,44 @@ export default function Settings({
                                 options={TOTALS_OPTIONS}
                                 label="Where the totals sit"
                               />
+                            )}
+                          </div>
+                        </FieldRow>
+                        <FieldRow label="Moon">
+                          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
+                            <Toggle
+                              label="Phase"
+                              name="Moon phase"
+                              checked={moon}
+                              onChange={(on) => store.setToggle("moon", on)}
+                            />
+                            {moon && (
+                              <>
+                                <Segmented
+                                  value={moonAt === "sidebar" ? "sidebar" : "dial"}
+                                  onChange={(value) =>
+                                    store.setMoonAt(
+                                      value === "sidebar"
+                                        ? "sidebar"
+                                        : moonAt === "sidebar"
+                                          ? "top-right"
+                                          : moonAt,
+                                    )
+                                  }
+                                  options={[
+                                    { id: "sidebar" as const, label: "Sidebar" },
+                                    { id: "dial" as const, label: "Dial" },
+                                  ]}
+                                />
+                                {moonAt !== "sidebar" && (
+                                  <PositionField
+                                    value={moonAt}
+                                    onChange={store.setMoonAt}
+                                    options={TOTALS_OPTIONS}
+                                    label="Where the moon sits"
+                                  />
+                                )}
+                              </>
                             )}
                           </div>
                         </FieldRow>
@@ -1351,29 +1393,6 @@ export default function Settings({
                             label="Magnify the year"
                             checked={lifeLoupe}
                             onChange={(on) => store.setToggle("lifeLoupe", on)}
-                          />
-                        </FieldRow>
-                      </Section>
-
-                      {/* The moon is the one thing here that draws something the
-                        calendar does not contain, and it lives in the sidebar —
-                        never on the dial. */}
-                      <Section
-                        title="Sidebar"
-                        onInfo={setInfo}
-                        info={
-                          <p>
-                            The selected day's moon, drawn as the astronomy: one disc, the
-                            terminator over it. Arrow through a week and it walks with you
-                          </p>
-                        }
-                      >
-                        <FieldRow label="Moon" last>
-                          <Toggle
-                            label="Phase"
-                            name="Moon phase in the sidebar"
-                            checked={moon}
-                            onChange={(on) => store.setToggle("moon", on)}
                           />
                         </FieldRow>
                       </Section>

@@ -8,7 +8,14 @@ import {
   type CalEvent,
   type Repeat,
 } from "@/lib/events";
-import { DEFAULT_SETTINGS, LIFE_EXPECTANCY_RANGE, dayCopies, duplicateOf } from "@/lib/store";
+import {
+  DEFAULT_SETTINGS,
+  LIFE_EXPECTANCY_RANGE,
+  TOTALS_POSITIONS,
+  dayCopies,
+  duplicateOf,
+} from "@/lib/store";
+import { readBackup } from "@/lib/backup";
 import { mirrorDigest, readMirrorFile, serialiseMirror } from "@/lib/mirror";
 import { MINUTES_PER_DAY, addDays, addMonths, dayKey, daysBetween, startOfDay } from "@/lib/time";
 import type * as StoreModule from "@/lib/store";
@@ -1003,6 +1010,7 @@ describe("adopt", () => {
 const SETTINGS_ACTIONS: { name: string; act: (s: StoreHandle) => void }[] = [
   { name: "setClock", act: (s) => s.store.setClock("24h") },
   { name: "setToggle", act: (s) => s.store.setToggle("moonlight", false) },
+  { name: "setMoonAt", act: (s) => s.store.setMoonAt("top-right") },
   { name: "setSecondZone", act: (s) => s.store.setSecondZone("Europe/Paris") },
   { name: "setDeviceZone", act: (s) => s.store.setDeviceZone("Europe/Paris") },
   {
@@ -1311,6 +1319,66 @@ describe("joinAdjacent", () => {
     const s = await freshStore(storage);
     expect(s.store.snapshot().settings.joinAdjacent).toBe(want);
     expect(s.store.snapshot().settings.clock).toBe("12h");
+  });
+});
+
+describe("moon placement", () => {
+  it("defaults off in the sidebar", async () => {
+    const s = await freshStore();
+    expect(s.store.snapshot().settings).toMatchObject({ moon: false, moonAt: "sidebar" });
+  });
+
+  it.each(["sidebar", ...TOTALS_POSITIONS] as const)(
+    "persists %s independently of the moon switch",
+    async (moonAt) => {
+      const s = await freshStore();
+      s.store.setMoonAt(moonAt);
+      expect(JSON.parse(s.storage.getItem(KEY)!).settings.moonAt).toBe(moonAt);
+      const reloaded = await freshStore(s.storage);
+      expect(reloaded.store.snapshot().settings).toMatchObject({ moon: false, moonAt });
+      reloaded.store.setToggle("moon", true);
+      reloaded.store.setToggle("moon", false);
+      expect(reloaded.store.snapshot().settings.moonAt).toBe(moonAt);
+    },
+  );
+
+  const compatibility = [
+    { name: "an older enabled moon", settings: { moon: true } },
+    { name: "a legacy moon register", settings: { moonPhase: "minimal" } },
+    { name: "an unknown position", settings: { moon: true, moonAt: "outside" } },
+    { name: "a non-string position", settings: { moon: true, moonAt: 7 } },
+    { name: "a null position", settings: { moon: true, moonAt: null } },
+  ];
+
+  it.each(compatibility)("hydrates $name in the sidebar", async ({ settings }) => {
+    const storage = new MemoryStorage();
+    storage.setItem(KEY, JSON.stringify({ schema: 2, events: [], calendars: [], settings }));
+    const s = await freshStore(storage);
+    expect(s.store.snapshot().settings).toMatchObject({ moon: true, moonAt: "sidebar" });
+  });
+
+  it.each(compatibility)("restores $name in the sidebar", async ({ settings }) => {
+    const s = await freshStore();
+    s.store.setMoonAt("bottom-right");
+    const backup = readBackup({ app: "circal", calendars: [calendar()], settings });
+    if (!backup.ok) throw new Error("fixture failed to parse as a backup");
+    s.store.restore(backup);
+    expect(s.store.snapshot().settings).toMatchObject({ moon: true, moonAt: "sidebar" });
+    expect(s.store.undo()).toBe(true);
+    expect(s.store.snapshot().settings).toMatchObject({ moon: false, moonAt: "bottom-right" });
+  });
+
+  it.each(TOTALS_POSITIONS)("restores the dial position %s", async (moonAt) => {
+    const s = await freshStore();
+    const backup = readBackup({
+      app: "circal",
+      calendars: [calendar()],
+      settings: { moon: true, moonAt },
+    });
+    if (!backup.ok) throw new Error("fixture failed to parse as a backup");
+    s.store.restore(backup);
+    expect(s.store.snapshot().settings).toMatchObject({ moon: true, moonAt });
+    expect(JSON.parse(s.storage.getItem(KEY)!).settings).toMatchObject({ moon: true, moonAt });
   });
 });
 

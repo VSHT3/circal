@@ -314,6 +314,9 @@ export function readSettings(value: unknown): Settings {
     // A file written while the moon had two registers carries the string
     // `moonPhase` instead, and either register is a moon that was asked for.
     moon: value.moon === true || (typeof value.moonPhase === "string" && value.moonPhase !== "off"),
+    moonAt: (typeof value.moonAt === "string"
+      ? value.moonAt
+      : DEFAULT_SETTINGS.moonAt) as Settings["moonAt"],
     remind: value.remind === true,
     remindLead:
       typeof value.remindLead === "number" ? value.remindLead : DEFAULT_SETTINGS.remindLead,

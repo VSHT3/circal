@@ -245,14 +245,9 @@ export interface SidebarProps {
   defaultCalendar: string;
   /** The viewer's clock, for the rows' printed due times. */
   clock: Clock;
-  /**
-   * Whether the moon is drawn at the foot of the column. A scalar rather than
-   * the whole `Settings` object: this panel reads one field of it, and it
-   * should not be able to re-render on a twenty-eighth changing.
-   */
+  /** True only when enabled and assigned to the sidebar by the shell. */
   moon: boolean;
-  /** Which greyscale the moon's two inks come from — a scalar for the same
-   *  reason `moon` is. */
+  /** Which greyscale the moon's two inks come from. */
   theme: ThemeName;
   /** As `TopBarProps.weekStart` — the mini-month's grid and header follow
    *  it too. */

@@ -13,6 +13,7 @@
  * ------------------------------------------------------------------ */
 
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import type { ReactNode } from "react";
 import {
   colorOf,
   dayLoad,
@@ -31,13 +32,12 @@ import {
   formatTimeShort,
   isSameDay,
   splitTime,
-  type Clock,
 } from "@/lib/time";
 import { EASE, MODE_MS, MOOD_MS } from "@/lib/motion";
 import { leadOf } from "@/lib/remind";
 import { placeName } from "@/lib/travel";
 import { cn } from "@/lib/utils";
-import type { TotalsPosition } from "@/lib/store";
+import type { Settings, TotalsPosition } from "@/lib/store";
 
 export interface CenterPanelProps {
   day: Date;
@@ -46,7 +46,7 @@ export interface CenterPanelProps {
   calendars: Calendar[];
   /** Pixels per SVG user unit. */
   u: number;
-  clock: Clock;
+  settings: Settings;
   /**
    * Read from across a room rather than from a chair. The centre keeps its
    * moods and its hierarchy and changes size: the time at nearly twice the
@@ -54,20 +54,8 @@ export interface CenterPanelProps {
    * rows are for a surface you are working on.
    */
   ambient: boolean;
-  /** Whether to print what the day is made of, and where on the stage. */
-  totals: boolean;
-  totalsAt: TotalsPosition;
-  /** The window "free" is measured against — `Settings.wakingFrom`/
-   *  `wakingTo`, threaded rather than read from a whole `settings` because
-   *  this panel is otherwise a dozen narrow props and a setting the totals
-   *  line does not otherwise need is not a reason to convert it. */
-  waking: { from: number; to: number };
-  /** `Settings.remindLead`, the fallback `leadOf` resolves an event's own
-   *  lead against. Borrowed here as "how early is this event the next thing
-   *  you need" — the window the Join verb appears in — not as a notification
-   *  gate, which is why `settings.remind` is deliberately not threaded:
-   *  switching banners off does not make a meeting harder to join. */
-  remindLead: number;
+  /** Already drawn for this day and theme; placement comes from settings. */
+  moon: ReactNode;
   /** Live drag-to-create range, in minutes since midnight. */
   drag: { start: number; end: number } | null;
   hovered: string | null;
@@ -144,18 +132,16 @@ export default function CenterPanel({
   occurrences,
   calendars,
   u,
-  clock,
+  settings,
   ambient,
-  totals,
-  totalsAt,
-  waking,
-  remindLead,
+  moon,
   drag,
   hovered,
   onHover,
   onOpen,
   onToggleDone,
 }: CenterPanelProps) {
+  const { clock, totals, totalsAt, moonAt, wakingFrom, wakingTo, remindLead } = settings;
   const today = isSameDay(day, now);
   const reducedMotion = useReducedMotion();
   /** The mood, as one factor on the pair below rather than on every size. */
@@ -242,7 +228,7 @@ export default function CenterPanel({
    */
   const shown = ambient ? rows.filter((occ) => occ.key === (hovered ?? headline)) : rows;
 
-  const load = totals && !drag ? dayLoad(occurrences, waking) : null;
+  const load = totals && !drag ? dayLoad(occurrences, { from: wakingFrom, to: wakingTo }) : null;
   /**
    * The line itself, built once and placed twice: under the card when the
    * position is `center`, in a corner of the stage otherwise.
@@ -261,6 +247,7 @@ export default function CenterPanel({
     </motion.span>
   ) : null;
   const centred = totalsAt === "center" ? totalsLine : null;
+  const centredMoon = moonAt === "center" ? moon : null;
 
   return (
     <div className="pointer-events-none absolute inset-0">
@@ -336,7 +323,7 @@ export default function CenterPanel({
           and a cut beside a readout that is gliding into its span reads as
           the card having crashed rather than left. */}
         <AnimatePresence initial={false}>
-          {!drag && (shown.length > 0 || centred) && (
+          {!drag && (shown.length > 0 || centred || centredMoon) && (
             <motion.div
               key="card"
               className="absolute top-1/2 left-1/2 flex flex-col items-center"
@@ -670,25 +657,36 @@ export default function CenterPanel({
               )}
 
               <AnimatePresence initial={false}>{centred}</AnimatePresence>
+              {centredMoon}
             </motion.div>
           )}
         </AnimatePresence>
       </div>
 
-      {/* Anywhere but the centre, the line leaves the card and takes a corner
-          of the stage — which on any window wider than it is tall is black the
-          circle never reaches. Padded off the edge, because a line flush to a
-          window edge reads as something that fell off. */}
-      {totalsAt !== "center" && (
-        <div
-          className={cn(
-            "absolute inset-0 flex p-4",
-            CORNERS[totalsAt as Exclude<TotalsPosition, "center">],
-          )}
-        >
-          <AnimatePresence initial={false}>{totalsLine}</AnimatePresence>
-        </div>
-      )}
+      {/* Sharing a stage position gives totals and moon one column, so neither
+          can cover the other. The centre remains in the readout's column. */}
+      {Object.entries(CORNERS).map(([position, placement]) => {
+        const placedTotals = totalsAt === position ? totalsLine : null;
+        const placedMoon = moonAt === position ? moon : null;
+        if (!placedTotals && !placedMoon) return null;
+        return (
+          <div key={position} className={cn("absolute inset-0 flex p-4", placement)}>
+            <div
+              className={cn(
+                "flex max-w-full flex-col gap-2",
+                position.endsWith("left")
+                  ? "items-start"
+                  : position.endsWith("right")
+                    ? "items-end"
+                    : "items-center",
+              )}
+            >
+              <AnimatePresence initial={false}>{placedTotals}</AnimatePresence>
+              {placedMoon}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

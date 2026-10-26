@@ -158,6 +158,7 @@ export const TOTALS_POSITIONS = [
 ] as const;
 
 export type TotalsPosition = (typeof TOTALS_POSITIONS)[number];
+export type MoonPosition = "sidebar" | TotalsPosition;
 
 /**
  * When an event's name is printed along its own arc. `hover` is the density
@@ -340,23 +341,10 @@ export interface Settings {
   /** Names along the arcs, in ambient. Its own mode, because 11px mono is
    *  read from a chair and this face is read from across a room. */
   ambientArcLabels: ArcLabelMode;
-  /**
-   * The sidebar's moon: the lit part of it and nothing else, the terminator
-   * drawn as an ellipse over it, in the app's own greyscale.
-   *
-   * It lives in the sidebar rather than on the face because of the rule that
-   * governs this app's one instrument: every radius the dial gains costs
-   * `PAD` and legibility, and the moon is not a fact about the *day* the way
-   * the lightcycle band is. It is the one complication here that is pure
-   * eyecandy, and eyecandy belongs in the column you can close.
-   *
-   * A switch rather than a choice of register. A second drawing — the disc
-   * riding behind a watchmaker's aperture, in night blue with stars — was
-   * offered here and was the only chrome in circal that was neither greyscale
-   * nor flat; two answers to one question, one of them arguing with the rest
-   * of the screen, is worse than the answer this app's own voice gives.
-   */
+  /** The selected day's moon in the app's greyscale, off until requested. */
   moon: boolean;
+  /** Sidebar by default, or one of nine positions on the dial. */
+  moonAt: MoonPosition;
   /**
    * Notifications for what is about to start, while this tab is open.
    *
@@ -574,6 +562,7 @@ export const DEFAULT_SETTINGS: Settings = {
   // Off. It is the only thing in this app that draws something the calendar
   // does not contain, so it has to be asked for by name.
   moon: false,
+  moonAt: "sidebar",
   // Off, and it is the one default here that is a promise rather than a
   // preference: nothing in circal has ever interrupted anybody, and the first
   // thing that can must be switched on deliberately.
@@ -884,6 +873,10 @@ function sane(settings: Settings): Settings {
     totalsAt: TOTALS_POSITIONS.includes(settings.totalsAt)
       ? settings.totalsAt
       : DEFAULT_SETTINGS.totalsAt,
+    moonAt:
+      settings.moonAt === "sidebar" || TOTALS_POSITIONS.includes(settings.moonAt)
+        ? settings.moonAt
+        : DEFAULT_SETTINGS.moonAt,
     arcLabels: ARC_LABEL_MODES.includes(settings.arcLabels)
       ? settings.arcLabels
       : DEFAULT_SETTINGS.arcLabels,
@@ -2143,6 +2136,11 @@ export const store = {
   setTotalsAt(totalsAt: TotalsPosition) {
     const base = fresh();
     commit(withSettings(base, { ...base.settings, totalsAt }), false);
+  },
+
+  setMoonAt(moonAt: MoonPosition) {
+    const base = fresh();
+    commit(withSettings(base, { ...base.settings, moonAt }), false);
   },
 
   setArcLabels(arcLabels: ArcLabelMode) {

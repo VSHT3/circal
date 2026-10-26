@@ -9,7 +9,7 @@ import {
   readTask,
   backupDue,
 } from "@/lib/backup";
-import { DEFAULT_SETTINGS } from "@/lib/store";
+import { DEFAULT_SETTINGS, TOTALS_POSITIONS } from "@/lib/store";
 import {
   ATTENDEE_MAX,
   GUEST_ADDRESS_MAX,
@@ -556,6 +556,29 @@ describe("readSettings", () => {
     { name: "a non-string", value: { arcLabels: 1 }, expected: "always" },
   ])("arcLabels reads $name", ({ value, expected }) => {
     expect(readSettings(value).arcLabels).toBe(expected);
+  });
+
+  it.each(["sidebar", ...TOTALS_POSITIONS] as const)("keeps the moon at %s", (moonAt) => {
+    const backup = readBackup({
+      app: "circal",
+      calendars: [calendar()],
+      settings: { moon: true, moonAt },
+    });
+    expect(backup.ok && backup.settings).toMatchObject({ moon: true, moonAt });
+  });
+
+  it.each([
+    { name: "absent", settings: {} },
+    { name: "an older enabled moon", settings: { moon: true } },
+    { name: "a legacy moon register", settings: { moonPhase: "aperture" } },
+    { name: "a non-string", settings: { moonAt: 7 } },
+    { name: "null", settings: { moonAt: null } },
+  ])("moon placement reads $name as sidebar", ({ settings }) => {
+    expect(readSettings(settings).moonAt).toBe("sidebar");
+  });
+
+  it("leaves unknown moon position strings for the store's shared clamp", () => {
+    expect(readSettings({ moonAt: "outside" }).moonAt).toBe("outside");
   });
 
   // `weekStart`'s legal values are exactly its type's three members, so this

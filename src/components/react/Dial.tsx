@@ -39,6 +39,7 @@ import { cn } from "@/lib/utils";
 import { useElementSize, useHotkeys } from "./hooks";
 import Face, { GHOST_ALPHA, SLOT_ALPHA, type FaceGhost, type Grip } from "./Face";
 import CenterPanel from "./CenterPanel";
+import MoonPanel from "./MoonPanel";
 
 /**
  * A drag in flight, as the event it will commit. The shell folds it into the
@@ -446,13 +447,10 @@ export default function Dial({
     ambientMoonlight,
     ambientZoneRing,
     ambientArcLabels,
-    totals,
-    totalsAt,
+    moon,
+    moonAt,
     tickSound,
     tickHaptics,
-    remindLead,
-    wakingFrom,
-    wakingTo,
   } = settings;
   // Only the fitted diameter affects the dial, not spare space beside it.
   const [stageRef, width, height] = useElementSize<HTMLDivElement>(true);
@@ -1095,12 +1093,13 @@ export default function Dial({
           occurrences={occurrences}
           calendars={calendars}
           u={u}
-          clock={clock}
+          settings={settings}
           ambient={ambient}
-          totals={totals}
-          totalsAt={totalsAt}
-          waking={{ from: wakingFrom, to: wakingTo }}
-          remindLead={remindLead}
+          moon={
+            moon && moonAt !== "sidebar" ? (
+              <MoonPanel day={day} theme={theme} compact u={moonAt === "center" ? u : 1.3} />
+            ) : null
+          }
           drag={
             draw && draw.sweep !== 0 ? drawnSpan(draw, day) : adjust ? dragSpan(adjust, day) : null
           }

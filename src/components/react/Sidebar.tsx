@@ -233,12 +233,7 @@ export default function Sidebar({
         ))}
       </section>
 
-      {/* Last, and quiet. The mini-month is navigation and the calendar
-                list is data; this is the one thing in the column that is
-                neither — so it sits at the foot of it, the way a complication
-                sits at the foot of a dial. It reads the *selected* day, which
-                is what makes it worth having: arrowing through a week walks
-                the moon through its week. */}
+      {/* The sidebar placement follows the selected day, like the dial's moon. */}
       {moon && <MoonPanel day={day} theme={theme} />}
     </div>
   );
