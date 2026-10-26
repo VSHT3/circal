@@ -183,6 +183,74 @@ export function seamTrim(r: number, gap: number): number {
   return Math.max(0, (seam - gap * DEG_PER_MINUTE) / 2);
 }
 
+/** Exact neighbours on an already-packed lane, never a tolerance or a wrap at midnight. */
+export function adjacentArcs<T extends { lane: number; start: number; end: number }>(
+  spans: readonly T[],
+): [T, T][] {
+  const sorted = spans
+    .filter((span) => span.end > span.start)
+    .sort((a, b) => a.lane - b.lane || a.start - b.start || a.end - b.end);
+  const pairs: [T, T][] = [];
+  let occupiedUntil = sorted[0]?.end ?? -Infinity;
+  for (let i = 1; i < sorted.length; i++) {
+    const before = sorted[i - 1];
+    const after = sorted[i];
+    if (before.lane === after.lane && before.end === after.start && occupiedUntil === before.end)
+      pairs.push([before, after]);
+    occupiedUntil = before.lane === after.lane ? Math.max(occupiedUntil, after.end) : after.end;
+  }
+  return pairs;
+}
+
+/**
+ * A joined band's silhouette: only exterior ends get caps. Short exterior
+ * caps compress tangentially, so even a one-minute event keeps its own span.
+ * `outline` traces half a hairline inside that same footprint.
+ */
+export function joinedArcPath(
+  r: number,
+  from: number,
+  to: number,
+  before: boolean,
+  after: boolean,
+  width: number = DIAL.ARC_WIDTH,
+  outline = false,
+): string {
+  if (to <= from) return "";
+  const inset = outline ? ARC_HAIRLINE / 2 : 0;
+  const off = width / 2 - inset;
+  if (to - from >= 360) {
+    return `${arcPath(r + off, from, to)} Z ${arcPath(r - off, from, to, true)} Z`;
+  }
+  const caps = Number(!before) + Number(!after);
+  const edgeInset = Math.min((inset / r) * (180 / Math.PI), (to - from) / 2);
+  const leading = before ? edgeInset : 0;
+  const trailing = after ? edgeInset : 0;
+  const degrees = caps
+    ? Math.min((width / 2 / r) * (180 / Math.PI), (to - from - leading - trailing) / caps)
+    : 0;
+  const head = from + leading + (before ? 0 : degrees);
+  const tail = to - trailing - (after ? 0 : degrees);
+  const outerHead = polar(r + off, head);
+  const outerTail = polar(r + off, tail);
+  const innerHead = polar(r - off, head);
+  const innerTail = polar(r - off, tail);
+  const large = tail - head > 180 ? 1 : 0;
+  const cap = Math.max(0, (degrees * Math.PI * r) / 180 - inset);
+  return [
+    `M ${outerHead.x} ${outerHead.y}`,
+    `A ${r + off} ${r + off} 0 ${large} 1 ${outerTail.x} ${outerTail.y}`,
+    after
+      ? `L ${innerTail.x} ${innerTail.y}`
+      : `A ${off} ${cap} ${tail - 90} 0 1 ${innerTail.x} ${innerTail.y}`,
+    `A ${r - off} ${r - off} 0 ${large} 0 ${innerHead.x} ${innerHead.y}`,
+    before
+      ? `L ${outerHead.x} ${outerHead.y}`
+      : `A ${off} ${cap} ${head - 90} 0 1 ${outerHead.x} ${outerHead.y}`,
+    "Z",
+  ].join(" ");
+}
+
 /**
  * Weight of the line that traces a free event's outline, in user units.
  *

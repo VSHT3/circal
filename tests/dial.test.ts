@@ -4,11 +4,13 @@ import {
   ARC_HAIRLINE,
   ARC_LABEL_SIZE,
   DIAL,
+  adjacentArcs,
   angleAt,
   arcLabel,
   arcPath,
   capInset,
   hollowPath,
+  joinedArcPath,
   minutesAtPoint,
   polar,
   seamTrim,
@@ -119,6 +121,150 @@ describe("seamTrim", () => {
 
   it("floors at zero once the neighbouring gap already exceeds the seam", () => {
     expect(seamTrim(DIAL.TRACK, 1000)).toBe(0);
+  });
+});
+
+describe("adjacentArcs", () => {
+  const span = (start: number, end: number, lane = 0) => ({ start, end, lane });
+
+  it("finds every interior boundary in a chain without changing input order or records", () => {
+    const a = span(60, 120);
+    const b = span(120, 180);
+    const c = span(180, 240);
+    const input = [c, a, b];
+    const pairs = adjacentArcs(input);
+    expect(pairs).toEqual([
+      [a, b],
+      [b, c],
+    ]);
+    expect(pairs[0][0]).toBe(a);
+    expect(input).toEqual([c, a, b]);
+  });
+
+  it.each([0.001, 1, 5])("leaves a real gap of %s untouched", (gap) => {
+    expect(adjacentArcs([span(60, 120), span(120 + gap, 180)])).toEqual([]);
+  });
+
+  it.each([0.001, 1, 5])("never treats a %s overlap as adjacency", (overlap) => {
+    expect(adjacentArcs([span(60, 120), span(120 - overlap, 180)])).toEqual([]);
+  });
+
+  it("joins within each lane, never between concentric lanes", () => {
+    const a = span(60, 120, 0);
+    const b = span(120, 180, 1);
+    const c = span(180, 240, 1);
+    expect(adjacentArcs([c, a, b])).toEqual([[b, c]]);
+  });
+
+  it("ignores deadline pips, including a pip sitting exactly on a join", () => {
+    const a = span(60, 120);
+    const b = span(120, 180);
+    expect(adjacentArcs([a, span(120, 120), b])).toEqual([[a, b]]);
+    expect(adjacentArcs([a, span(120, 120)])).toEqual([]);
+  });
+
+  it("does not join across a third overlapping arc on the same lane", () => {
+    expect(adjacentArcs([span(0, 180), span(60, 120), span(120, 240)])).toEqual([]);
+  });
+
+  it("does not wrap a day's last event onto its first", () => {
+    expect(adjacentArcs([span(1380, 1440), span(0, 60)])).toEqual([]);
+  });
+
+  it("accepts short events and empty agendas without a duration threshold", () => {
+    const a = span(60, 61);
+    const b = span(61, 62);
+    expect(adjacentArcs([a, b])).toEqual([[a, b]]);
+    expect(adjacentArcs([])).toEqual([]);
+  });
+});
+
+describe("joinedArcPath", () => {
+  const commands = (d: string) =>
+    [...d.matchAll(/A ([\d.e+-]+) ([\d.e+-]+) ([\d.e+-]+) (\d) (\d) ([\d.e+-]+) ([\d.e+-]+)/g)].map(
+      (m) => ({
+        rx: Number(m[1]),
+        ry: Number(m[2]),
+        rotation: Number(m[3]),
+        x: Number(m[6]),
+        y: Number(m[7]),
+      }),
+    );
+
+  it.each([
+    [false, true, 3],
+    [true, false, 3],
+    [true, true, 2],
+  ] as const)("caps only exterior ends (before %s, after %s)", (before, after, count) => {
+    const d = joinedArcPath(DIAL.LANE, 30, 60, before, after);
+    expect(commands(d)).toHaveLength(count);
+    expect(d.match(/L /g)).toHaveLength(Number(before) + Number(after));
+    expect(d.endsWith("Z")).toBe(true);
+  });
+
+  it.each(["12h", "24h"] as const)(
+    "places flat boundaries on exact event minutes in %s",
+    (clock) => {
+      const from = angleAt(600, clock);
+      const to = angleAt(660, clock);
+      const d = joinedArcPath(DIAL.LANE, from, to, true, true);
+      const parts = commands(d);
+      const outerEnd = polar(DIAL.LANE + DIAL.ARC_WIDTH / 2, to);
+      const innerStart = polar(DIAL.LANE - DIAL.ARC_WIDTH / 2, from);
+      expect(parts[0].x).toBeCloseTo(outerEnd.x, 9);
+      expect(parts[0].y).toBeCloseTo(outerEnd.y, 9);
+      expect(parts[1].x).toBeCloseTo(innerStart.x, 9);
+      expect(parts[1].y).toBeCloseTo(innerStart.y, 9);
+    },
+  );
+
+  it("traces hollow edges inside the filled footprint", () => {
+    const parts = commands(joinedArcPath(DIAL.LANE, 30, 60, true, true, DIAL.ARC_WIDTH, true));
+    expect(parts[0].rx).toBe(DIAL.LANE + (DIAL.ARC_WIDTH - ARC_HAIRLINE) / 2);
+    expect(parts[1].rx).toBe(DIAL.LANE - (DIAL.ARC_WIDTH - ARC_HAIRLINE) / 2);
+  });
+
+  it.each([0, 1, 3])("keeps the shared minute fixed while lane %s widens on hover", (lane) => {
+    const r = DIAL.LANE - lane * DIAL.LANE_STEP;
+    const width = DIAL.ARC_WIDTH + 3;
+    const parts = commands(joinedArcPath(r, 30, 60, true, true, width));
+    const expected = polar(r + width / 2, 60);
+    expect(parts[0].rx).toBe(r + width / 2);
+    expect(parts[1].rx).toBe(r - width / 2);
+    expect(parts[0].x).toBeCloseTo(expected.x, 9);
+    expect(parts[0].y).toBeCloseTo(expected.y, 9);
+  });
+
+  it.each([false, true])(
+    "keeps short exterior caps finite and inside their own span (hollow %s)",
+    (outline) => {
+      for (const [before, after] of [
+        [true, false],
+        [false, true],
+        [true, true],
+      ]) {
+        const d = joinedArcPath(DIAL.LANE, 0, 0.25, before, after, DIAL.ARC_WIDTH, outline);
+        expect(d).not.toMatch(/NaN|Infinity/);
+        const parts = commands(d);
+        for (const part of parts) {
+          expect(part.rx).toBeGreaterThanOrEqual(0);
+          expect(part.ry).toBeGreaterThanOrEqual(0);
+          if (part.rx < DIAL.ARC_WIDTH) {
+            expect(part.ry).toBeLessThanOrEqual((0.25 * Math.PI * DIAL.LANE) / 180);
+          }
+        }
+        const outer = parts[0];
+        const inner = parts[parts.length - (before ? 1 : 2)];
+        const outerAngle = Math.atan2(outer.x - DIAL.C, DIAL.C - outer.y);
+        const innerAngle = Math.atan2(inner.x - DIAL.C, DIAL.C - inner.y);
+        expect(outerAngle).toBeGreaterThanOrEqual(innerAngle - 1e-12);
+      }
+    },
+  );
+
+  it("keeps a full turn closed, and draws nothing for a zero-width pip", () => {
+    expect(commands(joinedArcPath(DIAL.LANE, 0, 360, true, true))).toHaveLength(4);
+    expect(joinedArcPath(DIAL.LANE, 30, 30, true, true)).toBe("");
   });
 });
 

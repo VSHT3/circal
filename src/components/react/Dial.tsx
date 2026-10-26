@@ -1032,6 +1032,7 @@ export default function Dial({
         // interaction-distance type, and noise on the one surface that has
         // to stay a shape when it is read from across a room.
         arcLabels={ambient ? ambientArcLabels : arcLabels}
+        joinAdjacent={settings.joinAdjacent}
         inheritMarks={inheritMarks}
         hovered={active}
         dragging={dragging}

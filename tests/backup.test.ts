@@ -474,7 +474,7 @@ describe("readSettings", () => {
     },
   );
 
-  it.each(["zoneDaylight", "zoneMoonlight", "totals", "ambientZoneRing"] as const)(
+  it.each(["zoneDaylight", "zoneMoonlight", "totals", "ambientZoneRing", "joinAdjacent"] as const)(
     "%s reads absent as off, and only a literal true turns it on",
     (field) => {
       expect.soft(readSettings({})[field]).toBe(false);
@@ -812,6 +812,47 @@ describe("importBackup", () => {
     await backup.exportBackup(store.snapshot());
     expect(storage.getItem("circal.backup")).toBe(previous);
   });
+
+  it.each([true, false])(
+    "exports and restores joinAdjacent=%s without changing events",
+    async (on) => {
+      const save = vi.fn(async (_filename: string, _body: string) => true);
+      vi.stubGlobal("window", { __circalSave: save });
+      const { backup, store } = await load();
+      store.setToggle("joinAdjacent", on);
+      store.create(event({ calendarId: store.snapshot().calendars[0].id }));
+      const events = store.snapshot().events;
+      await backup.exportBackup(store.snapshot());
+      const text = save.mock.calls[0][1];
+      expect(JSON.parse(text).settings.joinAdjacent).toBe(on);
+
+      store.setToggle("joinAdjacent", !on);
+      backup.importBackup(text);
+      expect(store.snapshot().settings.joinAdjacent).toBe(on);
+      expect(store.snapshot().events.map(({ updatedAt: _updatedAt, ...event }) => event)).toEqual(
+        events.map(({ updatedAt: _updatedAt, ...event }) => event),
+      );
+      expect(JSON.parse(storage.getItem("circal.v1")!).settings.joinAdjacent).toBe(on);
+    },
+  );
+
+  it.each([undefined, null, "true", 1, {}])(
+    "restores missing or invalid joinAdjacent=%j as off",
+    async (joinAdjacent) => {
+      const { backup, store } = await load();
+      store.setToggle("joinAdjacent", true);
+      backup.importBackup(
+        JSON.stringify({
+          app: "circal",
+          calendars: [calendar()],
+          events: [],
+          settings: { joinAdjacent },
+        }),
+      );
+      expect(store.snapshot().settings.joinAdjacent).toBe(false);
+      expect(JSON.parse(storage.getItem("circal.v1")!).settings.joinAdjacent).toBe(false);
+    },
+  );
 
   it("parks an event on the first calendar when its own calendar was not carried", async () => {
     const { backup, store } = await load();

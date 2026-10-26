@@ -277,6 +277,7 @@ export default function Settings({
     daylight,
     moonlight,
     arcLabels,
+    joinAdjacent,
     ambientAfter,
     ambientDim,
     ambientDaylight,
@@ -962,6 +963,10 @@ export default function Settings({
                             <InfoEntry name="Arc names">
                               When an event's name is drawn along its arc.
                             </InfoEntry>
+                            <InfoEntry name="Join adjacent events">
+                              Back-to-back events in the same lane meet with a thin divider. Each
+                              event stays separate.
+                            </InfoEntry>
                             <InfoEntry name="Event marks">
                               On, an event with no mark of its own borrows its calendar's. Sensible
                               with one calendar per kind of thing; redundant with one per person.
@@ -1006,6 +1011,13 @@ export default function Settings({
                               { id: "hover" as const, label: "Hover" },
                               { id: "off" as const, label: "Off" },
                             ]}
+                          />
+                        </FieldRow>
+                        <FieldRow label="Arcs">
+                          <Toggle
+                            label="Join adjacent events"
+                            checked={joinAdjacent}
+                            onChange={(on) => store.setToggle("joinAdjacent", on)}
                           />
                         </FieldRow>
                         {/* "Event marks", not "Marks": the Life card has a

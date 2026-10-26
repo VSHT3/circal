@@ -261,6 +261,7 @@ export function readSettings(value: unknown): Settings {
     arcLabels: (typeof value.arcLabels === "string"
       ? value.arcLabels
       : DEFAULT_SETTINGS.arcLabels) as Settings["arcLabels"],
+    joinAdjacent: value.joinAdjacent === true,
     // Off unless the backup says so — the same reading its default takes, and
     // an inherited mark arriving unasked would remark every arc on the face.
     inheritMarks: value.inheritMarks === true,

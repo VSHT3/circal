@@ -255,6 +255,8 @@ export interface Settings {
    * is 7.5° of colour and says who it belongs to only once you point at it.
    */
   arcLabels: ArcLabelMode;
+  /** Visually join exactly back-to-back timed arcs in the same lane. */
+  joinAdjacent: boolean;
   /**
    * Whether an event with no mark of its own borrows its calendar's.
    *
@@ -517,6 +519,7 @@ export const DEFAULT_SETTINGS: Settings = {
   // which an unlabelled ring of four coloured ticks loses. Hiding the fix
   // behind an off switch would concede the point.
   arcLabels: "always",
+  joinAdjacent: false,
   // Off, and it is the one mark decision with a default worth arguing about:
   // see `markOf`. A calendar's glyph repeated down every arc of the day is
   // decoration, so it is asked for rather than assumed.
@@ -884,6 +887,7 @@ function sane(settings: Settings): Settings {
     arcLabels: ARC_LABEL_MODES.includes(settings.arcLabels)
       ? settings.arcLabels
       : DEFAULT_SETTINGS.arcLabels,
+    joinAdjacent: settings.joinAdjacent === true,
     ambientArcLabels: ARC_LABEL_MODES.includes(settings.ambientArcLabels)
       ? settings.ambientArcLabels
       : DEFAULT_SETTINGS.ambientArcLabels,

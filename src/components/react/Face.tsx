@@ -43,11 +43,13 @@ import {
   ARC_LABEL_SIZE,
   DIAL,
   VIEW_BOX,
+  adjacentArcs,
   angleAt,
   arcLabel,
   arcPath,
   capInset,
   hollowPath,
+  joinedArcPath,
   polar,
   seamTrim,
   travelDots,
@@ -174,6 +176,8 @@ export interface FaceProps {
 
   /** When an arc prints its name along itself. See `arcLabel`. */
   arcLabels?: ArcLabelMode;
+  /** Flatten only the shared ends of exactly adjacent events on one lane. */
+  joinAdjacent?: boolean;
   /** Whether an event with no mark of its own takes its calendar's. */
   inheritMarks?: boolean;
   hovered?: string | null;
@@ -351,6 +355,7 @@ export default function Face({
   zoneBand = null,
   zoneRing = null,
   arcLabels = "off",
+  joinAdjacent = false,
   inheritMarks = false,
   hovered = null,
   dragging = null,
@@ -515,6 +520,50 @@ export default function Face({
       }),
     );
   }, [occurrences]);
+
+  const joins = useMemo(() => {
+    if (!joinAdjacent) return null;
+    const pairs = adjacentArcs(
+      occurrences
+        .filter((occ) => !occ.event.allDay && occ.endMin > occ.startMin)
+        .map((occ) => ({ occ, lane: occ.lane, start: +occ.start, end: +occ.end })),
+    ).filter(
+      ([before, after]) =>
+        before.occ.endMin === after.occ.startMin && travelMinutes(after.occ) === 0,
+    );
+    const ends = new Map<string, { before: boolean; after: boolean }>();
+    for (const [before, after] of pairs) {
+      const left = ends.get(before.occ.key) ?? { before: false, after: false };
+      const right = ends.get(after.occ.key) ?? { before: false, after: false };
+      left.after = true;
+      right.before = true;
+      ends.set(before.occ.key, left);
+      ends.set(after.occ.key, right);
+    }
+    return { pairs, ends };
+  }, [joinAdjacent, occurrences]);
+
+  const renderArc = (occ: Occurrence) => (
+    <EventArc
+      key={occ.key}
+      occ={occ}
+      clock={clock}
+      labels={arcLabels}
+      color={colorOf(occ.event, calendars)}
+      mark={markOf(occ.event, calendars, inheritMarks)}
+      dimmed={today && statusOf(occ, now) === "past"}
+      hovered={hovered === occ.key}
+      locked={feedIds.has(occ.event.calendarId)}
+      dragging={dragging === occ.event.id}
+      gap={gaps.get(occ.key) ?? NO_NEIGHBOUR}
+      joinBefore={joins?.ends.get(occ.key)?.before ?? false}
+      joinAfter={joins?.ends.get(occ.key)?.after ?? false}
+      intro={intro ? introDelay(occ.startMin, clock, 200) : null}
+      onHover={onHover}
+      onGrab={onGrab}
+      onTick={onTick}
+    />
+  );
 
   return (
     <svg
@@ -728,29 +777,31 @@ export default function Face({
           ),
       )}
 
-      {occurrences.map((occ) => (
-        <EventArc
-          key={occ.key}
-          occ={occ}
-          clock={clock}
-          labels={arcLabels}
-          color={colorOf(occ.event, calendars)}
-          mark={markOf(occ.event, calendars, inheritMarks)}
-          dimmed={today && statusOf(occ, now) === "past"}
-          hovered={hovered === occ.key}
-          // Somebody else's calendar: it opens, it never moves.
-          locked={feedIds.has(occ.event.calendarId)}
-          dragging={dragging === occ.event.id}
-          gap={gaps.get(occ.key) ?? NO_NEIGHBOUR}
-          // An arc arrives at the minute it starts, which is the same answer
-          // the tick under it got. `lead` puts the day's events on top of the
-          // scale rather than into it.
-          intro={intro ? introDelay(occ.startMin, clock, 200) : null}
-          onHover={onHover}
-          onGrab={onGrab}
-          onTick={onTick}
+      {occurrences.map((occ) =>
+        joins && occ.task && occ.startMin === occ.endMin ? null : renderArc(occ),
+      )}
+      {/* Painted last so neither neighbour can cover the separator, including on hover. */}
+      {joins?.pairs.map(([before, after]) => (
+        <ArcJoin
+          key={`${before.occ.key}/${after.occ.key}`}
+          lane={before.lane}
+          angle={angleAt(before.occ.endMin, clock)}
+          span={Math.min(
+            before.occ.endMin - before.occ.startMin,
+            after.occ.endMin - after.occ.startMin,
+          )}
+          color={P.void}
+          grown={
+            hovered === before.occ.key ||
+            hovered === after.occ.key ||
+            dragging === before.occ.event.id ||
+            dragging === after.occ.event.id
+          }
         />
       ))}
+      {/* Due pips stay whole even when their minute falls exactly on a seam. */}
+      {joins &&
+        occurrences.map((occ) => (occ.task && occ.startMin === occ.endMin ? renderArc(occ) : null))}
 
       {ghost && ghost.end > ghost.start && (
         <GhostArc
@@ -1259,6 +1310,8 @@ function EventArc({
   locked,
   dragging,
   gap,
+  joinBefore,
+  joinAfter,
   onHover,
   onGrab,
   onTick,
@@ -1283,6 +1336,8 @@ function EventArc({
   /** Minutes of clear air before and after, to the nearest arc on this lane.
    *  `Infinity` when there is none — see `seamTrim`. */
   gap: { before: number; after: number };
+  joinBefore: boolean;
+  joinAfter: boolean;
   /** When this arc arrives during the intro, as the CSS to carry, or `null`
    *  when none is running. Resolved by `Face`, because the delay is a fact
    *  about the day rather than about the arc. */
@@ -1322,9 +1377,11 @@ function EventArc({
   const inset = capInset(r);
   const from = angleAt(occ.startMin, clock);
   const to = angleAt(occ.endMin, clock);
+  const joined = joinBefore || joinAfter;
   // Sub-cap-length events collapse to their own round cap: a dot on the ring
   // at the right minute, rather than an arc that lies about its duration.
-  const dot = to - from <= inset * 2;
+  const short = to - from <= inset * 2;
+  const dot = !joined && short;
   // A whole revolution closes instead: the inset that keeps a short arc honest
   // would leave a notch at midnight once the two ends meet.
   const closed = to - from >= 360;
@@ -1350,13 +1407,22 @@ function EventArc({
   //
   // A run-up takes the leading seam instead of the arc: the two are one
   // object, and a seam between them would open a gap in the middle of it.
-  const leading = closed || dot ? 0 : seamTrim(r, gap.before);
-  const paintFrom = closed || dot ? from : from + (runUp > 0 ? 0 : leading);
-  const paintTo = closed || dot ? to : to - seamTrim(r, gap.after);
-  const head = closed ? from : paintFrom + inset;
-  const tail = closed ? to : paintTo - inset;
+  const leading = closed || short || joinBefore ? 0 : seamTrim(r, gap.before);
+  const paintFrom = closed || short ? from : from + (runUp > 0 ? 0 : leading);
+  const paintTo = closed || short || joinAfter ? to : to - seamTrim(r, gap.after);
+  // Keep handles and task pips inset even when the paint reaches a flat join.
+  const head = closed
+    ? from
+    : joined
+      ? Math.min(paintFrom + inset, (paintFrom + paintTo) / 2)
+      : paintFrom + inset;
+  const tail = closed
+    ? to
+    : joined
+      ? Math.max(paintTo - inset, (paintFrom + paintTo) / 2)
+      : paintTo - inset;
   const mid = (from + to) / 2;
-  const d = dot ? arcPath(r, mid, mid + 0.001) : arcPath(r, head, tail);
+  const d = short ? arcPath(r, mid, mid + 0.001) : arcPath(r, head, tail);
   /** Where a due date's pip sits: the same point the dot path is centred on. */
   const taskPoint = polar(r, mid);
   /** A task's occurrence, and which of its two drawings this is: a zero-width
@@ -1367,7 +1433,7 @@ function EventArc({
    *  head cap, inside the arc's own stroke — the thing that says "this arc is
    *  work, not an appointment". A plan collapsed to a dot keeps the dot's
    *  centre, where its cap actually is. */
-  const pipAt = planArc && !dot ? polar(r, head) : taskPoint;
+  const pipAt = planArc && !short ? polar(r, head) : taskPoint;
   /**
    * The run-up, as the dotted outline of the band it books.
    *
@@ -1416,6 +1482,9 @@ function EventArc({
    * growth is.
    */
   const hollowD = hollow ? hollowPath(r, dot ? mid : head, dot ? mid : tail) : "";
+  const joinedD = joined
+    ? joinedArcPath(r, paintFrom, paintTo, joinBefore, joinAfter, hollow ? width : band, hollow)
+    : "";
 
   // A label lives *inside* the stroke, so it costs no radius and reads the
   // same on every lane. It is mounted whenever the sweep can hold one and
@@ -1476,7 +1545,7 @@ function EventArc({
   const movable = Boolean(onGrab) && !locked;
 
   const zones: { grip: Grip; d: string; width: number; cursor: string }[] =
-    movable && !dot
+    movable && !short
       ? [
           { grip: "whole", d, width: HIT_WIDTH, cursor: "cursor-grab" },
           {
@@ -1555,9 +1624,9 @@ function EventArc({
         />
       ) : (
         <path
-          d={hollow ? hollowD : d}
-          fill="none"
-          stroke={color}
+          d={joined ? joinedD : hollow ? hollowD : d}
+          fill={joined && !hollow ? color : "none"}
+          stroke={joined && !hollow ? "none" : color}
           strokeWidth={
             hollow ? (grown ? ARC_HAIRLINE * 2 : ARC_HAIRLINE) : grown ? width + 3 : width
           }
@@ -1689,6 +1758,35 @@ function EventArc({
         />
       )}
     </g>
+  );
+}
+
+/** A canvas-coloured radial hairline shared by the two independent arcs. */
+function ArcJoin({
+  lane,
+  angle,
+  span,
+  color,
+  grown,
+}: {
+  lane: number;
+  angle: number;
+  span: number;
+  color: string;
+  grown: boolean;
+}) {
+  const r = useEased(DIAL.LANE - lane * DIAL.LANE_STEP);
+  const width = useEased(grown ? DIAL.ARC_WIDTH + 3 : DIAL.ARC_WIDTH);
+  const outer = polar(r + width / 2, angle);
+  const inner = polar(r - width / 2, angle);
+  return (
+    <path
+      d={`M ${outer.x} ${outer.y} L ${inner.x} ${inner.y}`}
+      stroke={color}
+      // Leave short events visible between their two separators.
+      strokeWidth={Math.min(ARC_HAIRLINE, (r * span * Math.PI) / (720 * 3))}
+      pointerEvents="none"
+    />
   );
 }
 

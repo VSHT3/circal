@@ -41,6 +41,10 @@ Same geometry either way: an event's arc is the same length on both faces, and
 switching is a 180° rotation and a relabel. The setting also picks how every
 time in the app is written — `1:15 PM` or `13:15`.
 
+**Settings → Face → Dial → Join adjacent events** connects events that meet exactly
+on the same lane, with a thin separator between them. It is off by default. Each
+event keeps its own label and editing controls; gaps and overlaps stay separate.
+
 Events take their colour from their calendar. Any one event can override that
 from the editor's **Color** row: ten digital pastels, or a picker for anything
 else.

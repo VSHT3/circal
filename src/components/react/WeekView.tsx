@@ -441,6 +441,7 @@ export default function WeekView({
                     elapsed={d.today}
                     hand={d.today}
                     inheritMarks={settings.inheritMarks}
+                    joinAdjacent={settings.joinAdjacent}
                     hovered={!run && active && on ? active.key : null}
                     // Hover only: this is what puts a hit stroke on the arc,
                     // and there is deliberately no `onGrab` behind it.

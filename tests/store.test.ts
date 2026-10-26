@@ -1271,6 +1271,49 @@ describe("sane() via setLife", () => {
   });
 });
 
+describe("joinAdjacent", () => {
+  it("defaults off and persists both toggle choices across reloads without changing events", async () => {
+    const s = await freshStore();
+    expect(s.store.snapshot().settings.joinAdjacent).toBe(false);
+    const created = s.store.create(draft(s));
+    s.store.setToggle("joinAdjacent", true);
+    expect(JSON.parse(s.storage.getItem(KEY)!).settings.joinAdjacent).toBe(true);
+
+    const enabled = await freshStore(s.storage);
+    expect(enabled.store.snapshot().settings.joinAdjacent).toBe(true);
+    expect(enabled.store.snapshot().events).toContainEqual(created);
+    enabled.store.setToggle("joinAdjacent", false);
+
+    const disabled = await freshStore(s.storage);
+    expect(disabled.store.snapshot().settings.joinAdjacent).toBe(false);
+    expect(disabled.store.snapshot().events).toContainEqual(created);
+  });
+
+  it.each([
+    { name: "absent", stored: undefined, want: false },
+    { name: "enabled", stored: true, want: true },
+    { name: "disabled", stored: false, want: false },
+    { name: "a string", stored: "true", want: false },
+    { name: "a number", stored: 1, want: false },
+    { name: "null", stored: null, want: false },
+    { name: "an object", stored: {}, want: false },
+  ])("hydrates $name as $want", async ({ stored, want }) => {
+    const storage = new MemoryStorage();
+    storage.setItem(
+      KEY,
+      JSON.stringify({
+        schema: 2,
+        events: [],
+        calendars: [],
+        settings: { joinAdjacent: stored, clock: "12h" },
+      }),
+    );
+    const s = await freshStore(storage);
+    expect(s.store.snapshot().settings.joinAdjacent).toBe(want);
+    expect(s.store.snapshot().settings.clock).toBe("12h");
+  });
+});
+
 describe("sane() via parsing a stored blob", () => {
   it("a malformed stored birth is dropped to empty, the same as the setLife path", async () => {
     const storage = new MemoryStorage();
