@@ -46,9 +46,8 @@ zone, revision) plus a ready-to-paste config block. Paste that block into
 your client below, swap the path if it picked up the wrong file, then
 restart the client.
 
-> **Daily notes require a server built from this source, or `circal-mcp@0.6.0`
-> or newer once published.** Until that release is available, run
-> `pnpm build:mcp` and configure `node mcp/dist/circal-mcp.mjs`.
+> **Daily notes require `circal-mcp@0.6.0` or newer.** Upgrade any pinned
+> client version and restart the MCP client so it launches the current server.
 > Mirror format 5 carries `dayNotes` and the daily-note settings; older
 > servers refuse its writes rather than removing the notes. The merge floor
 > stays at format 2, so older stamped documents still merge without losing
