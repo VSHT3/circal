@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calendar, event, grave, ms } from "./helpers";
+import { calendar, dailyNote, event, grave, ms } from "./helpers";
 import { DEFAULT_SETTINGS } from "@/lib/store";
 import { MIRROR_VERSION, serialiseMirror } from "@/lib/mirror";
 import {
@@ -44,6 +44,7 @@ function snapshot(
   return {
     tasks: [],
     taskLists: [],
+    dayNotes: [],
     events,
     calendars: over.calendars ?? [calendar({ id: CAL })],
     settings: DEFAULT_SETTINGS,
@@ -237,6 +238,18 @@ describe("merge, or adopt whole", () => {
     expect
       .soft(taken.take !== "stop" && taken.document.events.map((e) => e.id))
       .toEqual(["mine", "theirs"]);
+  });
+
+  it("keeps note-only edits when merging a format-4 document with unrelated event changes", () => {
+    const notes = [dailyNote({ updatedAt: STAMP })];
+    const local = { ...snapshot([], { settingsAt: 0 }), dayNotes: notes };
+    const older = JSON.parse(theirs());
+    older.version = 4;
+    delete older.dayNotes;
+    const taken = cloudTake(JSON.stringify(older), local, STAMP);
+    expect(taken.take).toBe("merge");
+    expect(taken.take !== "stop" && taken.document.dayNotes).toEqual(notes);
+    expect(taken.take !== "stop" && taken.document.events[0].id).toBe("theirs");
   });
 
   it("carries the row's own revision and zone, since the merge is written over that row", () => {

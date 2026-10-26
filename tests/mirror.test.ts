@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calendar, event, ms, task, taskList } from "./helpers";
+import { calendar, dailyNote, event, ms, task, taskList } from "./helpers";
 import { DEFAULT_SETTINGS } from "@/lib/store";
 import {
   MIRROR_VERSION,
@@ -29,6 +29,7 @@ function snapshot(
   return {
     tasks: [],
     taskLists: [],
+    dayNotes: [],
     events,
     calendars,
     settings: DEFAULT_SETTINGS,
@@ -52,6 +53,19 @@ it("round-trips nested lists and task membership, and includes list edits in its
   expect(restored.tasks).toEqual(original.tasks);
   expect(mirrorDigest(restored)).toBe(mirrorDigest(original));
   expect(mirrorDigest({ ...original, taskLists: [{ ...root, name: "Home" }, child] })).not.toBe(
+    mirrorDigest(original),
+  );
+});
+
+it("round-trips daily notes and blank clears, and digests text but not note order", () => {
+  const note = dailyNote({ updatedAt: ms("2026-03-08 09:00") });
+  const cleared = dailyNote({ day: "2026-03-09", text: "", updatedAt: note.updatedAt + 1 });
+  const original = { ...snapshot([]), dayNotes: [note, cleared] };
+  const restored = readMirrorFile(serialiseMirror(original, 1))!;
+  expect(restored.dayNotes).toEqual(original.dayNotes);
+  expect(mirrorDigest(restored)).toBe(mirrorDigest(original));
+  expect(mirrorDigest({ ...original, dayNotes: [cleared, note] })).toBe(mirrorDigest(original));
+  expect(mirrorDigest({ ...original, dayNotes: [{ ...note, text: "Changed" }, cleared] })).not.toBe(
     mirrorDigest(original),
   );
 });
@@ -242,6 +256,13 @@ describe("the version gate: merge, adopt, or refuse", () => {
 
   it.each([
     { name: "a v2 file against a v2 store merges", version: 2, settingsAt: 1, want: true },
+    {
+      name: "a v4 file still merges with daily-note-aware stores",
+      version: 4,
+      settingsAt: 1,
+      want: true,
+    },
+    { name: "a daily-note format file merges", version: MIRROR_VERSION, settingsAt: 1, want: true },
     { name: "a v1 file adopts, whatever it carries", version: 1, settingsAt: 1, want: false },
     {
       name: "a v2 file whose document predates stamping adopts",

@@ -1,6 +1,16 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import "./helpers";
-import { MemoryStorage, attendee, calendar, event, ms, plan, task, taskList } from "./helpers";
+import {
+  MemoryStorage,
+  attendee,
+  calendar,
+  dailyNote,
+  event,
+  ms,
+  plan,
+  task,
+  taskList,
+} from "./helpers";
 import {
   readBackup,
   readEvent,
@@ -54,6 +64,34 @@ it("reads nested lists and membership from backups without inventing lists in ol
   expect(restored.ok && restored.taskLists).toEqual([root, child]);
   expect(restored.ok && restored.tasks[0].listId).toBe(child.id);
   expect(restored.ok && restored.tasks[0].order).toBe(3);
+});
+
+it("reads daily notes and blank clears, drops malformed dates, and leaves old backups empty", () => {
+  const legacy = { app: "circal", calendars: [calendar()] };
+  const old = readBackup(legacy);
+  expect(old.ok && old.dayNotes).toEqual([]);
+  const notes = [
+    dailyNote({ updatedAt: START }),
+    dailyNote({ day: "2026-03-09", text: "", updatedAt: END }),
+  ];
+  const read = readBackup({
+    ...legacy,
+    dayNotes: [...notes, { day: "2026-02-30", text: "Bad" }, null],
+  });
+  expect(read.ok && read.dayNotes).toEqual(notes);
+});
+
+it.each([
+  { value: {}, moon: true, dailyNote: true },
+  { value: { moon: false, dailyNote: false }, moon: false, dailyNote: false },
+  { value: { moonPhase: "off" }, moon: false, dailyNote: true },
+  { value: { moon: false, moonPhase: "aperture" }, moon: false, dailyNote: true },
+])("preserves explicit display choices in backups: $value", ({ value, moon, dailyNote }) => {
+  expect(readSettings(value)).toMatchObject({ moon, dailyNote });
+});
+
+it.each(TOTALS_POSITIONS)("reads daily-note placement %s", (dailyNoteAt) => {
+  expect(readSettings({ dailyNoteAt }).dailyNoteAt).toBe(dailyNoteAt);
 });
 
 /* ---------------------------------- readEvent --------------------------- */
@@ -573,8 +611,8 @@ describe("readSettings", () => {
     { name: "a legacy moon register", settings: { moonPhase: "aperture" } },
     { name: "a non-string", settings: { moonAt: 7 } },
     { name: "null", settings: { moonAt: null } },
-  ])("moon placement reads $name as sidebar", ({ settings }) => {
-    expect(readSettings(settings).moonAt).toBe("sidebar");
+  ])("moon placement reads $name as bottom-right", ({ settings }) => {
+    expect(readSettings(settings).moonAt).toBe("bottom-right");
   });
 
   it("leaves unknown moon position strings for the store's shared clamp", () => {
@@ -827,6 +865,44 @@ describe("importBackup", () => {
     const { store } = await import("@/lib/store");
     return { backup, store };
   }
+
+  it("exports and restores daily notes and their display preferences without losing Markdown", async () => {
+    const save = vi.fn(async (_filename: string, _body: string) => true);
+    vi.stubGlobal("window", { __circalSave: save });
+    const { backup, store } = await load();
+    store.setDayNote("2026-03-08", "# Plan\n\n- [ ] Start\n");
+    store.setDayNote("2026-03-09", "Temporary");
+    store.setDayNote("2026-03-09", "");
+    store.setToggle("dailyNote", false);
+    store.setDailyNoteAt("top-left");
+    const notes = store.snapshot().dayNotes;
+    await backup.exportBackup(store.snapshot());
+    const text = save.mock.calls[0][1];
+    expect(JSON.parse(text).dayNotes).toEqual(notes);
+    store.setDayNote("2026-03-08", "Changed");
+    store.setToggle("dailyNote", true);
+    backup.importBackup(text);
+    expect(store.snapshot().dayNotes.map(({ day, text }) => ({ day, text }))).toEqual(
+      notes.map(({ day, text }) => ({ day, text })),
+    );
+    expect(store.snapshot().settings).toMatchObject({ dailyNote: false, dailyNoteAt: "top-left" });
+    expect(JSON.parse(storage.getItem("circal.v1")!).dayNotes).toEqual(store.snapshot().dayNotes);
+  });
+
+  it("clamps invalid daily-note placements when restoring", async () => {
+    const { backup, store } = await load();
+    backup.importBackup(
+      JSON.stringify({
+        app: "circal",
+        calendars: [calendar()],
+        settings: { dailyNoteAt: "sidebar" },
+      }),
+    );
+    expect(store.snapshot().settings).toMatchObject({
+      dailyNote: true,
+      dailyNoteAt: "bottom-right",
+    });
+  });
   it("does not reset the backup clock when the native save panel is cancelled", async () => {
     const previous = String(ms("2026-03-01 09:00"));
     storage.setItem("circal.backup", previous);

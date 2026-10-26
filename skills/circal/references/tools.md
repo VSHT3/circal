@@ -14,24 +14,29 @@ The server's live schemas take precedence over this reference. All inputs are ob
 | `describe_event` | `id`                                           | Event details and recurrence sentence, or task deadline/status/plans for a task ID.            |
 | `free_slots`     | `date`, `minutes`, `from?`, `to?`, `calendar?` | Gaps of at least `minutes` and booked/free totals. Window defaults to waking-hours settings.   |
 | `list_tasks`     | `{}`                                           | Tasks grouped by Overdue, Due soon, Later and Done. No calendar filter.                        |
+| `get_daily_note` | `date`                                         | Markdown note for one local day, or an explicit absent/cleared result.                         |
+| `get_settings`   | `{}`                                           | Synced preferences; excludes device bookkeeping and credentials.                               |
 
 A read's `calendar` is a calendar ID or unique name prefix. Hidden calendars are excluded from agenda/availability calculations. Subscribed feed events are not in the mirrored document, even when subscription metadata is listed.
 
 ## Write tools
 
-| Tool              | Arguments                                                   | Behavior                                                                                                                                      |
-| ----------------- | ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `quick_add`       | `text`, `date?`                                             | Creates immediately from the app's quick-add grammar. Optional `date` anchors relative words, otherwise today.                                |
-| `create_event`    | Event creation fields below                                 | Creates, or upserts when `key` is supplied.                                                                                                   |
-| `create_events`   | `events` (array of event creation objects, 1 to 100)        | All-or-nothing batch, one revision increment. Each object can have its own `key`.                                                             |
-| `update_event`    | `id`, `patch` (event patch fields), `scope?`, `occurrence?` | Omitted fields stay unchanged; repeating targets require an explicit scope.                                                                   |
-| `delete_event`    | `id`, `scope?`, `occurrence?`                               | Removes an event according to scope. Also accepts a task ID for whole-task removal; prefer `delete_task`.                                     |
-| `create_task`     | Task creation fields below                                  | Creates work with a deadline, optional estimate and no initial plans.                                                                         |
-| `update_task`     | `id`, `patch` (task patch fields)                           | Changes task details, not plans or completion.                                                                                                |
-| `delete_task`     | `id`                                                        | Removes the whole task.                                                                                                                       |
-| `plan_task`       | `id`, `date`, `start`, `end?`, `duration?`                  | Appends a work block. Length falls back to estimate, then default duration. No conflict check; refuses completed tasks or more than 32 plans. |
-| `toggle_done`     | `id`, `occurrence?`                                         | Flips the whole task's completion. Optional `occurrence` is accepted but ignored.                                                             |
-| `create_calendar` | `name`, `color?`, `icon?`                                   | Creates a writable calendar, never a subscription.                                                                                            |
+| Tool               | Arguments                                                   | Behavior                                                                                                                                      |
+| ------------------ | ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `quick_add`        | `text`, `date?`                                             | Creates immediately from the app's quick-add grammar. Optional `date` anchors relative words, otherwise today.                                |
+| `create_event`     | Event creation fields below                                 | Creates, or upserts when `key` is supplied.                                                                                                   |
+| `create_events`    | `events` (array of event creation objects, 1 to 100)        | All-or-nothing batch, one revision increment. Each object can have its own `key`.                                                             |
+| `update_event`     | `id`, `patch` (event patch fields), `scope?`, `occurrence?` | Omitted fields stay unchanged; repeating targets require an explicit scope.                                                                   |
+| `delete_event`     | `id`, `scope?`, `occurrence?`                               | Removes an event according to scope. Also accepts a task ID for whole-task removal; prefer `delete_task`.                                     |
+| `create_task`      | Task creation fields below                                  | Creates work with a deadline, optional estimate and no initial plans.                                                                         |
+| `update_task`      | `id`, `patch` (task patch fields)                           | Changes task details, not plans or completion.                                                                                                |
+| `delete_task`      | `id`                                                        | Removes the whole task.                                                                                                                       |
+| `plan_task`        | `id`, `date`, `start`, `end?`, `duration?`                  | Appends a work block. Length falls back to estimate, then default duration. No conflict check; refuses completed tasks or more than 32 plans. |
+| `toggle_done`      | `id`, `occurrence?`                                         | Flips the whole task's completion. Optional `occurrence` is accepted but ignored.                                                             |
+| `create_calendar`  | `name`, `color?`, `icon?`                                   | Creates a writable calendar, never a subscription.                                                                                            |
+| `set_daily_note`   | `date`, `text`                                              | Replaces the complete Markdown note for one day. Read before preserving or appending existing text. Empty text clears.                        |
+| `clear_daily_note` | `date`                                                      | Clears one day, preserving other dates and a sync-safe clear stamp.                                                                           |
+| `update_settings`  | `patch`                                                     | Updates only supplied synced preferences. Unknown keys and invalid values are refused.                                                        |
 
 ### Event creation and patch fields
 
@@ -82,7 +87,16 @@ Creation requires `date`, meaning the due day; every other field is optional. An
 - `priority`: `"normal"`, `"high"`, or `"urgent"`.
 - `calendarId`, `color`, `icon`: as for events.
 
-No task recurrence, key, foreign zone, list membership, manual order, completion or plan fields are accepted. No MCP tools modify settings, subscribe to feeds, remove calendars, move/remove individual plans, manage task lists, export backups or run auto-scheduling.
+No task recurrence, key, foreign zone, list membership, manual order, completion or plan fields are accepted. No MCP tools subscribe to feeds, remove calendars, move/remove individual plans, manage task lists, export backups or run auto-scheduling.
+
+### Synced preferences
+
+Read `get_settings` before changing preferences. Use the live `update_settings`
+schema for the full field list and legal values. For example,
+`{"patch":{"moon":true,"moonAt":"bottom-right","dailyNote":true,"dailyNoteAt":"bottom-right"}}`.
+Dates and positions are preferences, not permission to change event data.
+Set `place` to `{"zone":"Europe/Berlin"}` or `null`; coordinates and label are derived.
+Device permissions, credentials, `deviceZone` and `stampedZones` are not writable here.
 
 ## Implementation sources
 

@@ -290,17 +290,34 @@ exactly as it was: the elapsed day as a ramp of light around the rim.
 
 ## The moon
 
-Enable the moon in **Settings → Face → Dial → Moon**. Keep it in the sidebar,
-or choose **Dial** and use the nine-position grid, just like day totals. The
-centre position sits below the readout; totals and moon stack when they share a
-position. The moon reads your selected day, so stepping through a week walks it
-through its phases. It stays off until you ask for it.
+The moon starts at the bottom right of the dial. In **Settings → Face → Dial → Moon**,
+keep that position, choose another cell in the nine-position grid, or move it to the
+sidebar. Existing saved choices are preserved. The moon reads your selected day, so
+stepping through a week walks it through its phases.
 
 It draws the astronomy, in the app's own black and white, and it draws only the
 lit part: the terminator as an ellipse over it, no outline and no dark limb, so
 a crescent is a crescent rather than a disc with a crescent on it and a new
 moon is nothing at all. Beside it, the phase's name, how much of it is lit, and
 how many days to the next full or new moon.
+
+## Daily notes
+
+The small note icon opens a Markdown note for the selected day. Changes save as you
+type; **Edit** and **Preview** switch between the source and formatted text. Headings,
+lists, checklists, links, tables and code blocks are supported. Images are shown as
+descriptions rather than fetched from the web.
+
+Long notes scroll inside the card. Drag its resize grip to change the card's size;
+the grip also accepts arrow keys. The card stays within the window on smaller screens.
+Use **Settings → Face → Dial → Daily note** to hide the icon or choose its position.
+The moon, totals and note icon stack when they share a position.
+
+Each date has its own note. Notes travel in JSON backups and through mirror or encrypted
+cloud sync, not ICS exports. An assistant can read, replace or clear a dated note using
+`get_daily_note`, `set_daily_note` and `clear_daily_note`. `get_settings` and
+`update_settings` expose synced preferences without access to device permissions,
+credentials or travel bookkeeping.
 
 ## The week, as seven dials
 

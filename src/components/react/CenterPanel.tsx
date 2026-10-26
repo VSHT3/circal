@@ -56,6 +56,7 @@ export interface CenterPanelProps {
   ambient: boolean;
   /** Already drawn for this day and theme; placement comes from settings. */
   moon: ReactNode;
+  dailyNote: ReactNode;
   /** Live drag-to-create range, in minutes since midnight. */
   drag: { start: number; end: number } | null;
   hovered: string | null;
@@ -135,13 +136,15 @@ export default function CenterPanel({
   settings,
   ambient,
   moon,
+  dailyNote,
   drag,
   hovered,
   onHover,
   onOpen,
   onToggleDone,
 }: CenterPanelProps) {
-  const { clock, totals, totalsAt, moonAt, wakingFrom, wakingTo, remindLead } = settings;
+  const { clock, totals, totalsAt, moonAt, dailyNoteAt, wakingFrom, wakingTo, remindLead } =
+    settings;
   const today = isSameDay(day, now);
   const reducedMotion = useReducedMotion();
   /** The mood, as one factor on the pair below rather than on every size. */
@@ -248,6 +251,7 @@ export default function CenterPanel({
   ) : null;
   const centred = totalsAt === "center" ? totalsLine : null;
   const centredMoon = moonAt === "center" ? moon : null;
+  const centredNote = dailyNoteAt === "center" ? dailyNote : null;
 
   return (
     <div className="pointer-events-none absolute inset-0">
@@ -323,7 +327,7 @@ export default function CenterPanel({
           and a cut beside a readout that is gliding into its span reads as
           the card having crashed rather than left. */}
         <AnimatePresence initial={false}>
-          {!drag && (shown.length > 0 || centred || centredMoon) && (
+          {!drag && (shown.length > 0 || centred || centredMoon || centredNote) && (
             <motion.div
               key="card"
               className="absolute top-1/2 left-1/2 flex flex-col items-center"
@@ -658,17 +662,18 @@ export default function CenterPanel({
 
               <AnimatePresence initial={false}>{centred}</AnimatePresence>
               {centredMoon}
+              {centredNote}
             </motion.div>
           )}
         </AnimatePresence>
       </div>
 
-      {/* Sharing a stage position gives totals and moon one column, so neither
-          can cover the other. The centre remains in the readout's column. */}
+      {/* Complications sharing a position stack rather than cover each other. */}
       {Object.entries(CORNERS).map(([position, placement]) => {
         const placedTotals = totalsAt === position ? totalsLine : null;
         const placedMoon = moonAt === position ? moon : null;
-        if (!placedTotals && !placedMoon) return null;
+        const placedNote = dailyNoteAt === position ? dailyNote : null;
+        if (!placedTotals && !placedMoon && !placedNote) return null;
         return (
           <div key={position} className={cn("absolute inset-0 flex p-4", placement)}>
             <div
@@ -683,6 +688,7 @@ export default function CenterPanel({
             >
               <AnimatePresence initial={false}>{placedTotals}</AnimatePresence>
               {placedMoon}
+              {placedNote}
             </div>
           </div>
         );

@@ -7,9 +7,6 @@
  * — the disc riding behind a watchmaker's aperture, in night blue with
  * stars — and it was the only chrome in circal that was neither
  * greyscale nor flat. One question, one answer, in this app's voice.
- *
- * Not on by default. This is the one thing in circal that draws
- * something the calendar does not contain.
  * ------------------------------------------------------------------ */
 
 import { moonForDay, nextPhase, type MoonPhase } from "@/lib/moon";

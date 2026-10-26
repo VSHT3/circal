@@ -14,13 +14,13 @@ import type { MirrorContents } from "@/lib/mirror";
 /**
  * Everything a write carries — the whole document minus the envelope
  * (`rev`, `zone`, `version`), which is the transport's own business.
- * A mutation round-trips all five fields or silently drops what it
+ * A mutation round-trips every field or silently drops what it
  * forgets; see `carried` in mcp/domain.ts for the measured version of
  * that warning.
  */
 export type Mutated = Pick<
   MirrorContents,
-  "events" | "calendars" | "tasks" | "taskLists" | "settings" | "settingsAt" | "graves"
+  "events" | "calendars" | "tasks" | "taskLists" | "dayNotes" | "settings" | "settingsAt" | "graves"
 >;
 
 export interface Loaded {

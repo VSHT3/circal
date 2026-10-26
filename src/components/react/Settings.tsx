@@ -295,6 +295,8 @@ export default function Settings({
     inheritMarks,
     moon,
     moonAt,
+    dailyNote,
+    dailyNoteAt,
     remind,
     remindLead,
     backupNudge,
@@ -964,6 +966,10 @@ export default function Settings({
                               The selected day's moon, in the sidebar or on the dial. The centre
                               position sits below the readout and agenda.
                             </InfoEntry>
+                            <InfoEntry name="Daily note">
+                              A Markdown note for the selected day, saved as you type. The icon
+                              opens the note; its position is independent of the moon and totals.
+                            </InfoEntry>
                             <InfoEntry name="Arc names">
                               When an event's name is drawn along its arc.
                             </InfoEntry>
@@ -1023,7 +1029,7 @@ export default function Settings({
                                       value === "sidebar"
                                         ? "sidebar"
                                         : moonAt === "sidebar"
-                                          ? "top-right"
+                                          ? "bottom-right"
                                           : moonAt,
                                     )
                                   }
@@ -1041,6 +1047,24 @@ export default function Settings({
                                   />
                                 )}
                               </>
+                            )}
+                          </div>
+                        </FieldRow>
+                        <FieldRow label="Daily note">
+                          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
+                            <Toggle
+                              label="On"
+                              name="Daily note"
+                              checked={dailyNote}
+                              onChange={(on) => store.setToggle("dailyNote", on)}
+                            />
+                            {dailyNote && (
+                              <PositionField
+                                value={dailyNoteAt}
+                                onChange={store.setDailyNoteAt}
+                                options={TOTALS_OPTIONS}
+                                label="Where the daily note sits"
+                              />
                             )}
                           </div>
                         </FieldRow>

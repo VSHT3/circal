@@ -23,6 +23,7 @@ import {
   type Recurrence,
 } from "@/lib/events";
 import type { Plan, Task, TaskList } from "@/lib/tasks";
+import { dayNoteId, type DailyNote } from "@/lib/dayNotes";
 
 /* -------------------------------- parsing --------------------------------- */
 
@@ -230,6 +231,11 @@ export function task(
 
 export function taskList(overrides: Partial<TaskList> = {}): TaskList {
   return { id: id("list"), name: "List", parentId: "", updatedAt: 0, ...overrides };
+}
+
+export function dailyNote(overrides: Partial<DailyNote> = {}): DailyNote {
+  const day = overrides.day ?? "2026-03-08";
+  return { id: dayNoteId(day), day, text: "# Today\n\nA note.", updatedAt: 0, ...overrides };
 }
 
 /** One plan, both ends as stamps. */

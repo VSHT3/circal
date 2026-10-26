@@ -17,6 +17,7 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
+  type ReactNode,
 } from "react";
 import { DIAL, VIEW_SIZE, minutesAtPoint } from "@/lib/dial";
 import { clipToDay, colorOf, type Calendar, type Occurrence } from "@/lib/events";
@@ -73,6 +74,7 @@ export interface DialProps {
    * and its own destructure — three places to touch for a single switch.
    */
   settings: Settings;
+  dailyNote: ReactNode;
   /**
    * Where the second zone is, for its own band on its own rim — derived by the
    * shell from `settings.secondZone`, so it is not a setting itself. Its two
@@ -410,6 +412,7 @@ export default function Dial({
   occurrences,
   calendars,
   settings,
+  dailyNote,
   zonePlace,
   pending,
   slots,
@@ -1095,6 +1098,7 @@ export default function Dial({
           u={u}
           settings={settings}
           ambient={ambient}
+          dailyNote={dailyNote}
           moon={
             moon && moonAt !== "sidebar" ? (
               <MoonPanel day={day} theme={theme} compact u={moonAt === "center" ? u : 1.3} />

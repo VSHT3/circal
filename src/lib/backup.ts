@@ -50,6 +50,7 @@ import {
   type Task,
   type TaskList,
 } from "./tasks";
+import { readDayNotes, type DailyNote } from "./dayNotes";
 
 const BACKUP_VERSION = 1;
 
@@ -61,6 +62,7 @@ interface Backup {
   calendars: Calendar[];
   tasks: Task[];
   taskLists: TaskList[];
+  dayNotes: DailyNote[];
   settings: Settings;
   /**
    * The deletions and the settings stamp travel with the events, because a
@@ -170,6 +172,7 @@ export async function exportBackup(snapshot: Snapshot) {
     ),
     tasks: snapshot.tasks,
     taskLists: snapshot.taskLists,
+    dayNotes: snapshot.dayNotes,
     settings: snapshot.settings,
     settingsAt: snapshot.settingsAt,
     graves: snapshot.graves,
@@ -307,16 +310,20 @@ export function readSettings(value: unknown): Settings {
     ambientArcLabels: (typeof value.ambientArcLabels === "string"
       ? value.ambientArcLabels
       : DEFAULT_SETTINGS.ambientArcLabels) as Settings["ambientArcLabels"],
-    // Both of these appear because the user asked for them, so an absent one
-    // is off rather than on — the opposite reading from the dial switches
-    // above, and for the opposite reason: one is a thing the face already
-    // drew, these are things that were never there. `sane()` pins the lead.
-    // A file written while the moon had two registers carries the string
-    // `moonPhase` instead, and either register is a moon that was asked for.
-    moon: value.moon === true || (typeof value.moonPhase === "string" && value.moonPhase !== "off"),
+    // Explicit choices, including the legacy moon register, survive new defaults.
+    moon:
+      typeof value.moon === "boolean"
+        ? value.moon
+        : typeof value.moonPhase === "string"
+          ? value.moonPhase !== "off"
+          : DEFAULT_SETTINGS.moon,
     moonAt: (typeof value.moonAt === "string"
       ? value.moonAt
       : DEFAULT_SETTINGS.moonAt) as Settings["moonAt"],
+    dailyNote: typeof value.dailyNote === "boolean" ? value.dailyNote : DEFAULT_SETTINGS.dailyNote,
+    dailyNoteAt: (typeof value.dailyNoteAt === "string"
+      ? value.dailyNoteAt
+      : DEFAULT_SETTINGS.dailyNoteAt) as Settings["dailyNoteAt"],
     remind: value.remind === true,
     remindLead:
       typeof value.remindLead === "number" ? value.remindLead : DEFAULT_SETTINGS.remindLead,
@@ -514,6 +521,7 @@ export type BackupRead =
       calendars: Calendar[];
       tasks: Task[];
       taskLists: TaskList[];
+      dayNotes: DailyNote[];
       settings: Settings;
       settingsAt: number;
       graves: Grave[];
@@ -555,6 +563,7 @@ export function readBackup(parsed: unknown): BackupRead {
     }),
     calendars,
     taskLists,
+    dayNotes: readDayNotes(parsed.dayNotes),
     // A task's calendar is parked the same way an event's is, same reason.
     tasks: tasks.map((t) => (known.has(t.calendarId) ? t : { ...t, calendarId: fallback })),
     settings: readSettings(parsed.settings),

@@ -79,6 +79,7 @@ import { REMIND_LEADS } from "./remind";
 import { DEFAULT_THEME, isThemeName, type ThemeName } from "./theme";
 import { clearedStamps, countStamped, keptEvents, movedEvents } from "./travel";
 import type { PickedPlace } from "./places";
+import { dayNoteId, isDayNoteDay, readDayNotes, type DailyNote } from "./dayNotes";
 
 const KEY = "circal.v1";
 
@@ -341,10 +342,12 @@ export interface Settings {
   /** Names along the arcs, in ambient. Its own mode, because 11px mono is
    *  read from a chair and this face is read from across a room. */
   ambientArcLabels: ArcLabelMode;
-  /** The selected day's moon in the app's greyscale, off until requested. */
+  /** The selected day's moon in the app's greyscale. */
   moon: boolean;
-  /** Sidebar by default, or one of nine positions on the dial. */
+  /** Bottom-right by default, or the sidebar or another dial position. */
   moonAt: MoonPosition;
+  dailyNote: boolean;
+  dailyNoteAt: TotalsPosition;
   /**
    * Notifications for what is about to start, while this tab is open.
    *
@@ -438,6 +441,7 @@ export interface Snapshot {
    */
   tasks: Task[];
   taskLists: TaskList[];
+  dayNotes: DailyNote[];
   /**
    * Events pulled from subscribed feeds, keyed by their calendar's id. Kept
    * apart from `events` so a refresh can replace a feed wholesale, and so
@@ -559,10 +563,10 @@ export const DEFAULT_SETTINGS: Settings = {
   // Off, for the reason `arcLabels` defaults to `always`: the argument is
   // legibility, and at this distance the label is the illegible part.
   ambientArcLabels: "off",
-  // Off. It is the only thing in this app that draws something the calendar
-  // does not contain, so it has to be asked for by name.
-  moon: false,
-  moonAt: "sidebar",
+  moon: true,
+  moonAt: "bottom-right",
+  dailyNote: true,
+  dailyNoteAt: "bottom-right",
   // Off, and it is the one default here that is a promise rather than a
   // preference: nothing in circal has ever interrupted anybody, and the first
   // thing that can must be switched on deliberately.
@@ -770,6 +774,7 @@ const EMPTY: Snapshot = {
   events: [],
   tasks: [],
   taskLists: [],
+  dayNotes: [],
   calendars: DEFAULT_CALENDARS,
   feeds: {},
   settings: DEFAULT_SETTINGS,
@@ -822,7 +827,7 @@ export const YEAR_QUOTE_MAX = 72;
  * years the grid can actually draw, and a position or a mode has to be one
  * the panel knows how to show.
  */
-function sane(settings: Settings): Settings {
+export function sane(settings: Settings): Settings {
   const years = Math.round(settings.lifeExpectancy);
   // Clamped into the day before they are compared, so a value that only
   // needed rounding is not thrown away for the sin of the one beside it.
@@ -877,6 +882,12 @@ function sane(settings: Settings): Settings {
       settings.moonAt === "sidebar" || TOTALS_POSITIONS.includes(settings.moonAt)
         ? settings.moonAt
         : DEFAULT_SETTINGS.moonAt,
+    dailyNoteAt: TOTALS_POSITIONS.includes(settings.dailyNoteAt)
+      ? settings.dailyNoteAt
+      : DEFAULT_SETTINGS.dailyNoteAt,
+    dailyNote:
+      typeof settings.dailyNote === "boolean" ? settings.dailyNote : DEFAULT_SETTINGS.dailyNote,
+    moon: typeof settings.moon === "boolean" ? settings.moon : DEFAULT_SETTINGS.moon,
     arcLabels: ARC_LABEL_MODES.includes(settings.arcLabels)
       ? settings.arcLabels
       : DEFAULT_SETTINGS.arcLabels,
@@ -1161,6 +1172,7 @@ function parse(stored: Partial<Snapshot>): Persisted {
     taskLists: (Array.isArray(stored.taskLists) ? stored.taskLists : [])
       .map(readTaskList)
       .filter((list): list is TaskList => list !== null),
+    dayNotes: readDayNotes(stored.dayNotes),
     calendars: hydrateCalendars(stored.calendars),
     // Both of these can be stored *wrong* rather than merely missing, and both
     // draw something broken if they are.
@@ -1459,6 +1471,7 @@ function baseSignature(s: Snapshot): string {
     s.events,
     s.tasks,
     s.taskLists,
+    s.dayNotes,
     s.calendars.map(({ feed: _feed, ...rest }) => rest),
     s.settings,
   ]);
@@ -1686,6 +1699,30 @@ export const store = {
   update(id: string, patch: Partial<CalEvent>) {
     const base = fresh();
     commit({ ...base, events: applyUpdate(base.events, id, patch, Date.now()) });
+  },
+
+  setDayNote(day: string, text: string) {
+    if (!isDayNoteDay(day)) return;
+    const base = fresh();
+    const id = dayNoteId(day);
+    const previous = base.dayNotes.find((note) => note.id === id);
+    if ((previous?.text ?? "") === text) return;
+    const note: DailyNote = {
+      id,
+      day,
+      text,
+      updatedAt: Math.max(
+        Date.now(),
+        (previous?.updatedAt ?? 0) + 1,
+        (base.graves.find((grave) => grave.id === id)?.at ?? 0) + 1,
+      ),
+    };
+    commit({
+      ...base,
+      dayNotes: previous
+        ? base.dayNotes.map((item) => (item.id === id ? note : item))
+        : [...base.dayNotes, note],
+    });
   },
 
   /* -------------------------------- tasks --------------------------------- */
@@ -2143,6 +2180,11 @@ export const store = {
     commit(withSettings(base, { ...base.settings, moonAt }), false);
   },
 
+  setDailyNoteAt(dailyNoteAt: TotalsPosition) {
+    const base = fresh();
+    commit(withSettings(base, sane({ ...base.settings, dailyNoteAt })), false);
+  },
+
   setArcLabels(arcLabels: ArcLabelMode) {
     const base = fresh();
     commit(withSettings(base, { ...base.settings, arcLabels }), false);
@@ -2502,7 +2544,14 @@ export const store = {
   restore(
     next: Pick<
       Snapshot,
-      "events" | "calendars" | "tasks" | "taskLists" | "settings" | "settingsAt" | "graves"
+      | "events"
+      | "calendars"
+      | "tasks"
+      | "taskLists"
+      | "dayNotes"
+      | "settings"
+      | "settingsAt"
+      | "graves"
     >,
   ) {
     // Only for its side effect: `commit` records the *current* snapshot as the
@@ -2544,7 +2593,14 @@ export const store = {
   adopt(
     next: Pick<
       Snapshot,
-      "events" | "calendars" | "tasks" | "taskLists" | "settings" | "settingsAt" | "graves"
+      | "events"
+      | "calendars"
+      | "tasks"
+      | "taskLists"
+      | "dayNotes"
+      | "settings"
+      | "settingsAt"
+      | "graves"
     >,
   ) {
     // Only for its side effect, the same reason `restore` calls it: `commit`
@@ -2563,6 +2619,7 @@ export const store = {
         calendars: next.calendars,
         tasks: next.tasks,
         taskLists: next.taskLists,
+        dayNotes: next.dayNotes,
         graves: next.graves,
         settings: sane({ ...DEFAULT_SETTINGS, ...next.settings }),
         settingsAt: next.settingsAt,

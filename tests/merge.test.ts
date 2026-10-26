@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calendar, event, grave, ms, task, taskList } from "./helpers";
+import { calendar, dailyNote, event, grave, ms, task, taskList } from "./helpers";
 import { DEFAULT_SETTINGS, type Settings } from "@/lib/store";
 import { GRAVE_TTL } from "@/lib/events";
 import { canonicalJson, mergeDocuments, pruneGraves, restamped, stamped } from "@/lib/merge";
@@ -34,6 +34,7 @@ function doc(over: Partial<Mergeable<Settings>> = {}): Mergeable<Settings> {
     events: [],
     tasks: [],
     taskLists: [],
+    dayNotes: [],
     calendars: [calendar({ id: "cal-work", updatedAt: TUESDAY })],
     graves: [],
     settings: DEFAULT_SETTINGS,
@@ -66,6 +67,39 @@ describe("task list merge", () => {
     expect(stamped(edited)).toBe(true);
     const undone = restamped(empty, edited, NOW);
     expect(undone.graves).toContainEqual({ id: edited.taskLists[0].id, at: NOW });
+  });
+});
+
+describe("daily note merge", () => {
+  it("merges independent dates and keeps a clear over an older note", () => {
+    const old = dailyNote({ updatedAt: TUESDAY });
+    const cleared = { ...old, text: "", updatedAt: WEDNESDAY };
+    const other = dailyNote({ day: "2026-03-09", updatedAt: TUESDAY });
+    const mine = doc({ dayNotes: [cleared] });
+    const theirs = doc({ dayNotes: [old, other], events: [event({ updatedAt: TUESDAY })] });
+    const merged = mergeDocuments(mine, theirs, NOW);
+    expect(merged.dayNotes).toEqual([cleared, other]);
+    expect(merged.events).toEqual(theirs.events);
+    expect(merged).toEqual(mergeDocuments(theirs, mine, NOW));
+    expect(mergeDocuments(merged, theirs, NOW)).toEqual(merged);
+  });
+
+  it("treats a note-only edit as stamped and restamps undo, deletion and redo", () => {
+    const empty = doc({ calendars: [], settingsAt: 0 });
+    const note = dailyNote({ updatedAt: NOW });
+    const edited = { ...empty, dayNotes: [note] };
+    expect(stamped(empty)).toBe(false);
+    expect(stamped(edited)).toBe(true);
+    const removed = restamped(empty, edited, NOW);
+    expect(removed.graves).toContainEqual({ id: note.id, at: NOW + 1 });
+    expect(mergeDocuments({ ...empty, ...removed }, edited, NOW).dayNotes).toEqual([]);
+    const restored = restamped(edited, removed, NOW);
+    expect(restored.dayNotes[0].updatedAt).toBe(NOW + 2);
+    expect(
+      mergeDocuments({ ...empty, ...restored }, { ...empty, ...removed }, NOW).dayNotes,
+    ).toEqual(restored.dayNotes);
+    const cleared = restamped({ ...edited, dayNotes: [{ ...note, text: "" }] }, edited, NOW);
+    expect(cleared.dayNotes[0]).toEqual({ ...note, text: "", updatedAt: NOW + 1 });
   });
 });
 const ids = (records: { id: string }[]) => records.map((r) => r.id).sort();
@@ -367,6 +401,7 @@ describe("an unstamped document is not merged", () => {
     calendars: [],
     tasks: [],
     taskLists: [],
+    dayNotes: [],
     graves: [],
     settings: DEFAULT_SETTINGS,
     settingsAt: 0,
@@ -419,6 +454,7 @@ describe("restamped", () => {
       calendars: [calendar({ id: "cal-work", updatedAt: TUESDAY })],
       tasks: [],
       taskLists: [],
+      dayNotes: [],
       graves: [],
     };
     const step = {
@@ -426,6 +462,7 @@ describe("restamped", () => {
       calendars: [calendar({ id: "cal-work", name: "Renamed", updatedAt: TUESDAY })],
       tasks: [],
       taskLists: [],
+      dayNotes: [],
       graves: [],
     };
     const marked = restamped(step, current, NOW);
@@ -443,8 +480,8 @@ describe("restamped", () => {
   it("compares by content, not by reference, because a cross-tab read rebuilds every object", () => {
     const rehydrated = { ...kept };
     const marked = restamped(
-      { events: [rehydrated], calendars: [], tasks: [], taskLists: [], graves: [] },
-      { events: [kept], calendars: [], tasks: [], taskLists: [], graves: [] },
+      { events: [rehydrated], calendars: [], tasks: [], taskLists: [], dayNotes: [], graves: [] },
+      { events: [kept], calendars: [], tasks: [], taskLists: [], dayNotes: [], graves: [] },
       NOW,
     );
     expect(marked.events[0].updatedAt).toBe(TUESDAY);

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { at, attendee, calendar, ms, event, plan, task, MemoryStorage } from "./helpers";
+import { at, attendee, calendar, dailyNote, ms, event, plan, task, MemoryStorage } from "./helpers";
 import {
   instantKey,
   PALETTE,
@@ -109,6 +109,142 @@ describe("create", () => {
     const a = s.store.create(draft(s, 60, 120));
     const b = s.store.create(draft(s, 180, 240));
     expect(a.id).not.toBe(b.id);
+  });
+});
+
+describe("daily notes", () => {
+  it("persists separate local dates and Markdown verbatim across reloads", async () => {
+    const s = await freshStore();
+    s.store.setDayNote("2026-03-08", "# Sunday\n\n- [ ] Work\n");
+    s.store.setDayNote("2026-03-09", "Monday");
+    s.store.setDayNote("2026-03-08", "# Sunday\n\n- [x] Work\n");
+    const reloaded = await freshStore(s.storage);
+    expect(reloaded.store.snapshot().dayNotes.map(({ day, text }) => ({ day, text }))).toEqual([
+      { day: "2026-03-08", text: "# Sunday\n\n- [x] Work\n" },
+      { day: "2026-03-09", text: "Monday" },
+    ]);
+    expect(JSON.parse(s.storage.getItem(KEY)!).dayNotes).toEqual(
+      reloaded.store.snapshot().dayNotes,
+    );
+  });
+
+  it("clears with a newer blank record, and undo and redo preserve the clear", async () => {
+    const s = await freshStore();
+    s.store.setDayNote("2026-03-08", "Before");
+    const original = s.store.snapshot().dayNotes[0];
+    s.store.setDayNote("2026-03-08", "");
+    const cleared = s.store.snapshot().dayNotes[0];
+    expect(cleared.text).toBe("");
+    expect(cleared.updatedAt).toBeGreaterThan(original.updatedAt);
+    expect(s.store.undo()).toBe(true);
+    expect(s.store.snapshot().dayNotes[0].text).toBe("Before");
+    expect(s.store.snapshot().dayNotes[0].updatedAt).toBeGreaterThan(cleared.updatedAt);
+    expect(s.store.redo()).toBe(true);
+    expect(s.store.snapshot().dayNotes[0].text).toBe("");
+    const reloaded = await freshStore(s.storage);
+    expect(reloaded.store.snapshot().dayNotes[0].text).toBe("");
+  });
+
+  it("rejects impossible dates and does not create history for unchanged text", async () => {
+    const s = await freshStore();
+    s.store.setDayNote("2026-02-30", "No");
+    s.store.setDayNote("2026-03-08", "");
+    expect(s.store.snapshot().dayNotes).toEqual([]);
+    expect(s.store.undo()).toBe(false);
+    s.store.setDayNote("2026-03-08", "One");
+    s.store.setDayNote("2026-03-08", "One");
+    expect(s.store.undo()).toBe(true);
+    expect(s.store.snapshot().dayNotes).toEqual([]);
+    expect(s.store.undo()).toBe(false);
+  });
+
+  it("re-reads another tab's notes before unrelated event and note edits", async () => {
+    const s = await freshStore();
+    s.store.setDayNote("2026-03-08", "Local");
+    const foreign = dailyNote({ day: "2026-03-09", text: "Other tab", updatedAt: Date.now() });
+    const persisted = JSON.parse(s.storage.getItem(KEY)!);
+    s.storage.setItem(
+      KEY,
+      JSON.stringify({ ...persisted, dayNotes: [...persisted.dayNotes, foreign] }),
+    );
+    s.store.create(draft(s));
+    s.store.setDayNote("2026-03-08", "Local edited");
+    expect(s.store.snapshot().dayNotes).toContainEqual(foreign);
+    expect(s.store.snapshot().events).toHaveLength(1);
+  });
+
+  it("drops stale undo history when another tab changes only a note", async () => {
+    const s = await freshStore();
+    withWindow((fire) => {
+      const stop = s.subscribe(() => {});
+      s.store.setDayNote("2026-03-08", "Local");
+      const persisted = JSON.parse(s.storage.getItem(KEY)!);
+      s.storage.setItem(
+        KEY,
+        JSON.stringify({ ...persisted, dayNotes: [dailyNote({ text: "Other tab" })] }),
+      );
+      fire(KEY);
+      expect(s.store.undo()).toBe(false);
+      expect(s.store.snapshot().dayNotes[0].text).toBe("Other tab");
+      stop();
+    });
+  });
+
+  it("adopts original stamps but restamps restore and buries notes absent from old backups", async () => {
+    const s = await freshStore();
+    const note = dailyNote({ updatedAt: ms("2026-03-08 09:00") });
+    const foreign = { ...s.store.snapshot(), dayNotes: [note] };
+    s.store.adopt(foreign);
+    expect(s.store.snapshot().dayNotes).toEqual([note]);
+    s.store.restore({ ...foreign, dayNotes: [{ ...note, text: "Restored" }] });
+    expect(s.store.snapshot().dayNotes[0].updatedAt).toBeGreaterThan(note.updatedAt);
+    const old = readBackup({ app: "circal", calendars: [calendar()] });
+    if (!old.ok) throw new Error("invalid fixture");
+    s.store.restore(old);
+    expect(s.store.snapshot().dayNotes).toEqual([]);
+    expect(s.store.snapshot().graves.some((grave) => grave.id === note.id)).toBe(true);
+    expect(s.store.undo()).toBe(true);
+    expect(s.store.snapshot().dayNotes[0].text).toBe("Restored");
+  });
+
+  it("defaults note placement on and preserves explicit moon and note preferences", async () => {
+    const s = await freshStore();
+    expect(s.store.snapshot().settings).toMatchObject({
+      dailyNote: true,
+      dailyNoteAt: "bottom-right",
+    });
+    s.store.setToggle("dailyNote", false);
+    s.store.setDailyNoteAt("top-left");
+    s.store.setToggle("moon", false);
+    s.store.setMoonAt("sidebar");
+    const reloaded = await freshStore(s.storage);
+    expect(reloaded.store.snapshot().settings).toMatchObject({
+      dailyNote: false,
+      dailyNoteAt: "top-left",
+      moon: false,
+      moonAt: "sidebar",
+    });
+  });
+
+  it("hydrates missing note fields and clamps invalid placement", async () => {
+    const storage = new MemoryStorage();
+    storage.setItem(
+      KEY,
+      JSON.stringify({
+        schema: 2,
+        events: [],
+        calendars: [],
+        settings: { dailyNoteAt: "sidebar" },
+      }),
+    );
+    const s = await freshStore(storage);
+    expect(s.store.snapshot().dayNotes).toEqual([]);
+    expect(s.store.snapshot().settings).toMatchObject({
+      dailyNote: true,
+      dailyNoteAt: "bottom-right",
+      moon: true,
+      moonAt: "bottom-right",
+    });
   });
 });
 
@@ -935,6 +1071,7 @@ describe("undo / redo", () => {
       calendars: [calendar({ id: "imported", name: "Imported" })],
       tasks: [],
       taskLists: [],
+      dayNotes: [],
       settings: { ...DEFAULT_SETTINGS, clock: "24h" },
       settingsAt: ms("2026-03-08 09:00"),
       graves: [],
@@ -965,6 +1102,7 @@ describe("adopt", () => {
           calendars: [calendar({ id: "imported", name: "Imported" })],
           tasks: [],
           taskLists: [],
+          dayNotes: [],
           settings,
           settingsAt: ms("2026-03-08 09:00"),
           graves: [],
@@ -1011,6 +1149,7 @@ const SETTINGS_ACTIONS: { name: string; act: (s: StoreHandle) => void }[] = [
   { name: "setClock", act: (s) => s.store.setClock("24h") },
   { name: "setToggle", act: (s) => s.store.setToggle("moonlight", false) },
   { name: "setMoonAt", act: (s) => s.store.setMoonAt("top-right") },
+  { name: "setDailyNoteAt", act: (s) => s.store.setDailyNoteAt("top-right") },
   { name: "setSecondZone", act: (s) => s.store.setSecondZone("Europe/Paris") },
   { name: "setDeviceZone", act: (s) => s.store.setDeviceZone("Europe/Paris") },
   {
@@ -1323,9 +1462,9 @@ describe("joinAdjacent", () => {
 });
 
 describe("moon placement", () => {
-  it("defaults off in the sidebar", async () => {
+  it("defaults on at the bottom-right", async () => {
     const s = await freshStore();
-    expect(s.store.snapshot().settings).toMatchObject({ moon: false, moonAt: "sidebar" });
+    expect(s.store.snapshot().settings).toMatchObject({ moon: true, moonAt: "bottom-right" });
   });
 
   it.each(["sidebar", ...TOTALS_POSITIONS] as const)(
@@ -1335,7 +1474,7 @@ describe("moon placement", () => {
       s.store.setMoonAt(moonAt);
       expect(JSON.parse(s.storage.getItem(KEY)!).settings.moonAt).toBe(moonAt);
       const reloaded = await freshStore(s.storage);
-      expect(reloaded.store.snapshot().settings).toMatchObject({ moon: false, moonAt });
+      expect(reloaded.store.snapshot().settings).toMatchObject({ moon: true, moonAt });
       reloaded.store.setToggle("moon", true);
       reloaded.store.setToggle("moon", false);
       expect(reloaded.store.snapshot().settings.moonAt).toBe(moonAt);
@@ -1350,22 +1489,22 @@ describe("moon placement", () => {
     { name: "a null position", settings: { moon: true, moonAt: null } },
   ];
 
-  it.each(compatibility)("hydrates $name in the sidebar", async ({ settings }) => {
+  it.each(compatibility)("hydrates $name at the bottom-right", async ({ settings }) => {
     const storage = new MemoryStorage();
     storage.setItem(KEY, JSON.stringify({ schema: 2, events: [], calendars: [], settings }));
     const s = await freshStore(storage);
-    expect(s.store.snapshot().settings).toMatchObject({ moon: true, moonAt: "sidebar" });
+    expect(s.store.snapshot().settings).toMatchObject({ moon: true, moonAt: "bottom-right" });
   });
 
-  it.each(compatibility)("restores $name in the sidebar", async ({ settings }) => {
+  it.each(compatibility)("restores $name at the bottom-right", async ({ settings }) => {
     const s = await freshStore();
     s.store.setMoonAt("bottom-right");
     const backup = readBackup({ app: "circal", calendars: [calendar()], settings });
     if (!backup.ok) throw new Error("fixture failed to parse as a backup");
     s.store.restore(backup);
-    expect(s.store.snapshot().settings).toMatchObject({ moon: true, moonAt: "sidebar" });
+    expect(s.store.snapshot().settings).toMatchObject({ moon: true, moonAt: "bottom-right" });
     expect(s.store.undo()).toBe(true);
-    expect(s.store.snapshot().settings).toMatchObject({ moon: false, moonAt: "bottom-right" });
+    expect(s.store.snapshot().settings).toMatchObject({ moon: true, moonAt: "bottom-right" });
   });
 
   it.each(TOTALS_POSITIONS)("restores the dial position %s", async (moonAt) => {
@@ -2136,6 +2275,7 @@ describe("feed payloads live outside the blob", () => {
       calendars: [],
       tasks: [],
       taskLists: [],
+      dayNotes: [],
       settings: DEFAULT_SETTINGS,
       settingsAt: 0,
       graves: [],

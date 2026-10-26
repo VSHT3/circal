@@ -2,7 +2,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { calendar, event } from "./helpers";
+import { calendar, dailyNote, event } from "./helpers";
 import { bytesToBase64Url } from "@/lib/base64";
 import { DEFAULT_SETTINGS } from "@/lib/store";
 import { MIRROR_VERSION, localZone, readMirrorFile, serialiseMirror } from "@/lib/mirror";
@@ -18,6 +18,7 @@ import {
   writeCredentials,
   type CloudCredentials,
 } from "../mcp/cloud";
+import { performUpdateEvent } from "../mcp/domain";
 
 /**
  * The cloud transport, driven against a fake GoTrue + PostgREST: an in-memory
@@ -53,6 +54,7 @@ const snapshot = (events: CalEvent[] = []): Mutated => ({
   events,
   tasks: [],
   taskLists: [],
+  dayNotes: [],
   calendars: [calendar({ id: CAL })],
   settings: DEFAULT_SETTINGS,
   settingsAt: 0,
@@ -274,6 +276,30 @@ describe("write — the CAS", () => {
     expect(contents.rev).toBe(5);
     expect(contents.zone).toBe("America/New_York");
     expect(contents.events.map((e) => e.title)).toEqual(["Dinner"]);
+  });
+
+  it("preserves daily notes through decrypt, unrelated assistant edit, and reseal", async () => {
+    const notes = [
+      dailyNote({ updatedAt: 1234 }),
+      dailyNote({ day: "2026-03-09", text: "", updatedAt: 2345 }),
+    ];
+    const document = { ...snapshot([event({ id: "e", calendarId: CAL })]), dayNotes: notes };
+    fake.row = {
+      rev: 4,
+      version: MIRROR_VERSION,
+      zone: localZone(),
+      payload: await vault.seal(serialiseMirror(document, 4)),
+    };
+    await (
+      await store()
+    ).write((contents) => ({
+      result: performUpdateEvent(contents, "e", undefined, undefined, { title: "Renamed" }).mutated,
+      summary: "done",
+    }));
+    const after = await onRow();
+    expect(after.dayNotes).toEqual(notes);
+    expect(after.events[0].title).toBe("Renamed");
+    expect(after.rev).toBe(5);
   });
 
   it("re-runs the mutation against a fresh read when the swap is lost", async () => {

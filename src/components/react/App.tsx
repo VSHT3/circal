@@ -119,6 +119,7 @@ import { TravelPrompt } from "./TravelPrompt";
 import TeachingCard from "./TeachingCard";
 import CommandPalette from "./CommandPalette";
 import Dial, { type DragPreview } from "./Dial";
+import DailyNote from "./DailyNote";
 import LifeView from "./LifeView";
 import Sidebar, { SIDEBAR_W } from "./Sidebar";
 import { ScopeDialog } from "./ScopePrompt";
@@ -380,7 +381,7 @@ function teachingSeen(): boolean {
 }
 
 function Shell() {
-  const { events, tasks, taskLists, calendars, feeds, settings } = useStore();
+  const { events, tasks, taskLists, dayNotes, calendars, feeds, settings } = useStore();
   /**
    * Ambient: the chrome withdraws and the dial becomes the window. View state
    * and deliberately not a setting — a mode that survives a reload, with no
@@ -473,6 +474,8 @@ function Shell() {
   } | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [dailyNoteOpen, setDailyNoteOpen] = useState(false);
+  const dailyNoteActive = dailyNoteOpen && settings.dailyNote && view === "day" && !inAmbient;
   /**
    * The query lighting the life grid and the year ring — the same field,
    * one face over. Held here rather than in the palette because the thread
@@ -1054,6 +1057,7 @@ function Shell() {
     !intro &&
     !pointerBusy &&
     !panelBusy &&
+    !dailyNoteActive &&
     settings.deviceZone === DEVICE_ZONE &&
     !inAmbient &&
     !sidebarOpen &&
@@ -1064,7 +1068,7 @@ function Shell() {
     dragTaskId === null &&
     !search &&
     (view !== "life" || settings.birth !== "");
-  const busy = panelBusy || showTeaching;
+  const busy = panelBusy || dailyNoteActive || showTeaching;
   /**
    * `busy` plus the one panel that has no state on it but does cover the
    * face. The two questions are not the same: ← under an open editor would
@@ -1851,6 +1855,10 @@ function Shell() {
         setDragTaskId(null);
         return;
       }
+      if (dailyNoteActive && !panelBusy) {
+        setDailyNoteOpen(false);
+        return;
+      }
       // One key, one thing: a press that closed a panel has done its work,
       // and taking the mode down with it would be two. A lit life grid is the
       // next layer down — nothing is over it, so Escape is free to clear it.
@@ -2499,6 +2507,17 @@ function Shell() {
                     occurrences={agenda.all}
                     calendars={calendars}
                     settings={settings}
+                    dailyNote={
+                      settings.dailyNote && !inAmbient ? (
+                        <DailyNote
+                          day={day}
+                          text={dayNotes.find((note) => note.day === dayKey(day))?.text ?? ""}
+                          position={settings.dailyNoteAt}
+                          open={dailyNoteActive && !panelBusy}
+                          onOpenChange={setDailyNoteOpen}
+                        />
+                      ) : null
+                    }
                     zonePlace={zonePlace}
                     pending={pending}
                     slots={slots}

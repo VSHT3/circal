@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mkdtemp, readFile, readdir, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { calendar, event } from "./helpers";
+import { calendar, dailyNote, event } from "./helpers";
 import { DEFAULT_SETTINGS } from "@/lib/store";
 import { MIRROR_VERSION, localZone, readMirrorFile, serialiseMirror } from "@/lib/mirror";
 import type { CalEvent } from "@/lib/events";
@@ -14,6 +14,7 @@ import {
   zoneWarning,
   type Mutated,
 } from "../mcp/file";
+import { performUpdateEvent } from "../mcp/domain";
 
 /**
  * The MCP server's own file layer, which is where every bug reproduced on
@@ -40,6 +41,7 @@ const snapshot = (events: CalEvent[] = []): Mutated => ({
   events,
   tasks: [],
   taskLists: [],
+  dayNotes: [],
   calendars: [calendar({ id: CAL })],
   settings: DEFAULT_SETTINGS,
   settingsAt: 0,
@@ -189,6 +191,22 @@ describe("casWrite", () => {
     expect(after?.rev).toBe(8);
     expect(after?.events).toHaveLength(1);
     expect(after?.events[0]?.title).toBe("Standup");
+  });
+
+  it("preserves note text and clears while an assistant updates an unrelated event", async () => {
+    const notes = [
+      dailyNote({ updatedAt: 1234 }),
+      dailyNote({ day: "2026-03-09", text: "", updatedAt: 2345 }),
+    ];
+    await seed(7, localZone(), { dayNotes: notes, events: [event({ id: "e", calendarId: CAL })] });
+    await casWrite(ctx(), (contents) => ({
+      result: performUpdateEvent(contents, "e", undefined, undefined, { title: "Renamed" }).mutated,
+      summary: "done",
+    }));
+    const after = await onDisk();
+    expect(after?.dayNotes).toEqual(notes);
+    expect(after?.events[0].title).toBe("Renamed");
+    expect(after?.version).toBe(MIRROR_VERSION);
   });
 
   it("keeps the file's own zone rather than restamping it", async () => {

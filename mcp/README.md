@@ -46,7 +46,14 @@ zone, revision) plus a ready-to-paste config block. Paste that block into
 your client below, swap the path if it picked up the wrong file, then
 restart the client.
 
-> **Use `circal-mcp@0.5.0` or newer** (`npx -y circal-mcp` resolves it).
+> **Daily notes require a server built from this source, or `circal-mcp@0.6.0`
+> or newer once published.** Until that release is available, run
+> `pnpm build:mcp` and configure `node mcp/dist/circal-mcp.mjs`.
+> Mirror format 5 carries `dayNotes` and the daily-note settings; older
+> servers refuse its writes rather than removing the notes. The merge floor
+> stays at format 2, so older stamped documents still merge without losing
+> newer notes. Daily-note tools read, replace and clear Markdown notes by date;
+> unrelated assistant edits preserve them, including stamped blank records for clears.
 > The cautionary tale behind that floor: `0.1.0` predated ten fields in
 > `src/lib` (`free`, `travel`, `remindLead`, `organizer` and the guest pair
 > on an event; `backupNudge`, `backupInterval`, `deviceZone`, `stampedZones`
@@ -65,6 +72,22 @@ restart the client.
 > reinstall the server whenever a `CalEvent` or `Settings` field lands**, and
 > raise this floor in the same commit. Contributors run against their own
 > build with `pnpm build:mcp` → `node mcp/dist/circal-mcp.mjs`.
+
+### Daily notes and preferences
+
+- `get_daily_note` takes `date` (`YYYY-MM-DD`) and returns that day's Markdown.
+- `set_daily_note` takes `date` and the complete `text`. Read first before appending;
+  it replaces the note, not just a paragraph.
+- `clear_daily_note` takes `date`. Clears are stamped so an offline copy cannot
+  restore older text.
+- `get_settings` returns synced preferences.
+- `update_settings` takes a strict `patch`. Omitted preferences stay unchanged,
+  invalid values are refused, and changes carry a new settings timestamp.
+
+Settings already sync as part of the calendar document. These tools do not grant
+notification permissions or expose credentials, encryption keys, mirror handles,
+`deviceZone` or `stampedZones`. Change a lightcycle place with
+`{"place":{"zone":"Europe/Berlin"}}`; circal derives its coordinates and label.
 
 ### Claude Desktop
 

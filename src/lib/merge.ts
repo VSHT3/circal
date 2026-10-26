@@ -26,6 +26,7 @@
 
 import { GRAVE_MAX, GRAVE_TTL, type CalEvent, type Calendar, type Grave } from "./events";
 import type { Task, TaskList } from "./tasks";
+import type { DailyNote } from "./dayNotes";
 
 /** The stamp and identity every merged record carries — `CalEvent`, `Calendar`
  *  and `Task` alike. The union rules below read nothing else. */
@@ -34,7 +35,7 @@ interface Stamped {
   updatedAt: number;
 }
 
-/** The four lists a merge is about. `feeds` is deliberately absent: it is a
+/** The record lists a merge is about. `feeds` is deliberately absent: it is a
  *  read model assembled from the `circal.feed.*` keys, the one `Snapshot`
  *  field `write()` never serialises, and each machine pulls its own. */
 export interface Records {
@@ -42,6 +43,7 @@ export interface Records {
   calendars: Calendar[];
   tasks: Task[];
   taskLists: TaskList[];
+  dayNotes: DailyNote[];
   graves: Grave[];
 }
 
@@ -110,6 +112,7 @@ export function stamped(document: Records & Pick<Mergeable, "settingsAt">): bool
     document.calendars.some((c) => c.updatedAt > 0) ||
     document.tasks.some((t) => t.updatedAt > 0) ||
     document.taskLists.some((list) => list.updatedAt > 0) ||
+    document.dayNotes.some((note) => note.updatedAt > 0) ||
     // A grave is a stamp: it is the record of a deletion, and the machine that
     // made it must be able to merge rather than adopt, or the deletion is the
     // thing that gets adopted away.
@@ -217,8 +220,9 @@ export function mergeDocuments<S>(
   const calendars = unite(mine.calendars, theirs.calendars).filter(alive);
   const tasks = unite(mine.tasks, theirs.tasks).filter(alive);
   const taskLists = unite(mine.taskLists, theirs.taskLists).filter(alive);
+  const dayNotes = unite(mine.dayNotes, theirs.dayNotes).filter(alive);
   const survived = new Set(
-    [...events, ...calendars, ...tasks, ...taskLists].map((record) => record.id),
+    [...events, ...calendars, ...tasks, ...taskLists, ...dayNotes].map((record) => record.id),
   );
 
   return {
@@ -226,6 +230,7 @@ export function mergeDocuments<S>(
     calendars,
     tasks,
     taskLists,
+    dayNotes,
     graves: graves.filter((grave) => !survived.has(grave.id)),
     // Equal stamps take the same tie-break the records take, for the same
     // reason: without it two machines that changed a setting in one
@@ -273,11 +278,12 @@ export function restamped(next: Records, current: Records, now: number): Records
     ...current.calendars,
     ...current.tasks,
     ...current.taskLists,
+    ...current.dayNotes,
   ]) {
     before.set(record.id, body(record));
   }
   const held = new Set(
-    [...next.events, ...next.calendars, ...next.tasks, ...next.taskLists].map(
+    [...next.events, ...next.calendars, ...next.tasks, ...next.taskLists, ...next.dayNotes].map(
       (record) => record.id,
     ),
   );
@@ -286,7 +292,15 @@ export function restamped(next: Records, current: Records, now: number): Records
     ...current.calendars,
     ...current.tasks,
     ...current.taskLists,
+    ...current.dayNotes,
   ].filter((record) => !held.has(record.id));
+  // Autosave can advance several times in one millisecond; undo must outrun those stamps too.
+  const noteStamps = new Map(current.dayNotes.map((note) => [note.id, note.updatedAt]));
+  for (const grave of [...current.graves, ...next.graves]) {
+    if (grave.id.startsWith("day-note:"))
+      noteStamps.set(grave.id, Math.max(noteStamps.get(grave.id) ?? 0, grave.at));
+  }
+  const noteStamp = (id: string) => Math.max(now, (noteStamps.get(id) ?? 0) + 1);
 
   return {
     events: next.events.map((e) => (before.get(e.id) === body(e) ? e : { ...e, updatedAt: now })),
@@ -297,12 +311,19 @@ export function restamped(next: Records, current: Records, now: number): Records
     taskLists: next.taskLists.map((list) =>
       before.get(list.id) === body(list) ? list : { ...list, updatedAt: now },
     ),
+    dayNotes: next.dayNotes.map((note) =>
+      before.get(note.id) === body(note) ? note : { ...note, updatedAt: noteStamp(note.id) },
+    ),
     // Graves are never wound back, and both sides' are kept: a deletion is a
     // thing that happened, and undoing one is answered by the stamp above
     // outrunning the grave rather than by forgetting it. Dropping them here
     // would let the *other* machine's copy of a deletion come back as an
     // event on the next merge. `next`'s own are in there for `restore`, whose
     // `next` is a backup file carrying deletions this browser never saw.
-    graves: [...current.graves, ...next.graves, ...gone.map((r) => ({ id: r.id, at: now }))],
+    graves: [
+      ...current.graves,
+      ...next.graves,
+      ...gone.map((r) => ({ id: r.id, at: noteStamps.has(r.id) ? noteStamp(r.id) : now })),
+    ],
   };
 }

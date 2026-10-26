@@ -23,6 +23,9 @@ import {
   listDay,
   listRange,
   listTasks,
+  getDailyNote,
+  performSetDailyNote,
+  performClearDailyNote,
   performCreateCalendar,
   performCreateEvent,
   performCreateEvents,
@@ -38,6 +41,7 @@ import {
   searchEvents,
   syncStatus,
 } from "./domain";
+import { getSettings, performUpdateSettings, settingsPatchSchema } from "./settings";
 
 /* -------------------------------- results ------------------------------------ */
 
@@ -631,6 +635,93 @@ export function registerTools(server: McpServer, store: Store, pin?: string): vo
       guarded(() =>
         store.write((contents) => {
           const outcome = performCreateCalendar(contents, name, color, icon);
+          return { result: outcome.mutated, summary: outcome.message };
+        }),
+      ),
+  );
+
+  server.registerTool(
+    "get_daily_note",
+    {
+      description:
+        "Reads the Markdown note for one local day. Daily notes are separate from events and tasks.",
+      inputSchema: z.strictObject({ date: dateKey("YYYY-MM-DD, local.") }),
+      annotations: { readOnlyHint: true },
+    },
+    async ({ date }) =>
+      guarded(async () => {
+        const { contents, warning } = await store.load();
+        return withWarning(getDailyNote(contents, date), warning);
+      }),
+  );
+
+  server.registerTool(
+    "set_daily_note",
+    {
+      description:
+        "Replaces one day's note with Markdown text. Read it first when preserving existing content. " +
+        "An empty text clears the note; other days are unchanged.",
+      inputSchema: z.strictObject({
+        date: dateKey("YYYY-MM-DD, local."),
+        text: z.string().describe("The complete Markdown note, not a patch."),
+      }),
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+    },
+    async ({ date, text }) =>
+      guarded(() =>
+        store.write((contents) => {
+          const outcome = performSetDailyNote(contents, date, text);
+          return { result: outcome.mutated, summary: outcome.message };
+        }),
+      ),
+  );
+
+  server.registerTool(
+    "clear_daily_note",
+    {
+      description: "Clears the note for one local day without changing any other day or event.",
+      inputSchema: z.strictObject({ date: dateKey("YYYY-MM-DD, local.") }),
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+    },
+    async ({ date }) =>
+      guarded(() =>
+        store.write((contents) => {
+          const outcome = performClearDailyNote(contents, date);
+          return { result: outcome.mutated, summary: outcome.message };
+        }),
+      ),
+  );
+
+  server.registerTool(
+    "get_settings",
+    {
+      description:
+        "Reads the synced calendar preferences, including appearance, clock, views, reminders, " +
+        "moon and daily-note placement. Device permissions and credentials are not settings.",
+      inputSchema: z.strictObject({}),
+      annotations: { readOnlyHint: true },
+    },
+    async () =>
+      guarded(async () => {
+        const { contents, warning } = await store.load();
+        return withWarning(getSettings(contents), warning);
+      }),
+  );
+
+  server.registerTool(
+    "update_settings",
+    {
+      description:
+        "Updates only the supplied synced preferences. Omitted preferences and all calendar data " +
+        "are preserved. Invalid values are refused; device bookkeeping, permissions and credentials " +
+        "cannot be changed here.",
+      inputSchema: z.strictObject({ patch: settingsPatchSchema }),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+    },
+    async ({ patch }) =>
+      guarded(() =>
+        store.write((contents) => {
+          const outcome = performUpdateSettings(contents, patch);
           return { result: outcome.mutated, summary: outcome.message };
         }),
       ),
