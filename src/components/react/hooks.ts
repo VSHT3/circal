@@ -323,7 +323,7 @@ function onFocusIn(e: FocusEvent) {
  * A `data-` mark rather than `focus({ focusVisible: false })`, which says the
  * same thing and which WebKit ignores — and the Mac app is a WKWebView.
  */
-function focusQuietly(el: HTMLElement) {
+export function focusQuietly(el: HTMLElement) {
   el.dataset.focusQuiet = "";
   el.addEventListener("blur", () => delete el.dataset.focusQuiet, { once: true });
   el.focus({ preventScroll: true });

@@ -19,7 +19,7 @@ import {
   readTask,
   backupDue,
 } from "@/lib/backup";
-import { DEFAULT_SETTINGS, TOTALS_POSITIONS } from "@/lib/store";
+import { DAILY_NOTE_FONTS, DEFAULT_SETTINGS, TOTALS_POSITIONS } from "@/lib/store";
 import {
   ATTENDEE_MAX,
   GUEST_ADDRESS_MAX,
@@ -93,6 +93,17 @@ it.each([
 it.each(TOTALS_POSITIONS)("reads daily-note placement %s", (dailyNoteAt) => {
   expect(readSettings({ dailyNoteAt }).dailyNoteAt).toBe(dailyNoteAt);
 });
+
+it.each(DAILY_NOTE_FONTS)("reads daily-note font %s", (dailyNoteFont) => {
+  expect(readSettings({ dailyNoteFont }).dailyNoteFont).toBe(dailyNoteFont);
+});
+
+it.each([undefined, null, "unknown", "Libron", 1, {}])(
+  "defaults missing or invalid backup daily-note font %j",
+  (dailyNoteFont) => {
+    expect(readSettings({ dailyNoteFont }).dailyNoteFont).toBe("default");
+  },
+);
 
 /* ---------------------------------- readEvent --------------------------- */
 
@@ -888,6 +899,37 @@ describe("importBackup", () => {
     expect(store.snapshot().settings).toMatchObject({ dailyNote: false, dailyNoteAt: "top-left" });
     expect(JSON.parse(storage.getItem("circal.v1")!).dayNotes).toEqual(store.snapshot().dayNotes);
   });
+
+  it.each(DAILY_NOTE_FONTS)("exports and restores daily-note font %s", async (font) => {
+    const save = vi.fn(async (_filename: string, _body: string) => true);
+    vi.stubGlobal("window", { __circalSave: save });
+    const { backup, store } = await load();
+    store.setDailyNoteFont(font);
+    await backup.exportBackup(store.snapshot());
+    const text = save.mock.calls[0][1];
+    expect(JSON.parse(text).settings.dailyNoteFont).toBe(font);
+    store.setDailyNoteFont(font === "libron" ? "handwritten" : "libron");
+    backup.importBackup(text);
+    expect(store.snapshot().settings.dailyNoteFont).toBe(font);
+    expect(JSON.parse(storage.getItem("circal.v1")!).settings.dailyNoteFont).toBe(font);
+  });
+
+  it.each([undefined, null, "unknown", "Libron", 1, {}])(
+    "restores missing or invalid daily-note font %j as default",
+    async (dailyNoteFont) => {
+      const { backup, store } = await load();
+      store.setDailyNoteFont("handwritten");
+      backup.importBackup(
+        JSON.stringify({
+          app: "circal",
+          calendars: [calendar()],
+          settings: { dailyNoteFont },
+        }),
+      );
+      expect(store.snapshot().settings.dailyNoteFont).toBe("default");
+      expect(JSON.parse(storage.getItem("circal.v1")!).settings.dailyNoteFont).toBe("default");
+    },
+  );
 
   it("clamps invalid daily-note placements when restoring", async () => {
     const { backup, store } = await load();

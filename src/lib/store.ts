@@ -161,6 +161,15 @@ export const TOTALS_POSITIONS = [
 export type TotalsPosition = (typeof TOTALS_POSITIONS)[number];
 export type MoonPosition = "sidebar" | TotalsPosition;
 
+export const DAILY_NOTE_FONTS = ["default", "libron", "handwritten"] as const;
+export type DailyNoteFont = (typeof DAILY_NOTE_FONTS)[number];
+
+export function readDailyNoteFont(value: unknown): DailyNoteFont {
+  return DAILY_NOTE_FONTS.includes(value as DailyNoteFont)
+    ? (value as DailyNoteFont)
+    : DEFAULT_SETTINGS.dailyNoteFont;
+}
+
 const DIAL_ITEMS = ["moon", "totals", "dailyNote"] as const;
 export type DialItem = (typeof DIAL_ITEMS)[number];
 
@@ -374,6 +383,7 @@ export interface Settings {
   moonAt: MoonPosition;
   dailyNote: boolean;
   dailyNoteAt: TotalsPosition;
+  dailyNoteFont: DailyNoteFont;
   /**
    * Notifications for what is about to start, while this tab is open.
    *
@@ -593,6 +603,7 @@ export const DEFAULT_SETTINGS: Settings = {
   moonAt: "bottom-right",
   dailyNote: true,
   dailyNoteAt: "bottom-left",
+  dailyNoteFont: "default",
   // Off, and it is the one default here that is a promise rather than a
   // preference: nothing in circal has ever interrupted anybody, and the first
   // thing that can must be switched on deliberately.
@@ -913,6 +924,7 @@ export function sane(settings: Settings): Settings {
       : DEFAULT_SETTINGS.dailyNoteAt,
     dailyNote:
       typeof settings.dailyNote === "boolean" ? settings.dailyNote : DEFAULT_SETTINGS.dailyNote,
+    dailyNoteFont: readDailyNoteFont(settings.dailyNoteFont),
     moon: typeof settings.moon === "boolean" ? settings.moon : DEFAULT_SETTINGS.moon,
     arcLabels: ARC_LABEL_MODES.includes(settings.arcLabels)
       ? settings.arcLabels
@@ -2241,6 +2253,14 @@ export const store = {
     if (base.settings.dailyNote && dialPositionOwner(base.settings, dailyNoteAt, "dailyNote"))
       return;
     commit(withSettings(base, sane({ ...base.settings, dailyNoteAt })), false);
+  },
+
+  setDailyNoteFont(dailyNoteFont: DailyNoteFont) {
+    const base = fresh();
+    commit(
+      withSettings(base, { ...base.settings, dailyNoteFont: readDailyNoteFont(dailyNoteFont) }),
+      false,
+    );
   },
 
   setArcLabels(arcLabels: ArcLabelMode) {

@@ -300,6 +300,7 @@ export default function Settings({
     moonAt,
     dailyNote,
     dailyNoteAt,
+    dailyNoteFont,
     remind,
     remindLead,
     backupNudge,
@@ -1077,12 +1078,25 @@ export default function Settings({
                               onChange={(on) => store.setToggle("dailyNote", on)}
                             />
                             {dailyNote && (
-                              <PositionField
-                                value={dailyNoteAt}
-                                onChange={store.setDailyNoteAt}
-                                options={positionOptions("dailyNote")}
-                                label="Where the daily note sits"
-                              />
+                              <>
+                                <PositionField
+                                  value={dailyNoteAt}
+                                  onChange={store.setDailyNoteAt}
+                                  options={positionOptions("dailyNote")}
+                                  label="Where the daily note sits"
+                                />
+                                <Select
+                                  value={dailyNoteFont}
+                                  onChange={store.setDailyNoteFont}
+                                  label="Daily note font"
+                                  className="max-w-full pointer-coarse:min-h-9"
+                                  options={[
+                                    { value: "default", label: "Default" },
+                                    { value: "libron", label: "Libron" },
+                                    { value: "handwritten", label: "Handwritten" },
+                                  ]}
+                                />
+                              </>
                             )}
                           </div>
                         </FieldRow>

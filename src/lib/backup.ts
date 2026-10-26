@@ -19,6 +19,7 @@ import {
   DEFAULT_SETTINGS,
   markBackedUp,
   newId,
+  readDailyNoteFont,
   store,
   type Settings,
   type Snapshot,
@@ -324,6 +325,7 @@ export function readSettings(value: unknown): Settings {
     dailyNoteAt: (typeof value.dailyNoteAt === "string"
       ? value.dailyNoteAt
       : DEFAULT_SETTINGS.dailyNoteAt) as Settings["dailyNoteAt"],
+    dailyNoteFont: readDailyNoteFont(value.dailyNoteFont),
     remind: value.remind === true,
     remindLead:
       typeof value.remindLead === "number" ? value.remindLead : DEFAULT_SETTINGS.remindLead,

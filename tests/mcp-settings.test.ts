@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { at, calendar, dailyNote, event, grave, ms, resetIds, task, taskList } from "./helpers";
-import { DEFAULT_SETTINGS, TOTALS_POSITIONS, YEAR_QUOTE_MAX, type Settings } from "@/lib/store";
+import {
+  DAILY_NOTE_FONTS,
+  DEFAULT_SETTINGS,
+  TOTALS_POSITIONS,
+  YEAR_QUOTE_MAX,
+  type Settings,
+} from "@/lib/store";
 import { mergeDocuments } from "@/lib/merge";
 import {
   localZone,
@@ -110,6 +116,7 @@ describe("performUpdateSettings", () => {
       moonAt: "sidebar",
       dailyNote: true,
       dailyNoteAt: "top-right",
+      dailyNoteFont: "handwritten",
       remind: true,
       remindLead: 10,
       backupNudge: false,
@@ -141,6 +148,17 @@ describe("performUpdateSettings", () => {
     expect(mutated.settingsAt).toBeSameInstantAs("2026-03-08 12:00");
     expect(message).toContain("Device permissions were not changed");
     expect(input).toEqual(before);
+  });
+
+  it.each(DAILY_NOTE_FONTS)("accepts and round-trips daily-note font %s", (dailyNoteFont) => {
+    const input = contents({
+      dailyNoteFont: dailyNoteFont === "libron" ? "handwritten" : "libron",
+    });
+    const { mutated } = performUpdateSettings(input, { dailyNoteFont });
+    expect(mutated.settings).toEqual({ ...input.settings, dailyNoteFont });
+    expect(getSettings({ ...input, ...mutated })).toContain(`"dailyNoteFont": "${dailyNoteFont}"`);
+    const restored = readMirrorFile(serialiseMirror(mutated, 2));
+    expect(restored?.settings.dailyNoteFont).toBe(dailyNoteFont);
   });
 
   it.each(TOTALS_POSITIONS)("allows inactive items to remember %s", (position) => {
@@ -230,6 +248,11 @@ describe("performUpdateSettings", () => {
     ["ambient arc mode", { ambientArcLabels: "sometimes" }],
     ["moon position", { moonAt: "edge" }],
     ["note position", { dailyNoteAt: "sidebar" }],
+    ["note font", { dailyNoteFont: "unknown" }],
+    ["note font capitalization", { dailyNoteFont: "Libron" }],
+    ["note font type", { dailyNoteFont: 1 }],
+    ["note font null", { dailyNoteFont: null }],
+    ["note font undefined", { dailyNoteFont: undefined }],
     ["totals position", { totalsAt: "sidebar" }],
     ["week start", { weekStart: 2 }],
     ["unknown zone", { secondZone: "Atlantis/Here" }],

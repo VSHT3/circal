@@ -303,14 +303,21 @@ how many days to the next full or new moon.
 
 ## Daily notes
 
-The small note icon opens a Markdown note for the selected day. Changes save as you
-type; **Edit** and **Preview** switch between the source and formatted text. Headings,
-lists, checklists, links, tables and code blocks are supported. Images are shown as
-descriptions rather than fetched from the web.
+The small note icon opens a directly editable Markdown note for the selected day.
+An empty note starts with the date as an editable heading. Changes save as you type,
+with headings, lists, links, tables and code blocks shown in place. Type `- [ ]` and
+a space to make a task, then click its checkbox to check or uncheck it.
+HTML and image Markdown remain literal editable text, never executed or fetched.
+Choose Circal's default Geist, [Libron](https://github.com/nicoverbruggen/libron), or
+handwritten [Virgil](https://github.com/excalidraw/virgil) in the daily-note settings.
+All three are self-hosted; Libron and Virgil use the SIL Open Font License.
 
 Long notes scroll inside the card. Drag its resize grip to change the card's size;
 the grip also accepts arrow keys. The card stays within the window on smaller screens.
-Use **Settings → Face → Dial → Daily note** to hide the icon or choose its position.
+Clicking empty space in the card starts a new body paragraph.
+The note does not trap focus or block the calendar. Left/right keys change days
+outside the editor; inside it they move the caret. Cmd/Ctrl-click opens a note link.
+Use **Settings → Face → Dial → Daily note** to choose its font and position or hide the icon.
 Occupied tiles are dimmed and unavailable. The moon starts at bottom-right and the
 note icon at bottom-left; switching an item off frees its tile.
 

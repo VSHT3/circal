@@ -9,6 +9,7 @@ import {
   type Repeat,
 } from "@/lib/events";
 import {
+  DAILY_NOTE_FONTS,
   DEFAULT_SETTINGS,
   LIFE_EXPECTANCY_RANGE,
   TOTALS_POSITIONS,
@@ -220,6 +221,49 @@ describe("daily notes", () => {
       moon: false,
       moonAt: "sidebar",
     });
+  });
+
+  it.each(DAILY_NOTE_FONTS)(
+    "persists daily-note font %s without changing other preferences",
+    async (font) => {
+      const s = await freshStore();
+      s.store.setDailyNoteFont("handwritten");
+      const before = s.store.snapshot();
+      s.store.setDailyNoteFont(font);
+      expect(JSON.parse(s.storage.getItem(KEY)!).settings.dailyNoteFont).toBe(font);
+      const reloaded = await freshStore(s.storage);
+      expect(reloaded.store.snapshot().settings).toEqual({
+        ...before.settings,
+        dailyNoteFont: font,
+      });
+      expect(reloaded.store.snapshot().dayNotes).toEqual(before.dayNotes);
+    },
+  );
+
+  it.each([undefined, null, "unknown", "Libron", 1, {}])(
+    "defaults missing or invalid persisted daily-note font %j",
+    async (dailyNoteFont) => {
+      const storage = new MemoryStorage();
+      storage.setItem(
+        KEY,
+        JSON.stringify({
+          schema: 2,
+          events: [],
+          calendars: [],
+          settings: { dailyNoteFont },
+        }),
+      );
+      const s = await freshStore(storage);
+      expect(s.store.snapshot().settings.dailyNoteFont).toBe("default");
+    },
+  );
+
+  it("sanitizes an invalid daily-note font passed to the setter", async () => {
+    const s = await freshStore();
+    s.store.setDailyNoteFont("libron");
+    s.store.setDailyNoteFont("unknown" as StoreModule.DailyNoteFont);
+    expect(s.store.snapshot().settings.dailyNoteFont).toBe("default");
+    expect(JSON.parse(s.storage.getItem(KEY)!).settings.dailyNoteFont).toBe("default");
   });
 
   it("hydrates missing note fields and clamps invalid placement", async () => {

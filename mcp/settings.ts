@@ -8,6 +8,7 @@ import {
   AMBIENT_DELAYS,
   ARC_LABEL_MODES,
   BACKUP_INTERVALS,
+  DAILY_NOTE_FONTS,
   LIFE_EXPECTANCY_RANGE,
   TOTALS_POSITIONS,
   WEEK_STARTS,
@@ -76,6 +77,7 @@ export const settingsPatchSchema = z
     moonAt: z.enum(["sidebar", ...TOTALS_POSITIONS]),
     dailyNote: z.boolean(),
     dailyNoteAt: z.enum(TOTALS_POSITIONS),
+    dailyNoteFont: z.enum(DAILY_NOTE_FONTS),
     remind: z
       .boolean()
       .describe(

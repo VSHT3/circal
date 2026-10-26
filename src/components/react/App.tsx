@@ -1068,7 +1068,7 @@ function Shell() {
     dragTaskId === null &&
     !search &&
     (view !== "life" || settings.birth !== "");
-  const busy = panelBusy || dailyNoteActive || showTeaching;
+  const busy = panelBusy || showTeaching;
   /**
    * `busy` plus the one panel that has no state on it but does cover the
    * face. The two questions are not the same: ← under an open editor would
@@ -1078,7 +1078,7 @@ function Shell() {
    */
   const shaded = busy || (sidebarMode === "drawer" && sidebarOpen);
   useIdleAfter(
-    inAmbient || shaded || view !== "day" ? 0 : settings.ambientAfter * 60_000,
+    inAmbient || shaded || dailyNoteActive || view !== "day" ? 0 : settings.ambientAfter * 60_000,
     useCallback(() => setAmbient("auto"), []),
   );
   /**
@@ -2512,7 +2512,7 @@ function Shell() {
                         <DailyNote
                           day={day}
                           text={dayNotes.find((note) => note.day === dayKey(day))?.text ?? ""}
-                          position={settings.dailyNoteAt}
+                          settings={settings}
                           open={dailyNoteActive && !panelBusy}
                           onOpenChange={setDailyNoteOpen}
                         />
