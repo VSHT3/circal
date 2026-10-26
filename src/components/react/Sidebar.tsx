@@ -66,7 +66,12 @@ export default function Sidebar({
   const [seeded, setSeeded] = useState(day);
   if (seeded !== day) {
     setSeeded(day);
-    setDisplayMonth(new Date(day.getFullYear(), day.getMonth(), 1));
+    if (
+      displayMonth.getFullYear() !== day.getFullYear() ||
+      displayMonth.getMonth() !== day.getMonth()
+    ) {
+      setDisplayMonth(new Date(day.getFullYear(), day.getMonth(), 1));
+    }
   }
 
   const cells = useMemo(() => {
@@ -75,6 +80,18 @@ export default function Sidebar({
     const offset = weekOffset(new Date(year, month, 1), weekStart);
     return Array.from({ length: 42 }, (_, i) => new Date(year, month, 1 - offset + i));
   }, [displayMonth, weekStart]);
+
+  // Selection and resize frames do not change the month's occurrences.
+  const monthDots = useMemo(
+    () =>
+      cells.map((cellDate) =>
+        [
+          ...occurrencesOn(events, calendars, cellDate),
+          ...taskOccurrences(tasks, calendars, cellDate),
+        ].slice(0, 3),
+      ),
+    [cells, events, calendars, tasks],
+  );
 
   /** The header letters, cut on the same weekday the grid above is — a row
    *  that always read Mon-first regardless of the setting would agree with
@@ -110,15 +127,11 @@ export default function Sidebar({
               {WEEKDAYS[i][0]}
             </span>
           ))}
-          {cells.map((cellDate) => {
+          {cells.map((cellDate, index) => {
             const inMonth = cellDate.getMonth() === displayMonth.getMonth();
             const isToday = isSameDay(cellDate, now);
             const isSelected = isSameDay(cellDate, day);
-            const dots = [
-              ...occurrencesOn(events, calendars, cellDate),
-              // A due day carries something too — the pip the dial draws.
-              ...taskOccurrences(tasks, calendars, cellDate),
-            ].slice(0, 3);
+            const dots = monthDots[index];
             return (
               <button
                 key={cellDate.toISOString()}
@@ -262,7 +275,7 @@ export default function Sidebar({
           aria-modal="true"
           aria-label="Sidebar"
           className={cn(
-            "absolute inset-y-0 left-0 z-30 w-[260px] border-r border-hairline bg-void transition-transform duration-[220ms]",
+            "absolute inset-y-0 left-0 z-30 w-[260px] border-r border-hairline bg-void transition-transform duration-[220ms] motion-reduce:transition-none",
             !open && "-translate-x-full",
           )}
         >
@@ -281,8 +294,8 @@ export default function Sidebar({
       // thing "this column is closed" actually means.
       inert={!open}
       className={cn(
-        "h-full shrink-0 border-r border-hairline bg-void transition-[width] duration-[220ms]",
-        open ? "w-[260px]" : "w-0 overflow-hidden",
+        "h-full shrink-0 border-hairline bg-void transition-[width] duration-[220ms] motion-reduce:transition-none",
+        open ? "w-[260px] border-r" : "w-0 overflow-hidden",
       )}
     >
       {/* Held mounted while it leaves, so the column's 220 ms of width has

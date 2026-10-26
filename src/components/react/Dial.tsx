@@ -454,7 +454,8 @@ export default function Dial({
     wakingFrom,
     wakingTo,
   } = settings;
-  const [stageRef, width, height] = useElementSize<HTMLDivElement>();
+  // Only the fitted diameter affects the dial, not spare space beside it.
+  const [stageRef, width, height] = useElementSize<HTMLDivElement>(true);
   /** Every gesture's capture target, and the frame its coordinates are read
    *  in. See `capture`. */
   const svgRef = useRef<SVGSVGElement>(null);

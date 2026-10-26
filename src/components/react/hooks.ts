@@ -202,7 +202,9 @@ export function useOnInput(enabled: boolean, onInput: () => void, graceMs = 0) {
  * and scaled to fit, so the HTML overlay pinned to its centre needs the same
  * scale factor to stay in proportion with the SVG under it.
  */
-export function useElementSize<T extends HTMLElement>(): [RefObject<T | null>, number, number] {
+export function useElementSize<T extends HTMLElement>(
+  square = false,
+): [RefObject<T | null>, number, number] {
   const ref = useRef<T>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
 
@@ -211,11 +213,13 @@ export function useElementSize<T extends HTMLElement>(): [RefObject<T | null>, n
     if (!el) return;
     const observer = new ResizeObserver(([entry]) => {
       const box = entry.contentRect;
-      setSize({ w: box.width, h: box.height });
+      const w = square ? Math.min(box.width, box.height) : box.width;
+      const h = square ? w : box.height;
+      setSize((previous) => (previous.w === w && previous.h === h ? previous : { w, h }));
     });
     observer.observe(el);
     return () => observer.disconnect();
-  }, []);
+  }, [square]);
 
   return [ref, size.w, size.h];
 }

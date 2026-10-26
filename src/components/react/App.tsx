@@ -684,12 +684,35 @@ function Shell() {
   );
 
   /**
+   * Whether the sidebar can afford to push, measured rather than guessed at
+   * with a breakpoint.
+   *
+   * The dial is height-bound on any stage wider than it is tall, so taking
+   * 260px off the width there costs the instrument *nothing* — the face does
+   * not even shrink. The moment the stage would become width-bound, every
+   * pixel the column takes comes straight out of the face, and that is the
+   * condition. It is not "is this a phone": a tablet in portrait is 1024px
+   * wide and still cannot afford it, and a half-screen desktop window flips
+   * over at exactly the point where it starts to hurt.
+   *
+   * Measured on the *row* rather than on `main`, which is already the pushed
+   * width — asking `main` would shrink the stage, flip the answer to drawer,
+   * un-shrink it, and oscillate. Nobody sees the pre-measurement frame,
+   * because the sidebar starts closed.
+   */
+
+  /**
    * The stage: the box a view panel gets, and the life grid resolved against
    * it. Both live here rather than in `LifeView` because the zoom needs a day's
    * dot in screen coordinates *while the grid is not mounted yet* — the dial
    * has to know where it is going before the thing it is going to exists.
    */
-  const [stageRef, stageWidth, stageHeight] = useElementSize<HTMLElement>();
+  const [rowRef, rowWidth, rowHeight] = useElementSize<HTMLDivElement>();
+  const sidebarMode = rowWidth > 0 && rowWidth - SIDEBAR_W < rowHeight ? "drawer" : "push";
+  // Measure the stable row; the sidebar's width tween must not render the shell each frame.
+  const stageWidth =
+    rowWidth - (sidebarMode === "push" && sidebarOpen && !inAmbient ? SIDEBAR_W : 0);
+  const stageHeight = rowHeight;
   const stage = useMemo(
     () =>
       lifeStage(
@@ -710,26 +733,6 @@ function Shell() {
       weekStage(day, stageWidth - 2 * PANEL_PAD, stageHeight - 2 * PANEL_PAD, settings.weekStart),
     [day, stageWidth, stageHeight, settings.weekStart],
   );
-
-  /**
-   * Whether the sidebar can afford to push, measured rather than guessed at
-   * with a breakpoint.
-   *
-   * The dial is height-bound on any stage wider than it is tall, so taking
-   * 260px off the width there costs the instrument *nothing* — the face does
-   * not even shrink. The moment the stage would become width-bound, every
-   * pixel the column takes comes straight out of the face, and that is the
-   * condition. It is not "is this a phone": a tablet in portrait is 1024px
-   * wide and still cannot afford it, and a half-screen desktop window flips
-   * over at exactly the point where it starts to hurt.
-   *
-   * Measured on the *row* rather than on `main`, which is already the pushed
-   * width — asking `main` would shrink the stage, flip the answer to drawer,
-   * un-shrink it, and oscillate. Nobody sees the pre-measurement frame,
-   * because the sidebar starts closed.
-   */
-  const [rowRef, rowWidth, rowHeight] = useElementSize<HTMLDivElement>();
-  const sidebarMode = rowWidth > 0 && rowWidth - SIDEBAR_W < rowHeight ? "drawer" : "push";
 
   /**
    * Where the zoom meets the grid: the selected day's dot, in the panel's own
@@ -2471,7 +2474,7 @@ function Shell() {
             The exiting panel gives up its pointer events at once: for the best
             part of a second it is still on top of the incoming one, and a click
             landing on the view you just left is a bug you cannot see. */}
-          <main ref={stageRef} className="relative min-w-0 flex-1">
+          <main className="relative min-w-0 flex-1">
             <AnimatePresence initial={false}>
               <motion.div
                 key={view}
