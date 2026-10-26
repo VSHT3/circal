@@ -311,7 +311,8 @@ descriptions rather than fetched from the web.
 Long notes scroll inside the card. Drag its resize grip to change the card's size;
 the grip also accepts arrow keys. The card stays within the window on smaller screens.
 Use **Settings → Face → Dial → Daily note** to hide the icon or choose its position.
-The moon, totals and note icon stack when they share a position.
+Occupied tiles are dimmed and unavailable. The moon starts at bottom-right and the
+note icon at bottom-left; switching an item off frees its tile.
 
 Each date has its own note. Notes travel in JSON backups and through mirror or encrypted
 cloud sync, not ICS exports. An assistant can read, replace or clear a dated note using

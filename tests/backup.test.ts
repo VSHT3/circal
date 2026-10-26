@@ -898,10 +898,10 @@ describe("importBackup", () => {
         settings: { dailyNoteAt: "sidebar" },
       }),
     );
-    expect(store.snapshot().settings).toMatchObject({
-      dailyNote: true,
-      dailyNoteAt: "bottom-right",
-    });
+    const settings = store.snapshot().settings;
+    expect(settings.dailyNote).toBe(true);
+    expect(TOTALS_POSITIONS).toContain(settings.dailyNoteAt);
+    expect(settings.dailyNoteAt).not.toBe(settings.moonAt);
   });
   it("does not reset the backup clock when the native save panel is cancelled", async () => {
     const previous = String(ms("2026-03-01 09:00"));

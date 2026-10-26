@@ -329,7 +329,7 @@ export function PositionField<T extends string>({
   value: T;
   onChange: (next: T) => void;
   /** Exactly nine, row-major, each named for a screen reader. */
-  options: readonly { value: T; label: string }[];
+  options: readonly { value: T; label: string; occupiedBy?: string }[];
   label: string;
 }) {
   return (
@@ -343,6 +343,8 @@ export function PositionField<T extends string>({
           key={option.value}
           type="button"
           aria-label={option.label}
+          title={option.occupiedBy ? `Occupied by ${option.occupiedBy}` : option.label}
+          disabled={Boolean(option.occupiedBy)}
           aria-pressed={value === option.value}
           onClick={() => onChange(option.value)}
           className={cn(
@@ -351,7 +353,11 @@ export function PositionField<T extends string>({
             // finger — and a cell whose hit area overlapped its neighbour's
             // would make the corner you get depend on DOM order.
             "size-[17px] rounded-[4px] transition-colors pointer-coarse:size-[34px]",
-            value === option.value ? "bg-ink" : "bg-(--veil-08) hover:bg-(--veil-20)",
+            option.occupiedBy
+              ? "cursor-not-allowed bg-void opacity-50"
+              : value === option.value
+                ? "bg-ink"
+                : "bg-(--veil-08) hover:bg-(--veil-20)",
           )}
         />
       ))}

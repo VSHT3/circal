@@ -207,12 +207,8 @@ describe("daily notes", () => {
     expect(s.store.snapshot().dayNotes[0].text).toBe("Restored");
   });
 
-  it("defaults note placement on and preserves explicit moon and note preferences", async () => {
+  it("preserves explicit moon and note preferences", async () => {
     const s = await freshStore();
-    expect(s.store.snapshot().settings).toMatchObject({
-      dailyNote: true,
-      dailyNoteAt: "bottom-right",
-    });
     s.store.setToggle("dailyNote", false);
     s.store.setDailyNoteAt("top-left");
     s.store.setToggle("moon", false);
@@ -241,10 +237,12 @@ describe("daily notes", () => {
     expect(s.store.snapshot().dayNotes).toEqual([]);
     expect(s.store.snapshot().settings).toMatchObject({
       dailyNote: true,
-      dailyNoteAt: "bottom-right",
       moon: true,
       moonAt: "bottom-right",
     });
+    const settings = s.store.snapshot().settings;
+    expect(TOTALS_POSITIONS).toContain(settings.dailyNoteAt);
+    expect(settings.dailyNoteAt).not.toBe(settings.moonAt);
   });
 });
 
@@ -1471,6 +1469,7 @@ describe("moon placement", () => {
     "persists %s independently of the moon switch",
     async (moonAt) => {
       const s = await freshStore();
+      s.store.setToggle("dailyNote", false);
       s.store.setMoonAt(moonAt);
       expect(JSON.parse(s.storage.getItem(KEY)!).settings.moonAt).toBe(moonAt);
       const reloaded = await freshStore(s.storage);
@@ -1518,6 +1517,87 @@ describe("moon placement", () => {
     s.store.restore(backup);
     expect(s.store.snapshot().settings).toMatchObject({ moon: true, moonAt });
     expect(JSON.parse(s.storage.getItem(KEY)!).settings).toMatchObject({ moon: true, moonAt });
+  });
+});
+
+describe("exclusive dial positions", () => {
+  it("moves existing collisions without displacing the moon", async () => {
+    const storage = new MemoryStorage();
+    storage.setItem(
+      KEY,
+      JSON.stringify({
+        schema: 2,
+        events: [],
+        calendars: [],
+        settings: {
+          moon: true,
+          moonAt: "bottom-right",
+          totals: true,
+          totalsAt: "bottom-left",
+          dailyNote: true,
+          dailyNoteAt: "bottom-right",
+        },
+      }),
+    );
+    const s = await freshStore(storage);
+    const settings = s.store.snapshot().settings;
+    expect(settings.moonAt).toBe("bottom-right");
+    expect(settings.totalsAt).toBe("bottom-left");
+    expect(TOTALS_POSITIONS).toContain(settings.dailyNoteAt);
+    expect(new Set([settings.moonAt, settings.totalsAt, settings.dailyNoteAt]).size).toBe(3);
+  });
+
+  it("does not repair a collision by taking a third item's existing position", async () => {
+    const s = await freshStore();
+    s.store.restore({
+      ...s.store.snapshot(),
+      settings: {
+        ...s.store.snapshot().settings,
+        moon: true,
+        moonAt: "bottom-right",
+        totals: true,
+        totalsAt: "bottom-right",
+        dailyNote: true,
+        dailyNoteAt: "center",
+      },
+    });
+    const settings = s.store.snapshot().settings;
+    expect(settings.moonAt).toBe("bottom-right");
+    expect(settings.dailyNoteAt).toBe("center");
+    expect(["bottom-right", "center"]).not.toContain(settings.totalsAt);
+  });
+
+  it("refuses occupied selections and keeps each existing item in place", async () => {
+    const s = await freshStore();
+    s.store.setToggle("totals", true);
+    const before = s.store.snapshot().settings;
+    s.store.setDailyNoteAt(before.moonAt as StoreModule.TotalsPosition);
+    s.store.setMoonAt(before.dailyNoteAt);
+    s.store.setTotalsAt(before.dailyNoteAt);
+    expect(s.store.snapshot().settings).toEqual(before);
+  });
+
+  it("releases disabled tiles and gives a re-enabled item a free tile", async () => {
+    const s = await freshStore();
+    s.store.setToggle("moon", false);
+    s.store.setDailyNoteAt("bottom-right");
+    expect(s.store.snapshot().settings.dailyNoteAt).toBe("bottom-right");
+    s.store.setToggle("moon", true);
+    expect(s.store.snapshot().settings.dailyNoteAt).toBe("bottom-right");
+    expect(s.store.snapshot().settings.moonAt).not.toBe("bottom-right");
+    const reloaded = await freshStore(s.storage);
+    expect(reloaded.store.snapshot().settings).toEqual(s.store.snapshot().settings);
+  });
+
+  it("does not reserve a dial tile for the sidebar moon", async () => {
+    const s = await freshStore();
+    s.store.setMoonAt("sidebar");
+    s.store.setDailyNoteAt("bottom-right");
+    expect(s.store.snapshot().settings).toMatchObject({
+      moon: true,
+      moonAt: "sidebar",
+      dailyNoteAt: "bottom-right",
+    });
   });
 });
 

@@ -93,7 +93,9 @@ No task recurrence, key, foreign zone, list membership, manual order, completion
 
 Read `get_settings` before changing preferences. Use the live `update_settings`
 schema for the full field list and legal values. For example,
-`{"patch":{"moon":true,"moonAt":"bottom-right","dailyNote":true,"dailyNoteAt":"bottom-right"}}`.
+`{"patch":{"moon":true,"moonAt":"bottom-right","dailyNote":true,"dailyNoteAt":"bottom-left"}}`.
+Enabled dial items must use different positions. Disable or move an occupant first,
+or swap positions together in one patch.
 Dates and positions are preferences, not permission to change event data.
 Set `place` to `{"zone":"Europe/Berlin"}` or `null`; coordinates and label are derived.
 Device permissions, credentials, `deviceZone` and `stampedZones` are not writable here.

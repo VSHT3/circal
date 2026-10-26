@@ -59,6 +59,9 @@ import {
   TOTALS_POSITIONS,
   YEAR_QUOTE_MAX,
   defaultCalendarId,
+  availableDialPosition,
+  dialPositionOwner,
+  type DialItem,
   hostLabel,
   store,
 } from "@/lib/store";
@@ -308,6 +311,21 @@ export default function Settings({
     wakingTo,
     autoSchedule,
   } = settings;
+  const positionOptions = (item: DialItem) =>
+    TOTALS_OPTIONS.map((option) => {
+      const owner = dialPositionOwner(settings, option.value, item);
+      return {
+        ...option,
+        occupiedBy:
+          owner === "moon"
+            ? "Moon"
+            : owner === "totals"
+              ? "Totals"
+              : owner === "dailyNote"
+                ? "Daily note"
+                : undefined,
+      };
+    });
   const reducedMotion = useReducedMotion();
   const [feedUrl, setFeedUrl] = useState("");
   const [pulling, setPulling] = useState<string | null>(null);
@@ -1006,7 +1024,7 @@ export default function Settings({
                               <PositionField
                                 value={totalsAt}
                                 onChange={store.setTotalsAt}
-                                options={TOTALS_OPTIONS}
+                                options={positionOptions("totals")}
                                 label="Where the totals sit"
                               />
                             )}
@@ -1029,7 +1047,7 @@ export default function Settings({
                                       value === "sidebar"
                                         ? "sidebar"
                                         : moonAt === "sidebar"
-                                          ? "bottom-right"
+                                          ? availableDialPosition(settings, "moon", "bottom-right")
                                           : moonAt,
                                     )
                                   }
@@ -1042,7 +1060,7 @@ export default function Settings({
                                   <PositionField
                                     value={moonAt}
                                     onChange={store.setMoonAt}
-                                    options={TOTALS_OPTIONS}
+                                    options={positionOptions("moon")}
                                     label="Where the moon sits"
                                   />
                                 )}
@@ -1062,7 +1080,7 @@ export default function Settings({
                               <PositionField
                                 value={dailyNoteAt}
                                 onChange={store.setDailyNoteAt}
-                                options={TOTALS_OPTIONS}
+                                options={positionOptions("dailyNote")}
                                 label="Where the daily note sits"
                               />
                             )}

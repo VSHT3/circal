@@ -161,6 +161,32 @@ export const TOTALS_POSITIONS = [
 export type TotalsPosition = (typeof TOTALS_POSITIONS)[number];
 export type MoonPosition = "sidebar" | TotalsPosition;
 
+const DIAL_ITEMS = ["moon", "totals", "dailyNote"] as const;
+export type DialItem = (typeof DIAL_ITEMS)[number];
+
+export function dialPositionOwner(
+  settings: Settings,
+  position: TotalsPosition,
+  except?: DialItem,
+): DialItem | null {
+  return (
+    DIAL_ITEMS.find(
+      (item) => item !== except && settings[item] && settings[`${item}At`] === position,
+    ) ?? null
+  );
+}
+
+export function availableDialPosition(
+  settings: Settings,
+  item: DialItem,
+  preferred: TotalsPosition,
+): TotalsPosition {
+  if (!dialPositionOwner(settings, preferred, item)) return preferred;
+  return (
+    TOTALS_POSITIONS.find((position) => !dialPositionOwner(settings, position, item)) ?? "center"
+  );
+}
+
 /**
  * When an event's name is printed along its own arc. `hover` is the density
  * escape hatch — a dozen names on one revolution is text where the shape
@@ -566,7 +592,7 @@ export const DEFAULT_SETTINGS: Settings = {
   moon: true,
   moonAt: "bottom-right",
   dailyNote: true,
-  dailyNoteAt: "bottom-right",
+  dailyNoteAt: "bottom-left",
   // Off, and it is the one default here that is a promise rather than a
   // preference: nothing in circal has ever interrupted anybody, and the first
   // thing that can must be switched on deliberately.
@@ -845,7 +871,7 @@ export function sane(settings: Settings): Settings {
     wakingFrom < wakingTo
       ? { wakingFrom, wakingTo }
       : { wakingFrom: DEFAULT_SETTINGS.wakingFrom, wakingTo: DEFAULT_SETTINGS.wakingTo };
-  return {
+  const clean: Settings = {
     ...settings,
     place: settings.place?.zone ? settings.place : null,
     // A zone nothing can resolve is worse here than none at all: the notice
@@ -931,6 +957,29 @@ export function sane(settings: Settings): Settings {
     theme: isThemeName(settings.theme) ? settings.theme : DEFAULT_SETTINGS.theme,
     ...waking,
   };
+  // Earlier releases allowed shared tiles; keep the moon stable and move only collisions.
+  const occupied = new Set<TotalsPosition>();
+  for (const item of DIAL_ITEMS) {
+    const position = clean[`${item}At`];
+    if (clean[item] && position !== "sidebar") occupied.add(position);
+  }
+  const assigned = new Set<TotalsPosition>();
+  for (const item of DIAL_ITEMS) {
+    if (!clean[item]) continue;
+    const field = `${item}At` as const;
+    const position = clean[field];
+    if (position === "sidebar") continue;
+    if (assigned.has(position)) {
+      const preferred = DEFAULT_SETTINGS[field];
+      clean[field] =
+        preferred !== "sidebar" && !occupied.has(preferred)
+          ? preferred
+          : (TOTALS_POSITIONS.find((candidate) => !occupied.has(candidate)) ?? "center");
+    }
+    occupied.add(clean[field] as TotalsPosition);
+    assigned.add(clean[field] as TotalsPosition);
+  }
+  return clean;
 }
 
 /**
@@ -2172,16 +2221,25 @@ export const store = {
 
   setTotalsAt(totalsAt: TotalsPosition) {
     const base = fresh();
+    if (base.settings.totals && dialPositionOwner(base.settings, totalsAt, "totals")) return;
     commit(withSettings(base, { ...base.settings, totalsAt }), false);
   },
 
   setMoonAt(moonAt: MoonPosition) {
     const base = fresh();
+    if (
+      base.settings.moon &&
+      moonAt !== "sidebar" &&
+      dialPositionOwner(base.settings, moonAt, "moon")
+    )
+      return;
     commit(withSettings(base, { ...base.settings, moonAt }), false);
   },
 
   setDailyNoteAt(dailyNoteAt: TotalsPosition) {
     const base = fresh();
+    if (base.settings.dailyNote && dialPositionOwner(base.settings, dailyNoteAt, "dailyNote"))
+      return;
     commit(withSettings(base, sane({ ...base.settings, dailyNoteAt })), false);
   },
 
@@ -2413,7 +2471,14 @@ export const store = {
    */
   setToggle(key: BooleanSetting, on: boolean) {
     const base = fresh();
-    commit(withSettings(base, { ...base.settings, [key]: on }), false);
+    const settings = { ...base.settings, [key]: on };
+    if (on && (key === "totals" || key === "moon" || key === "dailyNote")) {
+      const position = settings[`${key}At`];
+      if (position !== "sidebar") {
+        settings[`${key}At`] = availableDialPosition(settings, key, position);
+      }
+    }
+    commit(withSettings(base, settings), false);
   },
 
   /* ----------------------------- subscriptions ---------------------------- */

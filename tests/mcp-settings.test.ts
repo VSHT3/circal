@@ -143,16 +143,41 @@ describe("performUpdateSettings", () => {
     expect(input).toEqual(before);
   });
 
-  it.each(TOTALS_POSITIONS)("supports %s for all three dial positions", (position) => {
-    const { mutated } = performUpdateSettings(contents(), {
-      totalsAt: position,
-      moonAt: position,
-      dailyNoteAt: position,
-    });
+  it.each(TOTALS_POSITIONS)("allows inactive items to remember %s", (position) => {
+    const { mutated } = performUpdateSettings(
+      contents({ totals: false, moon: false, dailyNote: false }),
+      {
+        totalsAt: position,
+        moonAt: position,
+        dailyNoteAt: position,
+      },
+    );
     expect(mutated.settings).toMatchObject({
       totalsAt: position,
       moonAt: position,
       dailyNoteAt: position,
+    });
+  });
+
+  it.each([
+    { dailyNoteAt: "bottom-right" },
+    { moonAt: "bottom-left" },
+    { totals: true, totalsAt: "bottom-right" },
+  ])("refuses a patch that occupies another enabled item's tile: %j", (patch) => {
+    const input = contents();
+    const before = structuredClone(input);
+    expect(() => performUpdateSettings(input, patch)).toThrow(RefusalError);
+    expect(input).toEqual(before);
+  });
+
+  it("allows an atomic swap without a temporary collision", () => {
+    const { mutated } = performUpdateSettings(contents(), {
+      moonAt: "bottom-left",
+      dailyNoteAt: "bottom-right",
+    });
+    expect(mutated.settings).toMatchObject({
+      moonAt: "bottom-left",
+      dailyNoteAt: "bottom-right",
     });
   });
 

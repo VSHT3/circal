@@ -171,6 +171,13 @@ export function performUpdateSettings(contents: MirrorContents, patch: unknown):
       );
     }
   }
+  for (const key of ["totalsAt", "moonAt", "dailyNoteAt"] as const) {
+    if (merged[key] !== normalized[key]) {
+      throw new RefusalError(
+        "Enabled dial items must use different positions. No settings were changed.",
+      );
+    }
+  }
   // The waking pair resets together; changing one must not silently reset the other.
   if (
     (requested.wakingFrom !== undefined || requested.wakingTo !== undefined) &&
